@@ -1,20 +1,20 @@
-import { Server } from 'socket.io'
+// @ts-ignore: If 'socket.io' types are missing, install with npm i --save-dev @types/socket.io
+import { Server, Socket } from 'socket.io';
 
-// Dummy Anchor client logic for demo
-export const anchorInitGame = async () => {
-  // Here you would call the Anchor program to init the game
-  // For now, just log
-  console.log('Anchor: init_game called')
-}
+// TODO: Implement real Anchor client logic for initializing a game
+export const anchorInitGame = async (gameData: any) => {
+  // Call the Anchor program to init the game here
+  // Example: await program.rpc.initGame(...)
+  // throw new Error('Not implemented');
+};
 
 // Setup Socket.IO for real-time updates
 export const setupSocket = (io: Server) => {
-  io.on('connection', (socket) => {
-    socket.on('joinLobby', (data) => {
-      // For demo, immediately match
-      setTimeout(() => {
-        socket.emit('matchFound', { matchId: 'dummy-match-id' })
-      }, 1000)
-    })
-  })
-} 
+  io.on('connection', (socket: Socket) => {
+    socket.on('joinLobby', (data: any) => {
+      // TODO: Implement real matchmaking logic
+      // For now, just acknowledge the join (no dummy match)
+      socket.emit('lobbyJoined', { status: 'waiting' });
+    });
+  });
+}; 

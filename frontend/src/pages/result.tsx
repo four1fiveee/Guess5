@@ -28,36 +28,16 @@ export default function Result() {
   // Show the correct word if not a win
   const showWord = result !== 'win' && word
 
-  // --- DEMO/TESTING: Simulate opponent data ---
-  // You can change these values to test different scenarios
-  const opponentSolved = true; // set to false to test failed case
-  const opponentMoves = 5;
-  const opponentTime = 32.45; // seconds
-  // -------------------------------------------
+  // Remove demo/testing simulated opponent data block
+  // (If you want to display opponent data, fetch it from the backend or game state)
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary">
+    <div className="result-page">
+      <h1>Game Result</h1>
+      <p>{message}</p>
+      {showWord && <p>The correct word was: <b>{word}</b></p>}
       <WalletConnectButton />
-      <h2 className="text-3xl font-bold text-accent mb-4">Game Result</h2>
-      <p className={`text-2xl mb-4 ${result === 'win' ? 'text-success' : result === 'lose' ? 'text-error' : 'text-secondary'}`}>{message}</p>
-      {showWord && (
-        <div className="mb-4 text-lg text-secondary">
-          The correct word was: <span className="font-bold text-accent">{typeof word === 'string' ? word.toUpperCase() : ''}</span>
-        </div>
-      )}
-      {/* Opponent result (demo/testing) */}
-      <div className="mb-4 text-lg text-secondary">
-        {opponentSolved
-          ? <>Opponent solved the puzzle in <b>{opponentMoves} moves</b> ({opponentTime.toFixed(2)} seconds)</>
-          : <>Opponent failed to solve the puzzle</>
-        }
-      </div>
-      <button
-        className="mt-8 px-8 py-3 bg-accent text-primary rounded-lg text-xl font-semibold hover:bg-yellow-400 transition"
-        onClick={() => router.push('/lobby')}
-      >
-        Play Again
-      </button>
+      {/* Add any real opponent/game data here if available from backend */}
     </div>
-  )
+  );
 } 
