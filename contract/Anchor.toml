@@ -1,0 +1,9 @@
+[programs.devnet]
+guess5 = "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A"
+
+[provider]
+cluster = "devnet"
+wallet = "~/.config/solana/devnet.json"
+
+[scripts]
+test = "mocha -t 1000000 tests/" 
