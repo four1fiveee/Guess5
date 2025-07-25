@@ -23,14 +23,17 @@ export const requestMatch = async (req: Request, res: Response) => {
     const opponent = waitingPlayers.splice(waitingIndex, 1)[0];
     // Pick a random word
     const word = wordList[Math.floor(Math.random() * wordList.length)];
-    // Create match in DB (pseudo-code, adapt to your ORM)
+    // Create match in DB
     const matchRepo = getRepository(Match);
     const match = matchRepo.create({
       player1: opponent.wallet,
       player2: wallet,
       entryFee,
       word,
-      status: 'in_progress'
+      status: 'in_progress',
+      player1Result: null,
+      player2Result: null,
+      winner: null
     });
     await matchRepo.save(match);
     // Respond to both players (in real app, notify both via WebSocket)
@@ -53,11 +56,11 @@ export const finishMatch = async (req: Request, res: Response) => {
 
   // Store result for player1 or player2
   if (player === match.player1) {
-    match.player1Result = { solved, numGuesses, totalTime }
+    match.player1Result = { solved, numGuesses, totalTime };
   } else if (player === match.player2) {
-    match.player2Result = { solved, numGuesses, totalTime }
+    match.player2Result = { solved, numGuesses, totalTime };
   }
-  await matchRepo.save(match)
+  await matchRepo.save(match);
 
   // If both players are done, determine winner and trigger payout
   if (match.player1Result && match.player2Result) {
@@ -65,7 +68,7 @@ export const finishMatch = async (req: Request, res: Response) => {
     // (You can add this logic here or in a service)
   }
 
-  res.json({ success: true })
+  res.json({ success: true });
 }
 
 export const getMatchStatus = async (req: Request, res: Response) => {
@@ -75,8 +78,8 @@ export const getMatchStatus = async (req: Request, res: Response) => {
   if (!match) return res.status(404).json({ error: 'Match not found' })
   res.json({
     status: match.status,
-    player1Result: match.player1Result,
-    player2Result: match.player2Result,
-    winner: match.winner,
-  })
+    player1Result: match.player1Result ?? null,
+    player2Result: match.player2Result ?? null,
+    winner: match.winner ?? null,
+  });
 } 

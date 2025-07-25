@@ -1,26 +1,25 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm'
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-// Guess table schema
 @Entity()
 export class Guess {
   @PrimaryGeneratedColumn('uuid')
-  id: string
+  id!: string;
 
   @Column()
-  matchId: string
+  matchId!: string;
 
   @Column()
-  player: string
+  player!: string;
 
   @Column()
-  guess: string
+  guess!: string;
 
   @Column()
-  guessNumber: number
+  guessNumber!: number;
 
   @Column()
-  timeTaken: number
+  timeTaken!: number;
 
   @CreateDateColumn()
-  createdAt: Date
+  createdAt!: Date;
 } 

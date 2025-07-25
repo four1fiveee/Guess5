@@ -1,23 +1,22 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm'
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
 
-// Transaction table schema
 @Entity()
 export class Transaction {
   @PrimaryGeneratedColumn('uuid')
-  id: string
+  id!: string;
 
   @Column()
-  matchId: string
+  matchId!: string;
 
   @Column()
-  player: string
+  player!: string;
 
   @Column()
-  amount: number
+  amount!: number;
 
   @Column()
-  type: string // payout or refund
+  type!: string; // payout or refund
 
   @CreateDateColumn()
-  createdAt: Date
+  createdAt!: Date;
 } 
