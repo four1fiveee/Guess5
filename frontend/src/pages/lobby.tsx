@@ -16,7 +16,7 @@ export default function Lobby() {
     localStorage.setItem('entryFee', amount.toString())
     // Request a match from the backend
     try {
-      const res = await axios.post('/api/match/request', {
+      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request`, {
         entryFee: amount,
         wallet: publicKey.toString(),
       })

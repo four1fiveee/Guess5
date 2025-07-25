@@ -13,7 +13,7 @@ export default function Matchmaking() {
       try {
         const entryFee = localStorage.getItem('entryFee')
         const wallet = localStorage.getItem('wallet')
-        const res = await axios.post('/api/match/request', {
+        const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request`, {
           entryFee: Number(entryFee),
           wallet,
         })
