@@ -1,3 +1,4 @@
+import "reflect-metadata";
 import app from './app'
 import { createServer } from 'http'
 import { Server } from 'socket.io'

@@ -44,7 +44,7 @@ export const requestMatch = async (req: Request, res: Response) => {
 // Handle match confirmation (both players ready)
 export const confirmMatch = async (req: Request, res: Response) => {
   // ... logic to confirm match and call Anchor contract
-  await anchorInitGame()
+  await anchorInitGame({});
   res.json({ success: true })
 }
 

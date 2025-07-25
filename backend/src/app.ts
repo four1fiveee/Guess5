@@ -3,6 +3,7 @@ import cors from 'cors'
 import dotenv from 'dotenv'
 import matchRoutes from './routes/matchRoutes'
 import guessRoutes from './routes/guessRoutes'
+import "reflect-metadata";
 
 dotenv.config()
 
