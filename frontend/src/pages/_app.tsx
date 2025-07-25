@@ -8,6 +8,8 @@ const WalletContextProvider = dynamic(
   { ssr: false }
 )
 
+console.log("API URL:", process.env.NEXT_PUBLIC_API_URL);
+
 export default function App({ Component, pageProps }: AppProps) {
   // Wrap all pages with wallet context
   return (
