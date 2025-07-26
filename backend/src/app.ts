@@ -1,4 +1,4 @@
-import express from 'express'
+const express = require('express');
 import cors from 'cors'
 import dotenv from 'dotenv'
 import matchRoutes from './routes/matchRoutes'
@@ -8,7 +8,8 @@ import "reflect-metadata";
 
 dotenv.config()
 
-export let dbConnected = false;
+// Correctly declare dbConnected as a boolean
+export let dbConnected: boolean = false;
 
 const app = express()
 app.use(cors())
