@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import app from './app'
+import app from './app';
 import { createServer } from 'http'
 import { Server } from 'socket.io'
 import { setupSocket } from './services/anchorClient'
