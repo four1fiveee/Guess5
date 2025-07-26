@@ -4,7 +4,7 @@
   "main": "dist/server.js",
   "scripts": {
     "dev": "ts-node-dev src/server.ts",
-    "build": "echo 'Skipping build - using pre-built dist/server.js'",
+    "build": "tsc",
     "start": "node dist/server.js",
     "migrate": "ts-node src/db/migrations/001_init.ts"
   },
