@@ -40,9 +40,9 @@ const Matchmaking: React.FC = () => {
           localStorage.setItem('matchId', data.matchId);
           localStorage.setItem('word', data.word);
           
-          // Redirect to game
+          // Redirect to game with matchId in URL
           setTimeout(() => {
-            router.push('/game');
+            router.push(`/game?matchId=${data.matchId}`);
           }, 1000);
         } else {
           console.log('⏳ Waiting for opponent...');

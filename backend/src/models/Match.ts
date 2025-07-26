@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn } from 'typeorm';
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm';
 
 @Entity()
 export class Match {
@@ -21,14 +21,44 @@ export class Match {
   word?: string;
 
   @Column({ type: 'simple-json', nullable: true })
-  player1Result?: { solved: boolean; numGuesses: number; totalTime: number } | null;
+  player1Result?: {
+    won: boolean;
+    numGuesses: number;
+    totalTime: number;
+    guesses: string[];
+  } | null;
 
   @Column({ type: 'simple-json', nullable: true })
-  player2Result?: { solved: boolean; numGuesses: number; totalTime: number } | null;
+  player2Result?: {
+    won: boolean;
+    numGuesses: number;
+    totalTime: number;
+    guesses: string[];
+  } | null;
 
   @Column({ nullable: true })
   winner?: string | null;
 
+  @Column({ type: 'simple-json', nullable: true })
+  payoutResult?: {
+    winner: string;
+    winnerAmount: number;
+    feeAmount: number;
+    feeWallet: string;
+    transactions: Array<{
+      from: string;
+      to: string;
+      amount: number;
+      description: string;
+    }>;
+  } | null;
+
+  @Column({ default: false })
+  isCompleted!: boolean;
+
   @CreateDateColumn()
   createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
 } 

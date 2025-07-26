@@ -11,6 +11,8 @@ const Game: React.FC = () => {
   const [currentGuess, setCurrentGuess] = useState('');
   const [gameState, setGameState] = useState<'playing' | 'won' | 'lost'>('playing');
   const [matchId, setMatchId] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!publicKey) {
@@ -18,22 +20,48 @@ const Game: React.FC = () => {
       return;
     }
 
-    // Get match data from localStorage
-    const storedMatchId = localStorage.getItem('matchId');
-    const storedWord = localStorage.getItem('word');
+    const initializeGame = async () => {
+      try {
+        // Get matchId from URL or localStorage as fallback
+        const urlMatchId = router.query.matchId as string;
+        const storedMatchId = localStorage.getItem('matchId');
+        const gameMatchId = urlMatchId || storedMatchId;
 
-    if (!storedMatchId || !storedWord) {
-      console.error('❌ Missing match data');
-      router.push('/lobby');
-      return;
-    }
+        if (!gameMatchId) {
+          console.error('❌ No match ID found');
+          router.push('/lobby');
+          return;
+        }
 
-    setMatchId(storedMatchId);
-    setWord(storedWord);
+        setMatchId(gameMatchId);
 
-    console.log('🎮 Starting game with word:', storedWord);
-    console.log('🎮 Match ID:', storedMatchId);
+        // Fetch match data from backend
+        const response = await fetch(`http://localhost:4000/api/match/status/${gameMatchId}`);
+        
+        if (!response.ok) {
+          throw new Error('Failed to fetch match data');
+        }
 
+        const matchData = await response.json();
+        
+        // Verify player is part of this match
+        if (matchData.player1 !== publicKey.toString() && matchData.player2 !== publicKey.toString()) {
+          throw new Error('You are not part of this match');
+        }
+
+        setWord(matchData.word);
+        console.log('🎮 Starting game with word:', matchData.word);
+        console.log('🎮 Match ID:', gameMatchId);
+
+      } catch (error) {
+        console.error('❌ Error initializing game:', error);
+        setError(error instanceof Error ? error.message : 'Failed to load game');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    initializeGame();
   }, [publicKey, router]);
 
   const handleGuess = (guess: string) => {
@@ -91,6 +119,33 @@ const Game: React.FC = () => {
       console.error('❌ Error submitting result:', error);
     }
   };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading game...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
+          <div className="text-center">
+            <div className="text-red-400 text-xl mb-4">❌ Error</div>
+            <p className="text-white/80 mb-6">{error}</p>
+            <button
+              onClick={() => router.push('/lobby')}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              Back to Lobby
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!word) {
     return (

@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
+import { getRepository } from 'typeorm';
+import { Match } from '../models/Match';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
 
-// In-memory storage for matches and active games
-const inMemoryMatches: { [key: string]: any } = {};
-const activeGames: { [key: string]: any } = {};
+// In-memory storage for matchmaking queue only
 const matchmakingQueue: any[] = [];
 
 // Word list for games
@@ -16,37 +16,22 @@ const wordList = [
   'PRIDE', 'QUIET', 'RADAR', 'SPACE', 'TRUTH', 'UNITY', 'VALUE', 'WORLD'
 ];
 
-interface MatchData {
-  player1: string;
-  player2: string;
-  word: string;
-  status: string;
-  entryFee?: number;
-  player1Result?: any;
-  player2Result?: any;
-  winner?: string | null;
-  payoutResult?: any;
-}
-
-interface ActiveGame {
-  matchId: string;
-  player1: string;
-  player2: string;
-  word: string;
-  status: string;
-  entryFee?: number;
-  player1Result?: any;
-  player2Result?: any;
-  winner?: string | null;
-  payoutResult?: any;
-}
-
 export const requestMatch = async (req: Request, res: Response) => {
   try {
     const { entryFee, wallet } = req.body;
     
     if (!wallet || !entryFee) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate entry fee
+    if (![1, 5, 20].includes(entryFee)) {
+      return res.status(400).json({ error: 'Invalid entry fee' });
+    }
+
+    // Validate wallet address format
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
+      return res.status(400).json({ error: 'Invalid wallet address' });
     }
 
     console.log(`Player ${wallet} waiting for match with $${entryFee} entry fee`);
@@ -59,28 +44,17 @@ export const requestMatch = async (req: Request, res: Response) => {
       const matchId = Date.now().toString();
       const word = wordList[Math.floor(Math.random() * wordList.length)];
       
-      const match: MatchData = {
+      // Create match in database
+      const matchRepository = getRepository(Match);
+      const match = matchRepository.create({
         player1: waitingPlayer.wallet,
         player2: wallet,
-        word: word,
-        status: 'active',
-        entryFee: entryFee
-      };
-
-      const activeGame: ActiveGame = {
-        matchId: matchId,
-        player1: waitingPlayer.wallet,
-        player2: wallet,
-        word: word,
-        status: 'active',
         entryFee: entryFee,
-        player1Result: null,
-        player2Result: null,
-        winner: null
-      };
+        word: word,
+        status: 'active'
+      });
 
-      inMemoryMatches[matchId] = match;
-      activeGames[matchId] = activeGame;
+      await matchRepository.save(match);
 
       // Remove the waiting player from queue
       const index = matchmakingQueue.findIndex(p => p.wallet === waitingPlayer.wallet);
@@ -92,7 +66,7 @@ export const requestMatch = async (req: Request, res: Response) => {
 
       res.json({
         status: 'matched',
-        matchId: matchId,
+        matchId: match.id,
         word: word
       });
 
@@ -115,7 +89,9 @@ export const requestMatch = async (req: Request, res: Response) => {
 
 // Helper function to determine winner and calculate payout instructions
 const determineWinnerAndPayout = async (matchId: string, player1Result: any, player2Result: any) => {
-  const match = activeGames[matchId];
+  const matchRepository = getRepository(Match);
+  const match = await matchRepository.findOne({ where: { id: matchId } });
+  
   if (!match) {
     throw new Error('Match not found');
   }
@@ -153,6 +129,7 @@ const determineWinnerAndPayout = async (matchId: string, player1Result: any, pla
   match.player2Result = player2Result;
   match.winner = winner;
   match.status = 'completed';
+  match.isCompleted = true;
 
   // Calculate payout instructions
   if (winner && winner !== 'tie') {
@@ -198,6 +175,7 @@ const determineWinnerAndPayout = async (matchId: string, player1Result: any, pla
 
   // Store payout result in match
   match.payoutResult = payoutResult;
+  await matchRepository.save(match);
 
   return payoutResult;
 };
@@ -210,13 +188,25 @@ export const submitResult = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
+    // Validate result structure
+    if (!result.won || typeof result.numGuesses !== 'number' || !Array.isArray(result.guesses)) {
+      return res.status(400).json({ error: 'Invalid result format' });
+    }
+
     console.log('📝 Submitting result for match:', matchId);
     console.log('Wallet:', wallet);
     console.log('Result:', result);
 
-    const match = activeGames[matchId];
+    const matchRepository = getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
     if (!match) {
       return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Validate that wallet is part of this match
+    if (wallet !== match.player1 && wallet !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
     }
 
     // Determine which player this is
@@ -227,8 +217,6 @@ export const submitResult = async (req: Request, res: Response) => {
     } else if (wallet === match.player2) {
       isPlayer1 = false;
       match.player2Result = result;
-    } else {
-      return res.status(403).json({ error: 'Wallet not part of this match' });
     }
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} result recorded`);
@@ -245,6 +233,9 @@ export const submitResult = async (req: Request, res: Response) => {
         payout: payoutResult
       });
     } else {
+      // Save partial result
+      await matchRepository.save(match);
+      
       res.json({
         status: 'waiting',
         message: 'Waiting for other player'
@@ -261,7 +252,9 @@ export const getMatchStatus = async (req: Request, res: Response) => {
   try {
     const { matchId } = req.params;
     
-    const match = activeGames[matchId];
+    const matchRepository = getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
     if (!match) {
       return res.status(404).json({ error: 'Match not found' });
     }
