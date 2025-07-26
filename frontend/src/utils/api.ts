@@ -17,7 +17,7 @@ export const apiClient = axios.create({
 // API functions with error handling
 export const requestMatch = async (entryFee: number, wallet: string) => {
   try {
-    const response = await apiClient.post('/api/match/request', {
+    const response = await apiClient.post('/api/match/request-match', {
       entryFee,
       wallet,
     })
@@ -28,15 +28,26 @@ export const requestMatch = async (entryFee: number, wallet: string) => {
   }
 }
 
-export const confirmMatch = async (matchId: string, wallet: string) => {
+export const submitResult = async (matchId: string, wallet: string, result: any) => {
   try {
-    const response = await apiClient.post('/api/match/confirm', {
+    const response = await apiClient.post('/api/match/submit-result', {
       matchId,
       wallet,
+      result,
     })
     return response.data
   } catch (error) {
     console.error('API Error:', error)
-    throw new Error('Failed to confirm match.')
+    throw new Error('Failed to submit result.')
+  }
+}
+
+export const getMatchStatus = async (matchId: string) => {
+  try {
+    const response = await apiClient.get(`/api/match/status/${matchId}`)
+    return response.data
+  } catch (error) {
+    console.error('API Error:', error)
+    throw new Error('Failed to get match status.')
   }
 } 

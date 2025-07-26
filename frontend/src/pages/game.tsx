@@ -1,64 +1,140 @@
-import { useState, useEffect, useCallback } from 'react'
-import { useRouter } from 'next/router'
-import { WalletConnectButton } from '../components/WalletConnect'
-import GameGrid from '../components/GameGrid'
+import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/router';
+import { useWallet } from '@solana/wallet-adapter-react';
+import GameGrid from '../components/GameGrid';
 
-export default function Game() {
-  const router = useRouter()
-  // Use the assigned word and matchId from localStorage
-  const [correctWord] = useState(() => {
-    if (typeof window !== 'undefined') {
-      return (localStorage.getItem('word') || '').toUpperCase()
-    }
-    return ''
-  })
-  const matchId = typeof window !== 'undefined' ? localStorage.getItem('matchId') : ''
-  const [countdown, setCountdown] = useState(15)
-  const [gameOver, setGameOver] = useState(false)
-  const [result, setResult] = useState<string | null>(null)
+const Game: React.FC = () => {
+  const router = useRouter();
+  const { publicKey } = useWallet();
+  const [word, setWord] = useState('');
+  const [guesses, setGuesses] = useState<string[]>([]);
+  const [currentGuess, setCurrentGuess] = useState('');
+  const [gameState, setGameState] = useState<'playing' | 'won' | 'lost'>('playing');
+  const [matchId, setMatchId] = useState('');
 
-  // Get the entry fee from localStorage (default to 1 if not set)
-  const entryFee = Number(typeof window !== 'undefined' ? localStorage.getItem('entryFee') : 1) || 1
-
-  // Reset timer for each guess
-  const resetTimer = useCallback(() => setCountdown(15), [])
-
-  // Handle timer countdown
   useEffect(() => {
-    if (gameOver) return
-    if (countdown === 0) return // handled by onTimeout
-    const timer = setTimeout(() => setCountdown(c => c - 1), 1000)
-    return () => clearTimeout(timer)
-  }, [countdown, gameOver])
+    if (!publicKey) {
+      router.push('/');
+      return;
+    }
 
-  // Called when a guess times out
-  const handleTimeout = () => {
-    setGameOver(true)
-    setResult('timeout')
-    setTimeout(() => router.push(`/result?result=timeout&word=${correctWord}`), 2000)
-  }
+    // Get match data from localStorage
+    const storedMatchId = localStorage.getItem('matchId');
+    const storedWord = localStorage.getItem('word');
 
-  // Called when the game ends (win/lose)
-  const handleGameEnd = (outcome: string) => {
-    setGameOver(true)
-    setResult(outcome)
-    setTimeout(() => router.push(`/result?result=${outcome}&word=${correctWord}`), 2000)
+    if (!storedMatchId || !storedWord) {
+      console.error('❌ Missing match data');
+      router.push('/lobby');
+      return;
+    }
+
+    setMatchId(storedMatchId);
+    setWord(storedWord);
+
+    console.log('🎮 Starting game with word:', storedWord);
+    console.log('🎮 Match ID:', storedMatchId);
+
+  }, [publicKey, router]);
+
+  const handleGuess = (guess: string) => {
+    if (gameState !== 'playing') return;
+
+    const newGuesses = [...guesses, guess];
+    setGuesses(newGuesses);
+
+    if (guess === word) {
+      setGameState('won');
+      handleGameEnd(true);
+    } else if (newGuesses.length >= 6) {
+      setGameState('lost');
+      handleGameEnd(false);
+    }
+  };
+
+  const handleGameEnd = async (won: boolean) => {
+    if (!publicKey || !matchId) return;
+
+    const result = {
+      won,
+      numGuesses: guesses.length + 1,
+      totalTime: Date.now() - (window as any).gameStartTime || 0,
+      guesses: [...guesses, currentGuess]
+    };
+
+    console.log('🏁 Game ended:', result);
+
+    try {
+      const response = await fetch('http://localhost:4000/api/match/submit-result', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId,
+          wallet: publicKey.toString(),
+          result
+        }),
+      });
+
+      const data = await response.json();
+      console.log('📝 Result submitted:', data);
+
+      if (data.status === 'completed') {
+        // Store payout data for results page
+        localStorage.setItem('payoutData', JSON.stringify(data.payout));
+        router.push('/result');
+      } else {
+        console.log('⏳ Waiting for other player...');
+      }
+
+    } catch (error) {
+      console.error('❌ Error submitting result:', error);
+    }
+  };
+
+  if (!word) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+        <div className="text-white text-xl">Loading game...</div>
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary">
-      <WalletConnectButton />
-      <h2 className="text-3xl font-bold text-accent mb-2">Guess5 Game</h2>
-      <div className="mb-2 text-lg text-secondary font-semibold">Staked Amount: ${entryFee.toFixed(2)} USD</div>
-      <GameGrid
-        onGameEnd={handleGameEnd}
-        disabled={gameOver}
-        correctWord={correctWord}
-        onTimeout={handleTimeout}
-        countdown={countdown}
-        resetTimer={resetTimer}
-      />
-      {gameOver && <div className="mt-6 text-xl text-error">Game Over: {result}</div>}
+    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900">
+      <div className="container mx-auto px-4 py-8">
+        <div className="max-w-md mx-auto">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-bold text-white mb-2">Guess5</h1>
+            <p className="text-white/80">Guess the 5-letter word in 6 tries</p>
+          </div>
+
+          <GameGrid
+            word={word}
+            guesses={guesses}
+            currentGuess={currentGuess}
+            setCurrentGuess={setCurrentGuess}
+            onGuess={handleGuess}
+            gameState={gameState}
+          />
+
+          {gameState !== 'playing' && (
+            <div className="mt-8 text-center">
+              <div className="text-white text-xl mb-4">
+                {gameState === 'won' ? '🎉 You Won!' : '😔 Game Over'}
+              </div>
+              <p className="text-white/80 mb-4">
+                The word was: <span className="font-bold">{word}</span>
+              </p>
+              <p className="text-white/60 text-sm">
+                Waiting for other player to finish...
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
     </div>
-  )
-} 
+  );
+};
+
+export default Game; 
