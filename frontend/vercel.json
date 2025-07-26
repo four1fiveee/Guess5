@@ -1,0 +1,14 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs",
+  "installCommand": "npm install",
+  "env": {
+    "NEXT_PUBLIC_SOLANA_NETWORK": "https://api.devnet.solana.com"
+  },
+  "functions": {
+    "src/pages/**/*.tsx": {
+      "maxDuration": 30
+    }
+  }
+} 

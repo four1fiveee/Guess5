@@ -1,0 +1,25 @@
+services:
+  # Backend API Service
+  - type: web
+    name: guess5-backend
+    env: node
+    buildCommand: cd backend && npm install
+    startCommand: cd backend && node dist/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000
+    healthCheckPath: /api/match/health
+
+  # Frontend Web Service
+  - type: web
+    name: guess5-frontend
+    env: static
+    buildCommand: cd frontend && npm install && npm run build
+    staticPublishPath: frontend/.next
+    envVars:
+      - key: NEXT_PUBLIC_API_URL
+        value: https://guess5-backend.onrender.com
+      - key: NEXT_PUBLIC_SOLANA_NETWORK
+        value: https://api.devnet.solana.com 

@@ -8,18 +8,32 @@ import "reflect-metadata";
 
 dotenv.config()
 
+export let dbConnected = false;
+
 const app = express()
 app.use(cors())
 app.use(express.json())
 
-// Initialize database connection
-AppDataSource.initialize()
-  .then(() => {
-    console.log('Database connected successfully')
-  })
-  .catch((error) => {
+// Initialize database connection with error handling
+const initializeDatabase = async () => {
+  try {
+    if (process.env.DATABASE_URL) {
+      await AppDataSource.initialize()
+      dbConnected = true;
+      console.log('Database connected successfully')
+    } else {
+      dbConnected = false;
+      console.log('No DATABASE_URL provided, running without database')
+    }
+  } catch (error) {
+    dbConnected = false;
     console.error('Database connection failed:', error)
-  })
+    console.log('Continuing without database connection')
+  }
+}
+
+// Initialize database
+initializeDatabase()
 
 // API routes
 app.use('/api/match', matchRoutes)

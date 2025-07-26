@@ -8,7 +8,12 @@ const WalletContextProvider = dynamic(
   { ssr: false }
 )
 
-console.log("API URL:", process.env.NEXT_PUBLIC_API_URL);
+// Check for required environment variables
+const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
+
+console.log("API URL:", apiUrl)
+console.log("Solana Network:", solanaNetwork)
 
 export default function App({ Component, pageProps }: AppProps) {
   // Wrap all pages with wallet context

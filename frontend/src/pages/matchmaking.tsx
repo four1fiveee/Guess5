@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
-import axios from 'axios'
+import { requestMatch } from '../utils/api'
 
 export default function Matchmaking() {
   const router = useRouter()
@@ -13,20 +13,26 @@ export default function Matchmaking() {
       try {
         const entryFee = localStorage.getItem('entryFee')
         const wallet = localStorage.getItem('wallet')
-        const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request`, {
-          entryFee: Number(entryFee),
-          wallet,
-        })
-        if (res.data.status === 'matched') {
-          localStorage.setItem('matchId', res.data.matchId)
-          localStorage.setItem('word', res.data.word)
+        
+        if (!entryFee || !wallet) {
+          setStatus('Error: Missing match data. Please try again.')
+          return
+        }
+        
+        const data = await requestMatch(Number(entryFee), wallet)
+        
+        if (data.status === 'matched') {
+          localStorage.setItem('matchId', data.matchId)
+          localStorage.setItem('word', data.word)
           setStatus('Opponent found! Starting game...')
           setTimeout(() => router.push('/game'), 1500)
         }
       } catch (err) {
+        console.error('Matchmaking error:', err)
         setStatus('Error connecting to server. Retrying...')
       }
     }
+    
     interval = setInterval(checkMatch, 2000)
     return () => { if (interval) clearInterval(interval) }
   }, [router])

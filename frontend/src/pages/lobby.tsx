@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
-import axios from 'axios'
+import { requestMatch } from '../utils/api'
 
 // Lobby: choose entry fee
 export default function Lobby() {
@@ -13,21 +13,23 @@ export default function Lobby() {
       alert('Please connect your wallet first!')
       return
     }
+    
     localStorage.setItem('entryFee', amount.toString())
+    localStorage.setItem('wallet', publicKey.toString())
+    
     // Request a match from the backend
     try {
-      const res = await axios.post(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request`, {
-        entryFee: amount,
-        wallet: publicKey.toString(),
-      })
-      if (res.data.status === 'waiting') {
+      const data = await requestMatch(amount, publicKey.toString())
+      
+      if (data.status === 'waiting') {
         router.push('/matchmaking')
-      } else if (res.data.status === 'matched') {
-        localStorage.setItem('matchId', res.data.matchId)
-        localStorage.setItem('word', res.data.word)
+      } else if (data.status === 'matched') {
+        localStorage.setItem('matchId', data.matchId)
+        localStorage.setItem('word', data.word)
         router.push('/game')
       }
     } catch (err) {
+      console.error('Match request error:', err)
       alert('Error connecting to server. Please try again.')
     }
   }

@@ -15,8 +15,12 @@ import '@solana/wallet-adapter-react-ui/styles.css'
 export const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
   // Only Phantom wallet for simplicity
   const wallets = [new PhantomWalletAdapter()]
+  
+  // Use environment variable or fallback to devnet
+  const endpoint = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
+  
   return (
-    <ConnectionProvider endpoint={process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'}>
+    <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           {children}
