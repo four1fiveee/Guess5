@@ -4,6 +4,7 @@ export default function Document() {
   return (
     <Html lang="en">
       <Head>
+        <script src="https://www.google.com/recaptcha/enterprise.js?render=6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI"></script>
         <link rel="icon" href="/logo.png" />
         <meta name="theme-color" content="#1e293b" />
       </Head>
