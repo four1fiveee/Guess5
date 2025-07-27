@@ -38,6 +38,15 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
   const [txStatus, setTxStatus] = useState<{[key: string]: 'pending' | 'success' | 'error'}>({});
   const [completedTxs, setCompletedTxs] = useState<CompletedTransaction[]>([]);
 
+  // Get USD conversion info from localStorage
+  const entryFeeUSD = Number(localStorage.getItem('entryFeeUSD') || '0');
+  const entryFeeSOL = Number(localStorage.getItem('entryFeeSOL') || '0');
+  const solPrice = entryFeeSOL > 0 ? entryFeeUSD / entryFeeSOL : null;
+
+  // Calculate USD values for payouts
+  const winnerAmountUSD = solPrice ? winnerAmount * solPrice : null;
+  const feeAmountUSD = solPrice ? feeAmount * solPrice : null;
+
   const isWinner = winner === playerWallet;
   const isLoser = winner && winner !== playerWallet;
   const isTie = !winner;
@@ -132,17 +141,21 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
         {isWinner && (
           <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded">
             <h3 className="font-bold">🏆 You Won!</h3>
-            <p>You will receive {winnerAmount.toFixed(4)} SOL from the loser</p>
+            <p>
+              You will receive <span className="text-lg font-bold">{winnerAmountUSD ? `$${winnerAmountUSD.toFixed(2)}` : ''}</span>
+              <span className="text-gray-600"> ({winnerAmount.toFixed(4)} SOL)</span> from the loser
+            </p>
           </div>
         )}
-        
         {isLoser && (
           <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
             <h3 className="font-bold">😔 You Lost</h3>
-            <p>You need to send {winnerAmount.toFixed(4)} SOL to the winner</p>
+            <p>
+              You need to send <span className="text-lg font-bold">{winnerAmountUSD ? `$${winnerAmountUSD.toFixed(2)}` : ''}</span>
+              <span className="text-gray-600"> ({winnerAmount.toFixed(4)} SOL)</span> to the winner
+            </p>
           </div>
         )}
-        
         {isTie && (
           <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
             <h3 className="font-bold">🤝 It's a Tie!</h3>
@@ -155,7 +168,10 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
       <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-6">
         <h3 className="font-bold">💰 Fee Information</h3>
         <p>Fee wallet: {feeWallet}</p>
-        <p>Total fee: {feeAmount.toFixed(4)} SOL</p>
+        <p>
+          Total fee: <span className="font-bold">{feeAmountUSD ? `$${feeAmountUSD.toFixed(2)}` : ''}</span>
+          <span className="text-gray-600"> ({feeAmount.toFixed(4)} SOL)</span>
+        </p>
       </div>
 
       {/* Required Transactions */}
@@ -163,10 +179,9 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
         <h3 className="text-lg font-semibold text-gray-700 mb-3">
           📋 Required Transactions
         </h3>
-        
         {transactions.map((tx, index) => {
           const isYourTransaction = tx.from === playerWallet;
-          
+          const txUSD = solPrice ? tx.amount * solPrice : null;
           return (
             <div 
               key={index} 
@@ -185,10 +200,13 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
                   <div className="mt-2 text-sm">
                     <p><span className="font-medium">From:</span> {tx.from}</p>
                     <p><span className="font-medium">To:</span> {tx.to}</p>
-                    <p><span className="font-medium">Amount:</span> {tx.amount.toFixed(4)} SOL</p>
+                    <p>
+                      <span className="font-medium">Amount:</span> 
+                      <span className="font-bold">{txUSD ? `$${txUSD.toFixed(2)}` : ''}</span>
+                      <span className="text-gray-600"> ({tx.amount.toFixed(4)} SOL)</span>
+                    </p>
                   </div>
                 </div>
-                
                 {isYourTransaction && (
                   <div className="ml-4">
                     <button 
@@ -212,7 +230,6 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
           <h3 className="text-lg font-semibold text-gray-700 mb-3">
             ✅ Completed Transactions
           </h3>
-          
           {completedTxs.map((tx, index) => (
             <div key={index} className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
               <div className="flex justify-between items-center">
@@ -235,9 +252,10 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
       )}
 
       {/* Instructions */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
         <h3 className="font-semibold text-gray-700 mb-2">📝 How to Complete Payments</h3>
         <ol className="list-decimal list-inside text-sm text-gray-600 space-y-1">
+          <li>All payments are made in SOL, but amounts are shown in USD for clarity (conversion rate is based on the time you matched with your opponent).</li>
           <li>Make sure your Phantom wallet is connected</li>
           <li>Click "Send Payment" for each transaction you need to make</li>
           <li>Confirm the transaction in your Phantom wallet</li>

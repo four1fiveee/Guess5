@@ -1,25 +1,29 @@
-import '../styles/globals.css'
-import type { AppProps } from 'next/app'
-import dynamic from 'next/dynamic'
+import '../styles/globals.css';
+import type { AppProps } from 'next/app';
+import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
+import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
+import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
+import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
+import { useMemo } from 'react';
+import { useRouter } from 'next/router';
+import LogoHeader from '../components/LogoHeader';
 
-// Wallet context provider (Phantom, etc.)
-const WalletContextProvider = dynamic(
-  () => import('../components/WalletConnect').then(mod => mod.WalletContextProvider),
-  { ssr: false }
-)
+function MyApp({ Component, pageProps }: AppProps) {
+  const network = WalletAdapterNetwork.Devnet;
+  const endpoint = useMemo(() => process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com', []);
+  const wallets = useMemo(() => [new PhantomWalletAdapter()], []);
+  const router = useRouter();
 
-// Check for required environment variables
-const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
-const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
-
-console.log("API URL:", apiUrl)
-console.log("Solana Network:", solanaNetwork)
-
-export default function App({ Component, pageProps }: AppProps) {
-  // Wrap all pages with wallet context
   return (
-    <WalletContextProvider>
-      <Component {...pageProps} />
-    </WalletContextProvider>
-  )
-} 
+    <ConnectionProvider endpoint={endpoint}>
+      <WalletProvider wallets={wallets} autoConnect>
+        <WalletModalProvider>
+          {router.pathname !== '/' && <LogoHeader />}
+          <Component {...pageProps} />
+        </WalletModalProvider>
+      </WalletProvider>
+    </ConnectionProvider>
+  );
+}
+
+export default MyApp; 
