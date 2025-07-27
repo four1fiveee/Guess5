@@ -1,6 +1,7 @@
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { WalletConnectButton } from '../components/WalletConnect';
+import Link from 'next/link';
 
 export default function Home() {
   return (
@@ -22,7 +23,9 @@ export default function Home() {
             <li><b>Double loss:</b> If neither solves, both get 45% back, Guess5 takes a 10% fee.</li>
           </ol>
         </div>
-        <button className="bg-accent text-primary text-xl font-bold px-10 py-3 rounded-lg shadow hover:bg-yellow-400 transition">Play</button>
+        <Link href="/lobby">
+          <button className="bg-accent text-primary text-xl font-bold px-10 py-3 rounded-lg shadow hover:bg-yellow-400 transition">Play</button>
+        </Link>
       </div>
     </div>
   );
