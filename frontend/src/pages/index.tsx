@@ -7,7 +7,7 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-6" />
         <WalletConnectButton />
         <p className="text-xl text-white/80 mb-8 text-center">The Solana-powered word game for real rewards</p>
         <div className="bg-secondary bg-opacity-10 rounded-lg p-5 max-w-md w-full mb-8 text-accent shadow">

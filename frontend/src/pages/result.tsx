@@ -95,10 +95,6 @@ const Result: React.FC = () => {
     <div className="min-h-screen bg-primary">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-white mb-2">Game Results</h1>
-          </div>
-
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
             {payoutData.winner === 'tie' ? (
               <div className="text-center">

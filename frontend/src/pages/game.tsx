@@ -162,7 +162,6 @@ const Game: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold text-white mb-2">Guess5</h1>
             <p className="text-white/80">Guess the 5-letter word in 6 tries</p>
           </div>
 
