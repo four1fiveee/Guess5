@@ -5,26 +5,6 @@ import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
 // Dynamically import reCAPTCHA to avoid SSR issues
 const ReCAPTCHA = dynamic(() => import('react-google-recaptcha'), { ssr: false });
 
-// Context provider for Solana wallet connection
-export const WalletContextProvider: FC<{ children: ReactNode }> = ({ children }) => {
-  // Only Phantom wallet for simplicity
-  const wallets = [new PhantomWalletAdapter()]
-  
-  // Use environment variable or fallback to devnet
-  const endpoint = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
-  
-  return (
-    <ConnectionProvider endpoint={endpoint}>
-      <WalletProvider wallets={wallets} autoConnect>
-        <WalletModalProvider>
-          {children}
-        </WalletModalProvider>
-      </WalletProvider>
-    </ConnectionProvider>
-  )
-}
-
-// Custom connect wallet button at top right
 export const WalletConnectButton: React.FC = () => {
   const { publicKey, connect, disconnect, connected }: WalletContextState = useWallet();
   const [captchaVerified, setCaptchaVerified] = useState(false);
