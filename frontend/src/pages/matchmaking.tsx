@@ -6,6 +6,7 @@ const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey } = useWallet();
   const [status, setStatus] = useState<'waiting' | 'matched' | 'error'>('waiting');
+  const [timeoutMessage, setTimeoutMessage] = useState('');
 
   useEffect(() => {
     if (!publicKey) {
@@ -13,13 +14,14 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    let timeoutId: NodeJS.Timeout;
     const startMatchmaking = async () => {
       const wallet = publicKey.toString();
-      const entryFee = Number(localStorage.getItem('entryFee') || 0.1);
+      const entryFee = Number(localStorage.getItem('entryFeeSOL') || 0.1);
 
       try {
         console.log('🎮 Starting matchmaking...');
-        const response = await fetch('http://localhost:4000/api/match/request-match', {
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request-match`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -35,11 +37,10 @@ const Matchmaking: React.FC = () => {
         if (data.status === 'matched') {
           console.log('✅ Match found!', data);
           setStatus('matched');
-          
+          clearTimeout(timeoutId);
           // Store match data
           localStorage.setItem('matchId', data.matchId);
           localStorage.setItem('word', data.word);
-          
           // Redirect to game with matchId in URL
           setTimeout(() => {
             router.push(`/game?matchId=${data.matchId}`);
@@ -51,18 +52,28 @@ const Matchmaking: React.FC = () => {
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
         setStatus('error');
+        clearTimeout(timeoutId);
       }
     };
 
     startMatchmaking();
+    // 1-minute timeout to return to home
+    timeoutId = setTimeout(() => {
+      setTimeoutMessage('Unable to find a match in your staking category. You will now be returned home.');
+      setTimeout(() => router.push('/'), 3000);
+    }, 60000);
+
+    return () => clearTimeout(timeoutId);
   }, [publicKey, router]);
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex flex-col items-center justify-center">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white mb-6">Finding Opponent...</h1>
-          
+          {timeoutMessage && (
+            <div className="text-yellow-400 text-lg mb-4">{timeoutMessage}</div>
+          )}
           {status === 'waiting' && (
             <div className="space-y-4">
               <div className="flex justify-center">
@@ -71,14 +82,12 @@ const Matchmaking: React.FC = () => {
               <p className="text-white/80">Waiting for another player to join...</p>
             </div>
           )}
-          
           {status === 'matched' && (
             <div className="space-y-4">
               <div className="text-green-400 text-xl">✓ Match Found!</div>
               <p className="text-white/80">Redirecting to game...</p>
             </div>
           )}
-          
           {status === 'error' && (
             <div className="space-y-4">
               <div className="text-red-400 text-xl">✗ Error</div>

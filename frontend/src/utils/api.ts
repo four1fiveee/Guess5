@@ -1,8 +1,8 @@
 import axios from 'axios'
 
-// Get API URL with fallback
+// Get API URL from environment
 export const getApiUrl = () => {
-  return process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000'
+  return process.env.NEXT_PUBLIC_API_URL;
 }
 
 // Create axios instance with proper configuration
