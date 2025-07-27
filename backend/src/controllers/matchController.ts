@@ -18,14 +18,13 @@ const wordList = [
 
 const requestMatchHandler = async (req, res) => {
   try {
-    const { entryFee, wallet } = req.body;
+    const wallet = req.body.wallet;
+    const entryFee = Number(req.body.entryFee);
     
     if (!wallet || !entryFee) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
-
-    // Validate entry fee
-    if (![1, 5, 20].includes(entryFee)) {
+    if (isNaN(entryFee) || entryFee <= 0) {
       return res.status(400).json({ error: 'Invalid entry fee' });
     }
 
