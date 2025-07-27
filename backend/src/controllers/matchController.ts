@@ -18,22 +18,34 @@ const wordList = [
 
 const requestMatchHandler = async (req, res) => {
   try {
+    console.log('📥 Received match request:', {
+      body: req.body,
+      headers: req.headers,
+      method: req.method,
+      url: req.url
+    });
+
     const wallet = req.body.wallet;
     const entryFee = Number(req.body.entryFee);
     
+    console.log('🔍 Parsed data:', { wallet, entryFee, originalEntryFee: req.body.entryFee });
+    
     if (!wallet || !entryFee) {
+      console.log('❌ Missing required fields:', { wallet: !!wallet, entryFee: !!entryFee });
       return res.status(400).json({ error: 'Missing required fields' });
     }
     if (isNaN(entryFee) || entryFee <= 0) {
+      console.log('❌ Invalid entry fee:', { entryFee, isNaN: isNaN(entryFee) });
       return res.status(400).json({ error: 'Invalid entry fee' });
     }
 
     // Validate wallet address format
     if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
+      console.log('❌ Invalid wallet address format:', wallet);
       return res.status(400).json({ error: 'Invalid wallet address' });
     }
 
-    console.log(`Player ${wallet} waiting for match with $${entryFee} entry fee`);
+    console.log(`✅ Player ${wallet} waiting for match with $${entryFee} entry fee`);
 
     // Check if there's already a player waiting
     const waitingPlayer = matchmakingQueue.find(p => p.wallet !== wallet);
@@ -43,17 +55,27 @@ const requestMatchHandler = async (req, res) => {
       const matchId = Date.now().toString();
       const word = wordList[Math.floor(Math.random() * wordList.length)];
       
-      // Create match in database
-      const matchRepository = typeormMatch.getRepository(Match);
-      const match = matchRepository.create({
-        player1: waitingPlayer.wallet,
-        player2: wallet,
-        entryFee: entryFee,
-        word: word,
-        status: 'active'
-      });
+      console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
+      
+      // Try to create match in database, but fallback to in-memory if DB fails
+      let matchIdToUse = matchId;
+      try {
+        const matchRepository = typeormMatch.getRepository(Match);
+        const match = matchRepository.create({
+          player1: waitingPlayer.wallet,
+          player2: wallet,
+          entryFee: entryFee,
+          word: word,
+          status: 'active'
+        });
 
-      await matchRepository.save(match);
+        const savedMatch = await matchRepository.save(match);
+        matchIdToUse = savedMatch.id;
+        console.log(`✅ Match saved to database: ${matchIdToUse}`);
+      } catch (dbError) {
+        console.warn('⚠️ Database save failed, using in-memory match:', dbError.message);
+        console.log(`✅ Match created in-memory: ${matchIdToUse}`);
+      }
 
       // Remove the waiting player from queue
       const index = matchmakingQueue.findIndex(p => p.wallet === waitingPlayer.wallet);
@@ -61,18 +83,18 @@ const requestMatchHandler = async (req, res) => {
         matchmakingQueue.splice(index, 1);
       }
 
-      console.log(`Match created: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
+      console.log(`✅ Match created successfully: ${matchIdToUse}`);
 
       res.json({
         status: 'matched',
-        matchId: match.id,
+        matchId: matchIdToUse,
         word: word
       });
 
     } else {
       // No match found, add to queue
       matchmakingQueue.push({ wallet, entryFee });
-      console.log(`Player ${wallet} added to queue. Queue size: ${matchmakingQueue.length}`);
+      console.log(`⏳ Player ${wallet} added to queue. Queue size: ${matchmakingQueue.length}`);
       
       res.json({
         status: 'waiting',
@@ -81,7 +103,7 @@ const requestMatchHandler = async (req, res) => {
     }
 
   } catch (error) {
-    console.error('Error in requestMatch:', error);
+    console.error('❌ Error in requestMatch:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };

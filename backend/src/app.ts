@@ -23,9 +23,27 @@ const limiter = rateLimit({
 // Apply rate limiting to all routes
 app.use(limiter);
 
-// CORS configuration
+// CORS configuration - allow both localhost and Vercel
+const allowedOrigins = [
+  'http://localhost:3000',
+  'https://guess5.vercel.app',
+  allowedOrigin
+].filter(Boolean); // Remove any undefined values
+
+console.log('CORS allowed origins:', allowedOrigins);
+
 app.use(cors({
-  origin: allowedOrigin,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE'],
   allowedHeaders: ['Content-Type', 'Authorization']
