@@ -36,7 +36,8 @@ const Game: React.FC = () => {
         setMatchId(gameMatchId);
 
         // Fetch match data from backend
-        const response = await fetch(`http://localhost:4000/api/match/status/${gameMatchId}`);
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/match/status/${gameMatchId}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch match data');
@@ -92,7 +93,8 @@ const Game: React.FC = () => {
     console.log('🏁 Game ended:', result);
 
     try {
-      const response = await fetch('http://localhost:4000/api/match/submit-result', {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
