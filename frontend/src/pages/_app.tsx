@@ -1,4 +1,5 @@
 import '../styles/globals.css';
+import '@solana/wallet-adapter-react-ui/styles.css';
 import type { AppProps } from 'next/app';
 import { WalletAdapterNetwork } from '@solana/wallet-adapter-base';
 import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react';
