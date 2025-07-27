@@ -1,10 +1,10 @@
-import { Request, Response } from 'express';
-import { getRepository } from 'typeorm';
-import { Match } from '../models/Match';
-import { FEE_WALLET_ADDRESS } from '../config/wallet';
+const expressMatch = require('express');
+const typeormMatch = require('typeorm');
+const { Match } = require('../models/Match');
+const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 
 // In-memory storage for matchmaking queue only
-const matchmakingQueue: any[] = [];
+const matchmakingQueue = [];
 
 // Word list for games
 const wordList = [
@@ -16,7 +16,7 @@ const wordList = [
   'PRIDE', 'QUIET', 'RADAR', 'SPACE', 'TRUTH', 'UNITY', 'VALUE', 'WORLD'
 ];
 
-export const requestMatch = async (req: Request, res: Response) => {
+const requestMatchHandler = async (req, res) => {
   try {
     const { entryFee, wallet } = req.body;
     
@@ -45,7 +45,7 @@ export const requestMatch = async (req: Request, res: Response) => {
       const word = wordList[Math.floor(Math.random() * wordList.length)];
       
       // Create match in database
-      const matchRepository = getRepository(Match);
+      const matchRepository = typeormMatch.getRepository(Match);
       const match = matchRepository.create({
         player1: waitingPlayer.wallet,
         player2: wallet,
@@ -88,8 +88,8 @@ export const requestMatch = async (req: Request, res: Response) => {
 };
 
 // Helper function to determine winner and calculate payout instructions
-const determineWinnerAndPayout = async (matchId: string, player1Result: any, player2Result: any) => {
-  const matchRepository = getRepository(Match);
+const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
+  const matchRepository = typeormMatch.getRepository(Match);
   const match = await matchRepository.findOne({ where: { id: matchId } });
   
   if (!match) {
@@ -100,8 +100,8 @@ const determineWinnerAndPayout = async (matchId: string, player1Result: any, pla
   console.log('Player 1 result:', player1Result);
   console.log('Player 2 result:', player2Result);
 
-  let winner: string | null = null;
-  let payoutResult: any = null;
+  let winner = null;
+  let payoutResult = null;
 
   // Determine winner based on game results
   if (player1Result && player2Result) {
@@ -180,7 +180,7 @@ const determineWinnerAndPayout = async (matchId: string, player1Result: any, pla
   return payoutResult;
 };
 
-export const submitResult = async (req: Request, res: Response) => {
+const submitResultHandler = async (req, res) => {
   try {
     const { matchId, wallet, result } = req.body;
     
@@ -197,7 +197,7 @@ export const submitResult = async (req: Request, res: Response) => {
     console.log('Wallet:', wallet);
     console.log('Result:', result);
 
-    const matchRepository = getRepository(Match);
+    const matchRepository = typeormMatch.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
     
     if (!match) {
@@ -248,11 +248,11 @@ export const submitResult = async (req: Request, res: Response) => {
   }
 };
 
-export const getMatchStatus = async (req: Request, res: Response) => {
+const getMatchStatusHandler = async (req, res) => {
   try {
     const { matchId } = req.params;
     
-    const matchRepository = getRepository(Match);
+    const matchRepository = typeormMatch.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
     
     if (!match) {
@@ -274,4 +274,10 @@ export const getMatchStatus = async (req: Request, res: Response) => {
     console.error('Error getting match status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
+};
+
+module.exports = {
+  requestMatch: requestMatchHandler,
+  submitResult: submitResultHandler,
+  getMatchStatus: getMatchStatusHandler
 }; 

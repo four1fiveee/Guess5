@@ -1,14 +1,14 @@
-import { Router } from 'express';
-import { 
+const expressMatchRoutes = require('express');
+const { 
   requestMatch, 
   getMatchStatus, 
   submitResult
-} from '../controllers/matchController';
+} = require('../controllers/matchController');
 
-const router = Router();
+const matchRouter = expressMatchRoutes.Router();
 
-router.post('/request-match', requestMatch);
-router.get('/status/:matchId', getMatchStatus);
-router.post('/submit-result', submitResult);
+matchRouter.post('/request-match', requestMatch);
+matchRouter.get('/status/:matchId', getMatchStatus);
+matchRouter.post('/submit-result', submitResult);
 
-export default router; 
+module.exports = matchRouter; 

@@ -1,9 +1,9 @@
-import { Router } from 'express'
-import { submitGuess } from '../controllers/guessController'
+const expressGuessRoutes = require('express')
+const { submitGuess } = require('../controllers/guessController')
 
-const router = Router()
+const guessRouter = expressGuessRoutes.Router()
 
 // POST /api/guess
-router.post('/', submitGuess)
+guessRouter.post('/', submitGuess)
 
-export default router 
+module.exports = guessRouter 

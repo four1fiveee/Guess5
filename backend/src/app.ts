@@ -1,9 +1,9 @@
 const express = require('express');
-import cors from 'cors';
+const cors = require('cors');
 const rateLimit = require('express-rate-limit');
-import { initializeDatabase, AppDataSource } from './db/index';
-import matchRoutes from './routes/matchRoutes';
-import guessRoutes from './routes/guessRoutes';
+const { initializeDatabase, AppDataSource } = require('./db/index');
+const matchRoutes = require('./routes/matchRoutes');
+const guessRoutes = require('./routes/guessRoutes');
 
 const app = express();
 
@@ -61,4 +61,4 @@ if (process.env.DATABASE_URL) {
 // Export for use in other files
 app.dbConnected = dbConnected;
 
-export default app; 
+module.exports = app; 
