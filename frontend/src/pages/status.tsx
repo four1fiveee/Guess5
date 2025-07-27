@@ -8,7 +8,7 @@ export default function Status() {
   useEffect(() => {
     const checkStatus = async () => {
       const url = getApiUrl()
-      setApiUrl(url)
+      setApiUrl(url || '')
       
       try {
         const response = await fetch(`${url}/api/match/health`)
