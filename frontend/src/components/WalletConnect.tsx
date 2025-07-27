@@ -1,15 +1,3 @@
-import React, { FC, ReactNode } from 'react'
-import {
-  ConnectionProvider,
-  WalletProvider
-} from '@solana/wallet-adapter-react'
-import {
-  WalletModalProvider,
-  useWalletModal
-} from '@solana/wallet-adapter-react-ui'
-import { useWallet } from '@solana/wallet-adapter-react'
-import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets'
-import '@solana/wallet-adapter-react-ui/styles.css'
 import React, { useState } from 'react';
 import dynamic from 'next/dynamic';
 import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
