@@ -1,14 +1,13 @@
 import Image from 'next/image';
 import logo from '../../public/logo.png';
-import Link from 'next/link'
-import { WalletConnectButton } from '../components/WalletConnect'
+import { WalletConnectButton } from '../components/WalletConnect';
 
-// Home page: shows logo, rules, and "Play" button
 export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
       <div className="flex flex-col items-center">
         <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        <WalletConnectButton />
         <p className="text-xl text-white/80 mb-8 text-center">The Solana-powered word game for real rewards</p>
         <div className="bg-secondary bg-opacity-10 rounded-lg p-5 max-w-md w-full mb-8 text-accent shadow">
           <h2 className="text-2xl font-bold text-accent mb-3 text-center">How to Play</h2>
