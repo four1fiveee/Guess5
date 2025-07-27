@@ -4,7 +4,6 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect } from 'react'
-import LogoHeader from '../components/LogoHeader';
 
 const ENTRY_FEES_USD = [1, 5, 20];
 
@@ -95,7 +94,6 @@ export default function Lobby() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary">
-      <LogoHeader />
       <WalletConnectButton />
       <h2 className="text-3xl font-bold text-accent mb-6">Choose Entry Fee</h2>
       <div className="flex gap-6">

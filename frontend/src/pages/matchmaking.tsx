@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
-import LogoHeader from '../components/LogoHeader';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
@@ -60,7 +59,6 @@ const Matchmaking: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex flex-col items-center justify-center">
-      <LogoHeader />
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white mb-6">Finding Opponent...</h1>

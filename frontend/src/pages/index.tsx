@@ -6,7 +6,7 @@ import { WalletConnectButton } from '../components/WalletConnect'
 // Home page: shows logo, rules, and "Play" button
 export default function Home() {
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
       <div className="flex flex-col items-center">
         <Image src={logo} alt="Guess5 Logo" width={180} height={180} className="mb-6" />
         <h1 className="text-5xl font-extrabold text-white mb-4">Guess5</h1>
