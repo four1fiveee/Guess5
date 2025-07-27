@@ -8,29 +8,22 @@ export default function Home() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={180} height={180} className="mb-6" />
-        <h1 className="text-5xl font-extrabold text-white mb-4">Guess5</h1>
-        <p className="text-xl text-white/80 mb-8">The Solana-powered word game for real rewards</p>
-        <WalletConnectButton />
-        {/* Compact Rules Section */}
-        <div className="bg-secondary bg-opacity-10 rounded-lg p-3 max-w-md w-full mb-4 text-accent shadow">
-          <h2 className="text-xl font-bold mb-1 text-accent text-center">How to Play</h2>
-          <ol className="list-decimal list-inside text-base text-accent space-y-1">
-            <li>Connect your Phantom wallet (top right).</li>
-            <li>Choose a lobby: $1, $5, or $20 entry.</li>
-            <li>Get matched with an opponent.</li>
-            <li>Guess the secret 5-letter word in up to 7 tries (15s per guess).</li>
-            <li>Hints show if letters are correct or misplaced.</li>
-            <li><b>Payouts:</b> Winner gets 90% of the pot, Guess5 takes 10% fee.</li>
-            <li><b>Tie-breaker:</b> If both solve in the same number of guesses, fastest total time wins.</li>
-            <li><b>Double loss:</b> If neither solves, both get 45% (total 90%), Guess5 takes 10% fee.</li>
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        <p className="text-xl text-white/80 mb-8 text-center">The Solana-powered word game for real rewards</p>
+        <div className="bg-secondary bg-opacity-10 rounded-lg p-5 max-w-md w-full mb-8 text-accent shadow">
+          <h2 className="text-2xl font-bold text-accent mb-3 text-center">How to Play</h2>
+          <ol className="list-decimal list-inside text-base text-white/90 space-y-1">
+            <li><b>Connect your Phantom wallet</b> (top right).</li>
+            <li><b>Choose a lobby:</b> $1, $5, or $20 entry (paid in SOL at the current rate).</li>
+            <li><b>Get matched</b> with another player.</li>
+            <li><b>Guess the secret 5-letter word</b> in up to 7 tries (15 seconds per guess).</li>
+            <li><b>Hints</b> show if letters are correct or misplaced.</li>
+            <li><b>Payouts:</b> Winner receives 90% of the pot (in SOL), Guess5 takes a 10% fee.</li>
+            <li><b>Tie-breaker:</b> If both solve in the same number of guesses, the fastest total time wins.</li>
+            <li><b>Double loss:</b> If neither solves, both get 45% back, Guess5 takes a 10% fee.</li>
           </ol>
         </div>
-        <Link href="/lobby">
-          <button className="mt-1 px-8 py-3 bg-accent text-primary rounded-lg text-xl font-bold hover:bg-orange-500 transition">
-            Play
-          </button>
-        </Link>
+        <button className="bg-accent text-primary text-xl font-bold px-10 py-3 rounded-lg shadow hover:bg-yellow-400 transition">Play</button>
       </div>
     </div>
   );
