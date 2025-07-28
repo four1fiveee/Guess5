@@ -25,13 +25,16 @@ const Game: React.FC = () => {
 
     const initializeGame = async () => {
       try {
-        // Get matchId from URL or localStorage as fallback
-        const urlMatchId = router.query.matchId as string;
-        const storedMatchId = localStorage.getItem('matchId');
-        const gameMatchId = urlMatchId || storedMatchId;
+        // Clear any old localStorage data to prevent cached game issues
+        localStorage.removeItem('matchId');
+        localStorage.removeItem('word');
+        localStorage.removeItem('payoutData');
+        
+        // Get matchId from URL only - no localStorage fallback
+        const gameMatchId = router.query.matchId as string;
 
         if (!gameMatchId) {
-          console.error('❌ No match ID found');
+          console.error('❌ No match ID found in URL');
           router.push('/lobby');
           return;
         }
@@ -48,7 +51,11 @@ const Game: React.FC = () => {
 
         const matchData = await response.json();
         
-        // Verify player is part of this match
+        // Verify match is active and player is part of this match
+        if (matchData.status !== 'active') {
+          throw new Error('Match is not active');
+        }
+        
         if (matchData.player1 !== publicKey.toString() && matchData.player2 !== publicKey.toString()) {
           throw new Error('You are not part of this match');
         }

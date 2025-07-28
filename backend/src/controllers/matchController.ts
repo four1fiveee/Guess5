@@ -124,8 +124,45 @@ const requestMatchHandler = async (req, res) => {
       if (waitingMatches.length > 0) {
         const match = waitingMatches[0];
         
+        console.log('🔍 Found waiting match:', {
+          id: match.id,
+          player1: match.player1,
+          player2: match.player2,
+          status: match.status,
+          entryFee: match.entryFee,
+          createdAt: match.createdAt
+        });
+        
         // Double-check that this match is still actually waiting and not already matched
         if (match.player2 === null && match.status === 'waiting') {
+          // Additional check: make sure this isn't the same player trying to match with themselves
+          if (match.player1 === wallet) {
+            console.log('❌ Self-matching detected in database lookup, creating new waiting entry instead');
+            // Create a new waiting entry instead of matching with self
+            try {
+              console.log('💾 Creating new waiting entry (avoiding self-match from DB)...');
+              const waitingMatch = matchRepository.create({
+                player1: wallet,
+                player2: null,
+                entryFee: entryFee,
+                status: 'waiting',
+                word: null
+              });
+              
+              const savedMatch = await matchRepository.save(waitingMatch);
+              console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
+              
+              res.json({
+                status: 'waiting',
+                message: 'Waiting for opponent'
+              });
+              return;
+            } catch (dbError) {
+              console.error('❌ Failed to save new waiting entry:', dbError);
+              return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
+            }
+          }
+          
           waitingPlayer = {
             wallet: match.player1,
             entryFee: match.entryFee,
@@ -152,12 +189,17 @@ const requestMatchHandler = async (req, res) => {
     }
     
     if (waitingPlayer) {
-      // Prevent self-matching
-      if (waitingPlayer.wallet === wallet) {
-        console.log('❌ Self-matching detected, creating new waiting entry instead');
-        // Create a new waiting entry instead of matching with self
+      // Additional validation: ensure we have a valid opponent
+      if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
+        console.log('❌ Invalid waiting player detected:', {
+          waitingPlayerWallet: waitingPlayer.wallet,
+          currentWallet: wallet,
+          isSelfMatch: waitingPlayer.wallet === wallet
+        });
+        
+        // Create a new waiting entry instead
         try {
-          console.log('💾 Creating new waiting entry (avoiding self-match)...');
+          console.log('💾 Creating new waiting entry (invalid opponent detected)...');
           const waitingMatch = matchRepository.create({
             player1: wallet,
             player2: null,
@@ -178,6 +220,12 @@ const requestMatchHandler = async (req, res) => {
           console.error('❌ Failed to save new waiting entry:', dbError);
           return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
         }
+      }
+      
+      // Final validation: ensure we have a valid opponent before creating match
+      if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
+        console.log('❌ CRITICAL: Attempting to create match with invalid opponent, aborting');
+        return res.status(400).json({ error: 'Invalid match creation attempt' });
       }
       
       // Match found! Create the game
