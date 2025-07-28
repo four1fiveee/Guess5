@@ -53,8 +53,8 @@ const Game: React.FC = () => {
         }
 
         setWord(matchData.word);
-        console.log('🎮 Starting game with word:', matchData.word);
-        console.log('🎮 Match ID:', gameMatchId);
+        // console.log('🎮 Starting game with word:', matchData.word);
+        // console.log('🎮 Match ID:', gameMatchId);
 
         // Set game start time with microsecond precision
         const startTime = performance.now();
