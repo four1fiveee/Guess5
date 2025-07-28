@@ -8,17 +8,36 @@ export const getApiUrl = () => {
 // Create axios instance with proper configuration
 export const apiClient = axios.create({
   baseURL: getApiUrl(),
-  timeout: 10000,
+  timeout: 30000, // Increased from 10000 to 30000 (30 seconds)
   headers: {
     'Content-Type': 'application/json',
   },
 })
+
+// Test backend connectivity
+export const testBackendConnection = async () => {
+  try {
+    console.log('🔍 Testing backend connection...');
+    const response = await axios.get(`${getApiUrl()}/health`, { timeout: 5000 });
+    console.log('✅ Backend health check successful:', response.data);
+    return true;
+  } catch (error) {
+    console.error('❌ Backend health check failed:', error);
+    return false;
+  }
+}
 
 // API functions with error handling
 export const requestMatch = async (entryFee: number, wallet: string) => {
   try {
     console.log('🌐 Making API request to:', getApiUrl());
     console.log('📤 Request payload:', { entryFee, wallet });
+    
+    // Test backend connection first
+    const isBackendHealthy = await testBackendConnection();
+    if (!isBackendHealthy) {
+      throw new Error('Backend server is not responding. Please check if the server is running.');
+    }
     
     const response = await apiClient.post('/api/match/request-match', {
       entryFee,
@@ -42,6 +61,8 @@ export const requestMatch = async (entryFee: number, wallet: string) => {
     
     if (error.code === 'ECONNREFUSED') {
       throw new Error('Backend server is not responding. Please check if the server is running.');
+    } else if (error.code === 'ECONNABORTED') {
+      throw new Error('Request timed out. The server may be overloaded or not responding.');
     } else if (error.response?.status === 404) {
       throw new Error('API endpoint not found. Please check the backend configuration.');
     } else if (error.response?.status >= 500) {

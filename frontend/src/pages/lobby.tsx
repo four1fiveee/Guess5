@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { requestMatch } from '../utils/api'
+import { requestMatch, testBackendConnection } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect } from 'react'
 
@@ -25,6 +25,7 @@ export default function Lobby() {
   const [checkingBalance, setCheckingBalance] = useState(false)
   const [solPrice, setSolPrice] = useState<number | null>(null)
   const [solAmounts, setSolAmounts] = useState<number[]>([])
+  const [backendStatus, setBackendStatus] = useState<string>('checking')
 
   useEffect(() => {
     const getPrice = async () => {
@@ -35,6 +36,18 @@ export default function Lobby() {
       }
     };
     getPrice();
+
+    // Test backend connectivity
+    const testBackend = async () => {
+      try {
+        const isHealthy = await testBackendConnection();
+        setBackendStatus(isHealthy ? 'connected' : 'disconnected');
+      } catch (error) {
+        console.error('Backend test failed:', error);
+        setBackendStatus('disconnected');
+      }
+    };
+    testBackend();
   }, []);
 
   const checkBalance = async (requiredSol: number) => {
@@ -66,6 +79,12 @@ export default function Lobby() {
       alert('Please connect your wallet first!')
       return
     }
+    
+    if (backendStatus !== 'connected') {
+      alert('Backend server is not responding. Please try again later.')
+      return
+    }
+    
     // Check balance first
     const hasEnoughBalance = await checkBalance(solAmount)
     if (!hasEnoughBalance) {
@@ -96,15 +115,29 @@ export default function Lobby() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary">
       <WalletConnectButton />
       <h2 className="text-3xl font-bold text-accent mb-6">Choose Entry Fee</h2>
+      
+      {/* Backend status indicator */}
+      <div className="mb-4 text-center">
+        <span className={`text-sm px-3 py-1 rounded-full ${
+          backendStatus === 'connected' ? 'bg-green-600 text-white' : 
+          backendStatus === 'disconnected' ? 'bg-red-600 text-white' : 
+          'bg-yellow-600 text-white'
+        }`}>
+          Backend: {backendStatus === 'connected' ? '✅ Connected' : 
+                    backendStatus === 'disconnected' ? '❌ Disconnected' : 
+                    '⏳ Checking...'}
+        </span>
+      </div>
+      
       <div className="flex gap-6">
         {ENTRY_FEES_USD.map((usd, idx) => (
           <button
             key={usd}
             className={`px-8 py-4 bg-accent text-primary rounded-lg text-2xl font-semibold transition ${
-              checkingBalance ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-400'
+              checkingBalance || backendStatus !== 'connected' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-400'
             }`}
             onClick={() => handleSelect(usd, solAmounts[idx])}
-            disabled={checkingBalance || solPrice === null}
+            disabled={checkingBalance || solPrice === null || backendStatus !== 'connected'}
           >
             {checkingBalance ? 'Checking...' : `$${usd}`}
             <div className="text-xs text-gray-700 mt-1">
