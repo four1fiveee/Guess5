@@ -86,7 +86,8 @@ const requestMatchHandler = async (req, res) => {
     
     try {
       console.log('🔍 Attempting to get database repository...');
-      matchRepository = typeormMatch.getRepository(Match);
+      const { AppDataSource } = require('../db/index');
+      matchRepository = AppDataSource.getRepository(Match);
       console.log('✅ Database repository available');
     } catch (repoError) {
       console.error('❌ Database repository not available:', repoError);
@@ -344,15 +345,22 @@ const testRepositoryHandler = async (req, res) => {
     // Test 2: Check if Match entity is available
     console.log('🔍 Match entity available:', !!Match);
     
-    // Test 3: Try to get repository
+    // Test 3: Check if AppDataSource is available
+    const { AppDataSource } = require('../db/index');
+    console.log('🔍 AppDataSource available:', !!AppDataSource);
+    console.log('🔍 AppDataSource initialized:', AppDataSource.isInitialized);
+    
+    // Test 4: Try to get repository using AppDataSource
     try {
-      const testRepo = typeormMatch.getRepository(Match);
+      const testRepo = AppDataSource.getRepository(Match);
       console.log('✅ Repository created successfully');
       res.json({ 
         status: 'ok', 
         message: 'Repository test successful',
         typeorm: !!typeormMatch,
         matchEntity: !!Match,
+        appDataSource: !!AppDataSource,
+        appDataSourceInitialized: AppDataSource.isInitialized,
         repository: !!testRepo
       });
     } catch (repoError) {
