@@ -50,11 +50,51 @@ const requestMatchHandler = async (req, res) => {
     // Database is required for cross-device matchmaking
     let matchRepository = null;
     
+    // Check if database is initialized first with retry
+    let dbInitialized = false;
+    let retryCount = 0;
+    const maxRetries = 3;
+    
+    while (!dbInitialized && retryCount < maxRetries) {
+      try {
+        const { AppDataSource } = require('../db/index');
+        console.log(`🔍 Database initialization status (attempt ${retryCount + 1}):`, AppDataSource.isInitialized);
+        
+        if (AppDataSource.isInitialized) {
+          dbInitialized = true;
+          console.log('✅ Database is initialized');
+        } else {
+          console.log(`⏳ Database not ready yet, retrying in 1 second... (${retryCount + 1}/${maxRetries})`);
+          retryCount++;
+          if (retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      } catch (dbError) {
+        console.error('❌ Cannot check database status:', dbError);
+        retryCount++;
+        if (retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+    
+    if (!dbInitialized) {
+      console.error('❌ Database not initialized after retries');
+      return res.status(503).json({ error: 'Database not ready - please try again' });
+    }
+    
     try {
+      console.log('🔍 Attempting to get database repository...');
       matchRepository = typeormMatch.getRepository(Match);
       console.log('✅ Database repository available');
     } catch (repoError) {
-      console.error('❌ Database repository not available - cannot match players across devices');
+      console.error('❌ Database repository not available:', repoError);
+      console.error('❌ Error details:', {
+        message: repoError.message,
+        stack: repoError.stack,
+        name: repoError.name
+      });
       return res.status(503).json({ error: 'Database not available - matchmaking unavailable' });
     }
     
