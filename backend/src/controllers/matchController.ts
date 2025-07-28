@@ -124,13 +124,22 @@ const requestMatchHandler = async (req, res) => {
       
       if (waitingMatches.length > 0) {
         const match = waitingMatches[0];
-        waitingPlayer = {
-          wallet: match.player1,
-          entryFee: match.entryFee,
-          matchId: match.id
-        };
-        console.log(`🎯 Found waiting player in database: ${waitingPlayer.wallet}`);
-  } else {
+        
+        // Double-check that this match is still actually waiting and not already matched
+        if (match.player2 === null && match.status === 'waiting') {
+          waitingPlayer = {
+            wallet: match.player1,
+            entryFee: match.entryFee,
+            matchId: match.id
+          };
+          console.log(`🎯 Found valid waiting player in database: ${waitingPlayer.wallet}`);
+        } else {
+          console.log('⚠️ Found stale waiting match, ignoring:', {
+            player2: match.player2,
+            status: match.status
+          });
+        }
+      } else {
         console.log('⏳ No waiting players found');
       }
     } catch (dbError) {
@@ -144,18 +153,6 @@ const requestMatchHandler = async (req, res) => {
     }
     
     if (waitingPlayer) {
-      // Match found! Create the game
-      const matchId = Date.now().toString();
-    const word = wordList[Math.floor(Math.random() * wordList.length)];
-      
-      console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
-      console.log(`🔍 Match details:`, {
-        waitingPlayer: waitingPlayer.wallet,
-        newPlayer: wallet,
-        sameWallet: waitingPlayer.wallet === wallet,
-        entryFee: entryFee
-      });
-      
       // Prevent self-matching
       if (waitingPlayer.wallet === wallet) {
         console.log('❌ Self-matching detected, creating new waiting entry instead');
@@ -183,6 +180,18 @@ const requestMatchHandler = async (req, res) => {
           return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
         }
       }
+      
+      // Match found! Create the game
+      const matchId = Date.now().toString();
+      const word = wordList[Math.floor(Math.random() * wordList.length)];
+      
+      console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
+      console.log(`🔍 Match details:`, {
+        waitingPlayer: waitingPlayer.wallet,
+        newPlayer: wallet,
+        sameWallet: waitingPlayer.wallet === wallet,
+        entryFee: entryFee
+      });
       
       const matchData = {
         id: matchId,
