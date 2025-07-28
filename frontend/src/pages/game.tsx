@@ -15,6 +15,7 @@ const Game: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [gameStartTime, setGameStartTime] = useState<number>(0);
   const [lastActivity, setLastActivity] = useState<number>(0);
+  const [opponentSolved, setOpponentSolved] = useState(false);
 
   useEffect(() => {
     if (!publicKey) {
@@ -100,6 +101,50 @@ const Game: React.FC = () => {
     };
   }, []);
 
+  // Poll for opponent's status
+  useEffect(() => {
+    if (!matchId || gameState !== 'playing') return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/match/status/${matchId}`);
+        
+        if (response.ok) {
+          const matchData = await response.json();
+          
+          // Check if opponent has solved
+          const isPlayer1 = matchData.player1 === publicKey?.toString();
+          const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+          
+          if (opponentResult && opponentResult.won) {
+            console.log('🏆 Opponent solved the puzzle!');
+            setOpponentSolved(true);
+            
+            // If we haven't solved yet, we lost
+            if (gameState === 'playing') {
+              console.log('❌ We lost - opponent solved first');
+              handleGameEnd(false, 'opponent_solved');
+            }
+          }
+          
+          // Check if game is completed
+          if (matchData.status === 'completed') {
+            console.log('🏁 Game completed by backend');
+            clearInterval(pollInterval);
+            
+            // Navigate to result page
+            router.push(`/result?matchId=${matchId}`);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error polling match status:', error);
+      }
+    }, 2000); // Poll every 2 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [matchId, gameState, publicKey, router]);
+
   // Check for inactivity timeout (5 minutes)
   useEffect(() => {
     const checkTimeout = setInterval(() => {
@@ -176,6 +221,10 @@ const Game: React.FC = () => {
         // Store payout data for results page
         localStorage.setItem('payoutData', JSON.stringify(data.payout));
         router.push('/result');
+      } else if (reason === 'opponent_solved') {
+        // Opponent solved first - navigate to result immediately
+        console.log('🏆 Opponent solved first, navigating to result');
+        router.push(`/result?matchId=${matchId}`);
       } else {
         console.log('⏳ Waiting for other player...');
       }

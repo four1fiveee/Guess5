@@ -130,7 +130,7 @@ const requestMatchHandler = async (req, res) => {
           matchId: match.id
         };
         console.log(`🎯 Found waiting player in database: ${waitingPlayer.wallet}`);
-      } else {
+  } else {
         console.log('⏳ No waiting players found');
       }
     } catch (dbError) {
@@ -146,7 +146,7 @@ const requestMatchHandler = async (req, res) => {
     if (waitingPlayer) {
       // Match found! Create the game
       const matchId = Date.now().toString();
-      const word = wordList[Math.floor(Math.random() * wordList.length)];
+    const word = wordList[Math.floor(Math.random() * wordList.length)];
       
       console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
       console.log(`🔍 Match details:`, {
@@ -187,12 +187,12 @@ const requestMatchHandler = async (req, res) => {
       const matchData = {
         id: matchId,
         player1: waitingPlayer.wallet,
-        player2: wallet,
+      player2: wallet,
         entryFee: entryFee,
         word: word,
         status: 'active',
-        player1Result: null,
-        player2Result: null,
+      player1Result: null,
+      player2Result: null,
         winner: null,
         payoutResult: null
       };
@@ -504,73 +504,89 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
 
   // Winner determination logic:
   // 1. Did you solve the puzzle? (Yes/No)
-  // 2. If both solved → Tie breaker by time (faster wins)
-  // 3. If only one solved → That player wins
-  // 4. If neither solved → Both lose (tie)
+  // 2. If both solved → Fewest moves wins
+  // 3. If same moves → Tie breaker by time (faster wins)
+  // 4. If only one solved → That player wins
+  // 5. If neither solved → Both lose (tie)
   
   if (player1Result && player2Result) {
     // Both players submitted results
     if (player1Result.won && !player2Result.won) {
       // Player 1 solved, Player 2 didn't
       winner = match.player1;
+      console.log('🏆 Player 1 wins - only one solved');
     } else if (player2Result.won && !player1Result.won) {
       // Player 2 solved, Player 1 didn't
       winner = match.player2;
+      console.log('🏆 Player 2 wins - only one solved');
     } else if (player1Result.won && player2Result.won) {
-      // Both solved - tie breaker by time (faster wins)
-      // Using microsecond precision for very accurate tie breaking
-      const timeDiff = Math.abs(player1Result.totalTime - player2Result.totalTime);
-      const tolerance = 0.001; // 1 millisecond tolerance for "exact" ties
+      // Both solved - fewest moves wins
+      console.log('🏆 Both solved - comparing moves:', {
+        player1Moves: player1Result.numGuesses,
+        player2Moves: player2Result.numGuesses
+      });
       
-      if (timeDiff < tolerance) {
-        // Times are effectively identical - both pay fee
-        winner = 'tie';
-        console.log('⚖️ Exact time tie detected:', {
-          player1Time: player1Result.totalTime,
-          player2Time: player2Result.totalTime,
-          difference: timeDiff,
-          tolerance: tolerance
-        });
-      } else if (player1Result.totalTime < player2Result.totalTime) {
+      if (player1Result.numGuesses < player2Result.numGuesses) {
+        // Player 1 wins with fewer moves
         winner = match.player1;
-        console.log('🏆 Player 1 wins by time:', {
-          player1Time: player1Result.totalTime,
-          player2Time: player2Result.totalTime,
-          difference: player2Result.totalTime - player1Result.totalTime
-        });
-      } else {
+        console.log('🏆 Player 1 wins with fewer moves');
+      } else if (player2Result.numGuesses < player1Result.numGuesses) {
+        // Player 2 wins with fewer moves
         winner = match.player2;
-        console.log('🏆 Player 2 wins by time:', {
+        console.log('🏆 Player 2 wins with fewer moves');
+      } else {
+        // Same number of moves - tie breaker by time
+        console.log('⚖️ Same moves - tie breaker by time:', {
           player1Time: player1Result.totalTime,
-          player2Time: player2Result.totalTime,
-          difference: player1Result.totalTime - player2Result.totalTime
+          player2Time: player2Result.totalTime
         });
+        
+        const timeDiff = Math.abs(player1Result.totalTime - player2Result.totalTime);
+        const tolerance = 0.001; // 1 millisecond tolerance for "exact" ties
+        
+        if (timeDiff < tolerance) {
+          // Times are effectively identical - both pay fee
+          winner = 'tie';
+          console.log('⚖️ Exact time tie detected - both pay fee');
+        } else if (player1Result.totalTime < player2Result.totalTime) {
+          winner = match.player1;
+          console.log('🏆 Player 1 wins by time');
+        } else {
+          winner = match.player2;
+          console.log('🏆 Player 2 wins by time');
+        }
       }
     } else {
       // Both didn't solve - both lose
       winner = 'tie';
+      console.log('⚖️ Both players failed to solve');
     }
   } else if (player1Result && !player2Result) {
     // Only player 1 submitted result
     if (player1Result.won) {
       // Player 1 solved, Player 2 didn't (disconnected or lost)
       winner = match.player1;
+      console.log('🏆 Player 1 wins - opponent disconnected');
     } else {
       // Player 1 didn't solve, Player 2 didn't solve - both lose
       winner = 'tie';
+      console.log('⚖️ Both players failed to solve');
     }
   } else if (player2Result && !player1Result) {
     // Only player 2 submitted result
     if (player2Result.won) {
       // Player 2 solved, Player 1 didn't (disconnected or lost)
       winner = match.player2;
+      console.log('🏆 Player 2 wins - opponent disconnected');
     } else {
       // Player 2 didn't solve, Player 1 didn't solve - both lose
       winner = 'tie';
+      console.log('⚖️ Both players failed to solve');
     }
   } else {
     // No results submitted - both lose
     winner = 'tie';
+    console.log('⚖️ No results submitted');
   }
 
   console.log('🏆 Winner determined:', winner);
@@ -606,42 +622,58 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
 
     console.log('💰 Payout calculated:', payoutResult);
   } else if (winner === 'tie') {
-    // Both players get 45% back, 10% fee
-    const refundAmount = match.entryFee * 0.45;
-    const feeAmount = match.entryFee * 0.1;
-
-    payoutResult = {
-      winner: 'tie',
-      winnerAmount: 0,
-      feeAmount: feeAmount,
-      feeWallet: FEE_WALLET_ADDRESS,
-      transactions: [
-        {
-          from: match.player1,
-          to: match.player1,
-          amount: refundAmount,
-          description: 'Tie refund'
-        },
-        {
-          from: match.player2,
-          to: match.player2,
-          amount: refundAmount,
-          description: 'Tie refund'
-        },
-        {
-          from: match.player1,
-          to: FEE_WALLET_ADDRESS,
-          amount: feeAmount / 2,
-          description: 'Platform fee (player 1)'
-        },
-        {
-          from: match.player2,
-          to: FEE_WALLET_ADDRESS,
-          amount: feeAmount / 2,
-          description: 'Platform fee (player 2)'
-        }
-      ]
-    };
+    // Determine if this is a winning tie (both solved) or losing tie (both failed)
+    const isWinningTie = player1Result && player2Result && player1Result.won && player2Result.won;
+    
+    if (isWinningTie) {
+      // Winning tie: Both solved same moves + same time - no payments
+      console.log('🤝 Winning tie: Both solved same moves + same time - no payments');
+      payoutResult = {
+        winner: 'tie',
+        winnerAmount: 0,
+        feeAmount: 0,
+        feeWallet: FEE_WALLET_ADDRESS,
+        transactions: [
+          {
+            from: match.player1,
+            to: match.player1,
+            amount: match.entryFee,
+            description: 'Winning tie refund'
+          },
+          {
+            from: match.player2,
+            to: match.player2,
+            amount: match.entryFee,
+            description: 'Winning tie refund'
+          }
+        ]
+      };
+    } else {
+      // Losing tie: Both failed to solve - each pays 10% fee
+      console.log('🤝 Losing tie: Both failed to solve - each pays 10% fee');
+      const feeAmount = match.entryFee * 0.1;
+      
+      payoutResult = {
+        winner: 'tie',
+        winnerAmount: 0,
+        feeAmount: feeAmount * 2, // Total fees from both players
+        feeWallet: FEE_WALLET_ADDRESS,
+        transactions: [
+          {
+            from: match.player1,
+            to: FEE_WALLET_ADDRESS,
+            amount: feeAmount,
+            description: 'Platform fee (player 1)'
+          },
+          {
+            from: match.player2,
+            to: FEE_WALLET_ADDRESS,
+            amount: feeAmount,
+            description: 'Platform fee (player 2)'
+          }
+        ]
+      };
+    }
 
     console.log('🤝 Tie payout calculated:', payoutResult);
   }
@@ -696,25 +728,64 @@ const submitResultHandler = async (req, res) => {
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} result recorded`);
 
-    // Check if both players have submitted results
-  if (match.player1Result && match.player2Result) {
-      console.log('🏁 Both players submitted results, determining winner...');
+    // Check if this player solved the puzzle
+    if (result.won) {
+      console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
       
-      const payoutResult = await determineWinnerAndPayout(matchId, match.player1Result, match.player2Result);
-      
-      res.json({
-        status: 'completed',
-        winner: match.winner,
-        payout: payoutResult
-      });
+      // If the other player already submitted a result, determine winner immediately
+      if ((isPlayer1 && match.player2Result) || (!isPlayer1 && match.player1Result)) {
+        console.log('🏁 Both players have results, determining winner immediately...');
+        
+        const payoutResult = await determineWinnerAndPayout(matchId, match.player1Result, match.player2Result);
+        
+        // Mark match as completed
+        match.isCompleted = true;
+        match.payoutResult = payoutResult;
+        await matchRepository.save(match);
+        
+        res.json({
+          status: 'completed',
+          winner: payoutResult.winner,
+          payout: payoutResult,
+          message: 'Game completed - winner determined'
+        });
+      } else {
+        // Save partial result and wait for other player
+        await matchRepository.save(match);
+        
+        res.json({
+          status: 'waiting',
+          message: 'Waiting for other player to finish'
+        });
+      }
     } else {
-      // Save partial result
-      await matchRepository.save(match);
-      
-      res.json({
-        status: 'waiting',
-        message: 'Waiting for other player'
-      });
+      // Player didn't solve - check if other player solved
+      if ((isPlayer1 && match.player2Result && match.player2Result.won) || 
+          (!isPlayer1 && match.player1Result && match.player1Result.won)) {
+        console.log('🏁 Other player already solved, determining winner...');
+        
+        const payoutResult = await determineWinnerAndPayout(matchId, match.player1Result, match.player2Result);
+        
+        // Mark match as completed
+        match.isCompleted = true;
+        match.payoutResult = payoutResult;
+        await matchRepository.save(match);
+        
+        res.json({
+          status: 'completed',
+          winner: payoutResult.winner,
+          payout: payoutResult,
+          message: 'Game completed - other player solved first'
+        });
+      } else {
+        // Save partial result and wait
+        await matchRepository.save(match);
+        
+        res.json({
+          status: 'waiting',
+          message: 'Waiting for other player'
+        });
+      }
     }
 
   } catch (error) {
