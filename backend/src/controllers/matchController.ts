@@ -149,6 +149,40 @@ const requestMatchHandler = async (req, res) => {
       const word = wordList[Math.floor(Math.random() * wordList.length)];
       
       console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
+      console.log(`🔍 Match details:`, {
+        waitingPlayer: waitingPlayer.wallet,
+        newPlayer: wallet,
+        sameWallet: waitingPlayer.wallet === wallet,
+        entryFee: entryFee
+      });
+      
+      // Prevent self-matching
+      if (waitingPlayer.wallet === wallet) {
+        console.log('❌ Self-matching detected, creating new waiting entry instead');
+        // Create a new waiting entry instead of matching with self
+        try {
+          console.log('💾 Creating new waiting entry (avoiding self-match)...');
+          const waitingMatch = matchRepository.create({
+            player1: wallet,
+            player2: null,
+            entryFee: entryFee,
+            status: 'waiting',
+            word: null
+          });
+          
+          const savedMatch = await matchRepository.save(waitingMatch);
+          console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
+          
+          res.json({
+            status: 'waiting',
+            message: 'Waiting for opponent'
+          });
+          return;
+        } catch (dbError) {
+          console.error('❌ Failed to save new waiting entry:', dbError);
+          return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
+        }
+      }
       
       const matchData = {
         id: matchId,
@@ -630,7 +664,7 @@ const submitResultHandler = async (req, res) => {
     }
 
     // Validate result structure
-    if (!result.won || typeof result.numGuesses !== 'number' || !Array.isArray(result.guesses)) {
+    if (typeof result.won !== 'boolean' || typeof result.numGuesses !== 'number' || !Array.isArray(result.guesses)) {
       return res.status(400).json({ error: 'Invalid result format' });
     }
 
