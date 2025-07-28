@@ -64,18 +64,10 @@ app.get('/health', (req: any, res: any) => {
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
 
-// Initialize database
+// Initialize database synchronously before starting server
 let dbConnected = false;
 if (process.env.DATABASE_URL) {
-  initializeDatabase()
-    .then(() => {
-      dbConnected = true;
-      console.log('✅ Database connected successfully');
-    })
-    .catch((error: any) => {
-      console.error('❌ Database connection failed:', error);
-      console.log('⚠️ Running without database - using in-memory storage');
-    });
+  console.log('🔌 Database initialization will happen during server startup');
 } else {
   console.log('No DATABASE_URL provided, running without database');
 }
