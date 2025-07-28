@@ -404,6 +404,54 @@ const testRepositoryHandler = async (req, res) => {
   }
 };
 
+// Simple database test endpoint
+const testDatabaseHandler = async (req, res) => {
+  try {
+    console.log('🧪 Testing basic database operations...');
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Test 1: Simple count query
+    console.log('🔍 Testing count query...');
+    const count = await matchRepository.count();
+    console.log('✅ Count query successful:', count);
+    
+    // Test 2: Simple find query
+    console.log('🔍 Testing find query...');
+    const allMatches = await matchRepository.find({ take: 5 });
+    console.log('✅ Find query successful, found:', allMatches.length, 'matches');
+    
+    // Test 3: Test with specific entry fee
+    console.log('🔍 Testing find with entry fee...');
+    const testEntryFee = 0.104;
+    const matchesWithFee = await matchRepository.find({
+      where: { entryFee: testEntryFee },
+      take: 1
+    });
+    console.log('✅ Entry fee query successful, found:', matchesWithFee.length, 'matches');
+    
+    res.json({
+      status: 'ok',
+      message: 'Database operations successful',
+      totalMatches: count,
+      sampleMatches: allMatches.length,
+      entryFeeMatches: matchesWithFee.length
+    });
+    
+  } catch (error) {
+    console.error('❌ Database test failed:', error);
+    res.status(500).json({ 
+      error: 'Database test failed',
+      details: {
+        message: error.message,
+        name: error.name,
+        stack: error.stack
+      }
+    });
+  }
+};
+
 // Helper function to determine winner and calculate payout instructions
 const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
   const matchRepository = typeormMatch.getRepository(Match);
@@ -701,5 +749,6 @@ module.exports = {
   getMatchStatusHandler,
   debugWaitingPlayersHandler,
   matchTestHandler,
-  testRepositoryHandler
+  testRepositoryHandler,
+  testDatabaseHandler
 }; 

@@ -6,6 +6,7 @@ const router = expressMatchRoutes.Router();
 // Test endpoints
 router.get('/test', matchController.matchTestHandler);
 router.get('/test-repository', matchController.testRepositoryHandler);
+router.get('/test-database', matchController.testDatabaseHandler);
 
 // Match routes
 router.post('/request-match', matchController.requestMatchHandler);
