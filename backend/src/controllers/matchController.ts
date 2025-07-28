@@ -47,70 +47,75 @@ const requestMatchHandler = async (req, res) => {
 
     console.log(`✅ Player ${wallet} waiting for match with $${entryFee} entry fee`);
 
-    // Check database connection first
-    let matchRepository;
+    // Try database first, fallback to in-memory
+    let matchRepository = null;
+    let useDatabase = false;
+    
     try {
       matchRepository = typeormMatch.getRepository(Match);
-      console.log('🔍 Database repository obtained');
+      useDatabase = true;
+      console.log('✅ Database repository available');
     } catch (repoError) {
-      console.error('❌ Failed to get repository:', repoError);
-      return res.status(503).json({ error: 'Database repository not available' });
+      console.warn('⚠️ Database repository not available, using in-memory storage');
+      useDatabase = false;
     }
     
-    // Verify database is initialized (with better error handling)
-    let dbInitialized = false;
-    try {
-      const { AppDataSource } = require('../db/index');
-      dbInitialized = AppDataSource.isInitialized;
-      console.log('🔍 Database initialization status:', dbInitialized);
-    } catch (dbError) {
-      console.warn('⚠️ Could not check database initialization:', dbError.message);
-      // Continue anyway - the repository might still work
-    }
-    
-    if (!dbInitialized) {
-      console.warn('⚠️ Database not initialized, but continuing with repository...');
-    } else {
-      console.log('✅ Database connection verified');
-    }
-    
-    // Look for waiting players in database
+    // Look for waiting players
     let waitingPlayer = null;
-    let dbError = null;
     
-    try {
-      console.log('🔍 Searching for waiting players with entry fee:', entryFee);
-      
-      // Find a waiting player with the same entry fee
-      const waitingMatches = await matchRepository.find({
-        where: {
-          status: 'waiting',
-          entryFee: entryFee,
-          player2: null // Only matches that are waiting for player 2
-        },
-        order: {
-          createdAt: 'ASC' // First come, first served
-        },
-        take: 1
-      });
+    if (useDatabase) {
+      try {
+        console.log('🔍 Searching database for waiting players with entry fee:', entryFee);
+        
+        const waitingMatches = await matchRepository.find({
+          where: {
+            status: 'waiting',
+            entryFee: entryFee,
+            player2: null
+          },
+          order: {
+            createdAt: 'ASC'
+          },
+          take: 1
+        });
 
-      console.log(`🔍 Found ${waitingMatches.length} waiting matches`);
-      
-      if (waitingMatches.length > 0) {
-        const match = waitingMatches[0];
-        waitingPlayer = {
-          wallet: match.player1,
-          entryFee: match.entryFee,
-          matchId: match.id
-        };
-        console.log(`🎯 Found waiting player: ${waitingPlayer.wallet} (match ID: ${waitingPlayer.matchId})`);
-      } else {
-        console.log('⏳ No waiting players found');
+        console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
+        
+        if (waitingMatches.length > 0) {
+          const match = waitingMatches[0];
+          waitingPlayer = {
+            wallet: match.player1,
+            entryFee: match.entryFee,
+            matchId: match.id,
+            source: 'database'
+          };
+          console.log(`🎯 Found waiting player in database: ${waitingPlayer.wallet}`);
+        }
+      } catch (dbError) {
+        console.warn('⚠️ Database lookup failed, falling back to in-memory:', dbError.message);
+        useDatabase = false;
       }
-    } catch (error) {
-      dbError = error;
-      console.error('❌ Database lookup failed:', error.message);
-      console.error('❌ Database error details:', error);
+    }
+    
+    // If no database or no waiting player found, check in-memory
+    if (!waitingPlayer) {
+      console.log('🔍 Searching in-memory storage for waiting players');
+      
+      // Find waiting player in in-memory storage
+      for (const [matchId, matchData] of inMemoryMatches) {
+        if (matchData.status === 'waiting' && 
+            matchData.entryFee === entryFee && 
+            matchData.player2 === null) {
+          waitingPlayer = {
+            wallet: matchData.player1,
+            entryFee: matchData.entryFee,
+            matchId: matchId,
+            source: 'memory'
+          };
+          console.log(`🎯 Found waiting player in memory: ${waitingPlayer.wallet}`);
+          break;
+        }
+      }
     }
     
     if (waitingPlayer) {
@@ -120,7 +125,6 @@ const requestMatchHandler = async (req, res) => {
       
       console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
       
-      // Create match object
       const matchData = {
         id: matchId,
         player1: waitingPlayer.wallet,
@@ -134,41 +138,29 @@ const requestMatchHandler = async (req, res) => {
         payoutResult: null
       };
       
-      // Try to save to database, but always store in memory as fallback
-      try {
-        console.log('💾 Attempting to update existing match in database...');
-        
-        // Update the waiting match with player 2 and game data
-        const existingMatch = await matchRepository.findOne({
-          where: {
-            id: waitingPlayer.matchId
+      // Try to save to database if available
+      if (useDatabase && waitingPlayer.source === 'database') {
+        try {
+          console.log('💾 Updating existing match in database...');
+          const existingMatch = await matchRepository.findOne({
+            where: { id: waitingPlayer.matchId }
+          });
+          
+          if (existingMatch) {
+            existingMatch.player2 = wallet;
+            existingMatch.word = word;
+            existingMatch.status = 'active';
+            const savedMatch = await matchRepository.save(existingMatch);
+            matchData.id = savedMatch.id;
+            console.log(`✅ Match updated in database: ${matchData.id}`);
           }
-        });
-        
-        if (existingMatch) {
-          console.log('✅ Found existing match to update:', existingMatch.id);
-          existingMatch.player2 = wallet;
-          existingMatch.word = word;
-          existingMatch.status = 'active';
-          const savedMatch = await matchRepository.save(existingMatch);
-          matchData.id = savedMatch.id;
-          console.log(`✅ Match updated in database: ${matchData.id}`);
-        } else {
-          console.log('⚠️ Existing match not found, creating new match...');
-          // Fallback: create new match
-          const match = matchRepository.create(matchData);
-          const savedMatch = await matchRepository.save(match);
-          matchData.id = savedMatch.id;
-          console.log(`✅ Match saved to database: ${matchData.id}`);
+        } catch (dbError) {
+          console.warn('⚠️ Database update failed:', dbError.message);
         }
-      } catch (dbError) {
-        console.warn('⚠️ Database save failed, using in-memory match:', dbError.message);
-        console.log(`✅ Match created in-memory: ${matchData.id}`);
       }
       
-      // Always store in memory for fallback lookup
+      // Always store in memory
       inMemoryMatches.set(matchData.id, matchData);
-
       console.log(`✅ Match created successfully: ${matchData.id}`);
 
       res.json({
@@ -181,22 +173,31 @@ const requestMatchHandler = async (req, res) => {
       // No match found, create a waiting entry
       console.log(`⏳ Player ${wallet} added to waiting queue for $${entryFee}`);
       
-      try {
-        console.log('💾 Creating waiting entry in database...');
-        const waitingMatch = matchRepository.create({
-          player1: wallet,
-          player2: null, // Will be filled when matched
-          entryFee: entryFee,
-          status: 'waiting',
-          word: null // Will be set when matched
-        });
-        
-        const savedMatch = await matchRepository.save(waitingMatch);
-        console.log(`✅ Waiting entry saved to database with ID: ${savedMatch.id}`);
-      } catch (dbError) {
-        console.warn('⚠️ Failed to save waiting entry to database:', dbError.message);
-        console.error('❌ Database error details:', dbError);
+      const waitingMatchId = Date.now().toString();
+      const waitingMatchData = {
+        id: waitingMatchId,
+        player1: wallet,
+        player2: null,
+        entryFee: entryFee,
+        status: 'waiting',
+        word: null
+      };
+      
+      // Try to save to database if available
+      if (useDatabase) {
+        try {
+          console.log('💾 Creating waiting entry in database...');
+          const waitingMatch = matchRepository.create(waitingMatchData);
+          const savedMatch = await matchRepository.save(waitingMatch);
+          console.log(`✅ Waiting entry saved to database with ID: ${savedMatch.id}`);
+        } catch (dbError) {
+          console.warn('⚠️ Failed to save waiting entry to database:', dbError.message);
+        }
       }
+      
+      // Always store in memory
+      inMemoryMatches.set(waitingMatchId, waitingMatchData);
+      console.log(`✅ Waiting entry created in memory: ${waitingMatchId}`);
       
       res.json({
         status: 'waiting',
@@ -215,62 +216,96 @@ const debugWaitingPlayersHandler = async (req, res) => {
   try {
     console.log('🔍 Debug: Checking waiting players...');
     
-    const matchRepository = typeormMatch.getRepository(Match);
+    let dbWaitingMatches = [];
+    let dbActiveMatches = [];
+    let useDatabase = false;
     
-    // Get all waiting matches
-    const waitingMatches = await matchRepository.find({
-      where: {
-        status: 'waiting'
-      },
-      order: {
-        createdAt: 'ASC'
-      }
-    });
+    // Try database first
+    try {
+      const matchRepository = typeormMatch.getRepository(Match);
+      useDatabase = true;
+      
+      // Get all waiting matches from database
+      dbWaitingMatches = await matchRepository.find({
+        where: { status: 'waiting' },
+        order: { createdAt: 'ASC' }
+      });
+      
+      // Get all active matches from database
+      dbActiveMatches = await matchRepository.find({
+        where: { status: 'active' },
+        order: { createdAt: 'ASC' }
+      });
+      
+      console.log('✅ Database queries successful');
+    } catch (dbError) {
+      console.warn('⚠️ Database queries failed:', dbError.message);
+      useDatabase = false;
+    }
     
-    // Get all active matches
-    const activeMatches = await matchRepository.find({
-      where: {
-        status: 'active'
-      },
-      order: {
-        createdAt: 'ASC'
+    // Get in-memory matches
+    const memoryWaitingMatches = [];
+    const memoryActiveMatches = [];
+    
+    for (const [matchId, matchData] of inMemoryMatches) {
+      if (matchData.status === 'waiting') {
+        memoryWaitingMatches.push({
+          id: matchId,
+          player1: matchData.player1,
+          entryFee: matchData.entryFee,
+          source: 'memory'
+        });
+      } else if (matchData.status === 'active') {
+        memoryActiveMatches.push({
+          id: matchId,
+          player1: matchData.player1,
+          player2: matchData.player2,
+          entryFee: matchData.entryFee,
+          status: matchData.status,
+          source: 'memory'
+        });
       }
-    });
+    }
+    
+    const totalWaiting = dbWaitingMatches.length + memoryWaitingMatches.length;
+    const totalActive = dbActiveMatches.length + memoryActiveMatches.length;
     
     console.log('🔍 Debug results:', {
-      waitingMatches: waitingMatches.length,
-      activeMatches: activeMatches.length,
-      waitingDetails: waitingMatches.map(m => ({
-        id: m.id,
-        player1: m.player1,
-        entryFee: m.entryFee,
-        createdAt: m.createdAt
-      })),
-      activeDetails: activeMatches.map(m => ({
-        id: m.id,
-        player1: m.player1,
-        player2: m.player2,
-        entryFee: m.entryFee,
-        status: m.status
-      }))
+      database: { waiting: dbWaitingMatches.length, active: dbActiveMatches.length },
+      memory: { waiting: memoryWaitingMatches.length, active: memoryActiveMatches.length },
+      total: { waiting: totalWaiting, active: totalActive }
     });
     
     res.json({
-      waitingCount: waitingMatches.length,
-      activeCount: activeMatches.length,
-      waitingPlayers: waitingMatches.map(m => ({
-        id: m.id,
-        player1: m.player1,
-        entryFee: m.entryFee,
-        createdAt: m.createdAt
-      })),
-      activeMatches: activeMatches.map(m => ({
-        id: m.id,
-        player1: m.player1,
-        player2: m.player2,
-        entryFee: m.entryFee,
-        status: m.status
-      }))
+      database: {
+        waitingCount: dbWaitingMatches.length,
+        activeCount: dbActiveMatches.length,
+        waitingPlayers: dbWaitingMatches.map(m => ({
+          id: m.id,
+          player1: m.player1,
+          entryFee: m.entryFee,
+          createdAt: m.createdAt,
+          source: 'database'
+        })),
+        activeMatches: dbActiveMatches.map(m => ({
+          id: m.id,
+          player1: m.player1,
+          player2: m.player2,
+          entryFee: m.entryFee,
+          status: m.status,
+          source: 'database'
+        }))
+      },
+      memory: {
+        waitingCount: memoryWaitingMatches.length,
+        activeCount: memoryActiveMatches.length,
+        waitingPlayers: memoryWaitingMatches,
+        activeMatches: memoryActiveMatches
+      },
+      total: {
+        waitingCount: totalWaiting,
+        activeCount: totalActive
+      }
     });
     
   } catch (error) {
