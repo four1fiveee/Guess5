@@ -11,7 +11,7 @@ export class Match {
   @Column()
   player2!: string;
 
-  @Column()
+  @Column({ type: 'decimal', precision: 10, scale: 6 })
   entryFee!: number;
 
   @Column({ default: 'pending' })
