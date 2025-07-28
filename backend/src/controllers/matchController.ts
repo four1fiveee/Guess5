@@ -1,5 +1,4 @@
 const expressMatch = require('express');
-const typeormMatch = require('typeorm');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 
@@ -294,7 +293,8 @@ const debugWaitingPlayersHandler = async (req, res) => {
     
     // Try database first
     try {
-      const matchRepository = typeormMatch.getRepository(Match);
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
       useDatabase = true;
       
       // Get all waiting matches from database
@@ -406,25 +406,21 @@ const testRepositoryHandler = async (req, res) => {
   try {
     console.log('🧪 Testing repository creation...');
     
-    // Test 1: Check if TypeORM is available
-    console.log('🔍 TypeORM available:', !!typeormMatch);
-    
-    // Test 2: Check if Match entity is available
+    // Test 1: Check if Match entity is available
     console.log('🔍 Match entity available:', !!Match);
     
-    // Test 3: Check if AppDataSource is available
+    // Test 2: Check if AppDataSource is available
     const { AppDataSource } = require('../db/index');
     console.log('🔍 AppDataSource available:', !!AppDataSource);
     console.log('🔍 AppDataSource initialized:', AppDataSource.isInitialized);
     
-    // Test 4: Try to get repository using AppDataSource
+    // Test 3: Try to get repository using AppDataSource
     try {
       const testRepo = AppDataSource.getRepository(Match);
       console.log('✅ Repository created successfully');
       res.json({ 
         status: 'ok', 
         message: 'Repository test successful',
-        typeorm: !!typeormMatch,
         matchEntity: !!Match,
         appDataSource: !!AppDataSource,
         appDataSourceInitialized: AppDataSource.isInitialized,
@@ -497,7 +493,8 @@ const testDatabaseHandler = async (req, res) => {
 
 // Helper function to determine winner and calculate payout instructions
 const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
-  const matchRepository = typeormMatch.getRepository(Match);
+  const { AppDataSource } = require('../db/index');
+  const matchRepository = AppDataSource.getRepository(Match);
   const match = await matchRepository.findOne({ where: { id: matchId } });
   
   if (!match) {
@@ -713,7 +710,8 @@ const submitResultHandler = async (req, res) => {
     console.log('Wallet:', wallet);
     console.log('Result:', result);
 
-    const matchRepository = typeormMatch.getRepository(Match);
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
     
     if (!match) {
@@ -830,7 +828,8 @@ const getMatchStatusHandler = async (req, res) => {
     // Try to find match in database first
     let match = null;
     try {
-      const matchRepository = typeormMatch.getRepository(Match);
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
       match = await matchRepository.findOne({ where: { id: matchId } });
       if (match) {
         console.log('✅ Match found in database');
