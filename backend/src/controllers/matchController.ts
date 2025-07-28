@@ -104,6 +104,8 @@ const requestMatchHandler = async (req, res) => {
     
     try {
       console.log('🔍 Searching database for waiting players with entry fee:', entryFee);
+      console.log('🔍 Entry fee type:', typeof entryFee);
+      console.log('🔍 Entry fee value:', entryFee);
       
       const waitingMatches = await matchRepository.find({
         where: {
@@ -118,6 +120,7 @@ const requestMatchHandler = async (req, res) => {
       });
 
       console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
+      console.log('🔍 Waiting matches:', waitingMatches);
       
       if (waitingMatches.length > 0) {
         const match = waitingMatches[0];
@@ -127,9 +130,16 @@ const requestMatchHandler = async (req, res) => {
           matchId: match.id
         };
         console.log(`🎯 Found waiting player in database: ${waitingPlayer.wallet}`);
+      } else {
+        console.log('⏳ No waiting players found');
       }
     } catch (dbError) {
-      console.error('❌ Database lookup failed:', dbError.message);
+      console.error('❌ Database lookup failed:', dbError);
+      console.error('❌ Error details:', {
+        message: dbError.message,
+        stack: dbError.stack,
+        name: dbError.name
+      });
       return res.status(503).json({ error: 'Database lookup failed - matchmaking unavailable' });
     }
     
@@ -189,6 +199,14 @@ const requestMatchHandler = async (req, res) => {
       
       try {
         console.log('💾 Creating waiting entry in database...');
+        console.log('💾 Waiting entry data:', {
+          player1: wallet,
+          player2: null,
+          entryFee: entryFee,
+          status: 'waiting',
+          word: null
+        });
+        
         const waitingMatch = matchRepository.create({
           player1: wallet,
           player2: null,
@@ -197,6 +215,7 @@ const requestMatchHandler = async (req, res) => {
           word: null
         });
         
+        console.log('💾 Waiting match created, saving to database...');
         const savedMatch = await matchRepository.save(waitingMatch);
         console.log(`✅ Waiting entry saved to database with ID: ${savedMatch.id}`);
         
@@ -205,7 +224,12 @@ const requestMatchHandler = async (req, res) => {
           message: 'Waiting for opponent'
         });
       } catch (dbError) {
-        console.error('❌ Failed to save waiting entry to database:', dbError.message);
+        console.error('❌ Failed to save waiting entry to database:', dbError);
+        console.error('❌ Error details:', {
+          message: dbError.message,
+          stack: dbError.stack,
+          name: dbError.name
+        });
         return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
       }
     }
