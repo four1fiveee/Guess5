@@ -56,6 +56,12 @@ const Game: React.FC = () => {
           throw new Error('Match is not active');
         }
         
+        if (matchData.isCompleted) {
+          console.log('⚠️ Match is already completed, redirecting to result page');
+          router.push(`/result?matchId=${gameMatchId}`);
+          return;
+        }
+        
         if (matchData.player1 !== publicKey.toString() && matchData.player2 !== publicKey.toString()) {
           throw new Error('You are not part of this match');
         }
@@ -74,10 +80,11 @@ const Game: React.FC = () => {
         const isPlayer1 = matchData.player1 === publicKey.toString();
         const existingResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
         
+        // Check if we already have a result for this match
         if (existingResult) {
-          console.log('🔄 Found existing result, restoring game state');
-          setGuesses(existingResult.guesses || []);
-          setGameState(existingResult.won ? 'won' : 'lost');
+          console.log('⚠️ Found existing result for this match, redirecting to result page');
+          router.push(`/result?matchId=${gameMatchId}`);
+          return;
         }
 
       } catch (error) {
