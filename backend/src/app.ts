@@ -32,12 +32,13 @@ const allowedOrigins = [
 
 console.log('CORS allowed origins:', allowedOrigins);
 
-// TEMPORARY: Allow all origins for CORS debugging
+// CORS configuration - allow all origins
 app.use(cors({
-  origin: '*',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  origin: true, // Allow all origins
+  credentials: false, // Set to false when origin is true
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+  optionsSuccessStatus: 200
 }));
 
 app.use(express.json());
