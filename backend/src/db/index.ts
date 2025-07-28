@@ -7,7 +7,7 @@ export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL || 'postgresql://guess5_user:nxf1TsMfS4XwW5Ix59zMDxm8kJC7CBpD@dpg-d21t6nqdbo4c73ek2in0-a.ohio-postgres.render.com/guess5?sslmode=require',
   entities: [Match, Guess, Transaction],
-  migrations: ['src/db/migrations/*.ts'],
+  migrations: [process.env.NODE_ENV === 'production' ? 'dist/db/migrations/*.js' : 'src/db/migrations/*.ts'],
   synchronize: false, // Use migrations instead of synchronize
   logging: false,
   extra: {
