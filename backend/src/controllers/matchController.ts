@@ -736,12 +736,18 @@ const submitResultHandler = async (req, res) => {
       if ((isPlayer1 && match.player2Result) || (!isPlayer1 && match.player1Result)) {
         console.log('🏁 Both players have results, determining winner immediately...');
         
-        const payoutResult = await determineWinnerAndPayout(matchId, match.player1Result, match.player2Result);
+        // Save this player's result first
+        await matchRepository.save(match);
+        
+        // Get the latest match data with both results
+        const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        
+        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
         
         // Mark match as completed
-        match.isCompleted = true;
-        match.payoutResult = payoutResult;
-        await matchRepository.save(match);
+        updatedMatch.isCompleted = true;
+        updatedMatch.payoutResult = payoutResult;
+        await matchRepository.save(updatedMatch);
         
         res.json({
           status: 'completed',
@@ -764,12 +770,18 @@ const submitResultHandler = async (req, res) => {
           (!isPlayer1 && match.player1Result && match.player1Result.won)) {
         console.log('🏁 Other player already solved, determining winner...');
         
-        const payoutResult = await determineWinnerAndPayout(matchId, match.player1Result, match.player2Result);
+        // Save this player's result first
+        await matchRepository.save(match);
+        
+        // Get the latest match data with both results
+        const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        
+        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
         
         // Mark match as completed
-        match.isCompleted = true;
-        match.payoutResult = payoutResult;
-        await matchRepository.save(match);
+        updatedMatch.isCompleted = true;
+        updatedMatch.payoutResult = payoutResult;
+        await matchRepository.save(updatedMatch);
         
         res.json({
           status: 'completed',
@@ -790,6 +802,12 @@ const submitResultHandler = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Error submitting result:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      matchId: req.body?.matchId,
+      wallet: req.body?.wallet
+    });
     res.status(500).json({ error: 'Failed to submit result' });
   }
 };
