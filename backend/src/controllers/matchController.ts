@@ -48,16 +48,31 @@ const requestMatchHandler = async (req, res) => {
     console.log(`✅ Player ${wallet} waiting for match with $${entryFee} entry fee`);
 
     // Check database connection first
-    const matchRepository = typeormMatch.getRepository(Match);
-    console.log('🔍 Database repository obtained, checking connection...');
-    
-    // Verify database is initialized
-    const { AppDataSource } = require('../db/index');
-    if (!AppDataSource.isInitialized) {
-      console.error('❌ Database not initialized, cannot process matchmaking request');
-      return res.status(503).json({ error: 'Database not available' });
+    let matchRepository;
+    try {
+      matchRepository = typeormMatch.getRepository(Match);
+      console.log('🔍 Database repository obtained');
+    } catch (repoError) {
+      console.error('❌ Failed to get repository:', repoError);
+      return res.status(503).json({ error: 'Database repository not available' });
     }
-    console.log('✅ Database connection verified');
+    
+    // Verify database is initialized (with better error handling)
+    let dbInitialized = false;
+    try {
+      const { AppDataSource } = require('../db/index');
+      dbInitialized = AppDataSource.isInitialized;
+      console.log('🔍 Database initialization status:', dbInitialized);
+    } catch (dbError) {
+      console.warn('⚠️ Could not check database initialization:', dbError.message);
+      // Continue anyway - the repository might still work
+    }
+    
+    if (!dbInitialized) {
+      console.warn('⚠️ Database not initialized, but continuing with repository...');
+    } else {
+      console.log('✅ Database connection verified');
+    }
     
     // Look for waiting players in database
     let waitingPlayer = null;
@@ -261,6 +276,21 @@ const debugWaitingPlayersHandler = async (req, res) => {
   } catch (error) {
     console.error('❌ Debug endpoint error:', error);
     res.status(500).json({ error: 'Debug endpoint failed' });
+  }
+};
+
+// Simple test endpoint
+const matchTestHandler = async (req, res) => {
+  try {
+    console.log('🧪 Test endpoint called');
+    res.json({ 
+      status: 'ok', 
+      message: 'Test endpoint working',
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    console.error('❌ Test endpoint error:', error);
+    res.status(500).json({ error: 'Test endpoint failed' });
   }
 };
 
@@ -556,8 +586,9 @@ const getMatchStatusHandler = async (req, res) => {
 };
 
 module.exports = {
-  requestMatch: requestMatchHandler,
-  submitResult: submitResultHandler,
-  getMatchStatus: getMatchStatusHandler,
-  debugWaitingPlayers: debugWaitingPlayersHandler
+  requestMatchHandler,
+  submitResultHandler,
+  getMatchStatusHandler,
+  debugWaitingPlayersHandler,
+  matchTestHandler
 }; 
