@@ -13,6 +13,8 @@ const Game: React.FC = () => {
   const [matchId, setMatchId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gameStartTime, setGameStartTime] = useState<number>(0);
+  const [lastActivity, setLastActivity] = useState<number>(0);
 
   useEffect(() => {
     if (!publicKey) {
@@ -54,6 +56,22 @@ const Game: React.FC = () => {
         console.log('🎮 Starting game with word:', matchData.word);
         console.log('🎮 Match ID:', gameMatchId);
 
+        // Set game start time with microsecond precision
+        const startTime = performance.now();
+        setGameStartTime(startTime);
+        setLastActivity(Date.now()); // Keep activity tracking in milliseconds
+        (window as any).gameStartTime = startTime;
+
+        // Check if there are existing results for this player
+        const isPlayer1 = matchData.player1 === publicKey.toString();
+        const existingResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+        
+        if (existingResult) {
+          console.log('🔄 Found existing result, restoring game state');
+          setGuesses(existingResult.guesses || []);
+          setGameState(existingResult.won ? 'won' : 'lost');
+        }
+
       } catch (error) {
         console.error('❌ Error initializing game:', error);
         setError(error instanceof Error ? error.message : 'Failed to load game');
@@ -65,9 +83,43 @@ const Game: React.FC = () => {
     initializeGame();
   }, [publicKey, router]);
 
+  // Update last activity on any user interaction
+  useEffect(() => {
+    const updateActivity = () => {
+      setLastActivity(Date.now());
+    };
+
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('focus', updateActivity);
+
+    return () => {
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('focus', updateActivity);
+    };
+  }, []);
+
+  // Check for inactivity timeout (5 minutes)
+  useEffect(() => {
+    const checkTimeout = setInterval(() => {
+      const now = Date.now();
+      const inactiveTime = now - lastActivity;
+      const timeoutMs = 5 * 60 * 1000; // 5 minutes
+
+      if (inactiveTime > timeoutMs && gameState === 'playing') {
+        console.log('⏰ Player inactive for too long, auto-losing');
+        handleGameEnd(false, 'timeout');
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(checkTimeout);
+  }, [lastActivity, gameState]);
+
   const handleGuess = (guess: string) => {
     if (gameState !== 'playing') return;
 
+    setLastActivity(Date.now()); // Update activity on guess
     const newGuesses = [...guesses, guess];
     setGuesses(newGuesses);
 
@@ -80,17 +132,28 @@ const Game: React.FC = () => {
     }
   };
 
-  const handleGameEnd = async (won: boolean) => {
+  const handleGameEnd = async (won: boolean, reason?: string) => {
     if (!publicKey || !matchId) return;
+
+    // Calculate time with microsecond precision
+    const endTime = performance.now();
+    const totalTime = endTime - gameStartTime;
 
     const result = {
       won,
       numGuesses: guesses.length + 1,
-      totalTime: Date.now() - (window as any).gameStartTime || 0,
-      guesses: [...guesses, currentGuess]
+      totalTime: totalTime, // Microsecond precision
+      guesses: [...guesses, currentGuess],
+      reason: reason || 'normal'
     };
 
     console.log('🏁 Game ended:', result);
+    console.log('⏱️ Time precision:', {
+      startTime: gameStartTime,
+      endTime: endTime,
+      totalTime: totalTime,
+      precision: 'microseconds'
+    });
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;

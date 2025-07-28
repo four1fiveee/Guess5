@@ -3,8 +3,8 @@ const typeormMatch = require('typeorm');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 
-// In-memory storage for matchmaking queue only
-const matchmakingQueue = [];
+// In-memory storage for matches that couldn't be saved to database
+const inMemoryMatches = new Map();
 
 // Word list for games
 const wordList = [
@@ -47,54 +47,119 @@ const requestMatchHandler = async (req, res) => {
 
     console.log(`✅ Player ${wallet} waiting for match with $${entryFee} entry fee`);
 
-    // Check if there's already a player waiting
-    const waitingPlayer = matchmakingQueue.find(p => p.wallet !== wallet);
+    // Look for waiting players in database
+    let waitingPlayer = null;
+    try {
+      const matchRepository = typeormMatch.getRepository(Match);
+      
+      // Find a waiting player with the same entry fee
+      const waitingMatches = await matchRepository.find({
+        where: {
+          status: 'waiting',
+          entryFee: entryFee,
+          player2: null // Only matches that are waiting for player 2
+        },
+        order: {
+          createdAt: 'ASC' // First come, first served
+        },
+        take: 1
+      });
+
+      if (waitingMatches.length > 0) {
+        waitingPlayer = {
+          wallet: waitingMatches[0].player1,
+          entryFee: waitingMatches[0].entryFee
+        };
+        console.log(`🎯 Found waiting player: ${waitingPlayer.wallet}`);
+      }
+    } catch (dbError) {
+      console.warn('⚠️ Database lookup failed:', dbError.message);
+    }
     
     if (waitingPlayer) {
       // Match found! Create the game
       const matchId = Date.now().toString();
-      const word = wordList[Math.floor(Math.random() * wordList.length)];
+    const word = wordList[Math.floor(Math.random() * wordList.length)];
       
       console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
       
-      // Try to create match in database, but fallback to in-memory if DB fails
-      let matchIdToUse = matchId;
+      // Create match object
+      const matchData = {
+        id: matchId,
+        player1: waitingPlayer.wallet,
+      player2: wallet,
+        entryFee: entryFee,
+        word: word,
+        status: 'active',
+      player1Result: null,
+      player2Result: null,
+        winner: null,
+        payoutResult: null
+      };
+      
+      // Try to save to database, but always store in memory as fallback
       try {
         const matchRepository = typeormMatch.getRepository(Match);
-        const match = matchRepository.create({
-          player1: waitingPlayer.wallet,
-          player2: wallet,
-          entryFee: entryFee,
-          word: word,
-          status: 'active'
+        
+        // Update the waiting match with player 2 and game data
+        const existingMatch = await matchRepository.findOne({
+          where: {
+            status: 'waiting',
+            entryFee: entryFee,
+            player1: waitingPlayer.wallet,
+            player2: null
+          }
         });
-
-        const savedMatch = await matchRepository.save(match);
-        matchIdToUse = savedMatch.id;
-        console.log(`✅ Match saved to database: ${matchIdToUse}`);
+        
+        if (existingMatch) {
+          existingMatch.player2 = wallet;
+          existingMatch.word = word;
+          existingMatch.status = 'active';
+          const savedMatch = await matchRepository.save(existingMatch);
+          matchData.id = savedMatch.id;
+          console.log(`✅ Match updated in database: ${matchData.id}`);
+        } else {
+          // Fallback: create new match
+          const match = matchRepository.create(matchData);
+          const savedMatch = await matchRepository.save(match);
+          matchData.id = savedMatch.id;
+          console.log(`✅ Match saved to database: ${matchData.id}`);
+        }
       } catch (dbError) {
         console.warn('⚠️ Database save failed, using in-memory match:', dbError.message);
-        console.log(`✅ Match created in-memory: ${matchIdToUse}`);
+        console.log(`✅ Match created in-memory: ${matchData.id}`);
       }
+      
+      // Always store in memory for fallback lookup
+      inMemoryMatches.set(matchData.id, matchData);
 
-      // Remove the waiting player from queue
-      const index = matchmakingQueue.findIndex(p => p.wallet === waitingPlayer.wallet);
-      if (index > -1) {
-        matchmakingQueue.splice(index, 1);
-      }
-
-      console.log(`✅ Match created successfully: ${matchIdToUse}`);
+      console.log(`✅ Match created successfully: ${matchData.id}`);
 
       res.json({
         status: 'matched',
-        matchId: matchIdToUse,
+        matchId: matchData.id,
         word: word
       });
 
     } else {
-      // No match found, add to queue
-      matchmakingQueue.push({ wallet, entryFee });
-      console.log(`⏳ Player ${wallet} added to queue. Queue size: ${matchmakingQueue.length}`);
+      // No match found, create a waiting entry
+      console.log(`⏳ Player ${wallet} added to waiting queue for $${entryFee}`);
+      
+      try {
+        const matchRepository = typeormMatch.getRepository(Match);
+        const waitingMatch = matchRepository.create({
+          player1: wallet,
+          player2: null, // Will be filled when matched
+          entryFee: entryFee,
+          status: 'waiting',
+          word: null // Will be set when matched
+        });
+        
+        await matchRepository.save(waitingMatch);
+        console.log(`✅ Waiting entry saved to database`);
+      } catch (dbError) {
+        console.warn('⚠️ Failed to save waiting entry to database:', dbError.message);
+      }
       
       res.json({
         status: 'waiting',
@@ -124,78 +189,154 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
   let winner = null;
   let payoutResult = null;
 
-  // Determine winner based on game results
+  // Winner determination logic:
+  // 1. Did you solve the puzzle? (Yes/No)
+  // 2. If both solved → Tie breaker by time (faster wins)
+  // 3. If only one solved → That player wins
+  // 4. If neither solved → Both lose (tie)
+  
   if (player1Result && player2Result) {
+    // Both players submitted results
     if (player1Result.won && !player2Result.won) {
+      // Player 1 solved, Player 2 didn't
       winner = match.player1;
     } else if (player2Result.won && !player1Result.won) {
+      // Player 2 solved, Player 1 didn't
       winner = match.player2;
     } else if (player1Result.won && player2Result.won) {
-      // Both won - tie
-      winner = 'tie';
+      // Both solved - tie breaker by time (faster wins)
+      // Using microsecond precision for very accurate tie breaking
+      const timeDiff = Math.abs(player1Result.totalTime - player2Result.totalTime);
+      const tolerance = 0.001; // 1 millisecond tolerance for "exact" ties
+      
+      if (timeDiff < tolerance) {
+        // Times are effectively identical - both pay fee
+        winner = 'tie';
+        console.log('⚖️ Exact time tie detected:', {
+          player1Time: player1Result.totalTime,
+          player2Time: player2Result.totalTime,
+          difference: timeDiff,
+          tolerance: tolerance
+        });
+      } else if (player1Result.totalTime < player2Result.totalTime) {
+        winner = match.player1;
+        console.log('🏆 Player 1 wins by time:', {
+          player1Time: player1Result.totalTime,
+          player2Time: player2Result.totalTime,
+          difference: player2Result.totalTime - player1Result.totalTime
+        });
+      } else {
+        winner = match.player2;
+        console.log('🏆 Player 2 wins by time:', {
+          player1Time: player1Result.totalTime,
+          player2Time: player2Result.totalTime,
+          difference: player1Result.totalTime - player2Result.totalTime
+        });
+      }
     } else {
-      // Both lost - tie
+      // Both didn't solve - both lose
       winner = 'tie';
     }
   } else if (player1Result && !player2Result) {
-    winner = match.player1;
+    // Only player 1 submitted result
+    if (player1Result.won) {
+      // Player 1 solved, Player 2 didn't (disconnected or lost)
+      winner = match.player1;
+    } else {
+      // Player 1 didn't solve, Player 2 didn't solve - both lose
+      winner = 'tie';
+    }
   } else if (player2Result && !player1Result) {
-    winner = match.player2;
+    // Only player 2 submitted result
+    if (player2Result.won) {
+      // Player 2 solved, Player 1 didn't (disconnected or lost)
+      winner = match.player2;
+    } else {
+      // Player 2 didn't solve, Player 1 didn't solve - both lose
+      winner = 'tie';
+    }
+  } else {
+    // No results submitted - both lose
+    winner = 'tie';
   }
 
   console.log('🏆 Winner determined:', winner);
 
-  // Update match with results
-  match.player1Result = player1Result;
-  match.player2Result = player2Result;
-  match.winner = winner;
-  match.status = 'completed';
-  match.isCompleted = true;
-
   // Calculate payout instructions
   if (winner && winner !== 'tie') {
-    const entryFee = match.entryFee || 0.1;
+    const winnerWallet = winner;
+    const loserWallet = winner === match.player1 ? match.player2 : match.player1;
+    const entryFee = match.entryFee;
+    const winnerAmount = entryFee * 0.9; // 90% of pot
     const feeAmount = entryFee * 0.1; // 10% fee
-    const winnerAmount = (entryFee * 2) - feeAmount; // Both entry fees minus fee
 
-    // Direct payment model - loser pays winner and fee
-    const loser = winner === match.player1 ? match.player2 : match.player1;
-    
     payoutResult = {
-      winner: winner,
+      winner: winnerWallet,
       winnerAmount: winnerAmount,
       feeAmount: feeAmount,
       feeWallet: FEE_WALLET_ADDRESS,
       transactions: [
         {
-          from: loser,
-          to: winner,
+          from: loserWallet,
+          to: winnerWallet,
           amount: winnerAmount,
-          description: `Loser pays winner stake minus fee`
+          description: 'Winner payout'
         },
         {
-          from: loser,
+          from: loserWallet,
           to: FEE_WALLET_ADDRESS,
           amount: feeAmount,
-          description: `Loser pays fee to fee wallet`
+          description: 'Platform fee'
         }
       ]
     };
 
     console.log('💰 Payout calculated:', payoutResult);
-  } else {
-    // Tie - no payout
+  } else if (winner === 'tie') {
+    // Both players get 45% back, 10% fee
+    const refundAmount = match.entryFee * 0.45;
+    const feeAmount = match.entryFee * 0.1;
+
     payoutResult = {
       winner: 'tie',
       winnerAmount: 0,
-      feeAmount: 0,
+      feeAmount: feeAmount,
       feeWallet: FEE_WALLET_ADDRESS,
-      transactions: []
+      transactions: [
+        {
+          from: match.player1,
+          to: match.player1,
+          amount: refundAmount,
+          description: 'Tie refund'
+        },
+        {
+          from: match.player2,
+          to: match.player2,
+          amount: refundAmount,
+          description: 'Tie refund'
+        },
+        {
+          from: match.player1,
+          to: FEE_WALLET_ADDRESS,
+          amount: feeAmount / 2,
+          description: 'Platform fee (player 1)'
+        },
+        {
+          from: match.player2,
+          to: FEE_WALLET_ADDRESS,
+          amount: feeAmount / 2,
+          description: 'Platform fee (player 2)'
+        }
+      ]
     };
+
+    console.log('🤝 Tie payout calculated:', payoutResult);
   }
 
-  // Store payout result in match
+  // Update match with winner and payout
+  match.winner = winner;
   match.payoutResult = payoutResult;
+  match.isCompleted = true;
   await matchRepository.save(match);
 
   return payoutResult;
@@ -243,7 +384,7 @@ const submitResultHandler = async (req, res) => {
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} result recorded`);
 
     // Check if both players have submitted results
-    if (match.player1Result && match.player2Result) {
+  if (match.player1Result && match.player2Result) {
       console.log('🏁 Both players submitted results, determining winner...');
       
       const payoutResult = await determineWinnerAndPayout(matchId, match.player1Result, match.player2Result);
@@ -273,15 +414,41 @@ const getMatchStatusHandler = async (req, res) => {
   try {
     const { matchId } = req.params;
     
-    const matchRepository = typeormMatch.getRepository(Match);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
+    console.log('🔍 Looking up match status for:', matchId);
     
+    // Try to find match in database first
+    let match = null;
+    try {
+      const matchRepository = typeormMatch.getRepository(Match);
+      match = await matchRepository.findOne({ where: { id: matchId } });
+      if (match) {
+        console.log('✅ Match found in database');
+      }
+    } catch (dbError) {
+      console.warn('⚠️ Database lookup failed:', dbError.message);
+    }
+    
+    // If not found in database, check in-memory matches
     if (!match) {
-      return res.status(404).json({ error: 'Match not found' });
+      console.log('🔍 Checking in-memory matches...');
+      match = inMemoryMatches.get(matchId);
+      if (match) {
+        console.log('✅ Match found in memory');
+      } else {
+        console.log('❌ Match not found in database or memory');
+        return res.status(404).json({ error: 'Match not found' });
+      }
     }
 
-    res.json({
+    console.log('✅ Returning match data:', {
       status: match.status,
+      player1: match.player1,
+      player2: match.player2,
+      hasWord: !!match.word
+    });
+
+  res.json({
+    status: match.status,
       player1: match.player1,
       player2: match.player2,
       word: match.word,
@@ -292,7 +459,7 @@ const getMatchStatusHandler = async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Error getting match status:', error);
+    console.error('❌ Error getting match status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
