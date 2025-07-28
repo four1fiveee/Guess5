@@ -42,7 +42,7 @@ export default function Lobby() {
       let retries = 0;
       const maxRetries = 3;
       
-      const attemptConnection = async () => {
+      const attemptConnection = async (): Promise<boolean> => {
         try {
           console.log(`🔍 Backend connection attempt ${retries + 1}/${maxRetries}...`);
           const isHealthy = await testBackendConnection();
