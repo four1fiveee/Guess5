@@ -8,8 +8,8 @@ export class Match {
   @Column()
   player1!: string;
 
-  @Column()
-  player2!: string;
+  @Column({ nullable: true })
+  player2!: string | null;
 
   @Column({ type: 'decimal', precision: 10, scale: 6 })
   entryFee!: number;
