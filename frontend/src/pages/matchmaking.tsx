@@ -7,6 +7,7 @@ const Matchmaking: React.FC = () => {
   const { publicKey } = useWallet();
   const [status, setStatus] = useState<'waiting' | 'matched' | 'error'>('waiting');
   const [timeoutMessage, setTimeoutMessage] = useState('');
+  const [matchId, setMatchId] = useState<string | null>(null);
 
   useEffect(() => {
     if (!publicKey) {
@@ -15,10 +16,11 @@ const Matchmaking: React.FC = () => {
     }
 
     let timeoutId: NodeJS.Timeout;
-    const startMatchmaking = async () => {
-      const wallet = publicKey.toString();
-      const entryFee = Number(localStorage.getItem('entryFeeSOL') || 0.1);
+    let pollInterval: NodeJS.Timeout;
+    const wallet = publicKey.toString();
+    const entryFee = Number(localStorage.getItem('entryFeeSOL') || 0.1);
 
+    const startMatchmaking = async () => {
       try {
         console.log('🎮 Starting matchmaking...');
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request-match`, {
@@ -38,6 +40,7 @@ const Matchmaking: React.FC = () => {
           console.log('✅ Match found!', data);
           setStatus('matched');
           clearTimeout(timeoutId);
+          clearInterval(pollInterval);
           // Store match data
           localStorage.setItem('matchId', data.matchId);
           localStorage.setItem('word', data.word);
@@ -45,25 +48,67 @@ const Matchmaking: React.FC = () => {
           setTimeout(() => {
             router.push(`/game?matchId=${data.matchId}`);
           }, 1000);
-        } else {
+        } else if (data.status === 'waiting') {
           console.log('⏳ Waiting for opponent...');
           setStatus('waiting');
+          // Start polling to check if we get matched
+          startPolling();
         }
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
         setStatus('error');
         clearTimeout(timeoutId);
+        clearInterval(pollInterval);
       }
+    };
+
+    const startPolling = () => {
+      // Poll every 2 seconds to check if we've been matched
+      pollInterval = setInterval(async () => {
+        try {
+          console.log('🔍 Polling for match status...');
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/debug/waiting`);
+          const data = await response.json();
+          
+          // Check if we're in an active match
+          const activeMatches = data.database?.activeMatches || [];
+          const memoryMatches = data.memory?.activeMatches || [];
+          const allActiveMatches = [...activeMatches, ...memoryMatches];
+          
+          const ourMatch = allActiveMatches.find((match: any) => 
+            match.player1 === wallet || match.player2 === wallet
+          );
+          
+          if (ourMatch && ourMatch.status === 'active') {
+            console.log('✅ Found our active match!', ourMatch);
+            setStatus('matched');
+            clearTimeout(timeoutId);
+            clearInterval(pollInterval);
+            // Store match data
+            localStorage.setItem('matchId', ourMatch.id);
+            // Redirect to game
+            setTimeout(() => {
+              router.push(`/game?matchId=${ourMatch.id}`);
+            }, 1000);
+          }
+        } catch (error) {
+          console.error('❌ Polling error:', error);
+        }
+      }, 2000);
     };
 
     startMatchmaking();
     // 1-minute timeout to return to home
     timeoutId = setTimeout(() => {
       setTimeoutMessage('Unable to find a match in your staking category. You will now be returned home.');
+      clearInterval(pollInterval);
       setTimeout(() => router.push('/'), 3000);
     }, 60000);
 
-    return () => clearTimeout(timeoutId);
+    return () => {
+      clearTimeout(timeoutId);
+      clearInterval(pollInterval);
+    };
   }, [publicKey, router]);
 
   return (
