@@ -18,7 +18,13 @@ export const apiClient = axios.create({
 export const testBackendConnection = async () => {
   try {
     console.log('🔍 Testing backend connection...');
-    const response = await axios.get(`${getApiUrl()}/health`, { timeout: 5000 });
+    const response = await axios.get(`${getApiUrl()}/health`, { 
+      timeout: 15000, // Increased from 5000 to 15000 (15 seconds)
+      headers: {
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache'
+      }
+    });
     console.log('✅ Backend health check successful:', response.data);
     return true;
   } catch (error) {

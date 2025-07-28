@@ -37,15 +37,32 @@ export default function Lobby() {
     };
     getPrice();
 
-    // Test backend connectivity
+    // Test backend connectivity with retry
     const testBackend = async () => {
-      try {
-        const isHealthy = await testBackendConnection();
-        setBackendStatus(isHealthy ? 'connected' : 'disconnected');
-      } catch (error) {
-        console.error('Backend test failed:', error);
-        setBackendStatus('disconnected');
-      }
+      let retries = 0;
+      const maxRetries = 3;
+      
+      const attemptConnection = async () => {
+        try {
+          console.log(`🔍 Backend connection attempt ${retries + 1}/${maxRetries}...`);
+          const isHealthy = await testBackendConnection();
+          setBackendStatus(isHealthy ? 'connected' : 'disconnected');
+          return isHealthy;
+        } catch (error) {
+          console.error(`❌ Backend test failed (attempt ${retries + 1}):`, error);
+          retries++;
+          if (retries < maxRetries) {
+            console.log(`⏳ Retrying in 2 seconds... (${retries}/${maxRetries})`);
+            await new Promise(resolve => setTimeout(resolve, 2000));
+            return await attemptConnection();
+          } else {
+            setBackendStatus('disconnected');
+            return false;
+          }
+        }
+      };
+      
+      await attemptConnection();
     };
     testBackend();
   }, []);
