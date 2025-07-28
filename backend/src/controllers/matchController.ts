@@ -333,6 +333,45 @@ const matchTestHandler = async (req, res) => {
   }
 };
 
+// Simple test endpoint for repository debugging
+const testRepositoryHandler = async (req, res) => {
+  try {
+    console.log('🧪 Testing repository creation...');
+    
+    // Test 1: Check if TypeORM is available
+    console.log('🔍 TypeORM available:', !!typeormMatch);
+    
+    // Test 2: Check if Match entity is available
+    console.log('🔍 Match entity available:', !!Match);
+    
+    // Test 3: Try to get repository
+    try {
+      const testRepo = typeormMatch.getRepository(Match);
+      console.log('✅ Repository created successfully');
+      res.json({ 
+        status: 'ok', 
+        message: 'Repository test successful',
+        typeorm: !!typeormMatch,
+        matchEntity: !!Match,
+        repository: !!testRepo
+      });
+    } catch (repoError) {
+      console.error('❌ Repository creation failed:', repoError);
+      res.status(500).json({ 
+        error: 'Repository creation failed',
+        details: {
+          message: repoError.message,
+          name: repoError.name,
+          stack: repoError.stack
+        }
+      });
+    }
+  } catch (error) {
+    console.error('❌ Test endpoint error:', error);
+    res.status(500).json({ error: 'Test endpoint failed' });
+  }
+};
+
 // Helper function to determine winner and calculate payout instructions
 const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
   const matchRepository = typeormMatch.getRepository(Match);
@@ -629,5 +668,6 @@ module.exports = {
   submitResultHandler,
   getMatchStatusHandler,
   debugWaitingPlayersHandler,
-  matchTestHandler
+  matchTestHandler,
+  testRepositoryHandler
 }; 

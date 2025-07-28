@@ -3,8 +3,9 @@ const matchController = require('../controllers/matchController');
 
 const router = expressMatchRoutes.Router();
 
-// Test endpoint
+// Test endpoints
 router.get('/test', matchController.matchTestHandler);
+router.get('/test-repository', matchController.testRepositoryHandler);
 
 // Match routes
 router.post('/request-match', matchController.requestMatchHandler);
