@@ -79,17 +79,28 @@ const Matchmaking: React.FC = () => {
             match.player1 === wallet || match.player2 === wallet
           );
           
-          if (ourMatch && ourMatch.status === 'active') {
-            console.log('✅ Found our active match!', ourMatch);
-            setStatus('matched');
-            clearTimeout(timeoutId);
-            clearInterval(pollInterval);
-            // Store match data
-            localStorage.setItem('matchId', ourMatch.id);
-            // Redirect to game
-            setTimeout(() => {
-              router.push(`/game?matchId=${ourMatch.id}`);
-            }, 1000);
+          // Validate that this is a proper match with both players
+          if (ourMatch && ourMatch.status === 'active' && ourMatch.player1 && ourMatch.player2) {
+            // Additional check: ensure this match was created recently (within last 5 minutes)
+            const matchCreatedAt = new Date(ourMatch.createdAt || Date.now());
+            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            
+            if (matchCreatedAt > fiveMinutesAgo) {
+              console.log('✅ Found our active match!', ourMatch);
+              setStatus('matched');
+              clearTimeout(timeoutId);
+              clearInterval(pollInterval);
+              // Store match data
+              localStorage.setItem('matchId', ourMatch.id);
+              // Redirect to game
+              setTimeout(() => {
+                router.push(`/game?matchId=${ourMatch.id}`);
+              }, 1000);
+            } else {
+              console.log('⚠️ Found old match, ignoring:', ourMatch);
+            }
+          } else if (ourMatch) {
+            console.log('⚠️ Found incomplete match, ignoring:', ourMatch);
           }
         } catch (error) {
           console.error('❌ Polling error:', error);
