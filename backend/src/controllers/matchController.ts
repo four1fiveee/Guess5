@@ -1,7 +1,7 @@
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
-const { Not } = require('typeorm');
+const { Not, LessThan } = require('typeorm');
 
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
@@ -97,6 +97,24 @@ const requestMatchHandler = async (req, res) => {
         name: repoError.name
       });
       return res.status(503).json({ error: 'Database not available - matchmaking unavailable' });
+    }
+    
+    // Clean up old completed matches (older than 1 hour)
+    try {
+      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+      const oldMatches = await matchRepository.find({
+        where: {
+          status: 'completed',
+          updatedAt: LessThan(oneHourAgo)
+        }
+      });
+      
+      if (oldMatches.length > 0) {
+        console.log(`🧹 Cleaning up ${oldMatches.length} old completed matches`);
+        await matchRepository.remove(oldMatches);
+      }
+    } catch (cleanupError) {
+      console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
     }
     
     // Look for waiting players in database
@@ -900,12 +918,25 @@ const getMatchStatusHandler = async (req, res) => {
       }
     }
 
+    // Check if this match already has results for the requesting player
+    const requestingWallet = req.query.wallet || req.headers['x-wallet'];
+    const isPlayer1 = match.player1 === requestingWallet;
+    const existingResult = isPlayer1 ? match.player1Result : match.player2Result;
+    
     console.log('✅ Returning match data:', {
       status: match.status,
       player1: match.player1,
       player2: match.player2,
-      hasWord: !!match.word
+      hasWord: !!match.word,
+      requestingWallet,
+      hasExistingResult: !!existingResult
     });
+
+    // If match has existing results, mark it as completed
+    if (existingResult) {
+      match.status = 'completed';
+      match.isCompleted = true;
+    }
 
   res.json({
     status: match.status,
@@ -915,7 +946,8 @@ const getMatchStatusHandler = async (req, res) => {
       player1Result: match.player1Result,
       player2Result: match.player2Result,
       winner: match.winner,
-      payout: match.payoutResult
+      payout: match.payoutResult,
+      isCompleted: match.isCompleted || !!existingResult
     });
 
   } catch (error) {
