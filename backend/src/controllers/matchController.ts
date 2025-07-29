@@ -125,18 +125,36 @@ const requestMatchHandler = async (req, res) => {
       console.log('🔍 Entry fee type:', typeof entryFee);
       console.log('🔍 Entry fee value:', entryFee);
       
-      const waitingMatches = await matchRepository.find({
+      // First, let's see ALL waiting matches to debug
+      const allWaitingMatches = await matchRepository.find({
         where: {
           status: 'waiting',
           entryFee: entryFee,
-          player2: null,
-          player1: Not(wallet) // Exclude current player's own waiting entries
+          player2: null
         },
         order: {
           createdAt: 'ASC'
-        },
-        take: 1
+        }
       });
+      
+      console.log('🔍 All waiting matches found:', allWaitingMatches.map(m => ({
+        id: m.id,
+        player1: m.player1,
+        player2: m.player2,
+        entryFee: m.entryFee,
+        createdAt: m.createdAt
+      })));
+      
+      // Filter out current player's matches manually
+      const waitingMatches = allWaitingMatches.filter(match => match.player1 !== wallet);
+      
+      console.log('🔍 Filtered waiting matches (excluding current player):', waitingMatches.map(m => ({
+        id: m.id,
+        player1: m.player1,
+        player2: m.player2,
+        entryFee: m.entryFee,
+        createdAt: m.createdAt
+      })));
 
       console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
       console.log('🔍 Waiting matches:', waitingMatches);
@@ -248,6 +266,17 @@ const requestMatchHandler = async (req, res) => {
         return res.status(400).json({ error: 'Invalid match creation attempt' });
       }
       
+      // CRITICAL: Final validation before creating match
+      if (waitingPlayer.wallet === wallet) {
+        console.log('❌ CRITICAL ERROR: Attempting to create self-match, aborting');
+        console.log('❌ Match details:', {
+          waitingPlayer: waitingPlayer.wallet,
+          currentPlayer: wallet,
+          matchId: waitingPlayer.matchId
+        });
+        return res.status(400).json({ error: 'Self-matching detected - please try again' });
+      }
+      
       // Match found! Create the game
       const matchId = Date.now().toString();
       const word = wordList[Math.floor(Math.random() * wordList.length)];
@@ -281,6 +310,18 @@ const requestMatchHandler = async (req, res) => {
         });
         
         if (existingMatch) {
+          // CRITICAL: Check if this would create a self-match
+          if (existingMatch.player1 === wallet) {
+            console.log('❌ CRITICAL ERROR: Attempting to update match with self-match');
+            console.log('❌ Existing match:', {
+              id: existingMatch.id,
+              player1: existingMatch.player1,
+              player2: existingMatch.player2,
+              status: existingMatch.status
+            });
+            return res.status(400).json({ error: 'Self-matching detected in database update' });
+          }
+          
           existingMatch.player2 = wallet;
           existingMatch.word = word;
           existingMatch.status = 'active';

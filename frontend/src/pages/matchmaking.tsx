@@ -8,6 +8,7 @@ const Matchmaking: React.FC = () => {
   const [status, setStatus] = useState<'waiting' | 'matched' | 'error'>('waiting');
   const [timeoutMessage, setTimeoutMessage] = useState('');
   const [matchId, setMatchId] = useState<string | null>(null);
+  const [timeLeft, setTimeLeft] = useState(120); // 2 minutes in seconds
 
   useEffect(() => {
     if (!publicKey) {
@@ -41,6 +42,7 @@ const Matchmaking: React.FC = () => {
           setStatus('matched');
           clearTimeout(timeoutId);
           clearInterval(pollInterval);
+          clearInterval(countdownInterval);
           // Store match data
           localStorage.setItem('matchId', data.matchId);
           localStorage.setItem('word', data.word);
@@ -90,6 +92,7 @@ const Matchmaking: React.FC = () => {
               setStatus('matched');
               clearTimeout(timeoutId);
               clearInterval(pollInterval);
+              clearInterval(countdownInterval);
               // Store match data
               localStorage.setItem('matchId', ourMatch.id);
               // Redirect to game
@@ -109,16 +112,30 @@ const Matchmaking: React.FC = () => {
     };
 
     startMatchmaking();
-    // 1-minute timeout to return to home
+    
+    // Countdown timer
+    const countdownInterval = setInterval(() => {
+      setTimeLeft(prev => {
+        if (prev <= 1) {
+          clearInterval(countdownInterval);
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+    
+    // 2-minute timeout to return to home
     timeoutId = setTimeout(() => {
-      setTimeoutMessage('Unable to find a match in your staking category. You will now be returned home.');
+      setTimeoutMessage('No opponents found after 2 minutes. Returning to lobby...');
       clearInterval(pollInterval);
-      setTimeout(() => router.push('/'), 3000);
-    }, 60000);
+      clearInterval(countdownInterval);
+      setTimeout(() => router.push('/lobby'), 3000);
+    }, 120000); // 2 minutes = 120 seconds
 
     return () => {
       clearTimeout(timeoutId);
       clearInterval(pollInterval);
+      clearInterval(countdownInterval);
     };
   }, [publicKey, router]);
 
@@ -136,6 +153,9 @@ const Matchmaking: React.FC = () => {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
               </div>
               <p className="text-white/80">Waiting for another player to join...</p>
+              <div className="text-accent text-sm">
+                Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+              </div>
             </div>
           )}
           {status === 'matched' && (
