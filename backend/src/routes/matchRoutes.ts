@@ -7,6 +7,7 @@ const router = expressMatchRoutes.Router();
 router.get('/test', matchController.matchTestHandler);
 router.get('/test-repository', matchController.testRepositoryHandler);
 router.get('/test-database', matchController.testDatabaseHandler);
+router.post('/cleanup-self-matches', matchController.cleanupSelfMatchesHandler);
 
 // Match routes
 router.post('/request-match', matchController.requestMatchHandler);

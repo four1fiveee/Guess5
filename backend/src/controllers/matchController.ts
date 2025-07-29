@@ -99,19 +99,37 @@ const requestMatchHandler = async (req, res) => {
       return res.status(503).json({ error: 'Database not available - matchmaking unavailable' });
     }
     
-    // Clean up old completed matches (older than 1 hour)
+    // Clean up old completed matches and self-matches
     try {
       const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      const oldMatches = await matchRepository.find({
+      
+      // Clean up old completed matches
+      const oldCompletedMatches = await matchRepository.find({
         where: {
           status: 'completed',
           updatedAt: LessThan(oneHourAgo)
         }
       });
       
-      if (oldMatches.length > 0) {
-        console.log(`🧹 Cleaning up ${oldMatches.length} old completed matches`);
-        await matchRepository.remove(oldMatches);
+      // Clean up self-matches (where player1 === player2)
+      const selfMatches = await matchRepository.find({
+        where: {
+          status: 'active',
+          player1: Not(null),
+          player2: Not(null)
+        }
+      });
+      
+      const actualSelfMatches = selfMatches.filter(match => match.player1 === match.player2);
+      
+      if (oldCompletedMatches.length > 0) {
+        console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
+        await matchRepository.remove(oldCompletedMatches);
+      }
+      
+      if (actualSelfMatches.length > 0) {
+        console.log(`🧹 Cleaning up ${actualSelfMatches.length} self-matches`);
+        await matchRepository.remove(actualSelfMatches);
       }
     } catch (cleanupError) {
       console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
@@ -600,6 +618,48 @@ const testDatabaseHandler = async (req, res) => {
   }
 };
 
+// Cleanup self-matches endpoint
+const cleanupSelfMatchesHandler = async (req, res) => {
+  try {
+    console.log('🧹 Cleaning up self-matches...');
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find all active matches
+    const activeMatches = await matchRepository.find({
+      where: {
+        status: 'active',
+        player1: Not(null),
+        player2: Not(null)
+      }
+    });
+    
+    // Filter self-matches
+    const selfMatches = activeMatches.filter(match => match.player1 === match.player2);
+    
+    if (selfMatches.length > 0) {
+      console.log(`🧹 Found ${selfMatches.length} self-matches to clean up:`, selfMatches.map(m => m.id));
+      await matchRepository.remove(selfMatches);
+      console.log('✅ Self-matches cleaned up successfully');
+    } else {
+      console.log('✅ No self-matches found');
+    }
+    
+    res.json({
+      success: true,
+      message: 'Self-matches cleaned up',
+      removedCount: selfMatches.length,
+      removedMatches: selfMatches.map(m => ({ id: m.id, player1: m.player1, player2: m.player2 }))
+    });
+  } catch (error) {
+    console.error('❌ Cleanup failed:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+};
+
 // Helper function to determine winner and calculate payout instructions
 const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
   const { AppDataSource } = require('../db/index');
@@ -1004,5 +1064,6 @@ module.exports = {
   debugWaitingPlayersHandler,
   matchTestHandler,
   testRepositoryHandler,
-  testDatabaseHandler
+  testDatabaseHandler,
+  cleanupSelfMatchesHandler
 }; 

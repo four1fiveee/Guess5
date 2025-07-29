@@ -83,11 +83,17 @@ const Matchmaking: React.FC = () => {
           
           // Validate that this is a proper match with both players
           if (ourMatch && ourMatch.status === 'active' && ourMatch.player1 && ourMatch.player2) {
-            // Additional check: ensure this match was created recently (within last 5 minutes)
-            const matchCreatedAt = new Date(ourMatch.createdAt || Date.now());
-            const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+            // CRITICAL: Check that this is not a self-match
+            if (ourMatch.player1 === ourMatch.player2) {
+              console.log('❌ Found self-match, ignoring:', ourMatch);
+              return;
+            }
             
-            if (matchCreatedAt > fiveMinutesAgo) {
+            // Additional check: ensure this match was created recently (within last 2 minutes)
+            const matchCreatedAt = new Date(ourMatch.createdAt || Date.now());
+            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
+            
+            if (matchCreatedAt > twoMinutesAgo) {
               console.log('✅ Found our active match!', ourMatch);
               setStatus('matched');
               clearTimeout(timeoutId);
