@@ -72,7 +72,7 @@ const GameGrid: React.FC<{
             />
             <button
               onClick={handleSubmit}
-              className="px-4 py-2 bg-blue-500 text-white rounded font-semibold hover:bg-blue-600 disabled:bg-gray-400"
+                              className="px-4 py-2 bg-accent text-white rounded font-semibold hover:bg-accent/80 disabled:bg-gray-400"
               disabled={currentGuess.length !== 5 || gameState !== 'playing'}
             >
               Guess

@@ -165,7 +165,7 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
       </div>
 
       {/* Fee Information */}
-      <div className="bg-blue-50 border border-blue-200 text-blue-800 px-4 py-3 rounded mb-6">
+              <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-3 rounded mb-6">
         <h3 className="font-bold">💰 Fee Information</h3>
         <p>Fee wallet: {feeWallet}</p>
         <p>

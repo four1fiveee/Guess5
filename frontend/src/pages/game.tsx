@@ -250,7 +250,7 @@ const Game: React.FC = () => {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="text-white text-xl">Loading game...</div>
       </div>
     );
@@ -258,14 +258,14 @@ const Game: React.FC = () => {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
           <div className="text-center">
             <div className="text-red-400 text-xl mb-4">❌ Error</div>
             <p className="text-white/80 mb-6">{error}</p>
             <button
               onClick={() => router.push('/lobby')}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+              className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
             >
               Back to Lobby
             </button>
@@ -277,7 +277,7 @@ const Game: React.FC = () => {
 
   if (!word) {
     return (
-      <div className="min-h-screen bg-gradient-to-br from-blue-900 via-purple-900 to-indigo-900 flex items-center justify-center">
+      <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="text-white text-xl">Loading game...</div>
       </div>
     );

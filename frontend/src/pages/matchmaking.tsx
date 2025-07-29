@@ -150,7 +150,7 @@ const Matchmaking: React.FC = () => {
               <p className="text-white/80">Failed to find match. Please try again.</p>
               <button
                 onClick={() => window.location.reload()}
-                className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg transition-colors"
+                className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
               >
                 Retry
               </button>

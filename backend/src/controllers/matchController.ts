@@ -1,6 +1,7 @@
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
+const { Not } = require('typeorm');
 
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
@@ -110,7 +111,8 @@ const requestMatchHandler = async (req, res) => {
         where: {
           status: 'waiting',
           entryFee: entryFee,
-          player2: null
+          player2: null,
+          player1: Not(wallet) // Exclude current player's own waiting entries
         },
         order: {
           createdAt: 'ASC'
