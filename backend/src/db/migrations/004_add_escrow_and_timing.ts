@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from "typeorm";
 
-export class AddEscrowAndTiming004 implements MigrationInterface {
-    name = 'AddEscrowAndTiming004'
+export class AddEscrowAndTiming0041753845618940 implements MigrationInterface {
+    name = 'AddEscrowAndTiming0041753845618940'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
         // Add escrow address column
