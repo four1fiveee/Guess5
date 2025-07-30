@@ -3,7 +3,7 @@ services:
   - type: web
     name: guess5-backend
     env: node
-    buildCommand: cd backend && npm install
+    buildCommand: cd backend && npm install && npm run build
     startCommand: cd backend && node dist/server.js
     envVars:
       - key: NODE_ENV
