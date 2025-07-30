@@ -200,6 +200,17 @@ const requestMatchHandler = async (req, res) => {
       });
       
       if (existingActiveMatch) {
+        console.log('🔍 Found existing active/escrow match:', {
+          id: existingActiveMatch.id,
+          player1: existingActiveMatch.player1,
+          player2: existingActiveMatch.player2,
+          status: existingActiveMatch.status,
+          entryFee: existingActiveMatch.entryFee,
+          escrowAddress: existingActiveMatch.escrowAddress,
+          createdAt: existingActiveMatch.createdAt,
+          updatedAt: existingActiveMatch.updatedAt
+        });
+        
         // CRITICAL: If the existing match is a self-match, clean it up and return an error
         if (existingActiveMatch.player1 === existingActiveMatch.player2) {
           console.log('❌ Detected existing self-match, cleaning up and returning error to force retry.');
@@ -207,18 +218,28 @@ const requestMatchHandler = async (req, res) => {
           await queryRunner.commitTransaction(); // Commit the cleanup
           return res.status(400).json({ error: 'Detected and cleaned up a self-match. Please try again.' });
         } else {
-          console.log('⚠️ Player already has an active/escrow match, returning match info');
-          await queryRunner.rollbackTransaction();
-          res.json({
-            status: 'matched',
-            matchId: existingActiveMatch.id,
-            player1: existingActiveMatch.player1,
-            player2: existingActiveMatch.player2,
-            entryFee: existingActiveMatch.entryFee,
-            escrowAddress: existingActiveMatch.escrowAddress,
-            message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
-          });
-          return;
+          // Check if the existing match is stale (older than 10 minutes)
+          const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+          if (existingActiveMatch.updatedAt < tenMinutesAgo) {
+            console.log('🧹 Cleaning up stale active/escrow match:', existingActiveMatch.id);
+            await queryRunner.manager.remove(existingActiveMatch);
+            await queryRunner.commitTransaction();
+            console.log('✅ Stale match cleaned up, allowing new matchmaking');
+            // Continue with normal matchmaking flow
+          } else {
+            console.log('⚠️ Player already has an active/escrow match, returning match info');
+            await queryRunner.rollbackTransaction();
+            res.json({
+              status: 'matched',
+              matchId: existingActiveMatch.id,
+              player1: existingActiveMatch.player1,
+              player2: existingActiveMatch.player2,
+              entryFee: existingActiveMatch.entryFee,
+              escrowAddress: existingActiveMatch.escrowAddress,
+              message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
+            });
+            return;
+          }
         }
       }
 
