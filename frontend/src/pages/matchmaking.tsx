@@ -169,19 +169,43 @@ const Matchmaking: React.FC = () => {
             const ourMatch = data;
             
             // Validate that this is a proper match with both players
-            if (ourMatch && ourMatch.status === 'active' && ourMatch.player1 && ourMatch.player2) {
+            if (ourMatch && (ourMatch.status === 'active' || ourMatch.status === 'escrow') && ourMatch.player1 && ourMatch.player2) {
               // CRITICAL: Check that this is not a self-match
               if (ourMatch.player1 === ourMatch.player2) {
                 console.log('❌ Found self-match, ignoring:', ourMatch);
                 return;
               }
               
-              console.log('✅ Found our active match!', ourMatch);
+              console.log('✅ Found our match!', ourMatch);
               setMatchData(ourMatch);
-              setStatus('matched');
-              clearTimeout(timeoutId);
-              clearInterval(pollInterval);
-              clearInterval(countdownInterval);
+              
+              if (ourMatch.status === 'active') {
+                console.log('🎮 Match is active, redirecting to game...');
+                setStatus('matched');
+                clearTimeout(timeoutId);
+                clearInterval(pollInterval);
+                clearInterval(countdownInterval);
+                
+                // Store match data and redirect to game
+                localStorage.setItem('matchId', ourMatch.matchId);
+                if (ourMatch.word) {
+                  localStorage.setItem('word', ourMatch.word);
+                }
+                if (ourMatch.escrowAddress) {
+                  localStorage.setItem('escrowAddress', ourMatch.escrowAddress);
+                }
+                if (ourMatch.entryFee) {
+                  localStorage.setItem('entryFee', ourMatch.entryFee.toString());
+                }
+                
+                setTimeout(() => {
+                  router.push(`/game?matchId=${ourMatch.matchId}`);
+                }, 1000);
+              } else if (ourMatch.status === 'escrow') {
+                console.log('💰 Match is in escrow, waiting for both players to confirm...');
+                setStatus('matched');
+                // Don't redirect yet - need to handle escrow first
+              }
             } else {
               console.log('⚠️ Found incomplete match, ignoring:', ourMatch);
             }
@@ -249,24 +273,33 @@ const Matchmaking: React.FC = () => {
           {status === 'matched' && (
             <div className="space-y-4">
               <div className="text-green-400 text-xl">✓ Match Found!</div>
-              <p className="text-white/80">Please lock your entry fee to start the game</p>
-              <div className="text-accent text-sm">
-                Entry Fee: {entryFee} SOL
-              </div>
-              <button
-                onClick={handleEscrowPayment}
-                disabled={escrowStatus === 'pending'}
-                className={`px-6 py-3 rounded-lg transition-colors ${
-                  escrowStatus === 'pending' 
-                    ? 'bg-gray-500 cursor-not-allowed' 
-                    : 'bg-accent hover:bg-accent/80 text-white'
-                }`}
-              >
-                {escrowStatus === 'pending' ? 'Processing...' : 'Lock Entry Fee'}
-              </button>
-              {escrowStatus === 'failed' && (
-                <div className="text-red-400 text-sm mt-2">
-                  Failed to lock entry fee. Please try again.
+              {matchData?.status === 'escrow' ? (
+                <div>
+                  <p className="text-white/80">Please lock your entry fee to start the game</p>
+                  <div className="text-accent text-sm">
+                    Entry Fee: {entryFee} SOL
+                  </div>
+                  <button
+                    onClick={handleEscrowPayment}
+                    disabled={escrowStatus === 'pending'}
+                    className={`px-6 py-3 rounded-lg transition-colors ${
+                      escrowStatus === 'pending' 
+                        ? 'bg-gray-500 cursor-not-allowed' 
+                        : 'bg-accent hover:bg-accent/80 text-white'
+                    }`}
+                  >
+                    {escrowStatus === 'pending' ? 'Processing...' : 'Lock Entry Fee'}
+                  </button>
+                  {escrowStatus === 'failed' && (
+                    <div className="text-red-400 text-sm mt-2">
+                      Failed to lock entry fee. Please try again.
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div>
+                  <p className="text-white/80">Both players confirmed escrow!</p>
+                  <p className="text-accent text-sm">Redirecting to game...</p>
                 </div>
               )}
             </div>

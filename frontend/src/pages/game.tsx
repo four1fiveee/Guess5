@@ -65,9 +65,16 @@ const Game: React.FC = () => {
 
         const matchData = await response.json();
         
-        // Verify match is active and player is part of this match
-        if (matchData.status !== 'active') {
-          throw new Error('Match is not active');
+        // Verify match is active/escrow and player is part of this match
+        if (matchData.status !== 'active' && matchData.status !== 'escrow') {
+          throw new Error('Match is not active or in escrow');
+        }
+        
+        // If match is still in escrow, redirect back to matchmaking
+        if (matchData.status === 'escrow') {
+          console.log('⚠️ Match is still in escrow, redirecting to matchmaking');
+          router.push('/matchmaking');
+          return;
         }
         
         if (matchData.isCompleted) {
