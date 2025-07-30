@@ -14,7 +14,10 @@ export const AppDataSource = new DataSource({
     ssl: {
       rejectUnauthorized: false
     }
-  }
+  },
+  // Performance optimizations
+  maxQueryExecutionTime: 5000, // 5 second timeout
+  connectTimeoutMS: 10000 // 10 second connection timeout
 })
 
 // Initialize database connection

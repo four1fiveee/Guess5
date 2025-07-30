@@ -99,40 +99,43 @@ const requestMatchHandler = async (req, res) => {
       return res.status(503).json({ error: 'Database not available - matchmaking unavailable' });
     }
     
-    // Clean up old completed matches and self-matches
-    try {
-      const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-      
-      // Clean up old completed matches
-      const oldCompletedMatches = await matchRepository.find({
-        where: {
-          status: 'completed',
-          updatedAt: LessThan(oneHourAgo)
+    // Clean up old completed matches and self-matches (non-blocking)
+    // Only run cleanup 10% of the time to avoid performance issues
+    if (Math.random() < 0.1) {
+      try {
+        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+        
+        // Clean up old completed matches
+        const oldCompletedMatches = await matchRepository.find({
+          where: {
+            status: 'completed',
+            updatedAt: LessThan(oneHourAgo)
+          }
+        });
+        
+        // Clean up self-matches (where player1 === player2)
+        const selfMatches = await matchRepository.find({
+          where: {
+            status: 'active',
+            player1: Not(null),
+            player2: Not(null)
+          }
+        });
+        
+        const actualSelfMatches = selfMatches.filter(match => match.player1 === match.player2);
+        
+        if (oldCompletedMatches.length > 0) {
+          console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
+          await matchRepository.remove(oldCompletedMatches);
         }
-      });
-      
-      // Clean up self-matches (where player1 === player2)
-      const selfMatches = await matchRepository.find({
-        where: {
-          status: 'active',
-          player1: Not(null),
-          player2: Not(null)
+        
+        if (actualSelfMatches.length > 0) {
+          console.log(`🧹 Cleaning up ${actualSelfMatches.length} self-matches`);
+          await matchRepository.remove(actualSelfMatches);
         }
-      });
-      
-      const actualSelfMatches = selfMatches.filter(match => match.player1 === match.player2);
-      
-      if (oldCompletedMatches.length > 0) {
-        console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
-        await matchRepository.remove(oldCompletedMatches);
+      } catch (cleanupError) {
+        console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
       }
-      
-      if (actualSelfMatches.length > 0) {
-        console.log(`🧹 Cleaning up ${actualSelfMatches.length} self-matches`);
-        await matchRepository.remove(actualSelfMatches);
-      }
-    } catch (cleanupError) {
-      console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
     }
     
     // Look for waiting players in database
@@ -143,28 +146,19 @@ const requestMatchHandler = async (req, res) => {
       console.log('🔍 Entry fee type:', typeof entryFee);
       console.log('🔍 Entry fee value:', entryFee);
       
-      // First, let's see ALL waiting matches to debug
-      const allWaitingMatches = await matchRepository.find({
+      // Find waiting matches (optimized query)
+      const waitingMatches = await matchRepository.find({
         where: {
           status: 'waiting',
           entryFee: entryFee,
-          player2: null
+          player2: null,
+          player1: Not(wallet) // Exclude current player in query
         },
         order: {
           createdAt: 'ASC'
-        }
+        },
+        take: 1 // Only get the first match
       });
-      
-      console.log('🔍 All waiting matches found:', allWaitingMatches.map(m => ({
-        id: m.id,
-        player1: m.player1,
-        player2: m.player2,
-        entryFee: m.entryFee,
-        createdAt: m.createdAt
-      })));
-      
-      // Filter out current player's matches manually
-      const waitingMatches = allWaitingMatches.filter(match => match.player1 !== wallet);
       
       console.log('🔍 Filtered waiting matches (excluding current player):', waitingMatches.map(m => ({
         id: m.id,
