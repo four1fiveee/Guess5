@@ -3,6 +3,7 @@ const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 const { Not, LessThan } = require('typeorm');
 const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
+const { AppDataSource } = require('../db/index');
 
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
@@ -58,7 +59,6 @@ const requestMatchHandler = async (req, res) => {
     
     while (!dbInitialized && retryCount < maxRetries) {
       try {
-        const { AppDataSource } = require('../db/index');
         console.log(`🔍 Database initialization status (attempt ${retryCount + 1}):`, AppDataSource.isInitialized);
         
         if (AppDataSource.isInitialized) {
@@ -87,7 +87,6 @@ const requestMatchHandler = async (req, res) => {
     
     try {
       console.log('🔍 Attempting to get database repository...');
-      const { AppDataSource } = require('../db/index');
       matchRepository = AppDataSource.getRepository(Match);
       console.log('✅ Database repository available');
     } catch (repoError) {
@@ -428,7 +427,6 @@ const debugWaitingPlayersHandler = async (req, res) => {
     
     // Try database first
     try {
-      const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
       useDatabase = true;
       
@@ -545,7 +543,6 @@ const testRepositoryHandler = async (req, res) => {
     console.log('🔍 Match entity available:', !!Match);
     
     // Test 2: Check if AppDataSource is available
-    const { AppDataSource } = require('../db/index');
     console.log('🔍 AppDataSource available:', !!AppDataSource);
     console.log('🔍 AppDataSource initialized:', AppDataSource.isInitialized);
     
@@ -583,7 +580,6 @@ const testDatabaseHandler = async (req, res) => {
   try {
     console.log('🧪 Testing basic database operations...');
     
-    const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Test 1: Simple count query
@@ -630,7 +626,6 @@ const testDatabaseHandler = async (req, res) => {
 const cleanupSelfMatchesHandler = async (req, res) => {
   try {
     console.log('🧹 Cleaning up self-matches...');
-    const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Find all active matches
@@ -670,7 +665,6 @@ const cleanupSelfMatchesHandler = async (req, res) => {
 
 // Helper function to determine winner and calculate payout instructions
 const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
-  const { AppDataSource } = require('../db/index');
   const matchRepository = AppDataSource.getRepository(Match);
   const match = await matchRepository.findOne({ where: { id: matchId } });
   
@@ -897,7 +891,6 @@ const submitResultHandler = async (req, res) => {
     console.log('Wallet:', wallet);
     console.log('Result:', result);
 
-    const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
     
@@ -1097,7 +1090,6 @@ const getMatchStatusHandler = async (req, res) => {
     // Try to find match in database first
     let match = null;
     try {
-      const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
       match = await matchRepository.findOne({ where: { id: matchId } });
       if (match) {
@@ -1164,7 +1156,6 @@ const checkPlayerMatchHandler = async (req, res) => {
     
     console.log('🔍 Checking if player has been matched:', wallet);
     
-    const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Check for active matches with this player
