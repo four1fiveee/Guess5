@@ -191,15 +191,16 @@ const requestMatchHandler = async (req, res) => {
       console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
       console.log('🔍 Waiting matches:', waitingMatches);
       
-      // Log how many players are waiting for this stake amount
+      // Log how many players are waiting for this stake amount (excluding current player)
       const totalWaitingForStake = await queryRunner.manager.count(Match, {
         where: {
           status: 'waiting',
           entryFee: entryFee,
-          player2: null
+          player2: null,
+          player1: Not(wallet) // Exclude current player from count
         }
       });
-      console.log(`📊 Total players waiting for $${entryFee}: ${totalWaitingForStake}`);
+      console.log(`📊 Total players waiting for $${entryFee} (excluding current player): ${totalWaitingForStake}`);
       
       if (waitingMatches.length > 0) {
         const match = waitingMatches[0];
@@ -377,6 +378,17 @@ const requestMatchHandler = async (req, res) => {
           });
           
           await queryRunner.commitTransaction();
+          
+          // Verify the match was saved properly
+          const { AppDataSource } = require('../db/index');
+          const verifyRepository = AppDataSource.getRepository(Match);
+          const verifiedMatch = await verifyRepository.findOne({ where: { id: updatedMatch.id } });
+          
+          if (verifiedMatch && verifiedMatch.status === 'active') {
+            console.log('✅ Match verified in database after commit');
+          } else {
+            console.error('❌ Match not found or not active after commit');
+          }
           
           res.json({
             status: 'matched',
@@ -1224,7 +1236,13 @@ const checkPlayerMatchHandler = async (req, res) => {
     });
     
     if (activeMatch) {
-      console.log('✅ Player has been matched:', activeMatch.id);
+      console.log('✅ Player has been matched:', {
+        matchId: activeMatch.id,
+        player1: activeMatch.player1,
+        player2: activeMatch.player2,
+        status: activeMatch.status,
+        requestingWallet: wallet
+      });
       res.json({
         matched: true,
         matchId: activeMatch.id,
@@ -1235,6 +1253,24 @@ const checkPlayerMatchHandler = async (req, res) => {
       });
     } else {
       console.log('⏳ Player still waiting for match');
+      
+      // Also check for waiting matches to debug
+      const waitingMatch = await matchRepository.findOne({
+        where: {
+          player1: wallet,
+          status: 'waiting',
+          player2: null
+        }
+      });
+      
+      if (waitingMatch) {
+        console.log('🔍 Player has waiting entry:', {
+          matchId: waitingMatch.id,
+          player1: waitingMatch.player1,
+          status: waitingMatch.status
+        });
+      }
+      
       res.json({ matched: false });
     }
     
