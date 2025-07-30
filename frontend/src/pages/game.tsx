@@ -2,10 +2,11 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
+import { executePayout, executeRefund } from '../utils/paymentService';
 
 const Game: React.FC = () => {
   const router = useRouter();
-  const { publicKey } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
   const [word, setWord] = useState('');
   const [guesses, setGuesses] = useState<string[]>([]);
   const [currentGuess, setCurrentGuess] = useState('');
@@ -16,6 +17,10 @@ const Game: React.FC = () => {
   const [gameStartTime, setGameStartTime] = useState<number>(0);
   const [lastActivity, setLastActivity] = useState<number>(0);
   const [opponentSolved, setOpponentSolved] = useState(false);
+  const [timeRemaining, setTimeRemaining] = useState<number>(120); // 2 minutes in seconds
+  const [timerActive, setTimerActive] = useState<boolean>(false);
+  const [escrowAddress, setEscrowAddress] = useState<string>('');
+  const [entryFee, setEntryFee] = useState<number>(0);
 
   useEffect(() => {
     if (!publicKey) {
@@ -67,6 +72,8 @@ const Game: React.FC = () => {
         }
 
         setWord(matchData.word);
+        setEscrowAddress(matchData.escrowAddress || '');
+        setEntryFee(matchData.entryFee || 0);
         // console.log('🎮 Starting game with word:', matchData.word);
         // console.log('🎮 Match ID:', gameMatchId);
 
@@ -75,6 +82,9 @@ const Game: React.FC = () => {
         setGameStartTime(startTime);
         setLastActivity(Date.now()); // Keep activity tracking in milliseconds
         (window as any).gameStartTime = startTime;
+
+        // Start the timer
+        setTimerActive(true);
 
         // Check if there are existing results for this player
         const isPlayer1 = matchData.player1 === publicKey.toString();
@@ -97,6 +107,24 @@ const Game: React.FC = () => {
 
     initializeGame();
   }, [publicKey, router]);
+
+  // Timer countdown effect
+  useEffect(() => {
+    if (!timerActive || gameState !== 'playing') return;
+
+    const timer = setInterval(() => {
+      setTimeRemaining(prev => {
+        if (prev <= 1) {
+          // Time's up - player loses
+          handleGameEnd(false, 'timeout');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timerActive, gameState]);
 
   // Update last activity on any user interaction
   useEffect(() => {
@@ -184,15 +212,20 @@ const Game: React.FC = () => {
 
     if (guess === word) {
       setGameState('won');
+      setTimerActive(false);
       handleGameEnd(true);
-    } else if (newGuesses.length >= 6) {
+    } else if (newGuesses.length >= 7) {
       setGameState('lost');
+      setTimerActive(false);
       handleGameEnd(false);
     }
   };
 
   const handleGameEnd = async (won: boolean, reason?: string) => {
     if (!publicKey || !matchId) return;
+
+    // Stop the timer
+    setTimerActive(false);
 
     // Calculate time with microsecond precision
     const endTime = performance.now();
@@ -232,6 +265,70 @@ const Game: React.FC = () => {
       console.log('📝 Result submitted:', data);
 
       if (data.status === 'completed') {
+        // Execute automated payment if available
+        if (data.payout && data.payout.winner && data.payout.winner !== 'tie' && signTransaction) {
+          try {
+            console.log('💰 Executing automated payment...');
+            
+            const paymentData = {
+              matchId,
+              winner: data.payout.winner,
+              loser: data.payout.winner === publicKey.toString() ? 
+                (data.player1 === publicKey.toString() ? data.player2 : data.player1) : 
+                publicKey.toString(),
+              entryFee: entryFee,
+              escrowAddress: escrowAddress
+            };
+
+            const paymentResult = await executePayout(paymentData, signTransaction);
+            
+            if (paymentResult.success) {
+              console.log('✅ Automated payment successful:', paymentResult.signature);
+              data.payout.paymentSuccess = true;
+              data.payout.transactionSignature = paymentResult.signature;
+            } else {
+              console.error('❌ Automated payment failed:', paymentResult.error);
+              data.payout.paymentSuccess = false;
+              data.payout.paymentError = paymentResult.error;
+            }
+          } catch (paymentError) {
+            console.error('❌ Payment execution error:', paymentError);
+            data.payout.paymentSuccess = false;
+            data.payout.paymentError = 'Payment execution failed';
+          }
+        } else if (data.payout && data.payout.winner === 'tie' && signTransaction) {
+          // Handle tie scenarios
+          if (data.payout.transactions && data.payout.transactions.length > 0) {
+            try {
+              console.log('🤝 Executing tie refund...');
+              
+              const refundData = {
+                matchId,
+                player1: data.player1,
+                player2: data.player2,
+                entryFee: entryFee,
+                escrowAddress: escrowAddress
+              };
+
+              const refundResult = await executeRefund(refundData, signTransaction);
+              
+              if (refundResult.success) {
+                console.log('✅ Refund successful:', refundResult.signature);
+                data.payout.paymentSuccess = true;
+                data.payout.transactionSignature = refundResult.signature;
+              } else {
+                console.error('❌ Refund failed:', refundResult.error);
+                data.payout.paymentSuccess = false;
+                data.payout.paymentError = refundResult.error;
+              }
+            } catch (refundError) {
+              console.error('❌ Refund execution error:', refundError);
+              data.payout.paymentSuccess = false;
+              data.payout.paymentError = 'Refund execution failed';
+            }
+          }
+        }
+
         // Store payout data for results page
         localStorage.setItem('payoutData', JSON.stringify(data.payout));
         router.push('/result');
@@ -246,6 +343,13 @@ const Game: React.FC = () => {
     } catch (error) {
       console.error('❌ Error submitting result:', error);
     }
+  };
+
+  // Format time remaining as MM:SS
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
   if (loading) {
@@ -288,7 +392,14 @@ const Game: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-md mx-auto">
           <div className="text-center mb-8">
-            <p className="text-white/80">Guess the 5-letter word in 6 tries</p>
+            <p className="text-white/80">Guess the 5-letter word in 7 tries</p>
+            {gameState === 'playing' && (
+              <div className="mt-2">
+                <div className={`text-lg font-mono ${timeRemaining <= 30 ? 'text-red-400' : 'text-white/80'}`}>
+                  ⏱️ {formatTime(timeRemaining)}
+                </div>
+              </div>
+            )}
           </div>
 
           <GameGrid

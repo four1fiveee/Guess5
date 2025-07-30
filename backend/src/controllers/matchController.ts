@@ -2,6 +2,7 @@ const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 const { Not, LessThan } = require('typeorm');
+const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
 
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
@@ -138,16 +139,21 @@ const requestMatchHandler = async (req, res) => {
       }
     }
     
-    // Look for waiting players in database
-    let waitingPlayer = null;
+    // Use database transaction to prevent race conditions
+    const queryRunner = AppDataSource.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
     
     try {
+      // Look for waiting players in database with transaction isolation
+      let waitingPlayer = null;
+      
       console.log('🔍 Searching database for waiting players with entry fee:', entryFee);
       console.log('🔍 Entry fee type:', typeof entryFee);
       console.log('🔍 Entry fee value:', entryFee);
       
-      // Find waiting matches (optimized query)
-      const waitingMatches = await matchRepository.find({
+      // Find waiting matches with transaction isolation
+      const waitingMatches = await queryRunner.manager.find(Match, {
         where: {
           status: 'waiting',
           entryFee: entryFee,
@@ -171,6 +177,16 @@ const requestMatchHandler = async (req, res) => {
       console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
       console.log('🔍 Waiting matches:', waitingMatches);
       
+      // Log how many players are waiting for this stake amount
+      const totalWaitingForStake = await queryRunner.manager.count(Match, {
+        where: {
+          status: 'waiting',
+          entryFee: entryFee,
+          player2: null
+        }
+      });
+      console.log(`📊 Total players waiting for $${entryFee}: ${totalWaitingForStake}`);
+      
       if (waitingMatches.length > 0) {
         const match = waitingMatches[0];
         
@@ -191,7 +207,7 @@ const requestMatchHandler = async (req, res) => {
             // Create a new waiting entry instead of matching with self
             try {
               console.log('💾 Creating new waiting entry (avoiding self-match from DB)...');
-              const waitingMatch = matchRepository.create({
+              const waitingMatch = queryRunner.manager.create(Match, {
                 player1: wallet,
                 player2: null,
                 entryFee: entryFee,
@@ -199,16 +215,20 @@ const requestMatchHandler = async (req, res) => {
                 word: null
               });
               
-              const savedMatch = await matchRepository.save(waitingMatch);
+              const savedMatch = await queryRunner.manager.save(waitingMatch);
               console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
+              
+              await queryRunner.commitTransaction();
               
               res.json({
                 status: 'waiting',
-                message: 'Waiting for opponent'
+                message: 'Waiting for opponent',
+                waitingCount: totalWaitingForStake
               });
               return;
             } catch (dbError) {
               console.error('❌ Failed to save new waiting entry:', dbError);
+              await queryRunner.rollbackTransaction();
               return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
             }
           }
@@ -228,29 +248,131 @@ const requestMatchHandler = async (req, res) => {
       } else {
         console.log('⏳ No waiting players found');
       }
-    } catch (dbError) {
-      console.error('❌ Database lookup failed:', dbError);
-      console.error('❌ Error details:', {
-        message: dbError.message,
-        stack: dbError.stack,
-        name: dbError.name
-      });
-      return res.status(503).json({ error: 'Database lookup failed - matchmaking unavailable' });
-    }
-    
-    if (waitingPlayer) {
-      // Additional validation: ensure we have a valid opponent
-      if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
-        console.log('❌ Invalid waiting player detected:', {
-          waitingPlayerWallet: waitingPlayer.wallet,
-          currentWallet: wallet,
-          isSelfMatch: waitingPlayer.wallet === wallet
-        });
+      
+      if (waitingPlayer) {
+        // Additional validation: ensure we have a valid opponent
+        if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
+          console.log('❌ Invalid waiting player detected:', {
+            waitingPlayerWallet: waitingPlayer.wallet,
+            currentWallet: wallet,
+            isSelfMatch: waitingPlayer.wallet === wallet
+          });
+          
+          // Create a new waiting entry instead
+          try {
+            console.log('💾 Creating new waiting entry (invalid opponent detected)...');
+            const waitingMatch = queryRunner.manager.create(Match, {
+              player1: wallet,
+              player2: null,
+              entryFee: entryFee,
+              status: 'waiting',
+              word: null
+            });
+            
+            const savedMatch = await queryRunner.manager.save(waitingMatch);
+            console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
+            
+            await queryRunner.commitTransaction();
+            
+            res.json({
+              status: 'waiting',
+              message: 'Waiting for opponent',
+              waitingCount: totalWaitingForStake
+            });
+            return;
+          } catch (dbError) {
+            console.error('❌ Failed to save new waiting entry:', dbError);
+            await queryRunner.rollbackTransaction();
+            return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
+          }
+        }
         
-        // Create a new waiting entry instead
+        // Final validation: ensure we have a valid opponent before creating match
+        if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
+          console.log('❌ CRITICAL: Attempting to create match with invalid opponent, aborting');
+          await queryRunner.rollbackTransaction();
+          return res.status(400).json({ error: 'Invalid match creation attempt' });
+        }
+        
+        // CRITICAL: Final validation before creating match
+        if (waitingPlayer.wallet === wallet) {
+          console.log('❌ CRITICAL ERROR: Attempting to create self-match, aborting');
+          console.log('❌ Match details:', {
+            waitingPlayer: waitingPlayer.wallet,
+            currentPlayer: wallet,
+            matchId: waitingPlayer.matchId
+          });
+          await queryRunner.rollbackTransaction();
+          return res.status(400).json({ error: 'Self-matching not allowed' });
+        }
+        
+        // Create match with transaction isolation
         try {
-          console.log('💾 Creating new waiting entry (invalid opponent detected)...');
-          const waitingMatch = matchRepository.create({
+          console.log('🎮 Creating match with transaction isolation...');
+          
+          // Update the waiting match to include the second player
+          const existingMatch = await queryRunner.manager.findOne(Match, { where: { id: waitingPlayer.matchId } });
+          
+          if (!existingMatch || existingMatch.player2 !== null) {
+            console.log('❌ Match no longer available (already matched or not found)');
+            await queryRunner.rollbackTransaction();
+            return res.status(409).json({ error: 'Match no longer available' });
+          }
+          
+          // Select random word for the game
+          const randomWord = wordList[Math.floor(Math.random() * wordList.length)];
+          
+          // Create escrow account for automated payments
+          const escrowResult = await createEscrowAccount(waitingPlayer.matchId, waitingPlayer.wallet, wallet, entryFee);
+          
+          if (!escrowResult.success) {
+            console.error('❌ Failed to create escrow account:', escrowResult.error);
+            await queryRunner.rollbackTransaction();
+            return res.status(500).json({ error: 'Failed to create payment escrow' });
+          }
+          
+          // Update match with game data
+          existingMatch.player2 = wallet;
+          existingMatch.status = 'active';
+          existingMatch.word = randomWord;
+          existingMatch.escrowAddress = escrowResult.escrowAddress;
+          existingMatch.gameStartTime = new Date();
+          
+          const updatedMatch = await queryRunner.manager.save(existingMatch);
+          
+          console.log('✅ Match created successfully with transaction isolation');
+          console.log('🎮 Match details:', {
+            id: updatedMatch.id,
+            player1: updatedMatch.player1,
+            player2: updatedMatch.player2,
+            word: updatedMatch.word,
+            entryFee: updatedMatch.entryFee,
+            escrowAddress: updatedMatch.escrowAddress
+          });
+          
+          await queryRunner.commitTransaction();
+          
+          res.json({
+            status: 'matched',
+            matchId: updatedMatch.id,
+            player1: updatedMatch.player1,
+            player2: updatedMatch.player2,
+            entryFee: updatedMatch.entryFee,
+            escrowAddress: updatedMatch.escrowAddress,
+            message: 'Match created successfully'
+          });
+          
+        } catch (matchError) {
+          console.error('❌ Error creating match:', matchError);
+          await queryRunner.rollbackTransaction();
+          return res.status(500).json({ error: 'Failed to create match' });
+        }
+        
+      } else {
+        // No waiting player found - create new waiting entry
+        try {
+          console.log('💾 Creating new waiting entry...');
+          const waitingMatch = queryRunner.manager.create(Match, {
             player1: wallet,
             player2: null,
             entryFee: entryFee,
@@ -258,147 +380,39 @@ const requestMatchHandler = async (req, res) => {
             word: null
           });
           
-          const savedMatch = await matchRepository.save(waitingMatch);
+          const savedMatch = await queryRunner.manager.save(waitingMatch);
           console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
+          
+          await queryRunner.commitTransaction();
           
           res.json({
             status: 'waiting',
-            message: 'Waiting for opponent'
+            message: 'Waiting for opponent',
+            waitingCount: totalWaitingForStake + 1
           });
-          return;
+          
         } catch (dbError) {
           console.error('❌ Failed to save new waiting entry:', dbError);
+          await queryRunner.rollbackTransaction();
           return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
         }
       }
       
-      // Final validation: ensure we have a valid opponent before creating match
-      if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
-        console.log('❌ CRITICAL: Attempting to create match with invalid opponent, aborting');
-        return res.status(400).json({ error: 'Invalid match creation attempt' });
-      }
-      
-      // CRITICAL: Final validation before creating match
-      if (waitingPlayer.wallet === wallet) {
-        console.log('❌ CRITICAL ERROR: Attempting to create self-match, aborting');
-        console.log('❌ Match details:', {
-          waitingPlayer: waitingPlayer.wallet,
-          currentPlayer: wallet,
-          matchId: waitingPlayer.matchId
-        });
-        return res.status(400).json({ error: 'Self-matching detected - please try again' });
-      }
-      
-      // Match found! Create the game
-      const matchId = Date.now().toString();
-      const word = wordList[Math.floor(Math.random() * wordList.length)];
-      
-      console.log(`🎮 Creating match: ${waitingPlayer.wallet} vs ${wallet}, word: ${word}`);
-      console.log(`🔍 Match details:`, {
-        waitingPlayer: waitingPlayer.wallet,
-        newPlayer: wallet,
-        sameWallet: waitingPlayer.wallet === wallet,
-        entryFee: entryFee
-      });
-      
-      const matchData = {
-        id: matchId,
-        player1: waitingPlayer.wallet,
-      player2: wallet,
-        entryFee: entryFee,
-        word: word,
-        status: 'active',
-      player1Result: null,
-      player2Result: null,
-        winner: null,
-        payoutResult: null
-      };
-      
-      // Update the existing match in database
-      try {
-        console.log('💾 Updating existing match in database...');
-        const existingMatch = await matchRepository.findOne({
-          where: { id: waitingPlayer.matchId }
-        });
-        
-        if (existingMatch) {
-          // CRITICAL: Check if this would create a self-match
-          if (existingMatch.player1 === wallet) {
-            console.log('❌ CRITICAL ERROR: Attempting to update match with self-match');
-            console.log('❌ Existing match:', {
-              id: existingMatch.id,
-              player1: existingMatch.player1,
-              player2: existingMatch.player2,
-              status: existingMatch.status
-            });
-            return res.status(400).json({ error: 'Self-matching detected in database update' });
-          }
-          
-          existingMatch.player2 = wallet;
-          existingMatch.word = word;
-          existingMatch.status = 'active';
-          const savedMatch = await matchRepository.save(existingMatch);
-          matchData.id = savedMatch.id;
-          console.log(`✅ Match updated in database: ${matchData.id}`);
-        }
-      } catch (dbError) {
-        console.error('❌ Database update failed:', dbError.message);
-        return res.status(503).json({ error: 'Failed to create match - database error' });
-      }
-      
-      // Store in memory for this instance only (for game state)
-      inMemoryMatches.set(matchData.id, matchData);
-      console.log(`✅ Match created successfully: ${matchData.id}`);
-
-      res.json({
-        status: 'matched',
-        matchId: matchData.id,
-        word: word
-      });
-
-    } else {
-      // No match found, create a waiting entry
-      console.log(`⏳ Player ${wallet} added to waiting queue for $${entryFee}`);
-      
-      try {
-        console.log('💾 Creating waiting entry in database...');
-        console.log('💾 Waiting entry data:', {
-          player1: wallet,
-          player2: null,
-          entryFee: entryFee,
-          status: 'waiting',
-          word: null
-        });
-        
-        const waitingMatch = matchRepository.create({
-          player1: wallet,
-          player2: null,
-          entryFee: entryFee,
-          status: 'waiting',
-          word: null
-        });
-        
-        console.log('💾 Waiting match created, saving to database...');
-        const savedMatch = await matchRepository.save(waitingMatch);
-        console.log(`✅ Waiting entry saved to database with ID: ${savedMatch.id}`);
-        
-        res.json({
-          status: 'waiting',
-          message: 'Waiting for opponent'
-        });
-      } catch (dbError) {
-        console.error('❌ Failed to save waiting entry to database:', dbError);
-        console.error('❌ Error details:', {
-          message: dbError.message,
-          stack: dbError.stack,
-          name: dbError.name
-        });
-        return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
-      }
+    } catch (transactionError) {
+      console.error('❌ Transaction error:', transactionError);
+      await queryRunner.rollbackTransaction();
+      return res.status(500).json({ error: 'Database transaction failed' });
+    } finally {
+      await queryRunner.release();
     }
 
   } catch (error) {
-    console.error('❌ Error in requestMatch:', error);
+    console.error('❌ Error in requestMatchHandler:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -869,6 +883,16 @@ const submitResultHandler = async (req, res) => {
       return res.status(400).json({ error: 'Invalid result format' });
     }
 
+    // Validate game rules
+    if (result.numGuesses > 7) {
+      return res.status(400).json({ error: 'Maximum 7 guesses allowed' });
+    }
+
+    // Validate time limit (2 minutes = 120000 milliseconds)
+    if (result.totalTime > 120000) {
+      return res.status(400).json({ error: 'Game time exceeded 2-minute limit' });
+    }
+
     console.log('📝 Submitting result for match:', matchId);
     console.log('Wallet:', wallet);
     console.log('Result:', result);
@@ -914,6 +938,63 @@ const submitResultHandler = async (req, res) => {
         
         const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
         
+        // Execute automated payment if there's a clear winner
+        if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
+          console.log('💰 Executing automated payment...');
+          
+          const paymentData = {
+            matchId: matchId,
+            winner: payoutResult.winner,
+            loser: payoutResult.winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1,
+            entryFee: updatedMatch.entryFee,
+            escrowAddress: updatedMatch.escrowAddress
+          };
+          
+          const paymentResult = await payout(paymentData);
+          
+          if (paymentResult.success) {
+            console.log('✅ Automated payment transaction created');
+            payoutResult.transaction = paymentResult.transaction;
+            payoutResult.paymentSuccess = true;
+          } else {
+            console.error('❌ Failed to create payment transaction:', paymentResult.error);
+            payoutResult.paymentSuccess = false;
+            payoutResult.paymentError = paymentResult.error;
+          }
+        } else if (payoutResult && payoutResult.winner === 'tie') {
+          // Handle tie scenarios
+          if (updatedMatch.player1Result && updatedMatch.player2Result && 
+              updatedMatch.player1Result.won && updatedMatch.player2Result.won) {
+            // Winning tie - refund both players
+            console.log('🤝 Winning tie - refunding both players...');
+            
+            const refundData = {
+              matchId: matchId,
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+              entryFee: updatedMatch.entryFee,
+              escrowAddress: updatedMatch.escrowAddress
+            };
+            
+            const refundResult = await refundEscrow(refundData);
+            
+            if (refundResult.success) {
+              console.log('✅ Refund transaction created');
+              payoutResult.transaction = refundResult.transaction;
+              payoutResult.paymentSuccess = true;
+            } else {
+              console.error('❌ Failed to create refund transaction:', refundResult.error);
+              payoutResult.paymentSuccess = false;
+              payoutResult.paymentError = refundResult.error;
+            }
+          } else {
+            // Losing tie - each pays fee
+            console.log('🤝 Losing tie - each player pays fee...');
+            // Fee collection would be handled by the smart contract
+            payoutResult.paymentSuccess = true;
+          }
+        }
+        
         // Mark match as completed
         updatedMatch.isCompleted = true;
         updatedMatch.payoutResult = payoutResult;
@@ -947,6 +1028,31 @@ const submitResultHandler = async (req, res) => {
         const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
         
         const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
+        
+        // Execute automated payment
+        if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
+          console.log('💰 Executing automated payment...');
+          
+          const paymentData = {
+            matchId: matchId,
+            winner: payoutResult.winner,
+            loser: payoutResult.winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1,
+            entryFee: updatedMatch.entryFee,
+            escrowAddress: updatedMatch.escrowAddress
+          };
+          
+          const paymentResult = await payout(paymentData);
+          
+          if (paymentResult.success) {
+            console.log('✅ Automated payment transaction created');
+            payoutResult.transaction = paymentResult.transaction;
+            payoutResult.paymentSuccess = true;
+          } else {
+            console.error('❌ Failed to create payment transaction:', paymentResult.error);
+            payoutResult.paymentSuccess = false;
+            payoutResult.paymentError = paymentResult.error;
+          }
+        }
         
         // Mark match as completed
         updatedMatch.isCompleted = true;
@@ -1051,10 +1157,50 @@ const getMatchStatusHandler = async (req, res) => {
   }
 };
 
+// Check if a player has been matched (for polling)
+const checkPlayerMatchHandler = async (req, res) => {
+  try {
+    const { wallet } = req.params;
+    
+    console.log('🔍 Checking if player has been matched:', wallet);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Check for active matches with this player
+    const activeMatch = await matchRepository.findOne({
+      where: [
+        { player1: wallet, status: 'active' },
+        { player2: wallet, status: 'active' }
+      ]
+    });
+    
+    if (activeMatch) {
+      console.log('✅ Player has been matched:', activeMatch.id);
+      res.json({
+        matched: true,
+        matchId: activeMatch.id,
+        status: activeMatch.status,
+        player1: activeMatch.player1,
+        player2: activeMatch.player2,
+        word: activeMatch.word
+      });
+    } else {
+      console.log('⏳ Player still waiting for match');
+      res.json({ matched: false });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error checking player match:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
   getMatchStatusHandler,
+  checkPlayerMatchHandler,
   debugWaitingPlayersHandler,
   matchTestHandler,
   testRepositoryHandler,

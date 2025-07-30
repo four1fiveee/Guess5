@@ -16,7 +16,7 @@ export default function Home() {
             <li><b>Connect your Phantom wallet</b> (top right).</li>
             <li><b>Choose a lobby:</b> $1, $5, or $20 entry (paid in SOL at the current rate).</li>
             <li><b>Get matched</b> with another player.</li>
-            <li><b>Guess the secret 5-letter word</b> in up to 6 tries.</li>
+            <li><b>Guess the secret 5-letter word</b> in up to 7 tries.</li>
             <li><b>Hints</b> show if letters are correct or misplaced.</li>
             <li><b>Winner:</b> Fewest moves wins. If same moves, fastest time wins.</li>
             <li><b>Payouts:</b> Winner gets 90% of pot, platform takes 10% fee.</li>

@@ -9,6 +9,7 @@ const Matchmaking: React.FC = () => {
   const [timeoutMessage, setTimeoutMessage] = useState('');
   const [matchId, setMatchId] = useState<string | null>(null);
   const [timeLeft, setTimeLeft] = useState(120); // 2 minutes in seconds
+  const [waitingCount, setWaitingCount] = useState<number>(0);
 
   useEffect(() => {
     if (!publicKey) {
@@ -51,8 +52,9 @@ const Matchmaking: React.FC = () => {
             router.push(`/game?matchId=${data.matchId}`);
           }, 1000);
         } else if (data.status === 'waiting') {
-          console.log('⏳ Waiting for opponent...');
+          console.log('⏳ Waiting for opponent...', data);
           setStatus('waiting');
+          setWaitingCount(data.waitingCount || 0);
           // Start polling to check if we get matched
           startPolling();
         }
@@ -65,56 +67,46 @@ const Matchmaking: React.FC = () => {
     };
 
     const startPolling = () => {
-      // Poll every 2 seconds to check if we've been matched
+      // Poll every 1 second to check if we've been matched (faster response)
       pollInterval = setInterval(async () => {
         try {
           console.log('🔍 Polling for match status...');
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/debug/waiting`);
+          
+          // Use the dedicated endpoint to check if we've been matched
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${wallet}`);
           const data = await response.json();
           
-          // Check if we're in an active match
-          const activeMatches = data.database?.activeMatches || [];
-          const memoryMatches = data.memory?.activeMatches || [];
-          const allActiveMatches = [...activeMatches, ...memoryMatches];
-          
-          const ourMatch = allActiveMatches.find((match: any) => 
-            match.player1 === wallet || match.player2 === wallet
-          );
-          
-          // Validate that this is a proper match with both players
-          if (ourMatch && ourMatch.status === 'active' && ourMatch.player1 && ourMatch.player2) {
-            // CRITICAL: Check that this is not a self-match
-            if (ourMatch.player1 === ourMatch.player2) {
-              console.log('❌ Found self-match, ignoring:', ourMatch);
-              return;
-            }
+          if (data.matched) {
+            console.log('✅ We have been matched!', data);
+            const ourMatch = data;
             
-            // Additional check: ensure this match was created recently (within last 2 minutes)
-            const matchCreatedAt = new Date(ourMatch.createdAt || Date.now());
-            const twoMinutesAgo = new Date(Date.now() - 2 * 60 * 1000);
-            
-            if (matchCreatedAt > twoMinutesAgo) {
+            // Validate that this is a proper match with both players
+            if (ourMatch && ourMatch.status === 'active' && ourMatch.player1 && ourMatch.player2) {
+              // CRITICAL: Check that this is not a self-match
+              if (ourMatch.player1 === ourMatch.player2) {
+                console.log('❌ Found self-match, ignoring:', ourMatch);
+                return;
+              }
+              
               console.log('✅ Found our active match!', ourMatch);
               setStatus('matched');
               clearTimeout(timeoutId);
               clearInterval(pollInterval);
               clearInterval(countdownInterval);
               // Store match data
-              localStorage.setItem('matchId', ourMatch.id);
+              localStorage.setItem('matchId', ourMatch.matchId);
               // Redirect to game
               setTimeout(() => {
-                router.push(`/game?matchId=${ourMatch.id}`);
+                router.push(`/game?matchId=${ourMatch.matchId}`);
               }, 1000);
             } else {
-              console.log('⚠️ Found old match, ignoring:', ourMatch);
+              console.log('⚠️ Found incomplete match, ignoring:', ourMatch);
             }
-          } else if (ourMatch) {
-            console.log('⚠️ Found incomplete match, ignoring:', ourMatch);
           }
         } catch (error) {
           console.error('❌ Polling error:', error);
         }
-      }, 2000);
+      }, 1000); // Poll every 1 second for faster response
     };
 
     startMatchmaking();
@@ -159,6 +151,11 @@ const Matchmaking: React.FC = () => {
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
               </div>
               <p className="text-white/80">Waiting for another player to join...</p>
+              {waitingCount > 0 && (
+                <div className="text-accent text-sm">
+                  {waitingCount === 1 ? 'You are the only player waiting' : `${waitingCount} players waiting`}
+                </div>
+              )}
               <div className="text-accent text-sm">
                 Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
               </div>

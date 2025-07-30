@@ -20,6 +20,12 @@ export class Match {
   @Column({ nullable: true })
   word?: string;
 
+  @Column({ nullable: true })
+  escrowAddress?: string;
+
+  @Column({ nullable: true })
+  gameStartTime?: Date;
+
   @Column({ type: 'simple-json', nullable: true })
   player1Result?: {
     won: boolean;
@@ -51,6 +57,9 @@ export class Match {
       amount: number;
       description: string;
     }>;
+    paymentSuccess?: boolean;
+    paymentError?: string;
+    transaction?: any;
   } | null;
 
   @Column({ default: false })

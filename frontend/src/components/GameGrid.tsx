@@ -37,14 +37,14 @@ const GameGrid: React.FC<{
 
   return (
     <div className="flex flex-col items-center justify-center w-full">
-      {/* Render 6 rows for guesses */}
+      {/* Render 7 rows for guesses */}
       <div className="flex flex-col gap-2 items-center">
-        {[...Array(6)].map((_, row) => (
+        {[...Array(7)].map((_, row) => (
           <div key={row} className="flex gap-2 justify-center">
             {[...Array(5)].map((_, col) => (
               <div
                 key={col}
-                className={`w-12 h-12 flex items-center justify-center border-2 rounded text-2xl font-bold
+                className={`w-12 h-12 flex items-center justify-center border-2 rounded-full text-2xl font-bold
                   ${hintColors[row]?.[col] || 'bg-white border-gray-300'} text-gray-800 transition-all duration-200`}
                 style={{ aspectRatio: '1 / 1' }}
               >
@@ -56,9 +56,9 @@ const GameGrid: React.FC<{
       </div>
       
       {/* Input for current guess */}
-      {gameState === 'playing' && guesses.length < 6 && (
+      {gameState === 'playing' && guesses.length < 7 && (
         <div className="mt-4 flex flex-col items-center gap-2 w-full">
-          <div className="text-gray-600 text-lg text-center">Guesses: {guesses.length}/6</div>
+          <div className="text-gray-600 text-lg text-center">Guesses: {guesses.length}/7</div>
           <div className="flex gap-2 justify-center w-full">
             <input
               type="text"

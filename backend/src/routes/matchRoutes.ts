@@ -13,6 +13,7 @@ router.post('/cleanup-self-matches', matchController.cleanupSelfMatchesHandler);
 router.post('/request-match', matchController.requestMatchHandler);
 router.post('/submit-result', matchController.submitResultHandler);
 router.get('/status/:matchId', matchController.getMatchStatusHandler);
+router.get('/check-match/:wallet', matchController.checkPlayerMatchHandler);
 router.get('/debug/waiting', matchController.debugWaitingPlayersHandler); // Debug endpoint
 
 module.exports = router; 
