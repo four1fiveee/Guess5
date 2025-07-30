@@ -10,7 +10,10 @@ const Game: React.FC = () => {
   const [word, setWord] = useState('');
   const [guesses, setGuesses] = useState<string[]>([]);
   const [currentGuess, setCurrentGuess] = useState('');
-  const [gameState, setGameState] = useState<'playing' | 'won' | 'lost'>('playing');
+  const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed'>('playing');
+  const [playerResult, setPlayerResult] = useState<any>(null);
+  const [opponentResult, setOpponentResult] = useState<any>(null);
+  const [finalResult, setFinalResult] = useState<any>(null);
   const [matchId, setMatchId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -115,7 +118,6 @@ const Game: React.FC = () => {
     const timer = setInterval(() => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
-          // Time's up - player loses
           handleGameEnd(false, 'timeout');
           return 0;
         }
@@ -211,11 +213,11 @@ const Game: React.FC = () => {
     setGuesses(newGuesses);
 
     if (guess === word) {
-      setGameState('won');
+      setGameState('solved');
       setTimerActive(false);
       handleGameEnd(true);
     } else if (newGuesses.length >= 7) {
-      setGameState('lost');
+      setGameState('solved');
       setTimerActive(false);
       handleGameEnd(false);
     }
@@ -238,6 +240,9 @@ const Game: React.FC = () => {
       guesses: [...guesses, currentGuess],
       reason: reason || 'normal'
     };
+
+    // Store player's result
+    setPlayerResult(result);
 
     console.log('🏁 Game ended:', result);
     console.log('⏱️ Time precision:', {
@@ -265,6 +270,20 @@ const Game: React.FC = () => {
       console.log('📝 Result submitted:', data);
 
       if (data.status === 'completed') {
+        // Store opponent's result if available
+        if (data.player1Result && data.player1Result.wallet !== publicKey.toString()) {
+          setOpponentResult(data.player1Result);
+        } else if (data.player2Result && data.player2Result.wallet !== publicKey.toString()) {
+          setOpponentResult(data.player2Result);
+        }
+
+        // Determine final result
+        const isWinner = data.payout?.winner === publicKey.toString();
+        setFinalResult({
+          won: isWinner,
+          payout: data.payout
+        });
+
         // Execute automated payment if available
         if (data.payout && data.payout.winner && data.payout.winner !== 'tie' && signTransaction) {
           try {
@@ -331,13 +350,21 @@ const Game: React.FC = () => {
 
         // Store payout data for results page
         localStorage.setItem('payoutData', JSON.stringify(data.payout));
-        router.push('/result');
+        
+        // Set game state to completed
+        setGameState('completed');
+        
+        // Navigate to result page after a short delay
+        setTimeout(() => {
+          router.push('/result');
+        }, 3000);
       } else if (reason === 'opponent_solved') {
         // Opponent solved first - navigate to result immediately
         console.log('🏆 Opponent solved first, navigating to result');
         router.push(`/result?matchId=${matchId}`);
       } else {
         console.log('⏳ Waiting for other player...');
+        setGameState('waiting');
       }
 
     } catch (error) {
@@ -411,17 +438,59 @@ const Game: React.FC = () => {
             gameState={gameState}
           />
 
-          {gameState !== 'playing' && (
+          {gameState === 'solved' && (
             <div className="mt-8 text-center">
               <div className="text-white text-xl mb-4">
-                {gameState === 'won' ? '🎉 You Won!' : '😔 Game Over'}
+                {playerResult?.won ? '🎯 Puzzle Solved!' : '😔 Out of Guesses'}
               </div>
-              <p className="text-white/80 mb-4">
+              <p className="text-white/80 mb-2">
                 The word was: <span className="font-bold">{word}</span>
               </p>
+              {playerResult && (
+                <div className="text-white/80 mb-4">
+                  <p>Your performance: {playerResult.numGuesses} moves in {(playerResult.totalTime / 1000).toFixed(2)} seconds</p>
+                </div>
+              )}
               <p className="text-white/60 text-sm">
-                Waiting for other player to finish...
+                Waiting for opponent to complete puzzle...
               </p>
+            </div>
+          )}
+
+          {gameState === 'waiting' && (
+            <div className="mt-8 text-center">
+              <div className="text-white text-xl mb-4">
+                ⏳ Waiting for opponent...
+              </div>
+              <p className="text-white/80 mb-2">
+                The word was: <span className="font-bold">{word}</span>
+              </p>
+              {playerResult && (
+                <div className="text-white/80 mb-4">
+                  <p>Your performance: {playerResult.numGuesses} moves in {(playerResult.totalTime / 1000).toFixed(2)} seconds</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {gameState === 'completed' && finalResult && (
+            <div className="mt-8 text-center">
+              <div className="text-white text-xl mb-4">
+                {finalResult.won ? '🎉 You Won!' : '😔 You Lost'}
+              </div>
+              <p className="text-white/80 mb-2">
+                The word was: <span className="font-bold">{word}</span>
+              </p>
+              {playerResult && (
+                <div className="text-white/80 mb-4">
+                  <p>Your performance: {playerResult.numGuesses} moves in {(playerResult.totalTime / 1000).toFixed(2)} seconds</p>
+                </div>
+              )}
+              {opponentResult && (
+                <div className="text-white/80 mb-4">
+                  <p>Opponent: {opponentResult.numGuesses} moves in {(opponentResult.totalTime / 1000).toFixed(2)} seconds</p>
+                </div>
+              )}
             </div>
           )}
         </div>
