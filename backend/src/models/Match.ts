@@ -26,6 +26,18 @@ export class Match {
   @Column({ nullable: true })
   gameStartTime?: Date;
 
+  @Column({ nullable: true })
+  player1EscrowConfirmed?: boolean;
+
+  @Column({ nullable: true })
+  player2EscrowConfirmed?: boolean;
+
+  @Column({ nullable: true })
+  player1EscrowSignature?: string;
+
+  @Column({ nullable: true })
+  player2EscrowSignature?: string;
+
   @Column({ type: 'simple-json', nullable: true })
   player1Result?: {
     won: boolean;

@@ -382,7 +382,7 @@ const requestMatchHandler = async (req, res) => {
           const gameWord = getRandomWord();
           
           existingMatch.player2 = wallet;
-          existingMatch.status = 'active';
+          existingMatch.status = 'escrow'; // Changed from 'active' to 'escrow'
           existingMatch.word = gameWord;
           existingMatch.escrowAddress = escrowResult.escrowAddress;
           existingMatch.gameStartTime = new Date();
@@ -396,7 +396,8 @@ const requestMatchHandler = async (req, res) => {
             player2: updatedMatch.player2,
             word: updatedMatch.word,
             entryFee: updatedMatch.entryFee,
-            escrowAddress: updatedMatch.escrowAddress
+            escrowAddress: updatedMatch.escrowAddress,
+            status: updatedMatch.status
           });
           
           await queryRunner.commitTransaction();
@@ -406,7 +407,7 @@ const requestMatchHandler = async (req, res) => {
           const verifyRepository = AppDataSource.getRepository(Match);
           const verifiedMatch = await verifyRepository.findOne({ where: { id: updatedMatch.id } });
           
-          if (verifiedMatch && verifiedMatch.status === 'active') {
+          if (verifiedMatch && verifiedMatch.status === 'escrow') {
             console.log('✅ Match verified in database after commit');
             
             // Small delay to ensure database is fully updated
@@ -414,19 +415,19 @@ const requestMatchHandler = async (req, res) => {
             
             // Double-check both players can see the match
             const player1Match = await verifyRepository.findOne({ 
-              where: { player1: updatedMatch.player1, status: 'active' }
+              where: { player1: updatedMatch.player1, status: 'escrow' }
             });
             const player2Match = await verifyRepository.findOne({ 
-              where: { player2: updatedMatch.player2, status: 'active' }
+              where: { player2: updatedMatch.player2, status: 'escrow' }
             });
             
             if (player1Match && player2Match) {
-              console.log('✅ Both players can see the active match');
+              console.log('✅ Both players can see the escrow match');
             } else {
               console.warn('⚠️ Match visibility issue detected');
             }
           } else {
-            console.error('❌ Match not found or not active after commit');
+            console.error('❌ Match not found or not in escrow after commit');
           }
           
           res.json({
@@ -436,7 +437,7 @@ const requestMatchHandler = async (req, res) => {
             player2: updatedMatch.player2,
             entryFee: updatedMatch.entryFee,
             escrowAddress: updatedMatch.escrowAddress,
-            message: 'Match created successfully'
+            message: 'Match created - please lock your entry fee'
           });
         } catch (matchError) {
           console.error('❌ Failed to create match:', matchError);
@@ -1265,7 +1266,9 @@ const checkPlayerMatchHandler = async (req, res) => {
     const activeMatch = await matchRepository.findOne({
       where: [
         { player1: wallet, status: 'active' },
-        { player2: wallet, status: 'active' }
+        { player2: wallet, status: 'active' },
+        { player1: wallet, status: 'escrow' },
+        { player2: wallet, status: 'escrow' }
       ]
     });
     
@@ -1314,6 +1317,61 @@ const checkPlayerMatchHandler = async (req, res) => {
   }
 };
 
+// Confirm escrow payment and activate game
+const confirmEscrowHandler = async (req, res) => {
+  try {
+    const { matchId, wallet, escrowSignature } = req.body;
+    
+    console.log('💰 Confirming escrow payment:', { matchId, wallet, escrowSignature });
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find the match
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    if (match.status !== 'escrow') {
+      return res.status(400).json({ error: 'Match is not in escrow status' });
+    }
+    
+    if (match.player1 !== wallet && match.player2 !== wallet) {
+      return res.status(403).json({ error: 'You are not part of this match' });
+    }
+    
+    // Update match to track escrow confirmations
+    if (match.player1 === wallet) {
+      match.player1EscrowConfirmed = true;
+      match.player1EscrowSignature = escrowSignature;
+    } else {
+      match.player2EscrowConfirmed = true;
+      match.player2EscrowSignature = escrowSignature;
+    }
+    
+    // Check if both players have confirmed escrow
+    if (match.player1EscrowConfirmed && match.player2EscrowConfirmed) {
+      console.log('✅ Both players confirmed escrow, activating game');
+      match.status = 'active';
+      match.gameStartTime = new Date();
+    }
+    
+    await matchRepository.save(match);
+    
+    res.json({
+      success: true,
+      status: match.status,
+      message: match.status === 'active' ? 'Game activated!' : 'Escrow confirmed, waiting for opponent'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error confirming escrow:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1323,5 +1381,6 @@ module.exports = {
   matchTestHandler,
   testRepositoryHandler,
   testDatabaseHandler,
-  cleanupSelfMatchesHandler
+  cleanupSelfMatchesHandler,
+  confirmEscrowHandler
 }; 

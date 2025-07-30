@@ -12,6 +12,7 @@ router.post('/cleanup-self-matches', matchController.cleanupSelfMatchesHandler);
 // Match routes
 router.post('/request-match', matchController.requestMatchHandler);
 router.post('/submit-result', matchController.submitResultHandler);
+router.post('/confirm-escrow', matchController.confirmEscrowHandler);
 router.get('/status/:matchId', matchController.getMatchStatusHandler);
 router.get('/check-match/:wallet', matchController.checkPlayerMatchHandler);
 router.get('/debug/waiting', matchController.debugWaitingPlayersHandler); // Debug endpoint

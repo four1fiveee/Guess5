@@ -1,15 +1,94 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { transferToEscrow } from '../utils/paymentService';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
-  const { publicKey } = useWallet();
-  const [status, setStatus] = useState<'waiting' | 'matched' | 'error'>('waiting');
-  const [timeoutMessage, setTimeoutMessage] = useState('');
-  const [matchId, setMatchId] = useState<string | null>(null);
-  const [timeLeft, setTimeLeft] = useState(120); // 2 minutes in seconds
-  const [waitingCount, setWaitingCount] = useState<number>(0);
+  const { publicKey, signTransaction } = useWallet();
+  const [status, setStatus] = useState<'waiting' | 'matched' | 'escrow' | 'error'>('waiting');
+  const [timeLeft, setTimeLeft] = useState(120);
+  const [timeoutMessage, setTimeoutMessage] = useState<string>('');
+  const [waitingCount, setWaitingCount] = useState(0);
+  const [matchData, setMatchData] = useState<any>(null);
+  const [escrowStatus, setEscrowStatus] = useState<'pending' | 'success' | 'failed'>('pending');
+  const [entryFee, setEntryFee] = useState<number>(0);
+
+  const handleEscrowPayment = async () => {
+    if (!publicKey || !signTransaction || !matchData) {
+      console.error('❌ Missing publicKey, signTransaction, or matchData');
+      setEscrowStatus('failed');
+      return;
+    }
+
+    try {
+      console.log('💰 Starting escrow payment...');
+      setEscrowStatus('pending');
+
+      const paymentResult = await transferToEscrow(
+        publicKey.toString(),
+        matchData.escrowAddress,
+        entryFee,
+        signTransaction
+      );
+
+      if (paymentResult.success) {
+        console.log('✅ Escrow payment successful:', paymentResult.signature);
+        setEscrowStatus('success');
+        
+        // Confirm escrow payment with backend
+        try {
+          const confirmResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/confirm-escrow`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              matchId: matchData.matchId,
+              wallet: publicKey.toString(),
+              escrowSignature: paymentResult.signature
+            }),
+          });
+
+          const confirmData = await confirmResponse.json();
+          console.log('✅ Escrow confirmed with backend:', confirmData);
+
+          if (confirmData.status === 'active') {
+            console.log('🎮 Game activated! Redirecting to game...');
+            
+            // Store match data and redirect to game
+            localStorage.setItem('matchId', matchData.matchId);
+            if (matchData.word) {
+              localStorage.setItem('word', matchData.word);
+            }
+            if (matchData.escrowAddress) {
+              localStorage.setItem('escrowAddress', matchData.escrowAddress);
+            }
+            if (matchData.entryFee) {
+              localStorage.setItem('entryFee', matchData.entryFee.toString());
+            }
+            
+            // Redirect to game after successful escrow
+            setTimeout(() => {
+              router.push(`/game?matchId=${matchData.matchId}`);
+            }, 2000);
+          } else {
+            console.log('⏳ Waiting for opponent to confirm escrow...');
+            // Stay on matchmaking page until both players confirm
+          }
+        } catch (confirmError) {
+          console.error('❌ Failed to confirm escrow with backend:', confirmError);
+          setEscrowStatus('failed');
+        }
+      } else {
+        console.error('❌ Escrow payment failed:', paymentResult.error);
+        setEscrowStatus('failed');
+      }
+    } catch (error) {
+      console.error('❌ Escrow payment error:', error);
+      setEscrowStatus('failed');
+    }
+  };
 
   useEffect(() => {
     if (!publicKey) {
@@ -17,46 +96,55 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
-    let timeoutId: NodeJS.Timeout;
+    // Get entry fee from localStorage
+    const storedEntryFee = localStorage.getItem('entryFeeSOL');
+    if (storedEntryFee) {
+      setEntryFee(parseFloat(storedEntryFee));
+    }
+
     let pollInterval: NodeJS.Timeout;
-    const wallet = publicKey.toString();
-    const entryFee = Number(localStorage.getItem('entryFeeSOL') || 0.1);
+    let timeoutId: NodeJS.Timeout;
+    let countdownInterval: NodeJS.Timeout;
 
     const startMatchmaking = async () => {
       try {
-        console.log('🎮 Starting matchmaking...');
+        const wallet = publicKey.toString();
+        const storedEntryFee = localStorage.getItem('entryFeeSOL');
+        
+        if (!storedEntryFee) {
+          console.error('❌ No entry fee found');
+          router.push('/lobby');
+          return;
+        }
+
+        const entryFee = parseFloat(storedEntryFee);
+        console.log('🎮 Starting matchmaking with entry fee:', entryFee);
+
         const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request-match`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({
-            entryFee,
-            wallet
+            wallet,
+            entryFee
           }),
         });
 
         const data = await response.json();
-        
-        if (data.status === 'matched') {
-          console.log('✅ Match found!', data);
-          setStatus('matched');
-          clearTimeout(timeoutId);
-          clearInterval(pollInterval);
-          clearInterval(countdownInterval);
-          // Store match data
-          localStorage.setItem('matchId', data.matchId);
-          localStorage.setItem('word', data.word);
-          // Redirect to game with matchId in URL
-          setTimeout(() => {
-            router.push(`/game?matchId=${data.matchId}`);
-          }, 1000);
-        } else if (data.status === 'waiting') {
-          console.log('⏳ Waiting for opponent...', data);
-          setStatus('waiting');
+        console.log('🎮 Matchmaking response:', data);
+
+        if (data.status === 'waiting') {
           setWaitingCount(data.waitingCount || 0);
-          // Start polling to check if we get matched
-          startPolling();
+          setStatus('waiting');
+        } else if (data.status === 'matched') {
+          console.log('✅ Match found, proceeding to escrow...');
+          setMatchData(data);
+          setStatus('matched');
+          // Don't redirect yet - need to handle escrow first
+        } else {
+          console.error('❌ Unexpected response:', data);
+          setStatus('error');
         }
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
@@ -73,7 +161,7 @@ const Matchmaking: React.FC = () => {
           console.log('🔍 Polling for match status...');
           
           // Use the dedicated endpoint to check if we've been matched
-          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${wallet}`);
+          const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${publicKey.toString()}`);
           const data = await response.json();
           
           if (data.matched) {
@@ -89,16 +177,11 @@ const Matchmaking: React.FC = () => {
               }
               
               console.log('✅ Found our active match!', ourMatch);
+              setMatchData(ourMatch);
               setStatus('matched');
               clearTimeout(timeoutId);
               clearInterval(pollInterval);
               clearInterval(countdownInterval);
-              // Store match data
-              localStorage.setItem('matchId', ourMatch.matchId);
-              // Redirect to game
-              setTimeout(() => {
-                router.push(`/game?matchId=${ourMatch.matchId}`);
-              }, 1000);
             } else {
               console.log('⚠️ Found incomplete match, ignoring:', ourMatch);
             }
@@ -112,7 +195,7 @@ const Matchmaking: React.FC = () => {
     startMatchmaking();
     
     // Countdown timer
-    const countdownInterval = setInterval(() => {
+    countdownInterval = setInterval(() => {
       setTimeLeft(prev => {
         if (prev <= 1) {
           clearInterval(countdownInterval);
@@ -135,13 +218,15 @@ const Matchmaking: React.FC = () => {
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
     };
-  }, [publicKey, router]);
+  }, [publicKey, router, signTransaction, matchData, entryFee]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
         <div className="text-center">
-          <h1 className="text-3xl font-bold text-white mb-6">Finding Opponent...</h1>
+          <h1 className="text-3xl font-bold text-white mb-6">
+            {status === 'escrow' ? 'Locking Entry Fee...' : 'Finding Opponent...'}
+          </h1>
           {timeoutMessage && (
             <div className="text-yellow-400 text-lg mb-4">{timeoutMessage}</div>
           )}
@@ -164,7 +249,35 @@ const Matchmaking: React.FC = () => {
           {status === 'matched' && (
             <div className="space-y-4">
               <div className="text-green-400 text-xl">✓ Match Found!</div>
-              <p className="text-white/80">Redirecting to game...</p>
+              <p className="text-white/80">Please lock your entry fee to start the game</p>
+              <div className="text-accent text-sm">
+                Entry Fee: {entryFee} SOL
+              </div>
+              <button
+                onClick={handleEscrowPayment}
+                disabled={escrowStatus === 'pending'}
+                className={`px-6 py-3 rounded-lg transition-colors ${
+                  escrowStatus === 'pending' 
+                    ? 'bg-gray-500 cursor-not-allowed' 
+                    : 'bg-accent hover:bg-accent/80 text-white'
+                }`}
+              >
+                {escrowStatus === 'pending' ? 'Processing...' : 'Lock Entry Fee'}
+              </button>
+              {escrowStatus === 'failed' && (
+                <div className="text-red-400 text-sm mt-2">
+                  Failed to lock entry fee. Please try again.
+                </div>
+              )}
+            </div>
+          )}
+          {status === 'escrow' && (
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+              </div>
+              <p className="text-white/80">Locking your entry fee...</p>
+              <p className="text-accent text-sm">Please approve the transaction in your wallet</p>
             </div>
           )}
           {status === 'error' && (
