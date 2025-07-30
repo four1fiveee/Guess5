@@ -180,25 +180,29 @@ const requestMatchHandler = async (req, res) => {
       const staleActiveMatches = await queryRunner.manager.find(Match, {
         where: [
           { player1: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
-          { player2: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) }
+          { player2: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
+          { player1: wallet, status: 'escrow', createdAt: LessThan(tenMinutesAgo) },
+          { player2: wallet, status: 'escrow', createdAt: LessThan(tenMinutesAgo) }
         ]
       });
       
       if (staleActiveMatches.length > 0) {
-        console.log(`🧹 Cleaning up ${staleActiveMatches.length} stale active matches for player ${wallet}`);
+        console.log(`🧹 Cleaning up ${staleActiveMatches.length} stale active/escrow matches for player ${wallet}`);
         await queryRunner.manager.remove(staleActiveMatches);
       }
       
-      // Check for existing active matches for this player
+      // Check for existing active/escrow matches for this player
       const existingActiveMatch = await queryRunner.manager.findOne(Match, {
         where: [
           { player1: wallet, status: 'active' },
-          { player2: wallet, status: 'active' }
+          { player2: wallet, status: 'active' },
+          { player1: wallet, status: 'escrow' },
+          { player2: wallet, status: 'escrow' }
         ]
       });
       
       if (existingActiveMatch) {
-        console.log('⚠️ Player already has an active match, returning match info');
+        console.log('⚠️ Player already has an active/escrow match, returning match info');
         await queryRunner.rollbackTransaction();
         res.json({
           status: 'matched',
@@ -207,7 +211,7 @@ const requestMatchHandler = async (req, res) => {
           player2: existingActiveMatch.player2,
           entryFee: existingActiveMatch.entryFee,
           escrowAddress: existingActiveMatch.escrowAddress,
-          message: 'Already in active match'
+          message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
         });
         return;
       }
@@ -351,7 +355,12 @@ const requestMatchHandler = async (req, res) => {
         try {
           // Create escrow account for the match
           const { createEscrowAccount } = require('../services/payoutService');
-          const escrowResult = await createEscrowAccount();
+          const escrowResult = await createEscrowAccount(
+            waitingPlayer.matchId,
+            waitingPlayer.wallet,
+            wallet,
+            entryFee
+          );
           
           if (!escrowResult.success) {
             console.error('❌ Failed to create escrow account:', escrowResult.error);
