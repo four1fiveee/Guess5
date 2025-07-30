@@ -1,7 +1,7 @@
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
-const { Not, LessThan } = require('typeorm');
+const { Not, LessThan, Between } = require('typeorm');
 const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
 
 // In-memory storage for matches that couldn't be saved to database
@@ -225,15 +225,22 @@ const requestMatchHandler = async (req, res) => {
       // Look for waiting players in database with transaction isolation
       let waitingPlayer = null;
       
+      // Use tolerance-based matching to handle slight price differences
+      const tolerance = 0.001; // Allow 0.001 SOL difference
+      const minEntryFee = entryFee - tolerance;
+      const maxEntryFee = entryFee + tolerance;
+      
       console.log('🔍 Searching database for waiting players with entry fee:', entryFee);
       console.log('🔍 Entry fee type:', typeof entryFee);
       console.log('🔍 Entry fee value:', entryFee);
+      console.log('🔍 Tolerance range:', `${minEntryFee} - ${maxEntryFee}`);
       
       // Find waiting matches with transaction isolation
+      
       const waitingMatches = await queryRunner.manager.find(Match, {
         where: {
           status: 'waiting',
-          entryFee: entryFee,
+          entryFee: Between(minEntryFee, maxEntryFee),
           player2: null,
           player1: Not(wallet) // Exclude current player in query
         },
@@ -258,12 +265,12 @@ const requestMatchHandler = async (req, res) => {
       const totalWaitingForStake = await queryRunner.manager.count(Match, {
         where: {
           status: 'waiting',
-          entryFee: entryFee,
+          entryFee: Between(minEntryFee, maxEntryFee),
           player2: null,
           player1: Not(wallet) // Exclude current player from count
         }
       });
-      console.log(`📊 Total players waiting for $${entryFee} (excluding current player): ${totalWaitingForStake}`);
+      console.log(`📊 Total players waiting for $${entryFee} ±${tolerance} (excluding current player): ${totalWaitingForStake}`);
       
       if (waitingMatches.length > 0) {
         const match = waitingMatches[0];
