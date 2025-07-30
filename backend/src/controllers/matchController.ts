@@ -125,6 +125,14 @@ const requestMatchHandler = async (req, res) => {
         
         const actualSelfMatches = selfMatches.filter(match => match.player1 === match.player2);
         
+        // Clean up waiting self-matches
+        const waitingSelfMatches = await matchRepository.find({
+          where: {
+            status: 'waiting',
+            player1: wallet
+          }
+        });
+        
         if (oldCompletedMatches.length > 0) {
           console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
           await matchRepository.remove(oldCompletedMatches);
@@ -133,6 +141,11 @@ const requestMatchHandler = async (req, res) => {
         if (actualSelfMatches.length > 0) {
           console.log(`🧹 Cleaning up ${actualSelfMatches.length} self-matches`);
           await matchRepository.remove(actualSelfMatches);
+        }
+        
+        if (waitingSelfMatches.length > 0) {
+          console.log(`🧹 Cleaning up ${waitingSelfMatches.length} waiting self-matches for current player`);
+          await matchRepository.remove(waitingSelfMatches);
         }
       } catch (cleanupError) {
         console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
@@ -320,6 +333,18 @@ const requestMatchHandler = async (req, res) => {
             return res.status(409).json({ error: 'Match no longer available' });
           }
           
+          // CRITICAL: Final validation to prevent self-matching
+          if (existingMatch.player1 === wallet) {
+            console.log('❌ CRITICAL ERROR: Attempting to create self-match in final validation');
+            console.log('❌ Match details:', {
+              existingPlayer1: existingMatch.player1,
+              currentWallet: wallet,
+              matchId: waitingPlayer.matchId
+            });
+            await queryRunner.rollbackTransaction();
+            return res.status(400).json({ error: 'Self-matching not allowed' });
+          }
+          
           // Select random word for the game
           const randomWord = wordList[Math.floor(Math.random() * wordList.length)];
           
@@ -373,6 +398,28 @@ const requestMatchHandler = async (req, res) => {
         // No waiting player found - create new waiting entry
         try {
           console.log('💾 Creating new waiting entry...');
+          
+          // Check if this player already has a waiting entry
+          const existingWaitingEntry = await queryRunner.manager.findOne(Match, {
+            where: {
+              player1: wallet,
+              status: 'waiting',
+              player2: null
+            }
+          });
+          
+          if (existingWaitingEntry) {
+            console.log('⚠️ Player already has a waiting entry, returning existing one');
+            await queryRunner.commitTransaction();
+            
+            res.json({
+              status: 'waiting',
+              message: 'Already waiting for opponent',
+              waitingCount: totalWaitingForStake
+            });
+            return;
+          }
+          
           const waitingMatch = queryRunner.manager.create(Match, {
             player1: wallet,
             player2: null,
