@@ -175,6 +175,20 @@ const requestMatchHandler = async (req, res) => {
         await queryRunner.manager.remove(staleEntries);
       }
       
+      // Clean up old active matches (older than 10 minutes) that are likely stale
+      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+      const staleActiveMatches = await queryRunner.manager.find(Match, {
+        where: [
+          { player1: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
+          { player2: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) }
+        ]
+      });
+      
+      if (staleActiveMatches.length > 0) {
+        console.log(`🧹 Cleaning up ${staleActiveMatches.length} stale active matches for player ${wallet}`);
+        await queryRunner.manager.remove(staleActiveMatches);
+      }
+      
       // Check for existing active matches for this player
       const existingActiveMatch = await queryRunner.manager.findOne(Match, {
         where: [

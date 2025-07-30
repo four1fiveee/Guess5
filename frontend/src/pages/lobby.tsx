@@ -113,12 +113,38 @@ export default function Lobby() {
     // Request a match from the backend (send SOL amount)
     try {
       const data = await requestMatch(solAmount, publicKey.toString())
+      console.log('🎮 Match request response:', data);
+      
       if (data.status === 'waiting') {
+        console.log('⏳ Redirecting to matchmaking...');
         router.push('/matchmaking')
       } else if (data.status === 'matched') {
-        localStorage.setItem('matchId', data.matchId)
-        localStorage.setItem('word', data.word)
-        router.push('/game')
+        console.log('✅ Match found, storing data and redirecting to game...');
+        console.log('📝 Match data:', {
+          matchId: data.matchId,
+          player1: data.player1,
+          player2: data.player2,
+          entryFee: data.entryFee
+        });
+        
+        // Store match data
+        localStorage.setItem('matchId', data.matchId);
+        if (data.word) {
+          localStorage.setItem('word', data.word);
+        }
+        if (data.escrowAddress) {
+          localStorage.setItem('escrowAddress', data.escrowAddress);
+        }
+        if (data.entryFee) {
+          localStorage.setItem('entryFee', data.entryFee.toString());
+        }
+        
+        console.log('💾 Stored match data in localStorage');
+        console.log('🎮 Redirecting to game page...');
+        router.push(`/game?matchId=${data.matchId}`)
+      } else {
+        console.log('⚠️ Unexpected response status:', data.status);
+        alert('Unexpected response from server. Please try again.');
       }
     } catch (err) {
       console.error('Match request error:', err)

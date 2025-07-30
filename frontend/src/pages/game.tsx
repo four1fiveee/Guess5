@@ -38,11 +38,17 @@ const Game: React.FC = () => {
         localStorage.removeItem('word');
         localStorage.removeItem('payoutData');
         
-        // Get matchId from URL only - no localStorage fallback
-        const gameMatchId = router.query.matchId as string;
+        // Get matchId from URL first, then localStorage as fallback
+        let gameMatchId = router.query.matchId as string;
+        
+        if (!gameMatchId) {
+          // Fallback to localStorage if not in URL
+          gameMatchId = localStorage.getItem('matchId') || '';
+          console.log('🔍 No matchId in URL, checking localStorage:', gameMatchId);
+        }
 
         if (!gameMatchId) {
-          console.error('❌ No match ID found in URL');
+          console.error('❌ No match ID found in URL or localStorage');
           router.push('/lobby');
           return;
         }
