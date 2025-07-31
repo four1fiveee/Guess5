@@ -20,7 +20,7 @@ router.get('/status/:matchId', matchController.getMatchStatusHandler);
 router.get('/check-match/:wallet', matchController.checkPlayerMatchHandler);
 
 // Server-side game state endpoints
-router.post('/submit-guess', matchController.submitGuessHandler);
+router.post('/submit-guess', matchController.submitGameGuessHandler);
 router.get('/game-state', matchController.getGameStateHandler);
 
 // Server-side payment execution

@@ -1540,8 +1540,8 @@ const confirmEscrowHandler = async (req, res) => {
   }
 };
 
-// Server-side guess tracking endpoint
-const submitGuessHandler = async (req, res) => {
+// Server-side game guess tracking endpoint
+const submitGameGuessHandler = async (req, res) => {
   try {
     const { matchId, wallet, guess } = req.body;
     
@@ -1788,7 +1788,7 @@ module.exports = {
   testDatabaseHandler,
   cleanupSelfMatchesHandler,
   confirmEscrowHandler,
-  submitGuessHandler,
+  submitGameGuessHandler,
   getGameStateHandler,
   executePaymentHandler
 }; 
