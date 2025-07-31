@@ -234,7 +234,7 @@ const requestMatchHandler = async (req, res) => {
               matchId: existingActiveMatch.id,
               player1: existingActiveMatch.player1,
               player2: existingActiveMatch.player2,
-              entryFee: existingActiveMatch.entryFee,
+              entryFee: existingActiveMatch.entryFee, // This should already be the lesser amount
               escrowAddress: existingActiveMatch.escrowAddress,
               message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
             });
@@ -366,11 +366,19 @@ const requestMatchHandler = async (req, res) => {
           return res.status(400).json({ error: 'Invalid match configuration' });
         }
         
+        // CRITICAL: Calculate the actual entry fee to use (lesser of the two amounts)
+        const player1EntryFee = waitingPlayer.entryFee;
+        const player2EntryFee = entryFee;
+        const actualEntryFee = Math.min(player1EntryFee, player2EntryFee);
+        
         console.log('🎮 Creating match between players:', {
           player1: waitingPlayer.wallet,
           player2: wallet,
-          entryFee: entryFee
+          player1EntryFee: player1EntryFee,
+          player2EntryFee: player2EntryFee,
+          actualEntryFee: actualEntryFee
         });
+        console.log('💰 Using lesser entry fee for fair wagering:', actualEntryFee, 'SOL');
         
         // CRITICAL: Final validation to prevent self-matching
         if (waitingPlayer.wallet === wallet) {
@@ -387,19 +395,19 @@ const requestMatchHandler = async (req, res) => {
         }
         
         try {
-          // Create escrow account for the match
+          // Create escrow account for the match using the lesser entry fee
           const { createEscrowAccount } = require('../services/payoutService');
           console.log('🔒 Calling createEscrowAccount with parameters:', {
             matchId: waitingPlayer.matchId,
             player1: waitingPlayer.wallet,
             player2: wallet,
-            entryFee: entryFee
+            entryFee: actualEntryFee
           });
           const escrowResult = await createEscrowAccount(
             waitingPlayer.matchId,
             waitingPlayer.wallet,
             wallet,
-            entryFee
+            actualEntryFee
           );
           
           if (!escrowResult.success) {
@@ -435,6 +443,7 @@ const requestMatchHandler = async (req, res) => {
           existingMatch.word = gameWord;
           existingMatch.escrowAddress = escrowResult.escrowAddress;
           existingMatch.gameStartTime = new Date();
+          existingMatch.entryFee = actualEntryFee; // Use the lesser entry fee
           
           const updatedMatch = await queryRunner.manager.save(existingMatch);
           
@@ -484,7 +493,7 @@ const requestMatchHandler = async (req, res) => {
             matchId: updatedMatch.id,
             player1: updatedMatch.player1,
             player2: updatedMatch.player2,
-            entryFee: updatedMatch.entryFee,
+            entryFee: updatedMatch.entryFee, // This is now the lesser amount
             escrowAddress: updatedMatch.escrowAddress,
             message: 'Match created - please lock your entry fee'
           });

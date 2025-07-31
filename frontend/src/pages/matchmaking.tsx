@@ -13,6 +13,7 @@ const Matchmaking: React.FC = () => {
   const [matchData, setMatchData] = useState<any>(null);
   const [escrowStatus, setEscrowStatus] = useState<'pending' | 'success' | 'failed'>('pending');
   const [entryFee, setEntryFee] = useState<number>(0);
+  const [isPolling, setIsPolling] = useState<boolean>(false);
 
   const handleEscrowPayment = async () => {
     if (!publicKey || !signTransaction || !matchData) {
@@ -145,6 +146,7 @@ const Matchmaking: React.FC = () => {
           clearInterval(pollInterval);
           clearTimeout(timeoutId);
           clearInterval(countdownInterval);
+          setIsPolling(false);
           
           // Check if this is an active match (not escrow)
           if (data.message && data.message.includes('Already in active match')) {
@@ -220,6 +222,7 @@ const Matchmaking: React.FC = () => {
                 clearTimeout(timeoutId);
                 clearInterval(pollInterval);
                 clearInterval(countdownInterval);
+                setIsPolling(false);
                 
                 // Store match data and redirect to game
                 localStorage.setItem('matchId', ourMatch.matchId);
@@ -239,6 +242,10 @@ const Matchmaking: React.FC = () => {
               } else if (ourMatch.status === 'escrow') {
                 console.log('💰 Match is in escrow, waiting for both players to confirm...');
                 setStatus('matched');
+                clearTimeout(timeoutId);
+                clearInterval(pollInterval);
+                clearInterval(countdownInterval);
+                setIsPolling(false);
                 // Don't redirect yet - need to handle escrow first
               }
             } else {
@@ -252,6 +259,10 @@ const Matchmaking: React.FC = () => {
     };
 
     startMatchmaking();
+    if (!isPolling) {
+      setIsPolling(true);
+      startPolling();
+    }
     
     // Countdown timer
     countdownInterval = setInterval(() => {
