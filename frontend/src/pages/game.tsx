@@ -2,12 +2,10 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
-import { executePayout, executeRefund } from '../utils/paymentService';
 
 const Game: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction } = useWallet();
-  const [word, setWord] = useState('');
   const [guesses, setGuesses] = useState<string[]>([]);
   const [currentGuess, setCurrentGuess] = useState('');
   const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed'>('playing');
@@ -17,13 +15,14 @@ const Game: React.FC = () => {
   const [matchId, setMatchId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [gameStartTime, setGameStartTime] = useState<number>(0);
   const [lastActivity, setLastActivity] = useState<number>(0);
   const [opponentSolved, setOpponentSolved] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number>(120); // 2 minutes in seconds
   const [timerActive, setTimerActive] = useState<boolean>(false);
   const [escrowAddress, setEscrowAddress] = useState<string>('');
   const [entryFee, setEntryFee] = useState<number>(0);
+  const [serverGuesses, setServerGuesses] = useState<string[]>([]);
+  const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
 
   useEffect(() => {
     if (!publicKey) {
@@ -33,11 +32,6 @@ const Game: React.FC = () => {
 
     const initializeGame = async () => {
       try {
-        // Clear any old localStorage data to prevent cached game issues
-        localStorage.removeItem('matchId');
-        localStorage.removeItem('word');
-        localStorage.removeItem('payoutData');
-        
         // Get matchId from URL first, then localStorage as fallback
         let gameMatchId = router.query.matchId as string;
         
@@ -87,36 +81,32 @@ const Game: React.FC = () => {
           throw new Error('You are not part of this match');
         }
 
-        setWord(matchData.word);
         setEscrowAddress(matchData.escrowAddress || '');
         setEntryFee(matchData.entryFee || 0);
-        // console.log('🎮 Starting game with word:', matchData.word);
-        // console.log('🎮 Match ID:', gameMatchId);
 
-        // Set game start time with microsecond precision
-        const startTime = performance.now();
-        setGameStartTime(startTime);
-        setLastActivity(Date.now()); // Keep activity tracking in milliseconds
-        (window as any).gameStartTime = startTime;
-
-        // Start the timer
-        setTimerActive(true);
-
-        // Check if there are existing results for this player
-        const isPlayer1 = matchData.player1 === publicKey.toString();
-        const existingResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
-        
-        // Check if we already have a result for this match
-        if (existingResult) {
-          console.log('⚠️ Found existing result for this match, redirecting to result page');
-          router.push(`/result?matchId=${gameMatchId}`);
-          return;
+        // Get server-side game state
+        const gameStateResponse = await fetch(`${apiUrl}/api/match/game-state?matchId=${gameMatchId}&wallet=${publicKey?.toString()}`);
+        if (gameStateResponse.ok) {
+          const gameStateData = await gameStateResponse.json();
+          setServerGuesses(gameStateData.playerGuesses || []);
+          setRemainingGuesses(gameStateData.remainingGuesses || 7);
+          
+          if (gameStateData.solved) {
+            setGameState('solved');
+            setTimerActive(false);
+          }
+          
+          if (gameStateData.opponentSolved) {
+            setOpponentSolved(true);
+          }
         }
+
+        setLastActivity(Date.now());
+        setLoading(false);
 
       } catch (error) {
         console.error('❌ Error initializing game:', error);
-        setError(error instanceof Error ? error.message : 'Failed to load game');
-      } finally {
+        setError(error instanceof Error ? error.message : 'Failed to initialize game');
         setLoading(false);
       }
     };
@@ -124,13 +114,32 @@ const Game: React.FC = () => {
     initializeGame();
   }, [publicKey, router]);
 
-  // Timer countdown effect
+  // Update activity tracking
+  useEffect(() => {
+    const updateActivity = () => {
+      setLastActivity(Date.now());
+    };
+
+    // Update activity on user interaction
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('touchstart', updateActivity);
+
+    return () => {
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('touchstart', updateActivity);
+    };
+  }, []);
+
+  // Timer countdown
   useEffect(() => {
     if (!timerActive || gameState !== 'playing') return;
 
     const timer = setInterval(() => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
+          clearInterval(timer);
           handleGameEnd(false, 'timeout');
           return 0;
         }
@@ -141,66 +150,38 @@ const Game: React.FC = () => {
     return () => clearInterval(timer);
   }, [timerActive, gameState]);
 
-  // Update last activity on any user interaction
+  // Start timer when game begins
   useEffect(() => {
-    const updateActivity = () => {
-      setLastActivity(Date.now());
-    };
+    if (gameState === 'playing' && !timerActive) {
+      setTimerActive(true);
+    }
+  }, [gameState, timerActive]);
 
-    window.addEventListener('click', updateActivity);
-    window.addEventListener('keydown', updateActivity);
-    window.addEventListener('focus', updateActivity);
-
-    return () => {
-      window.removeEventListener('click', updateActivity);
-      window.removeEventListener('keydown', updateActivity);
-      window.removeEventListener('focus', updateActivity);
-    };
-  }, []);
-
-  // Poll for opponent's status
+  // Poll for opponent status
   useEffect(() => {
-    if (!matchId || gameState !== 'playing') return;
+    if (gameState !== 'playing' || !matchId) return;
 
     const pollInterval = setInterval(async () => {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/status/${matchId}`);
+        const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey?.toString()}`);
         
         if (response.ok) {
-          const matchData = await response.json();
+          const data = await response.json();
           
-          // Check if opponent has solved
-          const isPlayer1 = matchData.player1 === publicKey?.toString();
-          const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
-          
-          if (opponentResult && opponentResult.won) {
+          if (data.opponentSolved && !opponentSolved) {
             console.log('🏆 Opponent solved the puzzle!');
             setOpponentSolved(true);
-            
-            // If we haven't solved yet, we lost
-            if (gameState === 'playing') {
-              console.log('❌ We lost - opponent solved first');
-              handleGameEnd(false, 'opponent_solved');
-            }
-          }
-          
-          // Check if game is completed
-          if (matchData.status === 'completed') {
-            console.log('🏁 Game completed by backend');
-            clearInterval(pollInterval);
-            
-            // Navigate to result page
-            router.push(`/result?matchId=${matchId}`);
+            handleGameEnd(false, 'opponent_solved');
           }
         }
       } catch (error) {
-        console.error('❌ Error polling match status:', error);
+        console.error('❌ Error polling opponent status:', error);
       }
     }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(pollInterval);
-  }, [matchId, gameState, publicKey, router]);
+  }, [matchId, gameState, publicKey, router, opponentSolved]);
 
   // Check for inactivity timeout (5 minutes)
   useEffect(() => {
@@ -218,21 +199,49 @@ const Game: React.FC = () => {
     return () => clearInterval(checkTimeout);
   }, [lastActivity, gameState]);
 
-  const handleGuess = (guess: string) => {
+  const handleGuess = async (guess: string) => {
     if (gameState !== 'playing') return;
 
-    setLastActivity(Date.now()); // Update activity on guess
-    const newGuesses = [...guesses, guess];
-    setGuesses(newGuesses);
+    setLastActivity(Date.now());
+    
+    try {
+      // Submit guess to server
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/match/submit-guess`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId,
+          wallet: publicKey?.toString() || '',
+          guess
+        }),
+      });
 
-    if (guess === word) {
-      setGameState('solved');
-      setTimerActive(false);
-      handleGameEnd(true);
-    } else if (newGuesses.length >= 7) {
-      setGameState('solved');
-      setTimerActive(false);
-      handleGameEnd(false);
+      if (!response.ok) {
+        throw new Error('Failed to submit guess');
+      }
+
+      const data = await response.json();
+      
+      // Update local state with server response
+      setServerGuesses(data.totalGuesses);
+      setRemainingGuesses(data.remainingGuesses);
+      
+      if (data.solved) {
+        setGameState('solved');
+        setTimerActive(false);
+        handleGameEnd(true);
+      } else if (data.totalGuesses >= 7) {
+        setGameState('solved');
+        setTimerActive(false);
+        handleGameEnd(false);
+      }
+      
+    } catch (error) {
+      console.error('❌ Error submitting guess:', error);
+      setError('Failed to submit guess');
     }
   };
 
@@ -242,15 +251,11 @@ const Game: React.FC = () => {
     // Stop the timer
     setTimerActive(false);
 
-    // Calculate time with microsecond precision
-    const endTime = performance.now();
-    const totalTime = endTime - gameStartTime;
-
     const result = {
       won,
-      numGuesses: guesses.length + 1,
-      totalTime: totalTime, // Microsecond precision
-      guesses: [...guesses, currentGuess],
+      numGuesses: serverGuesses.length,
+      totalTime: 0, // Server will calculate this
+      guesses: serverGuesses,
       reason: reason || 'normal'
     };
 
@@ -258,12 +263,6 @@ const Game: React.FC = () => {
     setPlayerResult(result);
 
     console.log('🏁 Game ended:', result);
-    console.log('⏱️ Time precision:', {
-      startTime: gameStartTime,
-      endTime: endTime,
-      totalTime: totalTime,
-      precision: 'microseconds'
-    });
 
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -274,7 +273,7 @@ const Game: React.FC = () => {
         },
         body: JSON.stringify({
           matchId,
-          wallet: publicKey.toString(),
+          wallet: publicKey?.toString() || '',
           result
         }),
       });
@@ -284,80 +283,52 @@ const Game: React.FC = () => {
 
       if (data.status === 'completed') {
         // Store opponent's result if available
-        if (data.player1Result && data.player1Result.wallet !== publicKey.toString()) {
+        if (data.player1Result && data.player1Result.wallet !== publicKey?.toString()) {
           setOpponentResult(data.player1Result);
-        } else if (data.player2Result && data.player2Result.wallet !== publicKey.toString()) {
+        } else if (data.player2Result && data.player2Result.wallet !== publicKey?.toString()) {
           setOpponentResult(data.player2Result);
         }
 
         // Determine final result
-        const isWinner = data.payout?.winner === publicKey.toString();
+        const isWinner = data.payout?.winner === publicKey?.toString();
         setFinalResult({
           won: isWinner,
           payout: data.payout
         });
 
-        // Execute automated payment if available
-        if (data.payout && data.payout.winner && data.payout.winner !== 'tie' && signTransaction) {
+        // Execute server-side payment
+        if (data.payout && data.payout.winner) {
           try {
-            console.log('💰 Executing automated payment...');
+            console.log('💰 Executing server-side payment...');
             
-            const paymentData = {
-              matchId,
-              winner: data.payout.winner,
-              loser: data.payout.winner === publicKey.toString() ? 
-                (data.player1 === publicKey.toString() ? data.player2 : data.player1) : 
-                publicKey.toString(),
-              entryFee: entryFee,
-              escrowAddress: escrowAddress
-            };
+            const paymentType = data.payout.winner === 'tie' ? 'refund' : 'payout';
+            
+            const paymentResponse = await fetch(`${apiUrl}/api/match/execute-payment`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                matchId,
+                wallet: publicKey?.toString() || '',
+                paymentType
+              }),
+            });
 
-            const paymentResult = await executePayout(paymentData, signTransaction);
-            
-            if (paymentResult.success) {
-              console.log('✅ Automated payment successful:', paymentResult.signature);
+            if (paymentResponse.ok) {
+              const paymentResult = await paymentResponse.json();
+              console.log('✅ Server-side payment successful:', paymentResult);
               data.payout.paymentSuccess = true;
               data.payout.transactionSignature = paymentResult.signature;
             } else {
-              console.error('❌ Automated payment failed:', paymentResult.error);
+              console.error('❌ Server-side payment failed');
               data.payout.paymentSuccess = false;
-              data.payout.paymentError = paymentResult.error;
+              data.payout.paymentError = 'Server payment execution failed';
             }
           } catch (paymentError) {
             console.error('❌ Payment execution error:', paymentError);
             data.payout.paymentSuccess = false;
             data.payout.paymentError = 'Payment execution failed';
-          }
-        } else if (data.payout && data.payout.winner === 'tie' && signTransaction) {
-          // Handle tie scenarios
-          if (data.payout.transactions && data.payout.transactions.length > 0) {
-            try {
-              console.log('🤝 Executing tie refund...');
-              
-              const refundData = {
-                matchId,
-                player1: data.player1,
-                player2: data.player2,
-                entryFee: entryFee,
-                escrowAddress: escrowAddress
-              };
-
-              const refundResult = await executeRefund(refundData, signTransaction);
-              
-              if (refundResult.success) {
-                console.log('✅ Refund successful:', refundResult.signature);
-                data.payout.paymentSuccess = true;
-                data.payout.transactionSignature = refundResult.signature;
-              } else {
-                console.error('❌ Refund failed:', refundResult.error);
-                data.payout.paymentSuccess = false;
-                data.payout.paymentError = refundResult.error;
-              }
-            } catch (refundError) {
-              console.error('❌ Refund execution error:', refundError);
-              data.payout.paymentSuccess = false;
-              data.payout.paymentError = 'Refund execution failed';
-            }
           }
         }
 
@@ -403,110 +374,61 @@ const Game: React.FC = () => {
   if (error) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
-        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
-          <div className="text-center">
-            <div className="text-red-400 text-xl mb-4">❌ Error</div>
-            <p className="text-white/80 mb-6">{error}</p>
-            <button
-              onClick={() => router.push('/lobby')}
-              className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
-            >
-              Back to Lobby
-            </button>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!word) {
-    return (
-      <div className="min-h-screen bg-primary flex items-center justify-center">
-        <div className="text-white text-xl">Loading game...</div>
+        <div className="text-white text-xl">Error: {error}</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-primary">
-      <div className="container mx-auto px-4 py-8">
-        <div className="max-w-md mx-auto">
-          <div className="text-center mb-8">
-            <p className="text-white/80">Guess the 5-letter word in 7 tries</p>
-            {gameState === 'playing' && (
-              <div className="mt-2">
-                <div className={`text-lg font-mono ${timeRemaining <= 30 ? 'text-red-400' : 'text-white/80'}`}>
-                  ⏱️ {formatTime(timeRemaining)}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <GameGrid
-            word={word}
-            guesses={guesses}
-            currentGuess={currentGuess}
-            setCurrentGuess={setCurrentGuess}
-            onGuess={handleGuess}
-            gameState={gameState}
-          />
-
-          {gameState === 'solved' && (
-            <div className="mt-8 text-center">
-              <div className="text-white text-xl mb-4">
-                {playerResult?.won ? '🎯 Puzzle Solved!' : '😔 Out of Guesses'}
-              </div>
-              <p className="text-white/80 mb-2">
-                The word was: <span className="font-bold">{word}</span>
-              </p>
-              {playerResult && (
-                <div className="text-white/80 mb-4">
-                  <p>Your performance: {playerResult.numGuesses} moves in {(playerResult.totalTime / 1000).toFixed(2)} seconds</p>
-                </div>
-              )}
-              <p className="text-white/60 text-sm">
-                Waiting for opponent to complete puzzle...
-              </p>
+    <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-4">
+      <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-2xl w-full">
+        <div className="text-center mb-6">
+          <h1 className="text-3xl font-bold text-white mb-4">
+            {gameState === 'solved' ? 'Game Complete!' : 'Guess5'}
+          </h1>
+          {gameState === 'playing' && (
+            <div className="text-white text-lg">
+              Time Remaining: {formatTime(timeRemaining)}
             </div>
           )}
-
           {gameState === 'waiting' && (
-            <div className="mt-8 text-center">
-              <div className="text-white text-xl mb-4">
-                ⏳ Waiting for opponent...
-              </div>
-              <p className="text-white/80 mb-2">
-                The word was: <span className="font-bold">{word}</span>
-              </p>
-              {playerResult && (
-                <div className="text-white/80 mb-4">
-                  <p>Your performance: {playerResult.numGuesses} moves in {(playerResult.totalTime / 1000).toFixed(2)} seconds</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {gameState === 'completed' && finalResult && (
-            <div className="mt-8 text-center">
-              <div className="text-white text-xl mb-4">
-                {finalResult.won ? '🎉 You Won!' : '😔 You Lost'}
-              </div>
-              <p className="text-white/80 mb-2">
-                The word was: <span className="font-bold">{word}</span>
-              </p>
-              {playerResult && (
-                <div className="text-white/80 mb-4">
-                  <p>Your performance: {playerResult.numGuesses} moves in {(playerResult.totalTime / 1000).toFixed(2)} seconds</p>
-                </div>
-              )}
-              {opponentResult && (
-                <div className="text-white/80 mb-4">
-                  <p>Opponent: {opponentResult.numGuesses} moves in {(opponentResult.totalTime / 1000).toFixed(2)} seconds</p>
-                </div>
-              )}
+            <div className="text-white text-lg">
+              Waiting for opponent to finish...
             </div>
           )}
         </div>
+
+        {gameState === 'playing' && (
+          <GameGrid
+            guesses={serverGuesses}
+            currentGuess={currentGuess}
+            setCurrentGuess={setCurrentGuess}
+            onGuess={handleGuess}
+            remainingGuesses={remainingGuesses}
+          />
+        )}
+
+        {gameState === 'solved' && (
+          <div className="text-center">
+            <div className="text-white text-xl mb-4">
+              {playerResult?.won ? '🎉 You solved it!' : '❌ Game Over'}
+            </div>
+            <div className="text-white text-lg">
+              Guesses: {playerResult?.numGuesses || 0}/7
+            </div>
+          </div>
+        )}
+
+        {gameState === 'completed' && (
+          <div className="text-center">
+            <div className="text-white text-xl mb-4">
+              {finalResult?.won ? '🏆 You won!' : '😔 You lost'}
+            </div>
+            <div className="text-white text-lg">
+              Processing payment...
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

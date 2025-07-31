@@ -34,14 +34,17 @@ console.log('CORS allowed origins:', allowedOrigins);
 
 // CORS configuration - allow all origins
 app.use(cors({
-  origin: true, // Allow all origins
-  credentials: false, // Set to false when origin is true
+  origin: ['http://localhost:3000', 'https://guess5.vercel.app', 'https://guess5.vercel.app/'],
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma'],
   optionsSuccessStatus: 200
 }));
 
 app.use(express.json());
+
+// Handle preflight requests
+app.options('*', cors());
 
 // Health check endpoint
 app.get('/health', (req: any, res: any) => {

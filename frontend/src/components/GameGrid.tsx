@@ -1,36 +1,27 @@
 import React, { useState, useEffect } from 'react'
 
-// Props: word, guesses, currentGuess, setCurrentGuess, onGuess, gameState
+// Props: guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses
 const GameGrid: React.FC<{
-  word: string,
   guesses: string[],
   currentGuess: string,
   setCurrentGuess: (guess: string) => void,
-  onGuess: (guess: string) => void,
-  gameState: string
-}> = ({ word, guesses, currentGuess, setCurrentGuess, onGuess, gameState }) => {
+  onGuess: (guess: string) => Promise<void>,
+  remainingGuesses: number
+}> = ({ guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses }) => {
   const [hintColors, setHintColors] = useState<string[][]>([])
 
   // Handle guess submission
-  const handleSubmit = () => {
-    if (currentGuess.length !== 5 || gameState !== 'playing') return
+  const handleSubmit = async () => {
+    if (currentGuess.length !== 5 || remainingGuesses <= 0) return
     
-    // New hint system: green = correct, orange = misplaced, darkgray = incorrect
-    const colors = Array(5).fill('bg-gray-600')
-    for (let i = 0; i < 5; i++) {
-      if (currentGuess[i] === word[i]) colors[i] = 'bg-green-500' // green
-      else if (word.includes(currentGuess[i])) colors[i] = 'bg-yellow-500' // orange
-      // else remains gray
-    }
-    
-    setHintColors(prev => [...prev, colors])
-    onGuess(currentGuess)
+    // Server will validate the guess and provide feedback
+    await onGuess(currentGuess)
     setCurrentGuess('')
   }
 
   // Allow Enter key to submit guess
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter' && currentGuess.length === 5 && gameState === 'playing') {
+    if (e.key === 'Enter' && currentGuess.length === 5 && remainingGuesses > 0) {
       handleSubmit()
     }
   }
@@ -56,7 +47,7 @@ const GameGrid: React.FC<{
       </div>
       
       {/* Input for current guess */}
-      {gameState === 'playing' && guesses.length < 7 && (
+      {remainingGuesses > 0 && (
         <div className="mt-4 flex flex-col items-center gap-2 w-full">
           <div className="text-gray-600 text-lg text-center">Guesses: {guesses.length}/7</div>
           <div className="flex gap-2 justify-center w-full">
@@ -66,14 +57,14 @@ const GameGrid: React.FC<{
               value={currentGuess}
               onChange={e => setCurrentGuess(e.target.value.toUpperCase())}
               className="px-4 py-2 rounded border text-gray-800 text-center"
-              disabled={gameState !== 'playing'}
+              disabled={remainingGuesses <= 0}
               onKeyDown={handleKeyDown}
               placeholder="Enter 5-letter word"
             />
             <button
               onClick={handleSubmit}
-                              className="px-4 py-2 bg-accent text-white rounded font-semibold hover:bg-accent/80 disabled:bg-gray-400"
-              disabled={currentGuess.length !== 5 || gameState !== 'playing'}
+              className="px-4 py-2 bg-accent text-white rounded font-semibold hover:bg-accent/80 disabled:bg-gray-400"
+              disabled={currentGuess.length !== 5 || remainingGuesses <= 0}
             >
               Guess
             </button>

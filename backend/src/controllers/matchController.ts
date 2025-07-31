@@ -7,6 +7,19 @@ const { createEscrowAccount, payout, refundEscrow } = require('../services/payou
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
 
+// Server-side game state tracking
+const activeGames = new Map<string, {
+  startTime: number;
+  player1StartTime: number;
+  player2StartTime: number;
+  player1Guesses: string[];
+  player2Guesses: string[];
+  player1Solved: boolean;
+  player2Solved: boolean;
+  word: string;
+  matchId: string;
+}>();
+
 // Word list for games
 const wordList = [
   'APPLE', 'BEACH', 'CHAIR', 'DREAM', 'EARTH', 'FLAME', 'GRAPE', 'HEART',
@@ -1031,25 +1044,23 @@ const submitResultHandler = async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate result structure
+    // SERVER-SIDE VALIDATION: Validate result structure
     if (typeof result.won !== 'boolean' || typeof result.numGuesses !== 'number' || !Array.isArray(result.guesses)) {
       return res.status(400).json({ error: 'Invalid result format' });
     }
 
-    // Validate game rules
+    // SERVER-SIDE VALIDATION: Validate game rules
     if (result.numGuesses > 7) {
       return res.status(400).json({ error: 'Maximum 7 guesses allowed' });
     }
 
-    // Validate time limit (2 minutes = 120000 milliseconds)
-    if (result.totalTime > 120000) {
-      return res.status(400).json({ error: 'Game time exceeded 2-minute limit' });
+    // SERVER-SIDE VALIDATION: Get server-side game state
+    const serverGameState = activeGames.get(matchId);
+    if (!serverGameState) {
+      return res.status(404).json({ error: 'Game not found or already completed' });
     }
 
-    console.log('📝 Submitting result for match:', matchId);
-    console.log('Wallet:', wallet);
-    console.log('Result:', result);
-
+    // SERVER-SIDE VALIDATION: Validate player is part of this match
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
@@ -1058,22 +1069,90 @@ const submitResultHandler = async (req, res) => {
       return res.status(404).json({ error: 'Match not found' });
     }
 
-    // Validate that wallet is part of this match
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
     }
 
-    // Determine which player this is
-    let isPlayer1 = false;
-    if (wallet === match.player1) {
-      isPlayer1 = true;
-      match.player1Result = result;
-    } else if (wallet === match.player2) {
-      isPlayer1 = false;
-      match.player2Result = result;
+    // SERVER-SIDE VALIDATION: Determine which player this is
+    const isPlayer1 = wallet === match.player1;
+    const playerKey = isPlayer1 ? 'player1' : 'player2';
+    const opponentKey = isPlayer1 ? 'player2' : 'player1';
+
+    // SERVER-SIDE VALIDATION: Check if player already submitted
+    if (isPlayer1 && match.player1Result) {
+      return res.status(400).json({ error: 'Player 1 already submitted result' });
+    }
+    if (!isPlayer1 && match.player2Result) {
+      return res.status(400).json({ error: 'Player 2 already submitted result' });
     }
 
-    console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} result recorded`);
+    // SERVER-SIDE VALIDATION: Validate guesses against server state
+    const serverGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
+    if (result.guesses.length !== serverGuesses.length) {
+      return res.status(400).json({ error: 'Guess count mismatch with server state' });
+    }
+
+    // SERVER-SIDE VALIDATION: Validate each guess
+    for (let i = 0; i < result.guesses.length; i++) {
+      if (result.guesses[i] !== serverGuesses[i]) {
+        return res.status(400).json({ error: 'Guess mismatch with server state' });
+      }
+    }
+
+    // SERVER-SIDE VALIDATION: Validate win condition
+    const expectedWon = serverGameState.word === result.guesses[result.guesses.length - 1];
+    if (result.won !== expectedWon) {
+      return res.status(400).json({ error: 'Win condition mismatch with server state' });
+    }
+
+    // SERVER-SIDE VALIDATION: Use server-side time tracking
+    const serverStartTime = isPlayer1 ? serverGameState.player1StartTime : serverGameState.player2StartTime;
+    const serverEndTime = Date.now();
+    const serverTotalTime = serverEndTime - serverStartTime;
+
+    // SERVER-SIDE VALIDATION: Validate time limits
+    if (serverTotalTime > 120000) { // 2 minutes
+      return res.status(400).json({ error: 'Game time exceeded 2-minute limit' });
+    }
+
+    // SERVER-SIDE VALIDATION: Check for impossibly fast times (less than 1 second)
+    if (serverTotalTime < 1000) {
+      return res.status(400).json({ error: 'Suspiciously fast completion time detected' });
+    }
+
+    console.log('📝 Submitting SERVER-VALIDATED result for match:', matchId);
+    console.log('Wallet:', wallet);
+    console.log('Server-validated result:', {
+      won: result.won,
+      numGuesses: result.numGuesses,
+      totalTime: serverTotalTime,
+      guesses: result.guesses
+    });
+
+    // Create server-validated result object
+    const serverValidatedResult = {
+      won: result.won,
+      numGuesses: result.numGuesses,
+      totalTime: serverTotalTime, // Use server time, not client time
+      guesses: result.guesses,
+      reason: 'server-validated'
+    };
+
+    // Update server game state
+    if (isPlayer1) {
+      serverGameState.player1Solved = result.won;
+    } else {
+      serverGameState.player2Solved = result.won;
+    }
+
+    // Save result to database
+    if (isPlayer1) {
+      match.player1Result = serverValidatedResult;
+    } else {
+      match.player2Result = serverValidatedResult;
+    }
+
+    console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
 
     // Check if this player solved the puzzle
     if (result.won) {
@@ -1153,6 +1232,9 @@ const submitResultHandler = async (req, res) => {
         updatedMatch.payoutResult = payoutResult;
         await matchRepository.save(updatedMatch);
         
+        // Clean up server game state
+        activeGames.delete(matchId);
+        
         res.json({
           status: 'completed',
           winner: payoutResult.winner,
@@ -1205,6 +1287,37 @@ const submitResultHandler = async (req, res) => {
             payoutResult.paymentSuccess = false;
             payoutResult.paymentError = paymentResult.error;
           }
+        } else if (payoutResult && payoutResult.winner === 'tie') {
+          // Handle tie scenarios
+          if (updatedMatch.player1Result && updatedMatch.player2Result && 
+              updatedMatch.player1Result.won && updatedMatch.player2Result.won) {
+            // Winning tie - refund both players
+            console.log('🤝 Winning tie - refunding both players...');
+            
+            const refundData = {
+              matchId: matchId,
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+              entryFee: updatedMatch.entryFee,
+              escrowAddress: updatedMatch.escrowAddress
+            };
+            
+            const refundResult = await refundEscrow(refundData);
+            
+            if (refundResult.success) {
+              console.log('✅ Refund transaction created');
+              payoutResult.transaction = refundResult.transaction;
+              payoutResult.paymentSuccess = true;
+            } else {
+              console.error('❌ Failed to create refund transaction:', refundResult.error);
+              payoutResult.paymentSuccess = false;
+              payoutResult.paymentError = refundResult.error;
+            }
+          } else {
+            // Losing tie - each pays fee
+            console.log('🤝 Losing tie - each player pays fee...');
+            payoutResult.paymentSuccess = true;
+          }
         }
         
         // Mark match as completed
@@ -1212,32 +1325,29 @@ const submitResultHandler = async (req, res) => {
         updatedMatch.payoutResult = payoutResult;
         await matchRepository.save(updatedMatch);
         
+        // Clean up server game state
+        activeGames.delete(matchId);
+        
         res.json({
           status: 'completed',
           winner: payoutResult.winner,
           payout: payoutResult,
-          message: 'Game completed - other player solved first'
+          message: 'Game completed - winner determined'
         });
       } else {
-        // Save partial result and wait
+        // Save partial result and wait for other player
         await matchRepository.save(match);
         
         res.json({
           status: 'waiting',
-          message: 'Waiting for other player'
+          message: 'Waiting for other player to finish'
         });
       }
     }
 
   } catch (error) {
     console.error('❌ Error submitting result:', error);
-    console.error('❌ Error details:', {
-      message: error.message,
-      stack: error.stack,
-      matchId: req.body?.matchId,
-      wallet: req.body?.wallet
-    });
-    res.status(500).json({ error: 'Failed to submit result' });
+    res.status(500).json({ error: 'Internal server error' });
   }
 };
 
@@ -1430,6 +1540,243 @@ const confirmEscrowHandler = async (req, res) => {
   }
 };
 
+// Server-side guess tracking endpoint
+const submitGuessHandler = async (req, res) => {
+  try {
+    const { matchId, wallet, guess } = req.body;
+    
+    if (!matchId || !wallet || !guess) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate guess format (5 letters)
+    if (!/^[A-Z]{5}$/.test(guess)) {
+      return res.status(400).json({ error: 'Invalid guess format - must be 5 letters' });
+    }
+
+    // Get server-side game state
+    const serverGameState = activeGames.get(matchId as string);
+    if (!serverGameState) {
+      return res.status(404).json({ error: 'Game not found or already completed' });
+    }
+
+    // Validate player is part of this match
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    if (wallet !== match.player1 && wallet !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+
+    // Determine which player this is
+    const isPlayer1 = wallet === match.player1;
+    const playerGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
+
+    // Check if player already solved
+    if (isPlayer1 && serverGameState.player1Solved) {
+      return res.status(400).json({ error: 'Player 1 already solved the puzzle' });
+    }
+    if (!isPlayer1 && serverGameState.player2Solved) {
+      return res.status(400).json({ error: 'Player 2 already solved the puzzle' });
+    }
+
+    // Check guess limit (7 guesses)
+    if (playerGuesses.length >= 7) {
+      return res.status(400).json({ error: 'Maximum 7 guesses reached' });
+    }
+
+    // Add guess to server state
+    playerGuesses.push(guess);
+
+    // Check if this guess solves the puzzle
+    const solved = guess === serverGameState.word;
+    if (isPlayer1) {
+      serverGameState.player1Solved = solved;
+    } else {
+      serverGameState.player2Solved = solved;
+    }
+
+    console.log(`📝 Server recorded guess for ${isPlayer1 ? 'Player 1' : 'Player 2'}:`, {
+      matchId,
+      wallet,
+      guess,
+      solved,
+      totalGuesses: playerGuesses.length
+    });
+
+    res.json({
+      success: true,
+      guess,
+      solved,
+      totalGuesses: playerGuesses.length,
+      remainingGuesses: 7 - playerGuesses.length
+    });
+
+  } catch (error) {
+    console.error('❌ Error submitting guess:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Add server-side game state endpoint
+const getGameStateHandler = async (req, res) => {
+  try {
+    const { matchId, wallet } = req.query;
+    
+    if (!matchId || !wallet) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Get server-side game state
+    const serverGameState = activeGames.get(matchId as string);
+    if (!serverGameState) {
+      return res.status(404).json({ error: 'Game not found or already completed' });
+    }
+
+    // Validate player is part of this match
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    if (wallet !== match.player1 && wallet !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+
+    // Determine which player this is
+    const isPlayer1 = wallet === match.player1;
+    const playerGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
+    const opponentGuesses = isPlayer1 ? serverGameState.player2Guesses : serverGameState.player1Guesses;
+
+    // Return safe game state (don't reveal the word or opponent's guesses)
+    res.json({
+      success: true,
+      playerGuesses,
+      totalGuesses: playerGuesses.length,
+      remainingGuesses: 7 - playerGuesses.length,
+      solved: isPlayer1 ? serverGameState.player1Solved : serverGameState.player2Solved,
+      opponentSolved: isPlayer1 ? serverGameState.player2Solved : serverGameState.player1Solved,
+      gameActive: !serverGameState.player1Solved && !serverGameState.player2Solved
+    });
+
+  } catch (error) {
+    console.error('❌ Error getting game state:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Server-side payment execution endpoint
+const executePaymentHandler = async (req, res) => {
+  try {
+    const { matchId, wallet, paymentType } = req.body;
+    
+    if (!matchId || !wallet || !paymentType) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate payment type
+    if (!['payout', 'refund'].includes(paymentType)) {
+      return res.status(400).json({ error: 'Invalid payment type' });
+    }
+
+    // Get match data
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Validate player is part of this match
+    if (wallet !== match.player1 && wallet !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+
+    // Validate match is completed
+    if (!match.isCompleted) {
+      return res.status(400).json({ error: 'Match not completed' });
+    }
+
+    // Validate payout result exists
+    if (!match.payoutResult) {
+      return res.status(400).json({ error: 'No payout result available' });
+    }
+
+    console.log('💰 Executing server-side payment:', {
+      matchId,
+      wallet,
+      paymentType,
+      payoutResult: match.payoutResult
+    });
+
+    let paymentResult;
+    
+    if (paymentType === 'payout' && match.payoutResult.winner && match.payoutResult.winner !== 'tie') {
+      // Execute payout
+      const paymentData = {
+        matchId: matchId,
+        winner: match.payoutResult.winner,
+        loser: match.payoutResult.winner === match.player1 ? match.player2 : match.player1,
+        entryFee: match.entryFee,
+        escrowAddress: match.escrowAddress
+      };
+      
+      paymentResult = await payout(paymentData);
+      
+    } else if (paymentType === 'refund' && match.payoutResult.winner === 'tie') {
+      // Execute refund for tie
+      const refundData = {
+        matchId: matchId,
+        player1: match.player1,
+        player2: match.player2,
+        entryFee: match.entryFee,
+        escrowAddress: match.escrowAddress
+      };
+      
+      paymentResult = await refundEscrow(refundData);
+      
+    } else {
+      return res.status(400).json({ error: 'Invalid payment type for this match' });
+    }
+
+    if (paymentResult.success) {
+      console.log('✅ Server-side payment executed successfully');
+      
+      // Update match with payment status
+      match.paymentExecuted = true;
+      match.paymentSignature = paymentResult.transaction?.signature || 'server-executed';
+      await matchRepository.save(match);
+      
+      res.json({
+        success: true,
+        paymentType,
+        signature: paymentResult.transaction?.signature || 'server-executed',
+        message: 'Payment executed successfully'
+      });
+      
+    } else {
+      console.error('❌ Server-side payment failed:', paymentResult.error);
+      res.status(500).json({ 
+        success: false, 
+        error: paymentResult.error || 'Payment execution failed' 
+      });
+    }
+
+  } catch (error) {
+    console.error('❌ Error executing payment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1440,5 +1787,8 @@ module.exports = {
   testRepositoryHandler,
   testDatabaseHandler,
   cleanupSelfMatchesHandler,
-  confirmEscrowHandler
+  confirmEscrowHandler,
+  submitGuessHandler,
+  getGameStateHandler,
+  executePaymentHandler
 }; 
