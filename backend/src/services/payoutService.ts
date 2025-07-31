@@ -22,7 +22,10 @@ export const createEscrowAccount = async (matchId: string, player1: string, play
     const totalEscrowAmount = entryFee * 2 * LAMPORTS_PER_SOL;
 
     console.log('💰 Total escrow amount:', totalEscrowAmount / LAMPORTS_PER_SOL, 'SOL');
+    console.log('🔒 Escrow address generated:', escrowPublicKey.toString());
 
+    // For now, we'll just return the escrow address
+    // The actual transaction will be created when players lock their entry fees
     return {
       success: true,
       escrowAddress: escrowPublicKey.toString(),
@@ -54,9 +57,18 @@ export const transferToEscrow = async (fromWallet: string, escrowAddress: string
       })
     );
 
-    // Note: This transaction needs to be signed by the player's wallet
-    // In a real implementation, this would be done through the frontend
-    // For now, we'll return the transaction for the frontend to sign
+    // Get the latest blockhash for the transaction
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = new PublicKey(fromWallet);
+
+    console.log('✅ Escrow transaction created successfully');
+    console.log('📝 Transaction details:', {
+      from: fromWallet,
+      to: escrowAddress,
+      amount: amount / LAMPORTS_PER_SOL,
+      blockhash: blockhash
+    });
 
     return {
       success: true,

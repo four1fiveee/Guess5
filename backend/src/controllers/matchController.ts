@@ -318,9 +318,9 @@ const requestMatchHandler = async (req, res) => {
           createdAt: match.createdAt
         });
         
-        // Double-check that this match is still actually waiting and not already matched
+        // CRITICAL: Double-check that this match is still actually waiting and not already matched
         if (match.player2 === null && match.status === 'waiting') {
-          // Additional check: make sure this isn't the same player trying to match with themselves
+          // CRITICAL: Additional check to prevent self-matching
           if (match.player1 === wallet) {
             console.log('❌ Self-matching detected in database lookup, creating new waiting entry instead');
             // Create a new waiting entry instead of matching with self
@@ -350,6 +350,16 @@ const requestMatchHandler = async (req, res) => {
               await queryRunner.rollbackTransaction();
               return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
             }
+          }
+          
+          // CRITICAL: Final validation to ensure we have a valid opponent
+          if (!match.player1 || match.player1 === wallet) {
+            console.log('❌ Invalid waiting player detected:', {
+              waitingPlayer: match.player1,
+              currentPlayer: wallet
+            });
+            await queryRunner.rollbackTransaction();
+            return res.status(400).json({ error: 'Invalid match configuration' });
           }
           
           waitingPlayer = {
