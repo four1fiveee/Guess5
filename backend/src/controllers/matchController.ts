@@ -241,16 +241,19 @@ const requestMatchHandler = async (req, res) => {
             // Continue with normal matchmaking flow
           } else {
             console.log('⚠️ Player already has an active/escrow match, returning match info');
-            await queryRunner.rollbackTransaction();
-            res.json({
+            const responseData = {
               status: 'matched',
               matchId: existingActiveMatch.id,
               player1: existingActiveMatch.player1,
               player2: existingActiveMatch.player2,
               entryFee: existingActiveMatch.entryFee, // This should already be the lesser amount
               escrowAddress: existingActiveMatch.escrowAddress,
+              matchStatus: existingActiveMatch.status, // Add the actual match status
               message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
-            });
+            };
+            console.log('📤 Sending response:', responseData);
+            await queryRunner.rollbackTransaction();
+            res.json(responseData);
             return;
           }
         }
@@ -1843,6 +1846,53 @@ const createEscrowTransactionHandler = async (req, res) => {
   }
 };
 
+const cleanupStuckMatchesHandler = async (req, res) => {
+  try {
+    const { wallet } = req.body;
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+
+    console.log('🧹 Cleaning up stuck matches for wallet:', wallet);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Clean up all matches for this wallet (except completed ones)
+    const stuckMatches = await matchRepository.find({
+      where: [
+        { player1: wallet, status: 'waiting' },
+        { player2: wallet, status: 'waiting' },
+        { player1: wallet, status: 'active' },
+        { player2: wallet, status: 'active' },
+        { player1: wallet, status: 'escrow' },
+        { player2: wallet, status: 'escrow' }
+      ]
+    });
+    
+    if (stuckMatches.length > 0) {
+      console.log(`🧹 Removing ${stuckMatches.length} stuck matches for wallet ${wallet}`);
+      await matchRepository.remove(stuckMatches);
+      
+      return res.json({
+        success: true,
+        message: `Cleaned up ${stuckMatches.length} stuck matches`,
+        cleanedMatches: stuckMatches.length
+      });
+    } else {
+      return res.json({
+        success: true,
+        message: 'No stuck matches found',
+        cleanedMatches: 0
+      });
+    }
+  } catch (error) {
+    console.error('❌ Error cleaning up stuck matches:', error);
+    res.status(500).json({ error: 'Failed to cleanup matches' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1857,5 +1907,6 @@ module.exports = {
   submitGameGuessHandler,
   getGameStateHandler,
   executePaymentHandler,
-  createEscrowTransactionHandler
+  createEscrowTransactionHandler,
+  cleanupStuckMatchesHandler
 }; 

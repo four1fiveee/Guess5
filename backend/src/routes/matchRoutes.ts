@@ -19,6 +19,7 @@ router.post('/confirm-escrow', matchController.confirmEscrowHandler);
 router.post('/create-escrow-transaction', matchController.createEscrowTransactionHandler);
 router.get('/status/:matchId', matchController.getMatchStatusHandler);
 router.get('/check-match/:wallet', matchController.checkPlayerMatchHandler);
+router.post('/cleanup-stuck-matches', matchController.cleanupStuckMatchesHandler);
 
 // Server-side game state endpoints
 router.post('/submit-guess', matchController.submitGameGuessHandler);

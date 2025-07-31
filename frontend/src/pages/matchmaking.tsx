@@ -113,6 +113,36 @@ const Matchmaking: React.FC = () => {
     let timeoutId: NodeJS.Timeout;
     let countdownInterval: NodeJS.Timeout;
 
+    const cleanupStuckMatches = async () => {
+      if (!publicKey) return;
+      
+      try {
+        console.log('🧹 Cleaning up stuck matches...');
+        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/cleanup-stuck-matches`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            wallet: publicKey.toString()
+          }),
+        });
+
+        const data = await response.json();
+        console.log('🧹 Cleanup result:', data);
+        
+        if (data.success) {
+          console.log(`✅ Cleaned up ${data.cleanedMatches} stuck matches`);
+          // Retry matchmaking after cleanup
+          setTimeout(() => {
+            startMatchmaking();
+          }, 1000);
+        }
+      } catch (error) {
+        console.error('❌ Failed to cleanup stuck matches:', error);
+      }
+    };
+
     const startMatchmaking = async () => {
       try {
         const wallet = publicKey.toString();
@@ -146,6 +176,7 @@ const Matchmaking: React.FC = () => {
           setStatus('waiting');
         } else if (data.status === 'matched') {
           console.log('✅ Match found, proceeding to escrow...');
+          console.log('📊 Match data:', data);
           setMatchData(data);
           setStatus('matched');
           // Stop polling since we have a match
@@ -177,11 +208,10 @@ const Matchmaking: React.FC = () => {
           }
         } else if (data.error) {
           console.log('⚠️ Matchmaking error:', data.error);
-          if (data.error.includes('self-match')) {
-            // Retry matchmaking after a short delay
-            setTimeout(() => {
-              startMatchmaking();
-            }, 1000);
+          if (data.error.includes('self-match') || data.error.includes('already has an active')) {
+            // Clean up stuck matches and retry
+            console.log('🔄 Detected stuck match, cleaning up and retrying...');
+            await cleanupStuckMatches();
           } else {
             setStatus('error');
           }
@@ -325,7 +355,7 @@ const Matchmaking: React.FC = () => {
           {status === 'matched' && (
             <div className="space-y-4">
               <div className="text-green-400 text-xl">✓ Match Found!</div>
-              {matchData?.status === 'escrow' ? (
+              {(matchData?.matchStatus === 'escrow' || matchData?.message?.includes('lock your entry fee')) ? (
                 <div>
                   <p className="text-white/80">Please lock your entry fee to start the game</p>
                   <div className="text-accent text-sm">
@@ -347,6 +377,26 @@ const Matchmaking: React.FC = () => {
                       Failed to lock entry fee. Please try again.
                     </div>
                   )}
+                </div>
+              ) : matchData?.matchStatus === 'active' ? (
+                <div>
+                  <p className="text-white/80">Match is already active!</p>
+                  <p className="text-accent text-sm">Redirecting to game...</p>
+                  <button
+                    onClick={() => {
+                      localStorage.setItem('matchId', matchData.matchId);
+                      if (matchData.escrowAddress) {
+                        localStorage.setItem('escrowAddress', matchData.escrowAddress);
+                      }
+                      if (matchData.entryFee) {
+                        localStorage.setItem('entryFee', matchData.entryFee.toString());
+                      }
+                      router.push(`/game?matchId=${matchData.matchId}`);
+                    }}
+                    className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
+                  >
+                    Go to Game
+                  </button>
                 </div>
               ) : (
                 <div>
