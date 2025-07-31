@@ -141,7 +141,42 @@ const Matchmaking: React.FC = () => {
           console.log('✅ Match found, proceeding to escrow...');
           setMatchData(data);
           setStatus('matched');
-          // Don't redirect yet - need to handle escrow first
+          // Stop polling since we have a match
+          clearInterval(pollInterval);
+          clearTimeout(timeoutId);
+          clearInterval(countdownInterval);
+          
+          // Check if this is an active match (not escrow)
+          if (data.message && data.message.includes('Already in active match')) {
+            console.log('🎮 Match is already active, redirecting to game...');
+            // Store match data and redirect to game
+            localStorage.setItem('matchId', data.matchId);
+            if (data.word) {
+              localStorage.setItem('word', data.word);
+            }
+            if (data.escrowAddress) {
+              localStorage.setItem('escrowAddress', data.escrowAddress);
+            }
+            if (data.entryFee) {
+              localStorage.setItem('entryFee', data.entryFee.toString());
+            }
+            
+            setTimeout(() => {
+              router.push(`/game?matchId=${data.matchId}`);
+            }, 1000);
+          } else {
+            // Don't redirect yet - need to handle escrow first
+          }
+        } else if (data.error) {
+          console.log('⚠️ Matchmaking error:', data.error);
+          if (data.error.includes('self-match')) {
+            // Retry matchmaking after a short delay
+            setTimeout(() => {
+              startMatchmaking();
+            }, 1000);
+          } else {
+            setStatus('error');
+          }
         } else {
           console.error('❌ Unexpected response:', data);
           setStatus('error');
