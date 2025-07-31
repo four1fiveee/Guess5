@@ -70,4 +70,4 @@ if (process.env.DATABASE_URL) {
 // Export for use in other files
 app.dbConnected = dbConnected;
 
-module.exports = app; # Force deployment
+module.exports = app;
