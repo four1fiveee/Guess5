@@ -14,27 +14,22 @@ console.log('CORS allowed origin:', allowedOrigin);
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // limit each IP to 100 requests per windowMs
+  max: 1000, // Increased from 100 to 1000 requests per windowMs
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks and OPTIONS requests
+    return req.path === '/health' || req.method === 'OPTIONS';
+  }
 });
 
 // Apply rate limiting to all routes
 app.use(limiter);
 
-// CORS configuration - allow both localhost and Vercel
-const allowedOrigins = [
-  'http://localhost:3000',
-  'https://guess5.vercel.app',
-  allowedOrigin
-].filter(Boolean); // Remove any undefined values
-
-console.log('CORS allowed origins:', allowedOrigins);
-
 // CORS configuration - allow all origins
 app.use(cors({
-  origin: ['http://localhost:3000', 'https://guess5.vercel.app', 'https://guess5.vercel.app/'],
+  origin: true, // Allow all origins
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma'],

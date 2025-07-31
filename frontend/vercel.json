@@ -4,7 +4,8 @@
   "framework": "nextjs",
   "installCommand": "npm install",
   "env": {
-    "NEXT_PUBLIC_SOLANA_NETWORK": "https://api.devnet.solana.com"
+    "NEXT_PUBLIC_SOLANA_NETWORK": "https://api.devnet.solana.com",
+    "NEXT_PUBLIC_API_URL": "https://guess5.onrender.com"
   },
   "functions": {
     "src/pages/**/*.tsx": {

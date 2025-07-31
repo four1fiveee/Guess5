@@ -13,6 +13,12 @@
     }
   ],
   "env": {
-    "NODE_ENV": "production"
+    "NODE_ENV": "production",
+    "PORT": "40000",
+    "DATABASE_URL": "postgresql://guess5_user:nxf1TsMfS4XwW5Ix59zMDxm8kJC7CBpD@dpg-d21t6nqdbo4c73ek2in0-a.ohio-postgres.render.com/guess5?sslmode=require",
+    "FRONTEND_URL": "https://guess5.vercel.app",
+    "PROGRAM_ID": "8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz",
+    "FEE_WALLET_ADDRESS": "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A",
+    "SOLANA_NETWORK": "https://api.devnet.solana.com"
   }
 } 

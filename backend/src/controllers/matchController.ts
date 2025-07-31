@@ -115,7 +115,7 @@ const requestMatchHandler = async (req, res) => {
     
     // Clean up old completed matches and self-matches (non-blocking)
     // Run cleanup every time to ensure stale matches don't interfere
-    try {
+      try {
         const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
         
         // Clean up old completed matches
@@ -257,8 +257,8 @@ const requestMatchHandler = async (req, res) => {
       }
 
       // Look for waiting players in database with transaction isolation
-      let waitingPlayer = null;
-      
+    let waitingPlayer = null;
+    
       // Use tolerance-based matching to handle slight price differences
       const tolerance = 0.001; // Allow 0.001 SOL difference
       const minEntryFee = entryFee - tolerance;
@@ -376,12 +376,12 @@ const requestMatchHandler = async (req, res) => {
         }
       } else {
         console.log('⏳ No waiting players found');
-      }
-      
-      if (waitingPlayer) {
-        // Additional validation: ensure we have a valid opponent
-        if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
-          console.log('❌ Invalid waiting player detected:', {
+    }
+    
+    if (waitingPlayer) {
+      // Additional validation: ensure we have a valid opponent
+      if (!waitingPlayer.wallet || waitingPlayer.wallet === wallet) {
+        console.log('❌ Invalid waiting player detected:', {
             waitingPlayer: waitingPlayer.wallet,
             currentPlayer: wallet
           });
@@ -426,6 +426,9 @@ const requestMatchHandler = async (req, res) => {
             player2: wallet,
             entryFee: actualEntryFee
           });
+          
+          // For now, use the simple escrow service
+          // TODO: Integrate with smart contract
           const escrowResult = await createEscrowAccount(
             waitingPlayer.matchId,
             waitingPlayer.wallet,
@@ -510,9 +513,9 @@ const requestMatchHandler = async (req, res) => {
           } else {
             console.error('❌ Match not found or not in escrow after commit');
           }
-          
-          res.json({
-            status: 'matched',
+
+      res.json({
+        status: 'matched',
             matchId: updatedMatch.id,
             player1: updatedMatch.player1,
             player2: updatedMatch.player2,
@@ -525,13 +528,13 @@ const requestMatchHandler = async (req, res) => {
           await queryRunner.rollbackTransaction();
           return res.status(500).json({ error: 'Failed to create match' });
         }
-      } else {
+    } else {
         // No waiting player found, create a new waiting entry
         // But first check if this player already has a waiting entry
         const existingWaitingEntry = await queryRunner.manager.findOne(Match, {
           where: {
-            player1: wallet,
-            status: 'waiting',
+          player1: wallet,
+          status: 'waiting',
             player2: null
           }
         });
@@ -550,28 +553,28 @@ const requestMatchHandler = async (req, res) => {
         try {
           console.log('💾 Creating new waiting entry...');
           const waitingMatch = queryRunner.manager.create(Match, {
-            player1: wallet,
-            player2: null,
-            entryFee: entryFee,
-            status: 'waiting',
-            word: null
-          });
-          
+          player1: wallet,
+          player2: null,
+          entryFee: entryFee,
+          status: 'waiting',
+          word: null
+        });
+        
           const savedMatch = await queryRunner.manager.save(waitingMatch);
           console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
           
           await queryRunner.commitTransaction();
-          
-          res.json({
-            status: 'waiting',
+        
+        res.json({
+          status: 'waiting',
             message: 'Waiting for opponent',
             waitingCount: totalWaitingForStake
-          });
-        } catch (dbError) {
+        });
+      } catch (dbError) {
           console.error('❌ Failed to save new waiting entry:', dbError);
           await queryRunner.rollbackTransaction();
-          return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
-        }
+        return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
+      }
       }
       
     } catch (transactionError) {
@@ -1787,6 +1790,59 @@ const executePaymentHandler = async (req, res) => {
   }
 };
 
+// Create escrow transaction endpoint
+const createEscrowTransactionHandler = async (req, res) => {
+  try {
+    const { matchId, wallet, escrowAddress, entryFee } = req.body;
+    
+    console.log('🔒 Creating escrow transaction:', { matchId, wallet, escrowAddress, entryFee });
+    
+    if (!matchId || !wallet || !escrowAddress || !entryFee) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    
+    // Validate the match exists and player is part of it
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    if (match.player1 !== wallet && match.player2 !== wallet) {
+      return res.status(403).json({ error: 'You are not part of this match' });
+    }
+    
+    if (match.status !== 'escrow') {
+      return res.status(400).json({ error: 'Match is not in escrow status' });
+    }
+    
+    // Create the escrow transaction
+    const { transferToEscrow } = require('../services/payoutService');
+    const entryFeeLamports = Number(entryFee) * 1000000000; // Convert to lamports
+    
+    const escrowResult = await transferToEscrow(wallet, escrowAddress, entryFeeLamports);
+    
+    if (!escrowResult.success) {
+      console.error('❌ Failed to create escrow transaction:', escrowResult.error);
+      return res.status(500).json({ error: 'Failed to create escrow transaction' });
+    }
+    
+    console.log('✅ Escrow transaction created successfully');
+    
+    res.json({
+      success: true,
+      transaction: escrowResult.transaction,
+      message: 'Escrow transaction created - please sign and submit'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error creating escrow transaction:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1800,5 +1856,6 @@ module.exports = {
   confirmEscrowHandler,
   submitGameGuessHandler,
   getGameStateHandler,
-  executePaymentHandler
+  executePaymentHandler,
+  createEscrowTransactionHandler
 }; 

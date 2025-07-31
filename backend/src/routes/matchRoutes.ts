@@ -16,6 +16,7 @@ if (process.env.NODE_ENV !== 'production') {
 router.post('/request-match', matchController.requestMatchHandler);
 router.post('/submit-result', matchController.submitResultHandler);
 router.post('/confirm-escrow', matchController.confirmEscrowHandler);
+router.post('/create-escrow-transaction', matchController.createEscrowTransactionHandler);
 router.get('/status/:matchId', matchController.getMatchStatusHandler);
 router.get('/check-match/:wallet', matchController.checkPlayerMatchHandler);
 

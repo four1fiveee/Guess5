@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
-import { transferToEscrow } from '../utils/paymentService';
+import SmartContractService from '../utils/smartContractService';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, signTransaction, signAllTransactions } = useWallet();
   const [status, setStatus] = useState<'waiting' | 'matched' | 'escrow' | 'error'>('waiting');
   const [timeLeft, setTimeLeft] = useState(120);
   const [timeoutMessage, setTimeoutMessage] = useState<string>('');
@@ -16,25 +16,31 @@ const Matchmaking: React.FC = () => {
   const [isPolling, setIsPolling] = useState<boolean>(false);
 
   const handleEscrowPayment = async () => {
-    if (!publicKey || !signTransaction || !matchData) {
-      console.error('❌ Missing publicKey, signTransaction, or matchData');
+    if (!publicKey || !matchData) {
+      console.error('❌ Missing publicKey or matchData');
       setEscrowStatus('failed');
       return;
     }
 
     try {
-      console.log('💰 Starting escrow payment...');
+      console.log('💰 Starting smart contract escrow payment...');
       setEscrowStatus('pending');
 
-      const paymentResult = await transferToEscrow(
-        publicKey.toString(),
-        matchData.escrowAddress,
-        entryFee,
-        signTransaction
+      // Create smart contract service instance
+      const smartContractService = new SmartContractService({
+        publicKey: publicKey,
+        signTransaction: signTransaction,
+        signAllTransactions: signAllTransactions
+      });
+
+      // Lock entry fee using smart contract
+      const lockResult = await smartContractService.lockEntryFee(
+        matchData.matchId,
+        entryFee
       );
 
-      if (paymentResult.success) {
-        console.log('✅ Escrow payment successful:', paymentResult.signature);
+      if (lockResult.success) {
+        console.log('✅ Smart contract escrow payment successful:', lockResult.signature);
         setEscrowStatus('success');
         
         // Confirm escrow payment with backend
@@ -47,7 +53,7 @@ const Matchmaking: React.FC = () => {
             body: JSON.stringify({
               matchId: matchData.matchId,
               wallet: publicKey.toString(),
-              escrowSignature: paymentResult.signature
+              escrowSignature: lockResult.signature
             }),
           });
 
@@ -82,11 +88,11 @@ const Matchmaking: React.FC = () => {
           setEscrowStatus('failed');
         }
       } else {
-        console.error('❌ Escrow payment failed:', paymentResult.error);
+        console.error('❌ Smart contract escrow payment failed:', lockResult.error);
         setEscrowStatus('failed');
       }
     } catch (error) {
-      console.error('❌ Escrow payment error:', error);
+      console.error('❌ Smart contract escrow payment error:', error);
       setEscrowStatus('failed');
     }
   };
