@@ -17,6 +17,12 @@ const Matchmaking: React.FC = () => {
   
   // Add state to track if matchmaking is already in progress
   const [isMatchmakingInProgress, setIsMatchmakingInProgress] = useState(false);
+  
+  // Add ref to track if useEffect has already been initialized
+  const hasInitialized = useRef(false);
+  
+  // Add ref to track if startMatchmaking is currently running
+  const isStartMatchmakingRunning = useRef(false);
 
   const handleEscrowPayment = async () => {
     if (!publicKey || !matchData) {
@@ -106,11 +112,14 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
-    // Don't restart matchmaking if we already have a match
-    if (matchData && status === 'matched') {
-      console.log('🎮 Already have a match, not restarting matchmaking');
+    // Prevent useEffect from running multiple times
+    if (hasInitialized.current) {
+      console.log('🎮 useEffect already initialized, skipping...');
       return;
     }
+
+    // Mark as initialized
+    hasInitialized.current = true;
 
     // Don't restart if matchmaking is already in progress
     if (isMatchmakingInProgress) {
@@ -172,6 +181,15 @@ const Matchmaking: React.FC = () => {
         console.log('🎮 Matchmaking already in progress, skipping...');
         return;
       }
+
+      // Prevent multiple simultaneous startMatchmaking calls
+      if (isStartMatchmakingRunning.current) {
+        console.log('🎮 startMatchmaking already running, skipping...');
+        return;
+      }
+
+      // Mark as running
+      isStartMatchmakingRunning.current = true;
 
       const wallet = publicKey.toString();
       console.log('🎮 Starting matchmaking with wallet:', wallet);
@@ -302,6 +320,7 @@ const Matchmaking: React.FC = () => {
           console.error('❌ Matchmaking failed after all retries:', lastError);
           setStatus('error');
           setIsMatchmakingInProgress(false); // Reset on error
+          isStartMatchmakingRunning.current = false; // Reset running flag
         }
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
@@ -309,6 +328,10 @@ const Matchmaking: React.FC = () => {
         clearTimeout(timeoutId);
         clearInterval(pollInterval);
         setIsMatchmakingInProgress(false); // Reset on error
+        isStartMatchmakingRunning.current = false; // Reset running flag
+      } finally {
+        // Mark as not running after completion or failure
+        isStartMatchmakingRunning.current = false;
       }
     };
 
@@ -353,6 +376,7 @@ const Matchmaking: React.FC = () => {
               clearInterval(countdownInterval);
               setIsPolling(false);
               setIsMatchmakingInProgress(false); // Reset matchmaking progress
+              isStartMatchmakingRunning.current = false; // Reset running flag
               
               console.log('🎮 Match confirmed, proceeding to escrow...');
               setMatchData(ourMatch);
@@ -419,6 +443,7 @@ const Matchmaking: React.FC = () => {
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
       setIsMatchmakingInProgress(false);
+      isStartMatchmakingRunning.current = false; // Reset running flag
     };
   }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress]); // Added isMatchmakingInProgress to dependencies
 
