@@ -1244,13 +1244,25 @@ const checkPlayerMatchHandler = async (req, res) => {
         status: activeMatch.status,
         requestingWallet: wallet
       });
+      
+      // Determine the appropriate message based on status
+      let message = '';
+      if (activeMatch.status === 'escrow') {
+        message = 'Match created - please lock your entry fee';
+      } else if (activeMatch.status === 'active') {
+        message = 'Already in active match';
+      }
+      
       res.json({
         matched: true,
         matchId: activeMatch.id,
         status: activeMatch.status,
         player1: activeMatch.player1,
         player2: activeMatch.player2,
-        word: activeMatch.word
+        word: activeMatch.word,
+        escrowAddress: activeMatch.escrowAddress,
+        entryFee: activeMatch.entryFee,
+        message: message
       });
     } else {
       console.log('⏳ Player still waiting for match');
