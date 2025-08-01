@@ -15,8 +15,8 @@ const Matchmaking: React.FC = () => {
   const [entryFee, setEntryFee] = useState<number>(0);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   
-  // Add ref to track if matchmaking is already in progress
-  const matchmakingInProgress = useRef(false);
+  // Add state to track if matchmaking is already in progress
+  const [isMatchmakingInProgress, setIsMatchmakingInProgress] = useState(false);
 
   const handleEscrowPayment = async () => {
     if (!publicKey || !matchData) {
@@ -113,13 +113,13 @@ const Matchmaking: React.FC = () => {
     }
 
     // Don't restart if matchmaking is already in progress
-    if (matchmakingInProgress.current) {
+    if (isMatchmakingInProgress) {
       console.log('🎮 Matchmaking already in progress, not restarting');
       return;
     }
 
     // Mark matchmaking as in progress
-    matchmakingInProgress.current = true;
+    setIsMatchmakingInProgress(true);
 
     // Get entry fee from localStorage
     const storedEntryFee = localStorage.getItem('entryFeeSOL');
@@ -164,6 +164,12 @@ const Matchmaking: React.FC = () => {
     const startMatchmaking = async () => {
       if (!publicKey) {
         console.error('❌ Missing publicKey');
+        return;
+      }
+
+      // Prevent multiple simultaneous matchmaking attempts
+      if (isMatchmakingInProgress) {
+        console.log('🎮 Matchmaking already in progress, skipping...');
         return;
       }
 
@@ -295,14 +301,14 @@ const Matchmaking: React.FC = () => {
         if (retryCount >= maxRetries && lastError) {
           console.error('❌ Matchmaking failed after all retries:', lastError);
           setStatus('error');
-          matchmakingInProgress.current = false; // Reset on error
+          setIsMatchmakingInProgress(false); // Reset on error
         }
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
         setStatus('error');
         clearTimeout(timeoutId);
         clearInterval(pollInterval);
-        matchmakingInProgress.current = false; // Reset on error
+        setIsMatchmakingInProgress(false); // Reset on error
       }
     };
 
@@ -314,6 +320,12 @@ const Matchmaking: React.FC = () => {
           if (matchData && status === 'matched') {
             console.log('🎮 Already have a match, stopping polling');
             clearInterval(pollInterval);
+            return;
+          }
+
+          // Don't poll if matchmaking is in progress
+          if (isMatchmakingInProgress) {
+            console.log('🎮 Matchmaking in progress, skipping poll');
             return;
           }
 
@@ -340,7 +352,7 @@ const Matchmaking: React.FC = () => {
               clearTimeout(timeoutId);
               clearInterval(countdownInterval);
               setIsPolling(false);
-              matchmakingInProgress.current = false; // Reset matchmaking progress
+              setIsMatchmakingInProgress(false); // Reset matchmaking progress
               
               console.log('🎮 Match confirmed, proceeding to escrow...');
               setMatchData(ourMatch);
@@ -406,9 +418,9 @@ const Matchmaking: React.FC = () => {
       clearTimeout(timeoutId);
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
-      matchmakingInProgress.current = false;
+      setIsMatchmakingInProgress(false);
     };
-  }, [publicKey, router, signTransaction, entryFee]); // Removed matchData from dependencies
+  }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress]); // Added isMatchmakingInProgress to dependencies
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
