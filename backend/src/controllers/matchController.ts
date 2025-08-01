@@ -1676,6 +1676,76 @@ const cleanupStuckMatchesHandler = async (req, res) => {
   }
 };
 
+// Simple cleanup endpoint for production
+const simpleCleanupHandler = async (req, res) => {
+  try {
+    console.log('🧹 Running simple cleanup...');
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Clean up all old matches
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    
+    // Clean up old completed matches
+    const completedMatches = await matchRepository.find({
+      where: { status: 'completed' }
+    });
+    
+    // Clean up old waiting matches
+    const waitingMatches = await matchRepository.find({
+      where: { status: 'waiting' }
+    });
+    
+    // Clean up old escrow matches
+    const escrowMatches = await matchRepository.find({
+      where: { status: 'escrow' }
+    });
+    
+    let cleanedCount = 0;
+    
+    if (completedMatches.length > 0) {
+      await matchRepository.remove(completedMatches);
+      cleanedCount += completedMatches.length;
+      console.log(`🧹 Cleaned up ${completedMatches.length} completed matches`);
+    }
+    
+    if (waitingMatches.length > 0) {
+      await matchRepository.remove(waitingMatches);
+      cleanedCount += waitingMatches.length;
+      console.log(`🧹 Cleaned up ${waitingMatches.length} waiting matches`);
+    }
+    
+    if (escrowMatches.length > 0) {
+      await matchRepository.remove(escrowMatches);
+      cleanedCount += escrowMatches.length;
+      console.log(`🧹 Cleaned up ${escrowMatches.length} escrow matches`);
+    }
+    
+    // Clear in-memory games
+    const activeGamesSize = activeGames.size;
+    activeGames.clear();
+    matchmakingLocks.clear();
+    
+    console.log(`🧹 Cleaned up ${cleanedCount} database matches and ${activeGamesSize} in-memory games`);
+    
+    res.json({ 
+      success: true, 
+      message: `Cleaned up ${cleanedCount} database matches and ${activeGamesSize} in-memory games`,
+      cleanedDatabase: cleanedCount,
+      cleanedMemory: activeGamesSize
+    });
+    
+  } catch (error) {
+    console.error('❌ Simple cleanup failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: 'Failed to cleanup matches',
+      details: error.message 
+    });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1691,5 +1761,6 @@ module.exports = {
   getGameStateHandler,
   executePaymentHandler,
   createEscrowTransactionHandler,
-  cleanupStuckMatchesHandler
+  cleanupStuckMatchesHandler,
+  simpleCleanupHandler
 }; 

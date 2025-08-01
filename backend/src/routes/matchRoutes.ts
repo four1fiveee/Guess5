@@ -15,6 +15,8 @@ router.get('/game-state', asyncHandlerWrapper(matchController.getGameStateHandle
 router.post('/execute-payment', asyncHandlerWrapper(matchController.executePaymentHandler));
 router.post('/create-escrow-transaction', asyncHandlerWrapper(matchController.createEscrowTransactionHandler));
 router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanupStuckMatchesHandler));
+router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
+router.post('/cleanup', asyncHandlerWrapper(matchController.simpleCleanupHandler));
 
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
@@ -22,7 +24,6 @@ if (process.env.NODE_ENV !== 'production') {
   router.get('/test', asyncHandlerWrapper(matchController.matchTestHandler));
   router.get('/test-repository', asyncHandlerWrapper(matchController.testRepositoryHandler));
   router.get('/test-database', asyncHandlerWrapper(matchController.testDatabaseHandler));
-  router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
 }
 
 module.exports = router; 
