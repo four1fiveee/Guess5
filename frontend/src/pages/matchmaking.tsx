@@ -144,8 +144,8 @@ const Matchmaking: React.FC = () => {
     };
 
     const startMatchmaking = async () => {
-      if (!publicKey || !matchData) {
-        console.error('❌ Missing publicKey or matchData');
+      if (!publicKey) {
+        console.error('❌ Missing publicKey');
         return;
       }
 
