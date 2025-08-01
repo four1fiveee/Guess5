@@ -193,6 +193,13 @@ const Matchmaking: React.FC = () => {
             const data = await response.json();
             console.log('🎮 Matchmaking response:', data);
 
+            // Handle deduplication response
+            if (data.duplicate === true) {
+              console.log('🔄 Duplicate request detected, continuing with polling...');
+              setStatus('waiting');
+              break; // Success, exit retry loop - continue with polling
+            }
+
             if (data.status === 'waiting') {
               setWaitingCount(data.waitingCount || 0);
               setStatus('waiting');
