@@ -33,13 +33,13 @@ const globalLimiter = rateLimit({
 // Specific rate limiters
 const matchmakingLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  10, // 10 requests per wallet per 15 minutes
+  100, // 100 requests per wallet per 15 minutes (increased from 10)
   (req) => req.body.wallet || req.ip
 );
 
 const gameLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  50, // 50 game actions per 15 minutes
+  200, // 200 game actions per 15 minutes (increased from 50)
   (req) => req.body.wallet || req.ip
 );
 
