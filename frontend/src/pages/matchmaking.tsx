@@ -127,6 +127,12 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    // Don't start matchmaking if we already have a match
+    if (matchData && status === 'matched') {
+      console.log('🎮 Already have a match, not starting matchmaking');
+      return;
+    }
+
     // Mark matchmaking as in progress
     setIsMatchmakingInProgress(true);
 
@@ -185,6 +191,12 @@ const Matchmaking: React.FC = () => {
       // Prevent multiple simultaneous startMatchmaking calls
       if (isStartMatchmakingRunning.current) {
         console.log('🎮 startMatchmaking already running, skipping...');
+        return;
+      }
+
+      // Don't start matchmaking if we already have a match
+      if (matchData && status === 'matched') {
+        console.log('🎮 Already have a match, not starting new matchmaking');
         return;
       }
 
@@ -352,6 +364,12 @@ const Matchmaking: React.FC = () => {
             return;
           }
 
+          // Don't start matchmaking if we already have a match
+          if (matchData && status === 'matched') {
+            console.log('🎮 Already have a match, not starting matchmaking from polling');
+            return;
+          }
+
           console.log('🔍 Polling for match status...');
           
           // Use the dedicated endpoint to check if we've been matched
@@ -468,9 +486,7 @@ const Matchmaking: React.FC = () => {
                   {waitingCount === 1 ? 'You are the only player waiting' : `${waitingCount} players waiting`}
                 </div>
               )}
-              <div className="text-accent text-sm">
-                Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-              </div>
+
             </div>
           )}
           {status === 'matched' && (
