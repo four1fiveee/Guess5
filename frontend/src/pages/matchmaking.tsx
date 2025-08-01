@@ -103,6 +103,12 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    // Don't restart matchmaking if we already have a match
+    if (matchData && status === 'matched') {
+      console.log('🎮 Already have a match, not restarting matchmaking');
+      return;
+    }
+
     // Get entry fee from localStorage
     const storedEntryFee = localStorage.getItem('entryFeeSOL');
     if (storedEntryFee) {
@@ -290,6 +296,13 @@ const Matchmaking: React.FC = () => {
       // Poll every 1 second to check if we've been matched (faster response)
       pollInterval = setInterval(async () => {
         try {
+          // Don't poll if we already have a match
+          if (matchData && status === 'matched') {
+            console.log('🎮 Already have a match, stopping polling');
+            clearInterval(pollInterval);
+            return;
+          }
+
           console.log('🔍 Polling for match status...');
           
           // Use the dedicated endpoint to check if we've been matched
@@ -379,7 +392,7 @@ const Matchmaking: React.FC = () => {
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
     };
-  }, [publicKey, router, signTransaction, matchData, entryFee]);
+  }, [publicKey, router, signTransaction, entryFee]); // Removed matchData from dependencies
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
