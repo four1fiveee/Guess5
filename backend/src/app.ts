@@ -36,7 +36,25 @@ const gameLimiter = createRateLimiter(
   (req) => req.body.wallet || req.ip
 );
 
-// Apply rate limiting to all routes
+// Apply CORS first (before rate limiting)
+app.use(cors({
+  origin: true, // Allow all origins
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Origin', 'X-Requested-With'],
+  optionsSuccessStatus: 200
+}));
+
+// Handle preflight requests with explicit CORS headers
+app.options('*', (req, res) => {
+  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
+// Apply rate limiting after CORS
 app.use(globalLimiter);
 
 // Debug middleware to log CORS requests (development only)
@@ -51,42 +69,6 @@ if (process.env.NODE_ENV === 'development') {
     next();
   });
 }
-
-// CORS configuration - allow all origins
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'https://guess5.vercel.app',
-      'http://localhost:3000', 
-      'https://localhost:3000',
-      'http://localhost:3001',
-      'https://localhost:3001'
-    ];
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
-      callback(null, true);
-    } else {
-      console.log('🚫 CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma'],
-  optionsSuccessStatus: 200
-}));
-
-// Handle preflight requests with explicit CORS headers
-app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.status(200).end();
-});
 
 // Health check endpoint
 app.get('/health', asyncHandler(async (req, res) => {
