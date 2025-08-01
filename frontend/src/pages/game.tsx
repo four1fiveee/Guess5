@@ -340,8 +340,9 @@ const Game: React.FC = () => {
           // Store payout data for results page
           localStorage.setItem('payoutData', JSON.stringify(data.payout));
           
-          // Set game state to completed
+          // IMMEDIATE CLEANUP: Set game state to completed and stop all polling
           setGameState('completed');
+          setTimerActive(false);
           
           // Navigate to result page after a short delay
           setTimeout(() => {

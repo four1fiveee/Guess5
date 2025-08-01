@@ -7,7 +7,7 @@ const { createEscrowAccount, payout, refundEscrow } = require('../services/payou
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
 
-// Server-side game state tracking
+// Server-side game state tracking with proper cleanup
 const activeGames = new Map<string, {
   startTime: number;
   player1StartTime: number;
@@ -18,7 +18,76 @@ const activeGames = new Map<string, {
   player2Solved: boolean;
   word: string;
   matchId: string;
+  lastActivity: number; // Track last activity for cleanup
+  completed: boolean; // Track if game is completed
 }>();
+
+// Matchmaking lock to prevent race conditions
+const matchmakingLocks = new Map<string, Promise<any>>();
+
+// Cleanup function for memory management - now only handles truly inactive games
+const cleanupInactiveGames = () => {
+  const now = Date.now();
+  const inactiveTimeout = 10 * 60 * 1000; // 10 minutes for truly inactive games
+  
+  let cleanedCount = 0;
+  
+  for (const [matchId, gameState] of activeGames.entries()) {
+    const timeSinceActivity = now - gameState.lastActivity;
+    
+    // Only clean up games that are truly inactive (not completed)
+    // Completed games are cleaned up immediately in markGameCompleted()
+    if (!gameState.completed && timeSinceActivity > inactiveTimeout) {
+      console.log(`🧹 Cleaning up inactive game: ${matchId}`);
+      activeGames.delete(matchId);
+      cleanedCount++;
+    }
+  }
+  
+  if (cleanedCount > 0) {
+    console.log(`🧹 Cleaned up ${cleanedCount} inactive games from memory`);
+  }
+  
+  // Clean up matchmaking locks older than 30 seconds
+  const lockTimeout = 30 * 1000; // 30 seconds
+  let lockCleanedCount = 0;
+  
+  for (const [lockKey, lockPromise] of matchmakingLocks.entries()) {
+    // We can't easily track lock age, so we'll clean them periodically
+    // This is a simplified approach - in production, use Redis for distributed locking
+    lockCleanedCount++;
+  }
+  
+  if (lockCleanedCount > 10) {
+    console.log(`🧹 Matchmaking locks cleaned up`);
+    matchmakingLocks.clear();
+  }
+};
+
+// Update game activity
+const updateGameActivity = (matchId: string) => {
+  const gameState = activeGames.get(matchId);
+  if (gameState) {
+    gameState.lastActivity = Date.now();
+  }
+};
+
+// Mark game as completed and cleanup immediately
+const markGameCompleted = (matchId: string) => {
+  const gameState = activeGames.get(matchId);
+  if (gameState) {
+    gameState.completed = true;
+    gameState.lastActivity = Date.now();
+    console.log(`✅ Game ${matchId} marked as completed`);
+    
+    // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
+    activeGames.delete(matchId);
+    console.log(`🧹 Immediate cleanup: Removed completed game ${matchId} from memory`);
+  }
+};
+
+// Run cleanup every 5 minutes
+setInterval(cleanupInactiveGames, 5 * 60 * 1000);
 
 // Word list for games
 const wordList = [
@@ -61,324 +130,356 @@ const requestMatchHandler = async (req, res) => {
 
     console.log(`✅ Player ${wallet} waiting for match with $${entryFee} entry fee`);
 
-    // Database is required for cross-device matchmaking
-    let matchRepository = null;
-    
-    // Check if database is initialized first with retry
-    let dbInitialized = false;
-    let retryCount = 0;
-    const maxRetries = 3;
-    
-    while (!dbInitialized && retryCount < maxRetries) {
+    // CRITICAL: Implement locking to prevent race conditions
+    const lockKey = `matchmaking_${wallet}`;
+    if (matchmakingLocks.has(lockKey)) {
+      console.log('⏳ Player already in matchmaking, returning existing lock');
+      return res.status(429).json({ error: 'Matchmaking in progress, please wait' });
+    }
+
+    // Create lock for this player
+    const matchmakingPromise = (async () => {
       try {
-        const { AppDataSource } = require('../db/index');
-        console.log(`🔍 Database initialization status (attempt ${retryCount + 1}):`, AppDataSource.isInitialized);
-        
-        if (AppDataSource.isInitialized) {
-          dbInitialized = true;
-          console.log('✅ Database is initialized');
-        } else {
-          console.log(`⏳ Database not ready yet, retrying in 1 second... (${retryCount + 1}/${maxRetries})`);
-          retryCount++;
-          if (retryCount < maxRetries) {
-            await new Promise(resolve => setTimeout(resolve, 1000));
-          }
-        }
-      } catch (dbError) {
-        console.error('❌ Cannot check database status:', dbError);
+        return await performMatchmaking(wallet, entryFee);
+      } finally {
+        // Always clean up the lock
+        matchmakingLocks.delete(lockKey);
+      }
+    })();
+
+    matchmakingLocks.set(lockKey, matchmakingPromise);
+    
+    const result = await matchmakingPromise;
+    res.json(result);
+    
+  } catch (error) {
+    console.error('❌ Error in requestMatchHandler:', error);
+    console.error('❌ Error details:', {
+      message: error.message,
+      stack: error.stack,
+      name: error.name
+    });
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Separate function for the actual matchmaking logic
+const performMatchmaking = async (wallet: string, entryFee: number) => {
+  // Database is required for cross-device matchmaking
+  let matchRepository = null;
+  
+  // Check if database is initialized first with retry
+  let dbInitialized = false;
+  let retryCount = 0;
+  const maxRetries = 3;
+  
+  while (!dbInitialized && retryCount < maxRetries) {
+    try {
+      const { AppDataSource } = require('../db/index');
+      console.log(`🔍 Database initialization status (attempt ${retryCount + 1}):`, AppDataSource.isInitialized);
+      
+      if (AppDataSource.isInitialized) {
+        dbInitialized = true;
+        console.log('✅ Database is initialized');
+      } else {
+        console.log(`⏳ Database not ready yet, retrying in 1 second... (${retryCount + 1}/${maxRetries})`);
         retryCount++;
         if (retryCount < maxRetries) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
-    }
-    
-    if (!dbInitialized) {
-      console.error('❌ Database not initialized after retries');
-      return res.status(503).json({ error: 'Database not ready - please try again' });
-    }
-    
-    try {
-      console.log('🔍 Attempting to get database repository...');
-      const { AppDataSource } = require('../db/index');
-      matchRepository = AppDataSource.getRepository(Match);
-      console.log('✅ Database repository available');
-    } catch (repoError) {
-      console.error('❌ Database repository not available:', repoError);
-      console.error('❌ Error details:', {
-        message: repoError.message,
-        stack: repoError.stack,
-        name: repoError.name
-      });
-      return res.status(503).json({ error: 'Database not available - matchmaking unavailable' });
-    }
-    
-    // Clean up old completed matches and self-matches (non-blocking)
-    // Run cleanup every time to ensure stale matches don't interfere
-      try {
-        const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-        
-        // Clean up old completed matches
-        const oldCompletedMatches = await matchRepository.find({
-          where: {
-            status: 'completed',
-            updatedAt: LessThan(oneHourAgo)
-          }
-        });
-        
-        // Clean up self-matches (where player1 === player2)
-        const selfMatches = await matchRepository.find({
-          where: {
-            status: 'active',
-            player1: Not(null),
-            player2: Not(null)
-          }
-        });
-        
-        const actualSelfMatches = selfMatches.filter(match => match.player1 === match.player2);
-        
-        // Clean up waiting self-matches
-        const waitingSelfMatches = await matchRepository.find({
-          where: {
-            status: 'waiting',
-            player1: wallet
-          }
-        });
-        
-        if (oldCompletedMatches.length > 0) {
-          console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
-          await matchRepository.remove(oldCompletedMatches);
-        }
-        
-        if (actualSelfMatches.length > 0) {
-          console.log(`🧹 Cleaning up ${actualSelfMatches.length} self-matches`);
-          await matchRepository.remove(actualSelfMatches);
-        }
-        
-        if (waitingSelfMatches.length > 0) {
-          console.log(`🧹 Cleaning up ${waitingSelfMatches.length} waiting self-matches for current player`);
-          await matchRepository.remove(waitingSelfMatches);
-        }
-      } catch (cleanupError) {
-        console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
+    } catch (dbError) {
+      console.error('❌ Cannot check database status:', dbError);
+      retryCount++;
+      if (retryCount < maxRetries) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    
-    // Use database transaction to prevent race conditions
+    }
+  }
+  
+  if (!dbInitialized) {
+    console.error('❌ Database not initialized after retries');
+    throw new Error('Database not ready - please try again');
+  }
+  
+  try {
+    console.log('🔍 Attempting to get database repository...');
     const { AppDataSource } = require('../db/index');
-    const queryRunner = AppDataSource.createQueryRunner();
-    await queryRunner.connect();
-    await queryRunner.startTransaction();
+    matchRepository = AppDataSource.getRepository(Match);
+    console.log('✅ Database repository available');
+  } catch (repoError) {
+    console.error('❌ Database repository not available:', repoError);
+    console.error('❌ Error details:', {
+      message: repoError.message,
+      stack: repoError.stack,
+      name: repoError.name
+    });
+    throw new Error('Database not available - matchmaking unavailable');
+  }
+  
+  // Clean up old completed matches and self-matches (non-blocking)
+  // Run cleanup every time to ensure stale matches don't interfere
+  try {
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     
-    try {
-      // Clean up any stale waiting entries for this player (older than 5 minutes)
-      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-      const staleEntries = await queryRunner.manager.find(Match, {
-        where: {
-          player1: wallet,
-          status: 'waiting',
-          player2: null,
-          createdAt: LessThan(fiveMinutesAgo)
-        }
-      });
-      
-      if (staleEntries.length > 0) {
-        console.log(`🧹 Cleaning up ${staleEntries.length} stale waiting entries for player ${wallet}`);
-        await queryRunner.manager.remove(staleEntries);
+    // IMMEDIATE CLEANUP: Clean up completed matches right away (not old ones)
+    const completedMatches = await matchRepository.find({
+      where: {
+        status: 'completed',
+        isCompleted: true
       }
-      
-      // Clean up old active matches (older than 10 minutes) that are likely stale
-      const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-      const staleActiveMatches = await queryRunner.manager.find(Match, {
-        where: [
-          { player1: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
-          { player2: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
-          { player1: wallet, status: 'escrow', createdAt: LessThan(tenMinutesAgo) },
-          { player2: wallet, status: 'escrow', createdAt: LessThan(tenMinutesAgo) }
-        ]
-      });
-      
-      if (staleActiveMatches.length > 0) {
-        console.log(`🧹 Cleaning up ${staleActiveMatches.length} stale active/escrow matches for player ${wallet}`);
-        await queryRunner.manager.remove(staleActiveMatches);
+    });
+    
+    // Clean up self-matches (where player1 === player2)
+    const selfMatches = await matchRepository.find({
+      where: {
+        status: 'active',
+        player1: Not(null),
+        player2: Not(null)
       }
-      
-      // Check for existing active/escrow matches for this player
-      const existingActiveMatch = await queryRunner.manager.findOne(Match, {
-        where: [
-          { player1: wallet, status: 'active' },
-          { player2: wallet, status: 'active' },
-          { player1: wallet, status: 'escrow' },
-          { player2: wallet, status: 'escrow' }
-        ]
-      });
-      
-      if (existingActiveMatch) {
-        console.log('🔍 Found existing active/escrow match:', {
-          id: existingActiveMatch.id,
-          player1: existingActiveMatch.player1,
-          player2: existingActiveMatch.player2,
-          status: existingActiveMatch.status,
-          entryFee: existingActiveMatch.entryFee,
-          escrowAddress: existingActiveMatch.escrowAddress,
-          createdAt: existingActiveMatch.createdAt,
-          updatedAt: existingActiveMatch.updatedAt
-        });
-        
-        // CRITICAL: If the existing match is a self-match, clean it up and return an error
-        if (existingActiveMatch.player1 === existingActiveMatch.player2) {
-          console.log('❌ Detected existing self-match, cleaning up and returning error to force retry.');
-          await queryRunner.manager.remove(existingActiveMatch);
-          await queryRunner.commitTransaction(); // Commit the cleanup
-          return res.status(400).json({ error: 'Detected and cleaned up a self-match. Please try again.' });
-        } else {
-          // Check if the existing match is stale (older than 10 minutes)
-          const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-          if (existingActiveMatch.updatedAt < tenMinutesAgo) {
-            console.log('🧹 Cleaning up stale active/escrow match:', existingActiveMatch.id);
-            await queryRunner.manager.remove(existingActiveMatch);
-            await queryRunner.commitTransaction();
-            console.log('✅ Stale match cleaned up, allowing new matchmaking');
-            // Continue with normal matchmaking flow
-          } else {
-            console.log('⚠️ Player already has an active/escrow match, returning match info');
-            const responseData = {
-              status: 'matched',
-              matchId: existingActiveMatch.id,
-              player1: existingActiveMatch.player1,
-              player2: existingActiveMatch.player2,
-              entryFee: existingActiveMatch.entryFee, // This should already be the lesser amount
-              escrowAddress: existingActiveMatch.escrowAddress,
-              matchStatus: existingActiveMatch.status, // Add the actual match status
-              message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
-            };
-            console.log('📤 Sending response:', responseData);
-            await queryRunner.rollbackTransaction();
-            res.json(responseData);
-            return;
-          }
-        }
+    });
+    
+    const actualSelfMatches = selfMatches.filter(match => match.player1 === match.player2);
+    
+    // Clean up waiting self-matches
+    const waitingSelfMatches = await matchRepository.find({
+      where: {
+        status: 'waiting',
+        player1: wallet
       }
+    });
+    
+    if (completedMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${completedMatches.length} completed matches immediately`);
+      await matchRepository.remove(completedMatches);
+    }
+    
+    if (actualSelfMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${actualSelfMatches.length} self-matches`);
+      await matchRepository.remove(actualSelfMatches);
+    }
+    
+    if (waitingSelfMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${waitingSelfMatches.length} waiting self-matches for current player`);
+      await matchRepository.remove(waitingSelfMatches);
+    }
+  } catch (cleanupError) {
+    console.warn('⚠️ Failed to cleanup old matches:', cleanupError.message);
+  }
 
-      // Look for waiting players in database with transaction isolation
+  // Use database transaction to prevent race conditions
+  const { AppDataSource } = require('../db/index');
+  const queryRunner = AppDataSource.createQueryRunner();
+  await queryRunner.connect();
+  await queryRunner.startTransaction();
+  
+  try {
+    // Clean up any stale waiting entries for this player (older than 5 minutes)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const staleEntries = await queryRunner.manager.find(Match, {
+      where: {
+        player1: wallet,
+        status: 'waiting',
+        player2: null,
+        createdAt: LessThan(fiveMinutesAgo)
+      }
+    });
+    
+    if (staleEntries.length > 0) {
+      console.log(`🧹 Cleaning up ${staleEntries.length} stale waiting entries for player ${wallet}`);
+      await queryRunner.manager.remove(staleEntries);
+    }
+    
+    // Clean up old active matches (older than 10 minutes) that are likely stale
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    const staleActiveMatches = await queryRunner.manager.find(Match, {
+      where: [
+        { player1: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
+        { player2: wallet, status: 'active', createdAt: LessThan(tenMinutesAgo) },
+        { player1: wallet, status: 'escrow', createdAt: LessThan(tenMinutesAgo) },
+        { player2: wallet, status: 'escrow', createdAt: LessThan(tenMinutesAgo) }
+      ]
+    });
+    
+    if (staleActiveMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${staleActiveMatches.length} stale active/escrow matches for player ${wallet}`);
+      await queryRunner.manager.remove(staleActiveMatches);
+    }
+    
+    // Check for existing active/escrow matches for this player
+    const existingActiveMatch = await queryRunner.manager.findOne(Match, {
+      where: [
+        { player1: wallet, status: 'active' },
+        { player2: wallet, status: 'active' },
+        { player1: wallet, status: 'escrow' },
+        { player2: wallet, status: 'escrow' }
+      ]
+    });
+    
+    if (existingActiveMatch) {
+      console.log('🔍 Found existing active/escrow match:', {
+        id: existingActiveMatch.id,
+        player1: existingActiveMatch.player1,
+        player2: existingActiveMatch.player2,
+        status: existingActiveMatch.status,
+        entryFee: existingActiveMatch.entryFee,
+        escrowAddress: existingActiveMatch.escrowAddress,
+        createdAt: existingActiveMatch.createdAt,
+        updatedAt: existingActiveMatch.updatedAt
+      });
+      
+      // CRITICAL: If the existing match is a self-match, clean it up and return an error
+      if (existingActiveMatch.player1 === existingActiveMatch.player2) {
+        console.log('❌ Detected existing self-match, cleaning up and returning error to force retry.');
+        await queryRunner.manager.remove(existingActiveMatch);
+        await queryRunner.commitTransaction(); // Commit the cleanup
+        return { error: 'Detected and cleaned up a self-match. Please try again.' };
+      } else {
+        // Check if the existing match is stale (older than 10 minutes)
+        const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+        if (existingActiveMatch.updatedAt < tenMinutesAgo) {
+          console.log('🧹 Cleaning up stale active/escrow match:', existingActiveMatch.id);
+          await queryRunner.manager.remove(existingActiveMatch);
+          await queryRunner.commitTransaction();
+          console.log('✅ Stale match cleaned up, allowing new matchmaking');
+          // Continue with normal matchmaking flow
+        } else {
+          console.log('⚠️ Player already has an active/escrow match, returning match info');
+          const responseData = {
+            status: 'matched',
+            matchId: existingActiveMatch.id,
+            player1: existingActiveMatch.player1,
+            player2: existingActiveMatch.player2,
+            entryFee: existingActiveMatch.entryFee, // This should already be the lesser amount
+            escrowAddress: existingActiveMatch.escrowAddress,
+            matchStatus: existingActiveMatch.status, // Add the actual match status
+            message: existingActiveMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
+          };
+          console.log('📤 Sending response:', responseData);
+          await queryRunner.rollbackTransaction();
+          return responseData;
+        }
+      }
+    }
+
+    // Look for waiting players in database with transaction isolation
     let waitingPlayer = null;
     
-      // Use tolerance-based matching to handle slight price differences
-      const tolerance = 0.001; // Allow 0.001 SOL difference
-      const minEntryFee = entryFee - tolerance;
-      const maxEntryFee = entryFee + tolerance;
-      
-      console.log('🔍 Searching database for waiting players with entry fee:', entryFee);
-      console.log('🔍 Entry fee type:', typeof entryFee);
-      console.log('🔍 Entry fee value:', entryFee);
-      console.log('🔍 Tolerance range:', `${minEntryFee} - ${maxEntryFee}`);
-      
-      // Find waiting matches with transaction isolation
-      
-      const waitingMatches = await queryRunner.manager.find(Match, {
-        where: {
-          status: 'waiting',
-          entryFee: Between(minEntryFee, maxEntryFee),
-          player2: null,
-          player1: Not(wallet) // Exclude current player in query
-        },
-        order: {
-          createdAt: 'ASC'
-        },
-        take: 1 // Only get the first match
-      });
-      
-      console.log('🔍 Filtered waiting matches (excluding current player):', waitingMatches.map(m => ({
-        id: m.id,
-        player1: m.player1,
-        player2: m.player2,
-        entryFee: m.entryFee,
-        createdAt: m.createdAt
-      })));
+    // Use tolerance-based matching to handle slight price differences
+    const tolerance = 0.001; // Allow 0.001 SOL difference
+    const minEntryFee = entryFee - tolerance;
+    const maxEntryFee = entryFee + tolerance;
+    
+    console.log('🔍 Searching database for waiting players with entry fee:', entryFee);
+    console.log('🔍 Entry fee type:', typeof entryFee);
+    console.log('🔍 Entry fee value:', entryFee);
+    console.log('🔍 Tolerance range:', `${minEntryFee} - ${maxEntryFee}`);
+    
+    // Find waiting matches with transaction isolation
+    const waitingMatches = await queryRunner.manager.find(Match, {
+      where: {
+        status: 'waiting',
+        entryFee: Between(minEntryFee, maxEntryFee),
+        player2: null,
+        player1: Not(wallet) // Exclude current player in query
+      },
+      order: {
+        createdAt: 'ASC'
+      },
+      take: 1 // Only get the first match
+    });
+    
+    console.log('🔍 Filtered waiting matches (excluding current player):', waitingMatches.map(m => ({
+      id: m.id,
+      player1: m.player1,
+      player2: m.player2,
+      entryFee: m.entryFee,
+      createdAt: m.createdAt
+    })));
 
-      console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
-      console.log('🔍 Waiting matches:', waitingMatches);
+    console.log(`🔍 Found ${waitingMatches.length} waiting matches in database`);
+    console.log('🔍 Waiting matches:', waitingMatches);
+    
+    // Log how many players are waiting for this stake amount (excluding current player)
+    const totalWaitingForStake = await queryRunner.manager.count(Match, {
+      where: {
+        status: 'waiting',
+        entryFee: Between(minEntryFee, maxEntryFee),
+        player2: null,
+        player1: Not(wallet) // Exclude current player from count
+      }
+    });
+    console.log(`📊 Total players waiting for $${entryFee} ±${tolerance} (excluding current player): ${totalWaitingForStake}`);
+    
+    if (waitingMatches.length > 0) {
+      const match = waitingMatches[0];
       
-      // Log how many players are waiting for this stake amount (excluding current player)
-      const totalWaitingForStake = await queryRunner.manager.count(Match, {
-        where: {
-          status: 'waiting',
-          entryFee: Between(minEntryFee, maxEntryFee),
-          player2: null,
-          player1: Not(wallet) // Exclude current player from count
-        }
+      console.log('🔍 Found waiting match:', {
+        id: match.id,
+        player1: match.player1,
+        player2: match.player2,
+        status: match.status,
+        entryFee: match.entryFee,
+        createdAt: match.createdAt
       });
-      console.log(`📊 Total players waiting for $${entryFee} ±${tolerance} (excluding current player): ${totalWaitingForStake}`);
       
-      if (waitingMatches.length > 0) {
-        const match = waitingMatches[0];
-        
-        console.log('🔍 Found waiting match:', {
-          id: match.id,
-          player1: match.player1,
-          player2: match.player2,
-          status: match.status,
-          entryFee: match.entryFee,
-          createdAt: match.createdAt
-        });
-        
-        // CRITICAL: Double-check that this match is still actually waiting and not already matched
-        if (match.player2 === null && match.status === 'waiting') {
-          // CRITICAL: Additional check to prevent self-matching
-          if (match.player1 === wallet) {
-            console.log('❌ Self-matching detected in database lookup, creating new waiting entry instead');
-            // Create a new waiting entry instead of matching with self
-            try {
-              console.log('💾 Creating new waiting entry (avoiding self-match from DB)...');
-              const waitingMatch = queryRunner.manager.create(Match, {
-                player1: wallet,
-                player2: null,
-                entryFee: entryFee,
-                status: 'waiting',
-                word: null
-              });
-              
-              const savedMatch = await queryRunner.manager.save(waitingMatch);
-              console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
-              
-              await queryRunner.commitTransaction();
-              
-              res.json({
-                status: 'waiting',
-                message: 'Waiting for opponent',
-                waitingCount: totalWaitingForStake
-              });
-              return;
-            } catch (dbError) {
-              console.error('❌ Failed to save new waiting entry:', dbError);
-              await queryRunner.rollbackTransaction();
-              return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
-            }
-          }
-          
-          // CRITICAL: Final validation to ensure we have a valid opponent
-          if (!match.player1 || match.player1 === wallet) {
-            console.log('❌ Invalid waiting player detected:', {
-              waitingPlayer: match.player1,
-              currentPlayer: wallet
+      // CRITICAL: Double-check that this match is still actually waiting and not already matched
+      if (match.player2 === null && match.status === 'waiting') {
+        // CRITICAL: Additional check to prevent self-matching
+        if (match.player1 === wallet) {
+          console.log('❌ Self-matching detected in database lookup, creating new waiting entry instead');
+          // Create a new waiting entry instead of matching with self
+          try {
+            console.log('💾 Creating new waiting entry (avoiding self-match from DB)...');
+            const waitingMatch = queryRunner.manager.create(Match, {
+              player1: wallet,
+              player2: null,
+              entryFee: entryFee,
+              status: 'waiting',
+              word: null
             });
+            
+            const savedMatch = await queryRunner.manager.save(waitingMatch);
+            console.log(`✅ New waiting entry saved to database with ID: ${savedMatch.id}`);
+            
+            await queryRunner.commitTransaction();
+            
+            return {
+              status: 'waiting',
+              message: 'Waiting for opponent',
+              waitingCount: totalWaitingForStake
+            };
+          } catch (dbError) {
+            console.error('❌ Failed to save new waiting entry:', dbError);
             await queryRunner.rollbackTransaction();
-            return res.status(400).json({ error: 'Invalid match configuration' });
+            throw new Error('Failed to join waiting queue - database error');
           }
-          
-          waitingPlayer = {
-            wallet: match.player1,
-            entryFee: match.entryFee,
-            matchId: match.id
-          };
-          console.log(`🎯 Found valid waiting player in database: ${waitingPlayer.wallet}`);
-        } else {
-          console.log('⚠️ Found stale waiting match, ignoring:', {
-            player2: match.player2,
-            status: match.status
-          });
         }
+        
+        // CRITICAL: Final validation to ensure we have a valid opponent
+        if (!match.player1 || match.player1 === wallet) {
+          console.log('❌ Invalid waiting player detected:', {
+            waitingPlayer: match.player1,
+            currentPlayer: wallet
+          });
+          await queryRunner.rollbackTransaction();
+          throw new Error('Invalid match configuration');
+        }
+        
+        waitingPlayer = {
+          wallet: match.player1,
+          entryFee: match.entryFee,
+          matchId: match.id
+        };
+        console.log(`🎯 Found valid waiting player in database: ${waitingPlayer.wallet}`);
       } else {
-        console.log('⏳ No waiting players found');
+        console.log('⚠️ Found stale waiting match, ignoring:', {
+          player2: match.player2,
+          status: match.status
+        });
+      }
+    } else {
+      console.log('⏳ No waiting players found');
     }
     
     if (waitingPlayer) {
@@ -389,7 +490,7 @@ const requestMatchHandler = async (req, res) => {
             currentPlayer: wallet
           });
           await queryRunner.rollbackTransaction();
-          return res.status(400).json({ error: 'Invalid match configuration' });
+          throw new Error('Invalid match configuration');
         }
         
         // CRITICAL: Calculate the actual entry fee to use (lesser of the two amounts)
@@ -410,14 +511,14 @@ const requestMatchHandler = async (req, res) => {
         if (waitingPlayer.wallet === wallet) {
           console.log('❌ CRITICAL ERROR: Attempting to create self-match in final validation');
           await queryRunner.rollbackTransaction();
-          return res.status(400).json({ error: 'Self-matching not allowed' });
+          throw new Error('Self-matching not allowed');
         }
         
         // CRITICAL: Ensure we have two distinct players
         if (!waitingPlayer.wallet || !wallet || waitingPlayer.wallet === wallet) {
           console.log('❌ CRITICAL ERROR: Invalid match configuration - missing or duplicate players');
           await queryRunner.rollbackTransaction();
-          return res.status(400).json({ error: 'Invalid match configuration - requires two distinct players' });
+          throw new Error('Invalid match configuration - requires two distinct players');
         }
         
         try {
@@ -442,7 +543,7 @@ const requestMatchHandler = async (req, res) => {
           if (!escrowResult.success) {
             console.error('❌ Failed to create escrow account:', escrowResult.error);
             await queryRunner.rollbackTransaction();
-            return res.status(500).json({ error: 'Failed to create escrow account' });
+            throw new Error('Failed to create escrow account');
           }
           
           console.log('💰 Escrow account created:', escrowResult.escrowAddress);
@@ -453,14 +554,14 @@ const requestMatchHandler = async (req, res) => {
           if (!existingMatch) {
             console.error('❌ Waiting match not found during update');
             await queryRunner.rollbackTransaction();
-            return res.status(404).json({ error: 'Waiting match not found' });
+            throw new Error('Waiting match not found');
           }
           
           // CRITICAL: Double-check this isn't a self-match before updating
           if (existingMatch.player1 === wallet) {
             console.log('❌ CRITICAL ERROR: Attempting to create self-match in final validation');
             await queryRunner.rollbackTransaction();
-            return res.status(400).json({ error: 'Self-matching not allowed' });
+            throw new Error('Self-matching not allowed');
           }
           
           // Generate a random 5-letter word for the game
@@ -517,19 +618,19 @@ const requestMatchHandler = async (req, res) => {
             console.error('❌ Match not found or not in escrow after commit');
           }
 
-      res.json({
-        status: 'matched',
+          return {
+            status: 'matched',
             matchId: updatedMatch.id,
             player1: updatedMatch.player1,
             player2: updatedMatch.player2,
             entryFee: updatedMatch.entryFee, // This is now the lesser amount
             escrowAddress: updatedMatch.escrowAddress,
             message: 'Match created - please lock your entry fee'
-          });
+          };
         } catch (matchError) {
           console.error('❌ Failed to create match:', matchError);
           await queryRunner.rollbackTransaction();
-          return res.status(500).json({ error: 'Failed to create match' });
+          throw new Error('Failed to create match');
         }
     } else {
         // No waiting player found, create a new waiting entry
@@ -545,12 +646,11 @@ const requestMatchHandler = async (req, res) => {
         if (existingWaitingEntry) {
           console.log('⚠️ Player already has waiting entry, returning existing status');
           await queryRunner.rollbackTransaction();
-          res.json({
+          return {
             status: 'waiting',
             message: 'Already waiting for opponent',
             waitingCount: totalWaitingForStake
-          });
-          return;
+          };
         }
         
         try {
@@ -568,34 +668,28 @@ const requestMatchHandler = async (req, res) => {
           
           await queryRunner.commitTransaction();
         
-        res.json({
-          status: 'waiting',
+          return {
+            status: 'waiting',
             message: 'Waiting for opponent',
             waitingCount: totalWaitingForStake
-        });
-      } catch (dbError) {
+          };
+        } catch (dbError) {
           console.error('❌ Failed to save new waiting entry:', dbError);
           await queryRunner.rollbackTransaction();
-        return res.status(503).json({ error: 'Failed to join waiting queue - database error' });
-      }
+          throw new Error('Failed to join waiting queue - database error');
+        }
       }
       
     } catch (transactionError) {
       console.error('❌ Transaction error:', transactionError);
       await queryRunner.rollbackTransaction();
-      return res.status(500).json({ error: 'Database transaction failed' });
+      throw new Error('Database transaction failed');
     } finally {
       await queryRunner.release();
     }
-
   } catch (error) {
-    console.error('❌ Error in requestMatchHandler:', error);
-    console.error('❌ Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    res.status(500).json({ error: 'Internal server error' });
+    console.error('❌ Error in performMatchmaking:', error);
+    throw error;
   }
 };
 
@@ -1248,8 +1342,8 @@ const submitResultHandler = async (req, res) => {
         updatedMatch.payoutResult = payoutResult;
         await matchRepository.save(updatedMatch);
         
-        // Clean up server game state
-        activeGames.delete(matchId);
+        // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
+        markGameCompleted(matchId);
         
         res.json({
           status: 'completed',
@@ -1341,8 +1435,8 @@ const submitResultHandler = async (req, res) => {
         updatedMatch.payoutResult = payoutResult;
         await matchRepository.save(updatedMatch);
         
-        // Clean up server game state
-        activeGames.delete(matchId);
+        // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
+        markGameCompleted(matchId);
         
         res.json({
           status: 'completed',
@@ -1771,6 +1865,9 @@ const executePaymentHandler = async (req, res) => {
       match.paymentExecuted = true;
       match.paymentSignature = paymentResult.transaction?.signature || 'server-executed';
       await matchRepository.save(match);
+      
+      // Mark game as completed for cleanup
+      markGameCompleted(matchId);
       
       res.json({
         success: true,

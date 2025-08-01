@@ -1,104 +1,179 @@
-import axios from 'axios'
+import { errorHandler, apiCallWithRetry } from './errorHandler';
 
-// Get API URL from environment
-export const getApiUrl = () => {
-  return process.env.NEXT_PUBLIC_API_URL;
-}
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:40000';
 
-// Create axios instance with proper configuration
-export const apiClient = axios.create({
-  baseURL: getApiUrl(),
-  timeout: 30000, // Increased from 10000 to 30000 (30 seconds)
-  headers: {
-    'Content-Type': 'application/json',
-  },
-})
+// API client with error handling
+class ApiClient {
+  private baseUrl: string;
 
-// Test backend connectivity
-export const testBackendConnection = async () => {
-  try {
-    console.log('🔍 Testing backend connection...');
-    const response = await axios.get(`${getApiUrl()}/health`, { 
-      timeout: 15000, // Increased from 5000 to 15000 (15 seconds)
+  constructor(baseUrl: string) {
+    this.baseUrl = baseUrl;
+  }
+
+  private async request<T>(
+    endpoint: string,
+    options: RequestInit = {}
+  ): Promise<T> {
+    const url = `${this.baseUrl}${endpoint}`;
+    
+    const defaultOptions: RequestInit = {
       headers: {
-        'Cache-Control': 'no-cache',
-        'Pragma': 'no-cache'
-      }
-    });
-    console.log('✅ Backend health check successful:', response.data);
-    return true;
-  } catch (error) {
-    console.error('❌ Backend health check failed:', error);
-    return false;
-  }
-}
+        'Content-Type': 'application/json',
+      },
+      ...options,
+    };
 
-// API functions with error handling
-export const requestMatch = async (entryFee: number, wallet: string) => {
-  try {
-    console.log('🌐 Making API request to:', getApiUrl());
-    console.log('📤 Request payload:', { entryFee, wallet });
+    const response = await fetch(url, defaultOptions);
     
-    // Test backend connection first
-    const isBackendHealthy = await testBackendConnection();
-    if (!isBackendHealthy) {
-      throw new Error('Backend server is not responding. Please check if the server is running.');
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      throw {
+        response: {
+          status: response.status,
+          data: errorData
+        }
+      };
     }
-    
-    const response = await apiClient.post('/api/match/request-match', {
-      entryFee,
-      wallet,
-    })
-    
-    console.log('✅ API response:', response.data);
-    return response.data
-  } catch (error: any) {
-    console.error('❌ API Error details:', {
-      message: error.message,
-      status: error.response?.status,
-      statusText: error.response?.statusText,
-      data: error.response?.data,
-      config: {
-        url: error.config?.url,
-        method: error.config?.method,
-        baseURL: error.config?.baseURL
-      }
-    });
-    
-    if (error.code === 'ECONNREFUSED') {
-      throw new Error('Backend server is not responding. Please check if the server is running.');
-    } else if (error.code === 'ECONNABORTED') {
-      throw new Error('Request timed out. The server may be overloaded or not responding.');
-    } else if (error.response?.status === 404) {
-      throw new Error('API endpoint not found. Please check the backend configuration.');
-    } else if (error.response?.status >= 500) {
-      throw new Error('Backend server error. Please try again later.');
-    } else {
-      throw new Error(`Failed to connect to server: ${error.message}`);
-    }
+
+    return response.json();
+  }
+
+  // Matchmaking
+  async requestMatch(wallet: string, entryFee: number) {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/request-match', {
+        method: 'POST',
+        body: JSON.stringify({ wallet, entryFee })
+      }),
+      'requestMatch'
+    );
+  }
+
+  async getMatchStatus(matchId: string) {
+    return apiCallWithRetry(() => 
+      this.request(`/api/match/status/${matchId}`),
+      'getMatchStatus'
+    );
+  }
+
+  async checkPlayerMatch(wallet: string) {
+    return apiCallWithRetry(() => 
+      this.request(`/api/match/check-match/${wallet}`),
+      'checkPlayerMatch'
+    );
+  }
+
+  // Game actions
+  async submitResult(matchId: string, wallet: string, result: any) {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/submit-result', {
+        method: 'POST',
+        body: JSON.stringify({ matchId, wallet, result })
+      }),
+      'submitResult'
+    );
+  }
+
+  async submitGuess(matchId: string, wallet: string, guess: string) {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/submit-guess', {
+        method: 'POST',
+        body: JSON.stringify({ matchId, wallet, guess })
+      }),
+      'submitGuess'
+    );
+  }
+
+  async getGameState(matchId: string) {
+    return apiCallWithRetry(() => 
+      this.request(`/api/match/game-state?matchId=${matchId}`),
+      'getGameState'
+    );
+  }
+
+  // Escrow and payments
+  async confirmEscrow(matchId: string, wallet: string, escrowSignature: string) {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/confirm-escrow', {
+        method: 'POST',
+        body: JSON.stringify({ matchId, wallet, escrowSignature })
+      }),
+      'confirmEscrow'
+    );
+  }
+
+  async createEscrowTransaction(matchId: string, wallet: string, entryFee: number) {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/create-escrow-transaction', {
+        method: 'POST',
+        body: JSON.stringify({ matchId, wallet, entryFee })
+      }),
+      'createEscrowTransaction'
+    );
+  }
+
+  async executePayment(matchId: string, wallet: string) {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/execute-payment', {
+        method: 'POST',
+        body: JSON.stringify({ matchId, wallet })
+      }),
+      'executePayment'
+    );
+  }
+
+  // Cleanup
+  async cleanupStuckMatches() {
+    return apiCallWithRetry(() => 
+      this.request('/api/match/cleanup-stuck-matches', {
+        method: 'POST'
+      }),
+      'cleanupStuckMatches'
+    );
+  }
+
+  // Health check
+  async healthCheck() {
+    return apiCallWithRetry(() => 
+      this.request('/health'),
+      'healthCheck'
+    );
   }
 }
 
-export const submitResult = async (matchId: string, wallet: string, result: any) => {
-  try {
-    const response = await apiClient.post('/api/match/submit-result', {
-      matchId,
-      wallet,
-      result,
-    })
-    return response.data
-  } catch (error) {
-    console.error('API Error:', error)
-    throw new Error('Failed to submit result.')
-  }
-}
+// Export singleton instance
+export const apiClient = new ApiClient(API_BASE_URL);
 
-export const getMatchStatus = async (matchId: string) => {
-  try {
-    const response = await apiClient.get(`/api/match/status/${matchId}`)
-    return response.data
-  } catch (error) {
-    console.error('API Error:', error)
-    throw new Error('Failed to get match status.')
-  }
-} 
+// Legacy functions for backward compatibility
+export const requestMatch = (wallet: string, entryFee: number) => 
+  apiClient.requestMatch(wallet, entryFee);
+
+export const getMatchStatus = (matchId: string) => 
+  apiClient.getMatchStatus(matchId);
+
+export const checkPlayerMatch = (wallet: string) => 
+  apiClient.checkPlayerMatch(wallet);
+
+export const submitResult = (matchId: string, wallet: string, result: any) => 
+  apiClient.submitResult(matchId, wallet, result);
+
+export const submitGuess = (matchId: string, wallet: string, guess: string) => 
+  apiClient.submitGuess(matchId, wallet, guess);
+
+export const getGameState = (matchId: string) => 
+  apiClient.getGameState(matchId);
+
+export const confirmEscrow = (matchId: string, wallet: string, escrowSignature: string) => 
+  apiClient.confirmEscrow(matchId, wallet, escrowSignature);
+
+export const createEscrowTransaction = (matchId: string, wallet: string, entryFee: number) => 
+  apiClient.createEscrowTransaction(matchId, wallet, entryFee);
+
+export const executePayment = (matchId: string, wallet: string) => 
+  apiClient.executePayment(matchId, wallet);
+
+export const cleanupStuckMatches = () => 
+  apiClient.cleanupStuckMatches();
+
+export const healthCheck = () => 
+  apiClient.healthCheck(); 

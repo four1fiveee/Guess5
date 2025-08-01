@@ -2,6 +2,8 @@ const express = require('express');
 const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { initializeDatabase, AppDataSource } = require('./db/index');
+const { errorHandler, notFound, asyncHandler } = require('./middleware/errorHandler');
+const { validateMatchRequest, validateSubmitResult, validateSubmitGuess, validateEscrow, createRateLimiter } = require('./middleware/validation');
 const matchRoutes = require('./routes/matchRoutes');
 const guessRoutes = require('./routes/guessRoutes');
 
@@ -11,10 +13,14 @@ const app = express();
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
 console.log('CORS allowed origin:', allowedOrigin);
 
+// Security middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+
 // Rate limiting
-const limiter = rateLimit({
+const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // Increased from 100 to 1000 requests per windowMs
+  max: 1000, // 1000 requests per windowMs
   message: 'Too many requests from this IP, please try again later.',
   standardHeaders: true,
   legacyHeaders: false,
@@ -24,19 +30,34 @@ const limiter = rateLimit({
   }
 });
 
-// Apply rate limiting to all routes
-app.use(limiter);
+// Specific rate limiters
+const matchmakingLimiter = createRateLimiter(
+  15 * 60 * 1000, // 15 minutes
+  10, // 10 requests per wallet per 15 minutes
+  (req) => req.body.wallet || req.ip
+);
 
-// Debug middleware to log CORS requests
-app.use((req, res, next) => {
-  console.log('🌐 CORS Debug:', {
-    method: req.method,
-    origin: req.headers.origin,
-    url: req.url,
-    userAgent: req.headers['user-agent']
+const gameLimiter = createRateLimiter(
+  15 * 60 * 1000, // 15 minutes
+  50, // 50 game actions per 15 minutes
+  (req) => req.body.wallet || req.ip
+);
+
+// Apply rate limiting to all routes
+app.use(globalLimiter);
+
+// Debug middleware to log CORS requests (development only)
+if (process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    console.log('🌐 CORS Debug:', {
+      method: req.method,
+      origin: req.headers.origin,
+      url: req.url,
+      userAgent: req.headers['user-agent']
+    });
+    next();
   });
-  next();
-});
+}
 
 // CORS configuration - allow all origins
 app.use(cors({
@@ -65,8 +86,6 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 
-app.use(express.json());
-
 // Handle preflight requests with explicit CORS headers
 app.options('*', (req, res) => {
   res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
@@ -77,17 +96,32 @@ app.options('*', (req, res) => {
 });
 
 // Health check endpoint
-app.get('/health', (req: any, res: any) => {
-  res.json({ 
-    status: 'ok', 
-    timestamp: new Date().toISOString(),
-    database: AppDataSource.isInitialized ? 'connected' : 'disconnected'
-  });
-});
+app.get('/health', asyncHandler(async (req, res) => {
+  const { healthCheckHandler } = require('./utils/healthCheck');
+  await healthCheckHandler(req, res);
+}));
 
-// API routes
-app.use('/api/match', matchRoutes);
-app.use('/api/guess', guessRoutes);
+// API routes with validation and rate limiting
+app.use('/api/match', matchmakingLimiter, matchRoutes);
+app.use('/api/guess', gameLimiter, guessRoutes);
+
+// Remove debug endpoints in production
+if (process.env.NODE_ENV !== 'production') {
+  // Debug routes only in development
+  app.get('/api/debug/status', (req, res) => {
+    res.json({
+      activeGames: require('./controllers/matchController').activeGames?.size || 0,
+      matchmakingLocks: require('./controllers/matchController').matchmakingLocks?.size || 0,
+      database: AppDataSource.isInitialized ? 'connected' : 'disconnected'
+    });
+  });
+}
+
+// 404 handler
+app.use(notFound);
+
+// Error handler (must be last)
+app.use(errorHandler);
 
 // Initialize database synchronously before starting server
 let dbConnected = false;

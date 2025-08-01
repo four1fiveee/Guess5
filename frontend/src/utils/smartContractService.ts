@@ -7,6 +7,21 @@ const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "https://api.de
 const PROGRAM_ID = new PublicKey("8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz");
 const FEE_WALLET_ADDRESS = "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A";
 
+// Validate configuration
+const validateConfig = () => {
+  if (!process.env.NEXT_PUBLIC_SOLANA_NETWORK) {
+    console.warn('⚠️ NEXT_PUBLIC_SOLANA_NETWORK not set, using default devnet');
+  }
+  
+  console.log('✅ Smart contract configuration validated');
+  console.log(`🔗 Network: ${SOLANA_NETWORK}`);
+  console.log(`📦 Program ID: ${PROGRAM_ID.toString()}`);
+  console.log(`💰 Fee Wallet: ${FEE_WALLET_ADDRESS}`);
+};
+
+// Validate on module load
+validateConfig();
+
 export class SmartContractService {
   private connection: Connection;
   private program: Program;

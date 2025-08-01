@@ -144,9 +144,20 @@ const Matchmaking: React.FC = () => {
     };
 
     const startMatchmaking = async () => {
+      if (!publicKey || !matchData) {
+        console.error('❌ Missing publicKey or matchData');
+        return;
+      }
+
+      const wallet = publicKey.toString();
+      console.log('🎮 Starting matchmaking with wallet:', wallet);
+
       try {
-        const wallet = publicKey.toString();
-        const storedEntryFee = localStorage.getItem('entryFeeSOL');
+        // Clean up any stuck matches first
+        await cleanupStuckMatches();
+
+        // Get entry fee from localStorage
+        const storedEntryFee = localStorage.getItem('entryFee');
         
         if (!storedEntryFee) {
           console.error('❌ No entry fee found');
@@ -157,66 +168,107 @@ const Matchmaking: React.FC = () => {
         const entryFee = parseFloat(storedEntryFee);
         console.log('🎮 Starting matchmaking with entry fee:', entryFee);
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request-match`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            wallet,
-            entryFee
-          }),
-        });
+        // Add retry logic for network failures
+        let retryCount = 0;
+        const maxRetries = 3;
+        let lastError = null;
 
-        const data = await response.json();
-        console.log('🎮 Matchmaking response:', data);
+        while (retryCount < maxRetries) {
+          try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request-match`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                wallet,
+                entryFee
+              }),
+            });
 
-        if (data.status === 'waiting') {
-          setWaitingCount(data.waitingCount || 0);
-          setStatus('waiting');
-        } else if (data.status === 'matched') {
-          console.log('✅ Match found, proceeding to escrow...');
-          console.log('📊 Match data:', data);
-          setMatchData(data);
-          setStatus('matched');
-          // Stop polling since we have a match
-          clearInterval(pollInterval);
-          clearTimeout(timeoutId);
-          clearInterval(countdownInterval);
-          setIsPolling(false);
-          
-          // Check if this is an active match (not escrow)
-          if (data.message && data.message.includes('Already in active match')) {
-            console.log('🎮 Match is already active, redirecting to game...');
-            // Store match data and redirect to game
-            localStorage.setItem('matchId', data.matchId);
-            if (data.word) {
-              localStorage.setItem('word', data.word);
+            if (!response.ok) {
+              throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
-            if (data.escrowAddress) {
-              localStorage.setItem('escrowAddress', data.escrowAddress);
+
+            const data = await response.json();
+            console.log('🎮 Matchmaking response:', data);
+
+            if (data.status === 'waiting') {
+              setWaitingCount(data.waitingCount || 0);
+              setStatus('waiting');
+              break; // Success, exit retry loop
+            } else if (data.status === 'matched') {
+              console.log('✅ Match found, proceeding to escrow...');
+              console.log('�� Match data:', data);
+              setMatchData(data);
+              setStatus('matched');
+              // Stop polling since we have a match
+              clearInterval(pollInterval);
+              clearTimeout(timeoutId);
+              clearInterval(countdownInterval);
+              setIsPolling(false);
+              
+              // Check if this is an active match (not escrow)
+              if (data.message && data.message.includes('Already in active match')) {
+                console.log('🎮 Match is already active, redirecting to game...');
+                // Store match data and redirect to game
+                localStorage.setItem('matchId', data.matchId);
+                if (data.word) {
+                  localStorage.setItem('word', data.word);
+                }
+                if (data.escrowAddress) {
+                  localStorage.setItem('escrowAddress', data.escrowAddress);
+                }
+                if (data.entryFee) {
+                  localStorage.setItem('entryFee', data.entryFee.toString());
+                }
+                
+                setTimeout(() => {
+                  router.push(`/game?matchId=${data.matchId}`);
+                }, 1000);
+              } else {
+                // Don't redirect yet - need to handle escrow first
+              }
+              break; // Success, exit retry loop
+            } else if (data.error) {
+              console.log('⚠️ Matchmaking error:', data.error);
+              if (data.error.includes('self-match') || data.error.includes('already has an active')) {
+                // Clean up stuck matches and retry
+                console.log('🔄 Detected stuck match, cleaning up and retrying...');
+                await cleanupStuckMatches();
+                retryCount++;
+                if (retryCount < maxRetries) {
+                  await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Exponential backoff
+                  continue;
+                }
+              } else {
+                setStatus('error');
+                break; // Don't retry for other errors
+              }
+            } else {
+              console.error('❌ Unexpected response:', data);
+              setStatus('error');
+              break; // Don't retry for unexpected responses
             }
-            if (data.entryFee) {
-              localStorage.setItem('entryFee', data.entryFee.toString());
-            }
+          } catch (error) {
+            lastError = error;
+            console.error(`❌ Matchmaking attempt ${retryCount + 1} failed:`, error);
+            retryCount++;
             
-            setTimeout(() => {
-              router.push(`/game?matchId=${data.matchId}`);
-            }, 1000);
-          } else {
-            // Don't redirect yet - need to handle escrow first
+            if (retryCount < maxRetries) {
+              console.log(`🔄 Retrying in ${retryCount * 1000}ms... (${retryCount}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, retryCount * 1000)); // Exponential backoff
+            } else {
+              console.error('❌ All matchmaking attempts failed');
+              setStatus('error');
+              clearTimeout(timeoutId);
+              clearInterval(pollInterval);
+            }
           }
-        } else if (data.error) {
-          console.log('⚠️ Matchmaking error:', data.error);
-          if (data.error.includes('self-match') || data.error.includes('already has an active')) {
-            // Clean up stuck matches and retry
-            console.log('🔄 Detected stuck match, cleaning up and retrying...');
-            await cleanupStuckMatches();
-          } else {
-            setStatus('error');
-          }
-        } else {
-          console.error('❌ Unexpected response:', data);
+        }
+
+        if (retryCount >= maxRetries && lastError) {
+          console.error('❌ Matchmaking failed after all retries:', lastError);
           setStatus('error');
         }
       } catch (error) {
@@ -249,17 +301,19 @@ const Matchmaking: React.FC = () => {
                 return;
               }
               
-              console.log('✅ Found our match!', ourMatch);
-              setMatchData(ourMatch);
+              // IMMEDIATE CLEANUP: Stop polling since we have a confirmed match
+              clearInterval(pollInterval);
+              clearTimeout(timeoutId);
+              clearInterval(countdownInterval);
+              setIsPolling(false);
               
-              if (ourMatch.status === 'active') {
-                console.log('🎮 Match is active, redirecting to game...');
-                setStatus('matched');
-                clearTimeout(timeoutId);
-                clearInterval(pollInterval);
-                clearInterval(countdownInterval);
-                setIsPolling(false);
-                
+              console.log('🎮 Match confirmed, proceeding to escrow...');
+              setMatchData(ourMatch);
+              setStatus('matched');
+              
+              // Check if this is an active match (not escrow)
+              if (ourMatch.message && ourMatch.message.includes('Already in active match')) {
+                console.log('🎮 Match is already active, redirecting to game...');
                 // Store match data and redirect to game
                 localStorage.setItem('matchId', ourMatch.matchId);
                 if (ourMatch.word) {
@@ -275,23 +329,17 @@ const Matchmaking: React.FC = () => {
                 setTimeout(() => {
                   router.push(`/game?matchId=${ourMatch.matchId}`);
                 }, 1000);
-              } else if (ourMatch.status === 'escrow') {
-                console.log('💰 Match is in escrow, waiting for both players to confirm...');
-                setStatus('matched');
-                clearTimeout(timeoutId);
-                clearInterval(pollInterval);
-                clearInterval(countdownInterval);
-                setIsPolling(false);
+              } else {
                 // Don't redirect yet - need to handle escrow first
               }
             } else {
-              console.log('⚠️ Found incomplete match, ignoring:', ourMatch);
+              console.log('⚠️ Invalid match data received:', ourMatch);
             }
           }
         } catch (error) {
-          console.error('❌ Polling error:', error);
+          console.error('❌ Error polling for match:', error);
         }
-      }, 1000); // Poll every 1 second for faster response
+      }, 1000); // Poll every 1 second
     };
 
     startMatchmaking();

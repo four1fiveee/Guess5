@@ -1,16 +1,28 @@
 services:
-  # Backend API Service
   - type: web
     name: guess5-backend
     env: node
+    plan: starter
     buildCommand: cd backend && npm install && npm run build
-    startCommand: cd backend && node dist/server.js
+    startCommand: cd backend && npm start
+    healthCheckPath: /health
     envVars:
       - key: NODE_ENV
         value: production
       - key: PORT
-        value: 10000
-    healthCheckPath: /api/match/health
+        value: 40000
+      - key: DATABASE_URL
+        sync: false
+      - key: FRONTEND_URL
+        value: https://guess5.vercel.app
+      - key: PROGRAM_ID
+        value: 8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz
+      - key: FEE_WALLET_ADDRESS
+        value: AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
+      - key: SOLANA_NETWORK
+        value: https://api.devnet.solana.com
+    autoDeploy: true
+    region: oregon
 
   # Frontend Web Service
   - type: web

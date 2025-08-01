@@ -1,31 +1,28 @@
-const expressMatchRoutes = require('express');
+const expressRouter = require('express');
+const router = expressRouter.Router();
 const matchController = require('../controllers/matchController');
+const { validateMatchRequest: validateMatch, validateSubmitResult: validateResult, validateEscrow: validateEscrowData } = require('../middleware/validation');
+const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
-const router = expressMatchRoutes.Router();
+// Production routes (always available)
+router.post('/request-match', validateMatch, asyncHandlerWrapper(matchController.requestMatchHandler));
+router.post('/submit-result', validateResult, asyncHandlerWrapper(matchController.submitResultHandler));
+router.get('/status/:matchId', asyncHandlerWrapper(matchController.getMatchStatusHandler));
+router.get('/check-match/:wallet', asyncHandlerWrapper(matchController.checkPlayerMatchHandler));
+router.post('/confirm-escrow', validateEscrowData, asyncHandlerWrapper(matchController.confirmEscrowHandler));
+router.post('/submit-guess', asyncHandlerWrapper(matchController.submitGameGuessHandler));
+router.get('/game-state', asyncHandlerWrapper(matchController.getGameStateHandler));
+router.post('/execute-payment', asyncHandlerWrapper(matchController.executePaymentHandler));
+router.post('/create-escrow-transaction', asyncHandlerWrapper(matchController.createEscrowTransactionHandler));
+router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanupStuckMatchesHandler));
 
-// Test endpoints (only in development)
+// Development-only routes
 if (process.env.NODE_ENV !== 'production') {
-  router.get('/test', matchController.matchTestHandler);
-  router.get('/test-repository', matchController.testRepositoryHandler);
-  router.get('/test-database', matchController.testDatabaseHandler);
-  router.post('/cleanup-self-matches', matchController.cleanupSelfMatchesHandler);
-  router.get('/debug/waiting', matchController.debugWaitingPlayersHandler);
+  router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));
+  router.get('/test', asyncHandlerWrapper(matchController.matchTestHandler));
+  router.get('/test-repository', asyncHandlerWrapper(matchController.testRepositoryHandler));
+  router.get('/test-database', asyncHandlerWrapper(matchController.testDatabaseHandler));
+  router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
 }
-
-// Match routes
-router.post('/request-match', matchController.requestMatchHandler);
-router.post('/submit-result', matchController.submitResultHandler);
-router.post('/confirm-escrow', matchController.confirmEscrowHandler);
-router.post('/create-escrow-transaction', matchController.createEscrowTransactionHandler);
-router.get('/status/:matchId', matchController.getMatchStatusHandler);
-router.get('/check-match/:wallet', matchController.checkPlayerMatchHandler);
-router.post('/cleanup-stuck-matches', matchController.cleanupStuckMatchesHandler);
-
-// Server-side game state endpoints
-router.post('/submit-guess', matchController.submitGameGuessHandler);
-router.get('/game-state', matchController.getGameStateHandler);
-
-// Server-side payment execution
-router.post('/execute-payment', matchController.executePaymentHandler);
 
 module.exports = router; 

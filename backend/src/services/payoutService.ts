@@ -8,6 +8,21 @@ const connection = new Connection(SOLANA_NETWORK);
 // Escrow account for holding entry fees
 const ESCROW_WALLET_ADDRESS = "3Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt"; // This should be a program-controlled escrow
 
+// Validate payout configuration
+const validatePayoutConfig = () => {
+  if (!process.env.SOLANA_NETWORK) {
+    console.warn('⚠️ SOLANA_NETWORK not set, using default devnet');
+  }
+  
+  console.log('✅ Payout service configuration validated');
+  console.log(`🔗 Network: ${SOLANA_NETWORK}`);
+  console.log(`💰 Fee Wallet: ${FEE_WALLET_ADDRESS}`);
+  console.log(`🔒 Escrow Wallet: ${ESCROW_WALLET_ADDRESS}`);
+};
+
+// Validate on module load
+validatePayoutConfig();
+
 export const createEscrowAccount = async (matchId: string, player1: string, player2: string, entryFee: number) => {
   try {
     console.log('🔒 Creating escrow account for match:', matchId);
