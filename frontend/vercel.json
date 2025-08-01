@@ -1,11 +1,5 @@
 {
   "version": 2,
-  "builds": [
-    {
-      "src": "package.json",
-      "use": "@vercel/next"
-    }
-  ],
   "env": {
     "NEXT_PUBLIC_API_URL": "https://guess5.onrender.com",
     "NEXT_PUBLIC_SOLANA_NETWORK": "https://api.devnet.solana.com"
