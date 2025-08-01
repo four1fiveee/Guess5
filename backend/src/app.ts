@@ -17,29 +17,22 @@ console.log('CORS allowed origin:', allowedOrigin);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 1000, // 1000 requests per windowMs
-  message: 'Too many requests from this IP, please try again later.',
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting for health checks and OPTIONS requests
-    return req.path === '/health' || req.method === 'OPTIONS';
-  }
-});
+// Rate limiting configuration
+const globalLimiter = createRateLimiter(
+  15 * 60 * 1000, // 15 minutes
+  1000, // 1000 requests per 15 minutes (increased from 100)
+  (req) => req.ip
+);
 
-// Specific rate limiters
 const matchmakingLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  100, // 100 requests per wallet per 15 minutes (increased from 10)
+  500, // 500 matchmaking requests per 15 minutes (increased from 100)
   (req) => req.body.wallet || req.ip
 );
 
 const gameLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  200, // 200 game actions per 15 minutes (increased from 50)
+  1000, // 1000 game actions per 15 minutes (increased from 200)
   (req) => req.body.wallet || req.ip
 );
 
