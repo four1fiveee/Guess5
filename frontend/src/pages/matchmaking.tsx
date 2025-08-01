@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import SmartContractService from '../utils/smartContractService';
@@ -14,6 +14,9 @@ const Matchmaking: React.FC = () => {
   const [escrowStatus, setEscrowStatus] = useState<'pending' | 'success' | 'failed'>('pending');
   const [entryFee, setEntryFee] = useState<number>(0);
   const [isPolling, setIsPolling] = useState<boolean>(false);
+  
+  // Add ref to track if matchmaking is already in progress
+  const matchmakingInProgress = useRef(false);
 
   const handleEscrowPayment = async () => {
     if (!publicKey || !matchData) {
@@ -108,6 +111,15 @@ const Matchmaking: React.FC = () => {
       console.log('🎮 Already have a match, not restarting matchmaking');
       return;
     }
+
+    // Don't restart if matchmaking is already in progress
+    if (matchmakingInProgress.current) {
+      console.log('🎮 Matchmaking already in progress, not restarting');
+      return;
+    }
+
+    // Mark matchmaking as in progress
+    matchmakingInProgress.current = true;
 
     // Get entry fee from localStorage
     const storedEntryFee = localStorage.getItem('entryFeeSOL');
@@ -283,12 +295,14 @@ const Matchmaking: React.FC = () => {
         if (retryCount >= maxRetries && lastError) {
           console.error('❌ Matchmaking failed after all retries:', lastError);
           setStatus('error');
+          matchmakingInProgress.current = false; // Reset on error
         }
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
         setStatus('error');
         clearTimeout(timeoutId);
         clearInterval(pollInterval);
+        matchmakingInProgress.current = false; // Reset on error
       }
     };
 
@@ -326,6 +340,7 @@ const Matchmaking: React.FC = () => {
               clearTimeout(timeoutId);
               clearInterval(countdownInterval);
               setIsPolling(false);
+              matchmakingInProgress.current = false; // Reset matchmaking progress
               
               console.log('🎮 Match confirmed, proceeding to escrow...');
               setMatchData(ourMatch);
@@ -391,6 +406,7 @@ const Matchmaking: React.FC = () => {
       clearTimeout(timeoutId);
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
+      matchmakingInProgress.current = false;
     };
   }, [publicKey, router, signTransaction, entryFee]); // Removed matchData from dependencies
 
