@@ -133,6 +133,12 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    // Don't start matchmaking if we're already matched
+    if (status === 'matched') {
+      console.log('🎮 Status is already matched, not starting matchmaking');
+      return;
+    }
+
     // Mark matchmaking as in progress
     setIsMatchmakingInProgress(true);
 
@@ -197,6 +203,12 @@ const Matchmaking: React.FC = () => {
       // Don't start matchmaking if we already have a match
       if (matchData && status === 'matched') {
         console.log('🎮 Already have a match, not starting new matchmaking');
+        return;
+      }
+
+      // Don't start matchmaking if we're already matched
+      if (status === 'matched') {
+        console.log('🎮 Status is already matched, not starting new matchmaking');
         return;
       }
 
@@ -370,6 +382,12 @@ const Matchmaking: React.FC = () => {
             return;
           }
 
+          // Don't start matchmaking if we're already matched
+          if (status === 'matched') {
+            console.log('🎮 Status is already matched, not starting matchmaking from polling');
+            return;
+          }
+
           console.log('🔍 Polling for match status...');
           
           // Use the dedicated endpoint to check if we've been matched
@@ -378,52 +396,16 @@ const Matchmaking: React.FC = () => {
           
           if (data.matched) {
             console.log('✅ We have been matched!', data);
-            const ourMatch = data;
+            setMatchData(data);
+            setStatus('matched');
+            clearInterval(pollInterval);
+            clearInterval(countdownInterval);
+            setIsPolling(false);
+            setIsMatchmakingInProgress(false); // Reset matchmaking progress
+            isStartMatchmakingRunning.current = false; // Reset running flag
             
-            // Validate that this is a proper match with both players
-            if (ourMatch && (ourMatch.status === 'active' || ourMatch.status === 'escrow') && ourMatch.player1 && ourMatch.player2) {
-              // CRITICAL: Check that this is not a self-match
-              if (ourMatch.player1 === ourMatch.player2) {
-                console.log('❌ Found self-match, ignoring:', ourMatch);
-                return;
-              }
-              
-              // IMMEDIATE CLEANUP: Stop polling since we have a confirmed match
-              clearInterval(pollInterval);
-              clearTimeout(timeoutId);
-              clearInterval(countdownInterval);
-              setIsPolling(false);
-              setIsMatchmakingInProgress(false); // Reset matchmaking progress
-              isStartMatchmakingRunning.current = false; // Reset running flag
-              
-              console.log('🎮 Match confirmed, proceeding to escrow...');
-              setMatchData(ourMatch);
-              setStatus('matched');
-              
-              // Check if this is an active match (not escrow)
-              if (ourMatch.message && ourMatch.message.includes('Already in active match')) {
-                console.log('🎮 Match is already active, redirecting to game...');
-                // Store match data and redirect to game
-                localStorage.setItem('matchId', ourMatch.matchId);
-                if (ourMatch.word) {
-                  localStorage.setItem('word', ourMatch.word);
-                }
-                if (ourMatch.escrowAddress) {
-                  localStorage.setItem('escrowAddress', ourMatch.escrowAddress);
-                }
-                if (ourMatch.entryFee) {
-                  localStorage.setItem('entryFee', ourMatch.entryFee.toString());
-                }
-                
-                setTimeout(() => {
-                  router.push(`/game?matchId=${ourMatch.matchId}`);
-                }, 1000);
-              } else {
-                // Don't redirect yet - need to handle escrow first
-              }
-            } else {
-              console.log('⚠️ Invalid match data received:', ourMatch);
-            }
+            console.log('🎮 Match confirmed, proceeding to escrow...');
+            return; // Exit early, don't continue polling
           }
         } catch (error) {
           console.error('❌ Error polling for match:', error);
