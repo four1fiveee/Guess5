@@ -79,15 +79,80 @@ const markGameCompleted = (matchId: string) => {
     gameState.completed = true;
     gameState.lastActivity = Date.now();
     console.log(`✅ Game ${matchId} marked as completed`);
-    
     // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
     activeGames.delete(matchId);
     console.log(`🧹 Immediate cleanup: Removed completed game ${matchId} from memory`);
   }
+  
+  // Also cleanup from database
+  (async () => {
+    try {
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
+      
+      const match = await matchRepository.findOne({ where: { id: matchId } });
+      if (match) {
+        match.status = 'completed';
+        await matchRepository.save(match);
+        console.log(`✅ Marked match ${matchId} as completed in database`);
+        
+        // Remove completed match after 1 minute
+        setTimeout(async () => {
+          try {
+            await matchRepository.remove(match);
+            console.log(`🧹 Removed completed match ${matchId} from database`);
+          } catch (error) {
+            console.error(`❌ Error removing completed match ${matchId}:`, error);
+          }
+        }, 60000); // 1 minute delay
+      }
+    } catch (error) {
+      console.error(`❌ Error marking match ${matchId} as completed:`, error);
+    }
+  })();
 };
 
-// Run cleanup every 5 minutes
-setInterval(cleanupInactiveGames, 5 * 60 * 1000);
+// Periodic cleanup function to remove stale matches
+const periodicCleanup = async () => {
+  try {
+    console.log('🧹 Running periodic cleanup...');
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Clean up matches older than 10 minutes
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+    
+    const staleMatches = await matchRepository.find({
+      where: [
+        { status: 'waiting', createdAt: LessThan(tenMinutesAgo) },
+        { status: 'escrow', createdAt: LessThan(tenMinutesAgo) }
+      ]
+    });
+    
+    if (staleMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${staleMatches.length} stale matches`);
+      await matchRepository.remove(staleMatches);
+      console.log(`✅ Cleaned up ${staleMatches.length} stale matches`);
+    }
+    
+    // Clean up completed matches
+    const completedMatches = await matchRepository.find({
+      where: { status: 'completed' }
+    });
+    
+    if (completedMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${completedMatches.length} completed matches`);
+      await matchRepository.remove(completedMatches);
+      console.log(`✅ Cleaned up ${completedMatches.length} completed matches`);
+    }
+    
+  } catch (error) {
+    console.error('❌ Error in periodic cleanup:', error);
+  }
+};
+
+// Run periodic cleanup every 5 minutes
+setInterval(periodicCleanup, 5 * 60 * 1000);
 
 // Word list for games
 const wordList = [
@@ -196,51 +261,33 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
   }
 };
 
-// Helper function to clean up old matches
+// Helper function to cleanup old matches for a player
 const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
-  try {
-    // Clean up completed matches
-    const completedMatches = await matchRepository.find({
-      where: { status: 'completed', isCompleted: true }
-    });
-    
-    if (completedMatches.length > 0) {
-      console.log(`🧹 Cleaning up ${completedMatches.length} completed matches`);
-      await matchRepository.remove(completedMatches);
-    }
-    
-    // Clean up self-matches
-    const selfMatches = await matchRepository.find({
-      where: { status: 'active', player1: wallet, player2: wallet }
-    });
-    
-    if (selfMatches.length > 0) {
-      console.log(`🧹 Cleaning up ${selfMatches.length} self-matches`);
-      await matchRepository.remove(selfMatches);
-    }
-    
-    // Clean up stale waiting entries
-    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const staleEntries = await matchRepository.find({
-      where: {
-        player1: wallet,
-        status: 'waiting',
-        player2: null,
-        createdAt: LessThan(fiveMinutesAgo)
-      }
-    });
-    
-    if (staleEntries.length > 0) {
-      console.log(`🧹 Cleaning up ${staleEntries.length} stale waiting entries`);
-      await matchRepository.remove(staleEntries);
-    }
-  } catch (error) {
-    console.warn('⚠️ Failed to cleanup old matches:', error.message);
+  console.log(`🧹 Cleaning up old matches for wallet: ${wallet}`);
+  
+  // Find all matches for this player (any status)
+  const allPlayerMatches = await matchRepository.find({
+    where: [
+      { player1: wallet },
+      { player2: wallet }
+    ]
+  });
+  
+  if (allPlayerMatches.length > 0) {
+    console.log(`🧹 Found ${allPlayerMatches.length} old matches for ${wallet}, removing them`);
+    await matchRepository.remove(allPlayerMatches);
+    console.log(`✅ Cleaned up ${allPlayerMatches.length} old matches for ${wallet}`);
+  } else {
+    console.log(`✅ No old matches found for ${wallet}`);
   }
 };
 
-// Helper function to check for existing matches
+// Helper function to check for existing matches and cleanup if needed
 const checkExistingMatches = async (matchRepository: any, wallet: string) => {
+  // First, cleanup any old matches for this player
+  await cleanupOldMatches(matchRepository, wallet);
+  
+  // Now check if there are any remaining active matches
   const existingMatch = await matchRepository.findOne({
     where: [
       { player1: wallet, status: 'active' },
@@ -251,7 +298,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
   });
   
   if (existingMatch) {
-    console.log('⚠️ Player already has an active/escrow match');
+    console.log('⚠️ Player still has an active/escrow match after cleanup');
     return {
       status: 'matched',
       matchId: existingMatch.id,
