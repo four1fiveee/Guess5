@@ -20,19 +20,19 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Rate limiting configuration
 const globalLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  2000, // 2000 requests per 15 minutes (increased from 1000)
+  10000, // 10000 requests per 15 minutes (very permissive)
   (req) => req.ip
 );
 
 const matchmakingLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  2000, // 2000 matchmaking requests per 15 minutes (increased from 500)
+  10000, // 10000 matchmaking requests per 15 minutes (very permissive)
   (req) => req.body.wallet || req.ip
 );
 
 const gameLimiter = createRateLimiter(
   15 * 60 * 1000, // 15 minutes
-  2000, // 2000 game actions per 15 minutes (increased from 1000)
+  10000, // 10000 game actions per 15 minutes (very permissive)
   (req) => req.body.wallet || req.ip
 );
 
