@@ -1,9 +1,9 @@
 const express = require('express');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
 const { initializeDatabase, AppDataSource } = require('./db/index');
 const { errorHandler, notFound, asyncHandler } = require('./middleware/errorHandler');
-const { validateMatchRequest, validateSubmitResult, validateSubmitGuess, validateEscrow, createRateLimiter } = require('./middleware/validation');
+const { validateMatchRequest, validateSubmitResult, validateSubmitGuess, validateEscrow } = require('./middleware/validation');
+const { deduplicateRequests } = require('./middleware/deduplication');
 const matchRoutes = require('./routes/matchRoutes');
 const guessRoutes = require('./routes/guessRoutes');
 
@@ -17,26 +17,7 @@ console.log('CORS allowed origin:', allowedOrigin);
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
-// Rate limiting configuration
-const globalLimiter = createRateLimiter(
-  15 * 60 * 1000, // 15 minutes
-  10000, // 10000 requests per 15 minutes (very permissive)
-  (req) => req.ip
-);
-
-const matchmakingLimiter = createRateLimiter(
-  15 * 60 * 1000, // 15 minutes
-  10000, // 10000 matchmaking requests per 15 minutes (very permissive)
-  (req) => req.body.wallet || req.ip
-);
-
-const gameLimiter = createRateLimiter(
-  15 * 60 * 1000, // 15 minutes
-  10000, // 10000 game actions per 15 minutes (very permissive)
-  (req) => req.body.wallet || req.ip
-);
-
-// Apply CORS first (before rate limiting)
+// Apply CORS first
 app.use(cors({
   origin: true, // Allow all origins
   credentials: true,
@@ -54,13 +35,13 @@ app.options('*', (req, res) => {
   res.status(200).end();
 });
 
-// Apply rate limiting after CORS
-app.use(globalLimiter);
+// Apply deduplication middleware
+app.use(deduplicateRequests);
 
-// Debug middleware to log CORS requests (development only)
+// Debug middleware to log requests (development only)
 if (process.env.NODE_ENV === 'development') {
   app.use((req, res, next) => {
-    console.log('🌐 CORS Debug:', {
+    console.log('🌐 Request Debug:', {
       method: req.method,
       origin: req.headers.origin,
       url: req.url,
@@ -76,9 +57,9 @@ app.get('/health', asyncHandler(async (req, res) => {
   await healthCheckHandler(req, res);
 }));
 
-// API routes with validation and rate limiting
-app.use('/api/match', matchmakingLimiter, matchRoutes);
-app.use('/api/guess', gameLimiter, guessRoutes);
+// API routes without rate limiting
+app.use('/api/match', matchRoutes);
+app.use('/api/guess', guessRoutes);
 
 // Remove debug endpoints in production
 if (process.env.NODE_ENV !== 'production') {
@@ -97,16 +78,5 @@ app.use(notFound);
 
 // Error handler (must be last)
 app.use(errorHandler);
-
-// Initialize database synchronously before starting server
-let dbConnected = false;
-if (process.env.DATABASE_URL) {
-  console.log('🔌 Database initialization will happen during server startup');
-} else {
-  console.log('No DATABASE_URL provided, running without database');
-}
-
-// Export for use in other files
-app.dbConnected = dbConnected;
 
 module.exports = app;
