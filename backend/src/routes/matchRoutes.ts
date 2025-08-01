@@ -4,7 +4,7 @@ const matchController = require('../controllers/matchController');
 const { validateMatchRequest: validateMatch, validateSubmitResult: validateResult, validateEscrow: validateEscrowData } = require('../middleware/validation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
-// Production routes (always available)
+// Production routes (always available) - Updated with cleanup endpoints
 router.post('/request-match', validateMatch, asyncHandlerWrapper(matchController.requestMatchHandler));
 router.post('/submit-result', validateResult, asyncHandlerWrapper(matchController.submitResultHandler));
 router.get('/status/:matchId', asyncHandlerWrapper(matchController.getMatchStatusHandler));
