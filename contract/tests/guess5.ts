@@ -1,5 +1,5 @@
-import * as anchor from "@project-serum/anchor"
-import { Program } from "@project-serum/anchor"
+import * as anchor from "@coral-xyz/anchor"
+import { Program } from "@coral-xyz/anchor"
 import { Guess5 } from "../target/types/guess5"
 import { assert } from "chai"
 
@@ -7,7 +7,7 @@ describe("guess5", () => {
   // Configure the client to use the devnet cluster.
   const provider = anchor.AnchorProvider.env()
   anchor.setProvider(provider)
-  const program = anchor.workspace.Guess5 as Program<Guess5>
+  const program = anchor.workspace.guess5 as Program<Guess5>
 
   it("Simulates a real game and payout", async () => {
     // Simulate two players

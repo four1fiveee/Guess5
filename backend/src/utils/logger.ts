@@ -34,11 +34,11 @@ class Logger {
     };
 
     if (req) {
-      logEntry.url = req.url;
-      logEntry.method = req.method;
-      logEntry.ip = req.ip;
-      logEntry.requestId = req.headers['x-request-id'] as string;
-      logEntry.userId = req.body?.wallet;
+      logEntry.url = (req as any).url;
+      logEntry.method = (req as any).method;
+      logEntry.ip = (req as any).ip;
+      logEntry.requestId = (req as any).headers['x-request-id'] as string;
+      logEntry.userId = (req as any).body?.wallet;
     }
 
     return logEntry;
@@ -98,7 +98,7 @@ class Logger {
     this.info('Payment processed', { matchId, amount, recipient });
   }
 
-  error(matchId: string, error: string, details?: any) {
+  gameError(matchId: string, error: string, details?: any) {
     this.error('Game error', { matchId, error, details });
   }
 }
@@ -113,12 +113,12 @@ export const requestLogger = (req: Request, res: any, next: any) => {
   res.on('finish', () => {
     const duration = Date.now() - start;
     logger.info('Request completed', {
-      method: req.method,
-      url: req.url,
+      method: (req as any).method,
+      url: (req as any).url,
       status: res.statusCode,
       duration: `${duration}ms`,
-      userAgent: req.headers['user-agent']
-    }, undefined, req);
+      userAgent: (req as any).headers['user-agent']
+    });
   });
 
   next();

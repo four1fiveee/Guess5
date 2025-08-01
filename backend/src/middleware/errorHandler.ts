@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 
 // Custom error class for application errors
 export class AppError extends Error {
@@ -19,7 +19,7 @@ export const errorHandler = (
   err: Error | AppError,
   req: Request,
   res: Response,
-  next: NextFunction
+  next: any
 ) => {
   let error = { ...err };
   error.message = err.message;
@@ -28,10 +28,10 @@ export const errorHandler = (
   console.error('❌ Error:', {
     message: err.message,
     stack: err.stack,
-    url: req.url,
-    method: req.method,
-    body: req.body,
-    headers: req.headers
+    url: (req as any).url,
+    method: (req as any).method,
+    body: (req as any).body,
+    headers: (req as any).headers
   });
 
   // Mongoose bad ObjectId
@@ -75,12 +75,12 @@ export const errorHandler = (
 };
 
 // Async error wrapper
-export const asyncHandler = (fn: Function) => (req: Request, res: Response, next: NextFunction) => {
+export const asyncHandler = (fn: Function) => (req: Request, res: Response, next: any) => {
   Promise.resolve(fn(req, res, next)).catch(next);
 };
 
 // Not found handler
-export const notFound = (req: Request, res: Response, next: NextFunction) => {
-  const error = new AppError(`Not found - ${req.originalUrl}`, 404);
+export const notFound = (req: Request, res: Response, next: any) => {
+  const error = new AppError(`Not found - ${(req as any).originalUrl}`, 404);
   next(error);
 }; 

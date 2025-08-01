@@ -1,5 +1,4 @@
 import { useEffect, useState } from 'react'
-import { getApiUrl } from '../utils/api'
 
 export default function Status() {
   const [status, setStatus] = useState('Checking...')
@@ -7,7 +6,7 @@ export default function Status() {
 
   useEffect(() => {
     const checkStatus = async () => {
-      const url = getApiUrl()
+      const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:40000'
       setApiUrl(url || '')
       
       try {

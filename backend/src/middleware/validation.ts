@@ -1,4 +1,4 @@
-import { Request, Response, NextFunction } from 'express';
+import { Request, Response } from 'express';
 import Joi from 'joi';
 
 // Validation schemas
@@ -31,7 +31,7 @@ const escrowSchema = Joi.object({
 });
 
 // Validation middleware
-export const validateMatchRequest = (req: Request, res: Response, next: NextFunction) => {
+export const validateMatchRequest = (req: Request, res: Response, next: any) => {
   const { error } = matchRequestSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ 
@@ -42,7 +42,7 @@ export const validateMatchRequest = (req: Request, res: Response, next: NextFunc
   next();
 };
 
-export const validateSubmitResult = (req: Request, res: Response, next: NextFunction) => {
+export const validateSubmitResult = (req: Request, res: Response, next: any) => {
   const { error } = submitResultSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ 
@@ -53,7 +53,7 @@ export const validateSubmitResult = (req: Request, res: Response, next: NextFunc
   next();
 };
 
-export const validateSubmitGuess = (req: Request, res: Response, next: NextFunction) => {
+export const validateSubmitGuess = (req: Request, res: Response, next: any) => {
   const { error } = submitGuessSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ 
@@ -64,7 +64,7 @@ export const validateSubmitGuess = (req: Request, res: Response, next: NextFunct
   next();
 };
 
-export const validateEscrow = (req: Request, res: Response, next: NextFunction) => {
+export const validateEscrow = (req: Request, res: Response, next: any) => {
   const { error } = escrowSchema.validate(req.body);
   if (error) {
     return res.status(400).json({ 
@@ -86,7 +86,7 @@ export const createRateLimiter = (windowMs: number, max: number, keyGenerator?: 
   return rateLimit({
     windowMs,
     max,
-    keyGenerator: keyGenerator || ((req: Request) => req.ip),
+    keyGenerator: keyGenerator || ((req: Request) => (req as any).ip),
     message: 'Too many requests, please try again later',
     standardHeaders: true,
     legacyHeaders: false

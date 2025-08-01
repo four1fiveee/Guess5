@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { requestMatch, testBackendConnection } from '../utils/api'
+import { requestMatch } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect } from 'react'
 
@@ -25,7 +25,6 @@ export default function Lobby() {
   const [checkingBalance, setCheckingBalance] = useState(false)
   const [solPrice, setSolPrice] = useState<number | null>(null)
   const [solAmounts, setSolAmounts] = useState<number[]>([])
-  const [backendStatus, setBackendStatus] = useState<string>('checking')
 
   useEffect(() => {
     const getPrice = async () => {
@@ -36,35 +35,6 @@ export default function Lobby() {
       }
     };
     getPrice();
-
-    // Test backend connectivity with retry
-    const testBackend = async () => {
-      let retries = 0;
-      const maxRetries = 3;
-      
-      const attemptConnection = async (): Promise<boolean> => {
-        try {
-          console.log(`🔍 Backend connection attempt ${retries + 1}/${maxRetries}...`);
-          const isHealthy = await testBackendConnection();
-          setBackendStatus(isHealthy ? 'connected' : 'disconnected');
-          return isHealthy;
-        } catch (error) {
-          console.error(`❌ Backend test failed (attempt ${retries + 1}):`, error);
-          retries++;
-          if (retries < maxRetries) {
-            console.log(`⏳ Retrying in 2 seconds... (${retries}/${maxRetries})`);
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            return await attemptConnection();
-          } else {
-            setBackendStatus('disconnected');
-            return false;
-          }
-        }
-      };
-      
-      await attemptConnection();
-    };
-    testBackend();
   }, []);
 
   const checkBalance = async (requiredSol: number) => {
@@ -97,60 +67,23 @@ export default function Lobby() {
       return
     }
     
-    if (backendStatus !== 'connected') {
-      alert('Backend server is not responding. Please try again later.')
+    const hasBalance = await checkBalance(solAmount)
+    if (!hasBalance) {
       return
     }
-    
-    // Check balance first
-    const hasEnoughBalance = await checkBalance(solAmount)
-    if (!hasEnoughBalance) {
-      return
-    }
-    localStorage.setItem('entryFeeUSD', usdAmount.toString())
-    localStorage.setItem('entryFeeSOL', solAmount.toString())
-    localStorage.setItem('wallet', publicKey.toString())
-    // Request a match from the backend (send SOL amount)
+
     try {
-      const data = await requestMatch(solAmount, publicKey.toString())
-      console.log('🎮 Match request response:', data);
-      
-      if (data.status === 'waiting') {
-        console.log('⏳ Redirecting to matchmaking...');
-        router.push('/matchmaking')
-      } else if (data.status === 'matched') {
-        console.log('✅ Match found, storing data and redirecting to game...');
-        console.log('📝 Match data:', {
-          matchId: data.matchId,
-          player1: data.player1,
-          player2: data.player2,
-          entryFee: data.entryFee
-        });
-        
-        // Store match data
-        localStorage.setItem('matchId', data.matchId);
-        if (data.word) {
-          localStorage.setItem('word', data.word);
-        }
-        if (data.escrowAddress) {
-          localStorage.setItem('escrowAddress', data.escrowAddress);
-        }
-        if (data.entryFee) {
-          localStorage.setItem('entryFee', data.entryFee.toString());
-        }
-        
-        console.log('💾 Stored match data in localStorage');
-        console.log('🎮 Redirecting to game page...');
-        router.push(`/game?matchId=${data.matchId}`)
+      const result = await requestMatch(publicKey.toString(), solAmount) as any
+      if (result.status === 'matched') {
+        router.push(`/matchmaking?matchId=${result.matchId}&entryFee=${solAmount}`)
+      } else if (result.status === 'waiting') {
+        router.push(`/matchmaking?entryFee=${solAmount}`)
       } else {
-        console.log('⚠️ Unexpected response status:', data.status);
-        alert('Unexpected response from server. Please try again.');
+        alert('Failed to start matchmaking. Please try again.')
       }
-    } catch (err) {
-      console.error('Match request error:', err)
-      alert('Error connecting to server. Please try again.')
-    } finally {
-      setCheckingBalance(false)
+    } catch (error) {
+      console.error('Matchmaking error:', error)
+      alert('Failed to start matchmaking. Please try again.')
     }
   }
 
@@ -159,28 +92,15 @@ export default function Lobby() {
       <WalletConnectButton />
       <h2 className="text-3xl font-bold text-accent mb-6">Choose Entry Fee</h2>
       
-      {/* Backend status indicator */}
-      <div className="mb-4 text-center">
-        <span className={`text-sm px-3 py-1 rounded-full ${
-          backendStatus === 'connected' ? 'bg-green-600 text-white' : 
-          backendStatus === 'disconnected' ? 'bg-red-600 text-white' : 
-          'bg-yellow-600 text-white'
-        }`}>
-          Backend: {backendStatus === 'connected' ? '✅ Connected' : 
-                    backendStatus === 'disconnected' ? '❌ Disconnected' : 
-                    '⏳ Checking...'}
-        </span>
-      </div>
-      
       <div className="flex gap-6">
         {ENTRY_FEES_USD.map((usd, idx) => (
           <button
             key={usd}
             className={`px-8 py-4 bg-accent text-primary rounded-lg text-2xl font-semibold transition ${
-              checkingBalance || backendStatus !== 'connected' ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-400'
+              checkingBalance ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-400'
             }`}
             onClick={() => handleSelect(usd, solAmounts[idx])}
-            disabled={checkingBalance || solPrice === null || backendStatus !== 'connected'}
+            disabled={checkingBalance || solPrice === null}
           >
             {checkingBalance ? 'Checking...' : `$${usd}`}
             <div className="text-xs text-gray-700 mt-1">
