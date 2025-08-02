@@ -69,7 +69,7 @@ app.use(deduplicateRequests);
 // More lenient for matchmaking to prevent stale matchmaking issues
 const matchmakingLimiter = rateLimit({
   windowMs: 30 * 1000, // 30 seconds
-  max: 20, // Allow 20 requests per 30 seconds for matchmaking
+  max: 50, // Increased to 50 requests per 30 seconds for matchmaking
   message: { error: 'Too many matchmaking requests, please try again in 30 seconds' },
   standardHeaders: true,
   legacyHeaders: false,

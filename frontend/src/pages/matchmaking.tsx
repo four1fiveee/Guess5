@@ -222,9 +222,9 @@ const Matchmaking: React.FC = () => {
         const entryFee = parseFloat(storedEntryFee);
         console.log('🎮 Starting matchmaking with entry fee:', entryFee);
 
-        // Add retry logic for network failures
+        // Add retry logic for network failures (less aggressive)
         let retryCount = 0;
-        const maxRetries = 3;
+        const maxRetries = 2; // Reduced from 3 to 2
         let lastError = null;
 
         while (retryCount < maxRetries) {
@@ -241,6 +241,13 @@ const Matchmaking: React.FC = () => {
             });
 
             if (!response.ok) {
+              // Handle rate limiting specifically
+              if (response.status === 429) {
+                console.log('⚠️ Rate limited, waiting before retry...');
+                await new Promise(resolve => setTimeout(resolve, 5000)); // Wait 5 seconds
+                retryCount++;
+                continue;
+              }
               throw new Error(`HTTP ${response.status}: ${response.statusText}`);
             }
 
@@ -298,10 +305,10 @@ const Matchmaking: React.FC = () => {
                 console.log('🔄 Detected stuck match, cleaning up and retrying...');
                 await cleanupStuckMatches();
                 retryCount++;
-                if (retryCount < maxRetries) {
-                  await new Promise(resolve => setTimeout(resolve, 1000 * retryCount)); // Exponential backoff
-                  continue;
-                }
+                            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 3000 * retryCount)); // Longer backoff
+              continue;
+            }
               } else {
                 setStatus('error');
                 break; // Don't retry for other errors
@@ -317,8 +324,8 @@ const Matchmaking: React.FC = () => {
             retryCount++;
             
             if (retryCount < maxRetries) {
-              console.log(`🔄 Retrying in ${retryCount * 1000}ms... (${retryCount}/${maxRetries})`);
-              await new Promise(resolve => setTimeout(resolve, retryCount * 1000)); // Exponential backoff
+              console.log(`🔄 Retrying in ${retryCount * 3000}ms... (${retryCount}/${maxRetries})`);
+              await new Promise(resolve => setTimeout(resolve, retryCount * 3000)); // Longer backoff
             } else {
               console.error('❌ All matchmaking attempts failed');
               setStatus('error');
@@ -348,7 +355,7 @@ const Matchmaking: React.FC = () => {
     };
 
     const startPolling = () => {
-      // Poll every 1 second to check if we've been matched (faster response)
+      // Poll every 3 seconds to check if we've been matched (less aggressive)
       pollInterval = setInterval(async () => {
         try {
           // Don't poll if we already have a match
@@ -392,7 +399,7 @@ const Matchmaking: React.FC = () => {
         } catch (error) {
           console.error('❌ Error polling for match:', error);
         }
-      }, 1000); // Poll every 1 second
+      }, 3000); // Poll every 3 seconds
     };
 
     startMatchmaking();
