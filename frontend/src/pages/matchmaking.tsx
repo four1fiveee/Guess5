@@ -252,6 +252,7 @@ const Matchmaking: React.FC = () => {
         }
         
         console.log('🎮 Starting matchmaking with entry fee:', entryFee, 'SOL');
+        console.log('🎮 Request payload:', { wallet, entryFee });
 
         // Add retry logic for network failures (less aggressive)
         let retryCount = 0;
@@ -284,6 +285,8 @@ const Matchmaking: React.FC = () => {
 
             const data = await response.json();
             console.log('🎮 Matchmaking response:', data);
+            console.log('🎮 Response status:', response.status);
+            console.log('🎮 Response headers:', Object.fromEntries(response.headers.entries()));
 
             // Handle deduplication response
             if (data.duplicate === true) {
