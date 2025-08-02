@@ -1779,15 +1779,14 @@ const cleanupStuckMatchesHandler = async (req, res) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Clean up all matches for this wallet (except completed ones)
+    // Clean up stuck matches for this wallet (EXCEPT escrow status - those are active matches)
     const stuckMatches = await matchRepository.find({
       where: [
         { player1: wallet, status: 'waiting' },
         { player2: wallet, status: 'waiting' },
         { player1: wallet, status: 'active' },
-        { player2: wallet, status: 'active' },
-        { player1: wallet, status: 'escrow' },
-        { player2: wallet, status: 'escrow' }
+        { player2: wallet, status: 'active' }
+        // Removed escrow status - those are active matches that should not be cleaned up
       ]
     });
     
