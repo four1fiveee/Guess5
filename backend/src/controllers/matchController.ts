@@ -280,6 +280,36 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   } else {
     console.log(`✅ No old matches found for ${wallet}`);
   }
+  
+  // Also cleanup any stale waiting entries older than 5 minutes
+  const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+  const staleWaitingMatches = await matchRepository.find({
+    where: {
+      status: 'waiting',
+      createdAt: LessThan(fiveMinutesAgo)
+    }
+  });
+  
+  if (staleWaitingMatches.length > 0) {
+    console.log(`🧹 Found ${staleWaitingMatches.length} stale waiting matches, removing them`);
+    await matchRepository.remove(staleWaitingMatches);
+    console.log(`✅ Cleaned up ${staleWaitingMatches.length} stale waiting matches`);
+  }
+  
+  // Cleanup any completed matches older than 1 hour
+  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+  const oldCompletedMatches = await matchRepository.find({
+    where: {
+      status: 'completed',
+      updatedAt: LessThan(oneHourAgo)
+    }
+  });
+  
+  if (oldCompletedMatches.length > 0) {
+    console.log(`🧹 Found ${oldCompletedMatches.length} old completed matches, removing them`);
+    await matchRepository.remove(oldCompletedMatches);
+    console.log(`✅ Cleaned up ${oldCompletedMatches.length} old completed matches`);
+  }
 };
 
 // Helper function to check for existing matches and cleanup if needed
@@ -320,7 +350,8 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   const minEntryFee = entryFee - tolerance;
   const maxEntryFee = entryFee + tolerance;
   
-  const waitingMatches = await matchRepository.find({
+  // First try to find exact match
+  let waitingMatches = await matchRepository.find({
     where: {
       status: 'waiting',
       entryFee: Between(minEntryFee, maxEntryFee),
@@ -331,9 +362,27 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     take: 1
   });
   
+  // If no exact match, try with more flexible fee matching (within 10% tolerance)
+  if (waitingMatches.length === 0) {
+    const flexibleMinEntryFee = entryFee * 0.9;
+    const flexibleMaxEntryFee = entryFee * 1.1;
+    
+    waitingMatches = await matchRepository.find({
+      where: {
+        status: 'waiting',
+        entryFee: Between(flexibleMinEntryFee, flexibleMaxEntryFee),
+        player2: null,
+        player1: Not(wallet)
+      },
+      order: { createdAt: 'ASC' },
+      take: 1
+    });
+  }
+  
   if (waitingMatches.length > 0) {
     const match = waitingMatches[0];
     if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
+      console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
       return {
         wallet: match.player1,
         entryFee: match.entryFee,
@@ -342,6 +391,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     }
   }
   
+  console.log(`❌ No waiting players found for ${wallet} with entry fee ${entryFee}`);
   return null;
 };
 
@@ -1805,6 +1855,64 @@ const simpleCleanupHandler = async (req, res) => {
   }
 };
 
+// New endpoint to force cleanup for a specific wallet (for testing)
+const forceCleanupForWallet = async (req, res) => {
+  try {
+    const { wallet } = req.body;
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+    
+    console.log(`🧹 Force cleanup requested for wallet: ${wallet}`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find all matches for this wallet
+    const walletMatches = await matchRepository.find({
+      where: [
+        { player1: wallet },
+        { player2: wallet }
+      ]
+    });
+    
+    if (walletMatches.length > 0) {
+      console.log(`🧹 Found ${walletMatches.length} matches for ${wallet}, removing them`);
+      await matchRepository.remove(walletMatches);
+      console.log(`✅ Force cleaned up ${walletMatches.length} matches for ${wallet}`);
+    }
+    
+    // Also cleanup stale waiting matches
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const staleWaitingMatches = await matchRepository.find({
+      where: {
+        status: 'waiting',
+        createdAt: LessThan(fiveMinutesAgo)
+      }
+    });
+    
+    if (staleWaitingMatches.length > 0) {
+      console.log(`🧹 Found ${staleWaitingMatches.length} stale waiting matches, removing them`);
+      await matchRepository.remove(staleWaitingMatches);
+      console.log(`✅ Cleaned up ${staleWaitingMatches.length} stale waiting matches`);
+    }
+    
+    res.json({
+      success: true,
+      cleanedWalletMatches: walletMatches.length,
+      cleanedStaleMatches: staleWaitingMatches.length,
+      message: `Force cleaned up ${walletMatches.length} wallet matches and ${staleWaitingMatches.length} stale matches`
+    });
+  } catch (error) {
+    console.error('❌ Error in force cleanup:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to force cleanup matches'
+    });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1821,5 +1929,6 @@ module.exports = {
   executePaymentHandler,
   createEscrowTransactionHandler,
   cleanupStuckMatchesHandler,
-  simpleCleanupHandler
+  simpleCleanupHandler,
+  forceCleanupForWallet
 }; 

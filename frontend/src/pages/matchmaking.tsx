@@ -128,14 +128,8 @@ const Matchmaking: React.FC = () => {
     }
 
     // Don't start matchmaking if we already have a match
-    if (matchData && status === 'matched') {
-      console.log('🎮 Already have a match, not starting matchmaking');
-      return;
-    }
-
-    // Don't start matchmaking if we're already matched
-    if (status === 'matched') {
-      console.log('🎮 Status is already matched, not starting matchmaking');
+    if (matchData) {
+      console.log('🎮 Already have match data, not starting matchmaking');
       return;
     }
 
@@ -201,14 +195,8 @@ const Matchmaking: React.FC = () => {
       }
 
       // Don't start matchmaking if we already have a match
-      if (matchData && status === 'matched') {
-        console.log('🎮 Already have a match, not starting new matchmaking');
-        return;
-      }
-
-      // Don't start matchmaking if we're already matched
-      if (status === 'matched') {
-        console.log('🎮 Status is already matched, not starting new matchmaking');
+      if (matchData) {
+        console.log('🎮 Already have match data, not starting new matchmaking');
         return;
       }
 
@@ -377,14 +365,8 @@ const Matchmaking: React.FC = () => {
           }
 
           // Don't start matchmaking if we already have a match
-          if (matchData && status === 'matched') {
-            console.log('🎮 Already have a match, not starting matchmaking from polling');
-            return;
-          }
-
-          // Don't start matchmaking if we're already matched
-          if (status === 'matched') {
-            console.log('🎮 Status is already matched, not starting matchmaking from polling');
+          if (matchData) {
+            console.log('🎮 Already have match data, not starting matchmaking from polling');
             return;
           }
 

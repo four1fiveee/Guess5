@@ -18,6 +18,7 @@ router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanu
 router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
 router.post('/cleanup', asyncHandlerWrapper(matchController.simpleCleanupHandler));
 router.get('/cleanup', asyncHandlerWrapper(matchController.simpleCleanupHandler));
+router.post('/force-cleanup-wallet', asyncHandlerWrapper(matchController.forceCleanupForWallet));
 
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {

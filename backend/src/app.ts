@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const rateLimit = require('express-rate-limit');
 const { initializeDatabase, AppDataSource } = require('./db/index');
 const { errorHandler, notFound, asyncHandler } = require('./middleware/errorHandler');
 const { validateMatchRequest, validateSubmitResult, validateSubmitGuess, validateEscrow } = require('./middleware/validation');
@@ -13,13 +14,36 @@ const app = express();
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
 console.log('CORS allowed origin:', allowedOrigin);
 
-// Security middleware
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// Define allowed origins based on environment
+const allowedOrigins = [
+  'https://guess5.vercel.app',
+  'https://guess5.onrender.com',
+  'http://localhost:3000',
+  'http://localhost:3001'
+];
 
-// Apply CORS first
+// Add FRONTEND_URL to allowed origins if it's not already included
+if (allowedOrigin && !allowedOrigins.includes(allowedOrigin)) {
+  allowedOrigins.push(allowedOrigin);
+}
+
+// Security middleware with reduced limits
+app.use(express.json({ limit: '1mb' })); // Reduced from 10mb
+app.use(express.urlencoded({ extended: true, limit: '1mb' })); // Reduced from 10mb
+
+// Apply CORS with restricted origins
 app.use(cors({
-  origin: true, // Allow all origins
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    if (allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      console.log('🚫 CORS blocked origin:', origin);
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Origin', 'X-Requested-With'],
@@ -28,7 +52,10 @@ app.use(cors({
 
 // Handle preflight requests with explicit CORS headers
 app.options('*', (req, res) => {
-  res.header('Access-Control-Allow-Origin', req.headers.origin || '*');
+  const origin = req.headers.origin;
+  if (origin && allowedOrigins.includes(origin)) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
   res.header('Access-Control-Allow-Credentials', 'true');
@@ -37,6 +64,39 @@ app.options('*', (req, res) => {
 
 // Apply deduplication middleware
 app.use(deduplicateRequests);
+
+// Rate limiting configuration
+// More lenient for matchmaking to prevent stale matchmaking issues
+const matchmakingLimiter = rateLimit({
+  windowMs: 30 * 1000, // 30 seconds
+  max: 20, // Allow 20 requests per 30 seconds for matchmaking
+  message: { error: 'Too many matchmaking requests, please try again in 30 seconds' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
+});
+
+// Stricter rate limiting for other API endpoints
+const apiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Allow 100 requests per 15 minutes for other endpoints
+  message: { error: 'Too many requests, please try again later' },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Skip rate limiting for health checks
+    return req.path === '/health';
+  }
+});
+
+// Apply rate limiting to specific routes
+app.use('/api/match/request-match', matchmakingLimiter);
+app.use('/api/match/check-match', matchmakingLimiter);
+app.use('/api/match/status', matchmakingLimiter);
+app.use('/api/', apiLimiter);
 
 // Debug middleware to log requests (development only)
 if (process.env.NODE_ENV === 'development') {
