@@ -2,11 +2,14 @@ const { Request, Response, NextFunction } = require('express');
 
 // Track recent requests to prevent duplicates
 const recentRequests = new Map<string, number>();
-const DEDUPLICATION_WINDOW = 1000; // 1 second window
+const DEDUPLICATION_WINDOW = 5000; // 5 second window (less aggressive)
 
 export const deduplicateRequests = (req: any, res: any, next: any) => {
-  // Only apply to POST requests for matchmaking
-  if (req.method !== 'POST' || !req.url.includes('/api/match/')) {
+  // Only apply to POST requests for specific matchmaking endpoints that are prone to spam
+  if (req.method !== 'POST' || 
+      (!req.url.includes('/request-match') && 
+       !req.url.includes('/submit-result') && 
+       !req.url.includes('/submit-guess'))) {
     return next();
   }
 
@@ -27,12 +30,20 @@ export const deduplicateRequests = (req: any, res: any, next: any) => {
 
   // Check if this is a duplicate request
   if (recentRequests.has(requestKey)) {
-    console.log(`🔄 Duplicate request detected for ${wallet} on ${req.url}, skipping`);
-    return res.status(200).json({
-      success: true,
-      message: 'Request already being processed',
-      duplicate: true
-    });
+    const lastRequestTime = recentRequests.get(requestKey);
+    const timeSinceLastRequest = now - lastRequestTime;
+    
+    // Allow request if it's been more than 2 seconds (even within 5-second window)
+    if (timeSinceLastRequest < 2000) {
+      console.log(`🔄 Duplicate request detected for ${wallet} on ${req.url}, skipping`);
+      return res.status(200).json({
+        success: true,
+        message: 'Request already being processed',
+        duplicate: true
+      });
+    } else {
+      console.log(`⏰ Allowing request after ${timeSinceLastRequest}ms for ${wallet}`);
+    }
   }
 
   // Track this request
