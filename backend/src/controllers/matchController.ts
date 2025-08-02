@@ -1323,13 +1323,15 @@ const checkPlayerMatchHandler = async (req, res) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Check for active matches with this player
+    // Check for active matches with this player (including escrow status)
     const activeMatch = await matchRepository.findOne({
       where: [
         { player1: wallet, status: 'active' },
         { player2: wallet, status: 'active' },
         { player1: wallet, status: 'escrow' },
-        { player2: wallet, status: 'escrow' }
+        { player2: wallet, status: 'escrow' },
+        { player1: wallet, status: 'matched' },
+        { player2: wallet, status: 'matched' }
       ]
     });
     
@@ -1342,9 +1344,23 @@ const checkPlayerMatchHandler = async (req, res) => {
         requestingWallet: wallet
       });
       
+      // Also log all matches for this player for debugging
+      const allPlayerMatches = await matchRepository.find({
+        where: [
+          { player1: wallet },
+          { player2: wallet }
+        ]
+      });
+      console.log('🔍 All matches for player:', allPlayerMatches.map(m => ({
+        id: m.id,
+        status: m.status,
+        player1: m.player1,
+        player2: m.player2
+      })));
+      
       // Determine the appropriate message based on status
       let message = '';
-      if (activeMatch.status === 'escrow') {
+      if (activeMatch.status === 'escrow' || activeMatch.status === 'matched') {
         message = 'Match created - please lock your entry fee';
       } else if (activeMatch.status === 'active') {
         message = 'Already in active match';

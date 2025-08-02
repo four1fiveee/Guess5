@@ -444,40 +444,101 @@ const Matchmaking: React.FC = () => {
               <div className="flex justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
               </div>
-              <p className="text-white/80">Waiting for another player to join...</p>
-              {waitingCount > 0 && (
-                <div className="text-accent text-sm">
-                  {waitingCount === 1 ? 'You are the only player waiting' : `${waitingCount} players waiting`}
+              <p className="text-white/80 text-center">🔍 Finding Opponent...</p>
+              
+              <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
+                <h3 className="text-blue-400 font-semibold mb-2">⏳ Waiting for Players</h3>
+                <p className="text-white/80 mb-3">
+                  Looking for other players with the same entry fee ({entryFee} SOL)
+                </p>
+                
+                {waitingCount > 0 && (
+                  <div className="text-accent text-sm bg-white/10 rounded p-2">
+                    {waitingCount === 1 ? 'You are the only player waiting' : `${waitingCount} players waiting`}
+                  </div>
+                )}
+                
+                <div className="space-y-2 text-sm text-white/70 mt-3">
+                  <div className="flex items-center">
+                    <span className="text-blue-400 mr-2">ℹ️</span>
+                    Match will start automatically when opponent joins
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-blue-400 mr-2">ℹ️</span>
+                    Both players will lock entry fees before game starts
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-blue-400 mr-2">ℹ️</span>
+                    Winner gets 90% of total pot automatically
+                  </div>
                 </div>
-              )}
-
+              </div>
+              
+              <div className="text-xs text-white/50 text-center">
+                💡 Try different entry fees if no one joins (0.05, 0.1, 0.2 SOL are popular)
+              </div>
             </div>
           )}
           {status === 'matched' && (
             <div className="space-y-4">
-              <div className="text-green-400 text-xl">✓ Match Found!</div>
+              <div className="text-green-400 text-xl font-bold">🎉 Match Found!</div>
+              
               {(matchData?.matchStatus === 'escrow' || matchData?.message?.includes('lock your entry fee')) ? (
-                <div>
-                  <p className="text-white/80">Please lock your entry fee to start the game</p>
-                  <div className="text-accent text-sm">
-                    Entry Fee: {entryFee} SOL
-                  </div>
-                  <button
-                    onClick={handleEscrowPayment}
-                    disabled={escrowStatus === 'pending'}
-                    className={`px-6 py-3 rounded-lg transition-colors ${
-                      escrowStatus === 'pending' 
-                        ? 'bg-gray-500 cursor-not-allowed' 
-                        : 'bg-accent hover:bg-accent/80 text-white'
-                    }`}
-                  >
-                    {escrowStatus === 'pending' ? 'Processing...' : 'Lock Entry Fee'}
-                  </button>
-                  {escrowStatus === 'failed' && (
-                    <div className="text-red-400 text-sm mt-2">
-                      Failed to lock entry fee. Please try again.
+                <div className="space-y-4">
+                  <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
+                    <h3 className="text-green-400 font-semibold mb-2">🔒 Lock Your Entry Fee</h3>
+                    <p className="text-white/80 mb-3">
+                      Your opponent is ready! Lock your entry fee to start the game.
+                    </p>
+                    
+                    <div className="bg-white/10 rounded-lg p-3 mb-4">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/80">Entry Fee:</span>
+                        <span className="text-accent font-bold">{entryFee} SOL</span>
+                      </div>
+                      <div className="flex justify-between items-center mt-1">
+                        <span className="text-white/80">Potential Win:</span>
+                        <span className="text-green-400 font-bold">{(entryFee * 1.8).toFixed(3)} SOL</span>
+                      </div>
                     </div>
-                  )}
+                    
+                    <div className="space-y-2 text-sm text-white/70">
+                      <div className="flex items-center">
+                        <span className="text-green-400 mr-2">✓</span>
+                        Your SOL will be locked in smart contract escrow
+                      </div>
+                      <div className="flex items-center">
+                        <span className="text-green-400 mr-2">✓</span>
+                        Winner gets 90% of total pot automatically
+                      </div>
+                      <div className="flex items-center">
+                        <span className="text-green-400 mr-2">✓</span>
+                        No one can steal or avoid payment
+                      </div>
+                    </div>
+                    
+                    <button
+                      onClick={handleEscrowPayment}
+                      disabled={escrowStatus === 'pending'}
+                      className={`w-full mt-4 px-6 py-3 rounded-lg transition-colors font-semibold ${
+                        escrowStatus === 'pending' 
+                          ? 'bg-gray-500 cursor-not-allowed' 
+                          : 'bg-accent hover:bg-accent/80 text-white'
+                      }`}
+                    >
+                      {escrowStatus === 'pending' ? 'Processing...' : '🔒 Lock Entry Fee'}
+                    </button>
+                    
+                    {escrowStatus === 'failed' && (
+                      <div className="text-red-400 text-sm mt-2 bg-red-500/20 border border-red-500/30 rounded p-2">
+                        ❌ Failed to lock entry fee. Please try again.
+                      </div>
+                    )}
+                  </div>
+                  
+                  <div className="text-xs text-white/50 text-center">
+                    💡 Phantom wallet will pop up asking for approval. Review the transaction details carefully.
+                  </div>
                 </div>
               ) : matchData?.matchStatus === 'active' ? (
                 <div>
@@ -512,8 +573,37 @@ const Matchmaking: React.FC = () => {
               <div className="flex justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
               </div>
-              <p className="text-white/80">Locking your entry fee...</p>
-              <p className="text-accent text-sm">Please approve the transaction in your wallet</p>
+              <p className="text-white/80 text-center">🔒 Locking Entry Fee...</p>
+              
+              <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-4">
+                <h3 className="text-yellow-400 font-semibold mb-2">⏳ Processing Transaction</h3>
+                <p className="text-white/80 mb-3">
+                  Please approve the transaction in your Phantom wallet
+                </p>
+                
+                <div className="space-y-2 text-sm text-white/70">
+                  <div className="flex items-center">
+                    <span className="text-yellow-400 mr-2">📱</span>
+                    Phantom wallet should have popped up
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-yellow-400 mr-2">💰</span>
+                    Review amount: {entryFee} SOL
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-yellow-400 mr-2">🔒</span>
+                    Recipient: Smart contract escrow
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-yellow-400 mr-2">✅</span>
+                    Click "Approve" in Phantom
+                  </div>
+                </div>
+                
+                <div className="mt-3 text-xs text-white/50">
+                  ⚠️ Don't close Phantom or refresh the page during this process
+                </div>
+              </div>
             </div>
           )}
           {status === 'error' && (
