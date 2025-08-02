@@ -7,15 +7,33 @@ import { useState, useEffect } from 'react'
 
 const ENTRY_FEES_USD = [1, 5, 20];
 
-// Fetch live SOL/USD price
+// Fetch live SOL/USD price with fallback
 const fetchSolPrice = async () => {
   try {
+    // Try CoinGecko first
     const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
     const data = await response.json();
-    return data.solana.usd;
+    if (data.solana?.usd) {
+      return data.solana.usd;
+    }
   } catch (e) {
-    return null;
+    console.log('CoinGecko failed, trying fallback...');
   }
+  
+  try {
+    // Fallback to alternative API
+    const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+    const data = await response.json();
+    if (data.price) {
+      return parseFloat(data.price);
+    }
+  } catch (e) {
+    console.log('Binance fallback failed');
+  }
+  
+  // Final fallback to a reasonable estimate
+  console.log('Using fallback SOL price: $100');
+  return 100;
 };
 
 // Lobby: choose entry fee
@@ -34,7 +52,14 @@ export default function Lobby() {
         setSolAmounts(ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4)));
       }
     };
+    
+    // Get initial price
     getPrice();
+    
+    // Refresh price every 30 seconds
+    const interval = setInterval(getPrice, 30000);
+    
+    return () => clearInterval(interval);
   }, []);
 
   const checkBalance = async (requiredSol: number) => {
@@ -73,6 +98,9 @@ export default function Lobby() {
     }
 
     try {
+      // Store the SOL amount in localStorage for consistency
+      localStorage.setItem('entryFeeSOL', solAmount.toString());
+      
       const result = await requestMatch(publicKey.toString(), solAmount) as any
       if (result.status === 'matched') {
         router.push(`/matchmaking?matchId=${result.matchId}&entryFee=${solAmount}`)

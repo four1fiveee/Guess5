@@ -154,10 +154,20 @@ const Matchmaking: React.FC = () => {
     // Mark matchmaking as in progress
     setIsMatchmakingInProgress(true);
 
-    // Get entry fee from localStorage
-    const storedEntryFee = localStorage.getItem('entryFeeSOL');
-    if (storedEntryFee) {
-      setEntryFee(parseFloat(storedEntryFee));
+    // Get entry fee from URL parameters (set by lobby with live SOL prices)
+    const urlEntryFee = router.query.entryFee as string;
+    if (urlEntryFee) {
+      const entryFeeAmount = parseFloat(urlEntryFee);
+      setEntryFee(entryFeeAmount);
+      // Store in localStorage for consistency
+      localStorage.setItem('entryFeeSOL', entryFeeAmount.toString());
+      console.log('💰 Entry fee from URL:', entryFeeAmount, 'SOL');
+    } else {
+      // Fallback to localStorage if URL parameter not available
+      const storedEntryFee = localStorage.getItem('entryFeeSOL');
+      if (storedEntryFee) {
+        setEntryFee(parseFloat(storedEntryFee));
+      }
     }
 
     let pollInterval: NodeJS.Timeout;
@@ -225,17 +235,23 @@ const Matchmaking: React.FC = () => {
         // Clean up any stuck matches first
         await cleanupStuckMatches();
 
-        // Get entry fee from localStorage
-        const storedEntryFee = localStorage.getItem('entryFee');
+        // Get entry fee from URL parameters or localStorage
+        const urlEntryFee = router.query.entryFee as string;
+        let entryFee: number;
         
-        if (!storedEntryFee) {
-          console.error('❌ No entry fee found');
-          router.push('/lobby');
-          return;
+        if (urlEntryFee) {
+          entryFee = parseFloat(urlEntryFee);
+        } else {
+          const storedEntryFee = localStorage.getItem('entryFeeSOL');
+          if (!storedEntryFee) {
+            console.error('❌ No entry fee found');
+            router.push('/lobby');
+            return;
+          }
+          entryFee = parseFloat(storedEntryFee);
         }
-
-        const entryFee = parseFloat(storedEntryFee);
-        console.log('🎮 Starting matchmaking with entry fee:', entryFee);
+        
+        console.log('🎮 Starting matchmaking with entry fee:', entryFee, 'SOL');
 
         // Add retry logic for network failures (less aggressive)
         let retryCount = 0;

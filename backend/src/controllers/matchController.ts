@@ -265,18 +265,18 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
 const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   console.log(`🧹 Cleaning up old matches for wallet: ${wallet}`);
   
-  // Find all matches for this player (any status)
-  const allPlayerMatches = await matchRepository.find({
+  // Find all matches for this player (EXCEPT escrow status - those are active matches)
+  const oldPlayerMatches = await matchRepository.find({
     where: [
-      { player1: wallet },
-      { player2: wallet }
+      { player1: wallet, status: Not('escrow') },
+      { player2: wallet, status: Not('escrow') }
     ]
   });
   
-  if (allPlayerMatches.length > 0) {
-    console.log(`🧹 Found ${allPlayerMatches.length} old matches for ${wallet}, removing them`);
-    await matchRepository.remove(allPlayerMatches);
-    console.log(`✅ Cleaned up ${allPlayerMatches.length} old matches for ${wallet}`);
+  if (oldPlayerMatches.length > 0) {
+    console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, removing them`);
+    await matchRepository.remove(oldPlayerMatches);
+    console.log(`✅ Cleaned up ${oldPlayerMatches.length} old matches for ${wallet}`);
   } else {
     console.log(`✅ No old matches found for ${wallet}`);
   }
