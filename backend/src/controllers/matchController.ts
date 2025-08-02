@@ -351,6 +351,10 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   const maxEntryFee = entryFee + tolerance;
   
   // First try to find exact match
+  console.log(`🔍 Trying strict matching for ${wallet}:`);
+  console.log(`  Entry fee: ${entryFee} SOL`);
+  console.log(`  Strict range: ${minEntryFee} - ${maxEntryFee} SOL`);
+  
   let waitingMatches = await matchRepository.find({
     where: {
       status: 'waiting',
@@ -362,10 +366,16 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     take: 1
   });
   
+  console.log(`  Found ${waitingMatches.length} waiting matches with strict tolerance`);
+  
   // If no exact match, try with more flexible fee matching (within 10% tolerance)
   if (waitingMatches.length === 0) {
     const flexibleMinEntryFee = entryFee * 0.9;
     const flexibleMaxEntryFee = entryFee * 1.1;
+    
+    console.log(`🔍 Trying flexible matching for ${wallet}:`);
+    console.log(`  Entry fee: ${entryFee} SOL`);
+    console.log(`  Flexible range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
     
     waitingMatches = await matchRepository.find({
       where: {
@@ -377,6 +387,8 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       order: { createdAt: 'ASC' },
       take: 1
     });
+    
+    console.log(`  Found ${waitingMatches.length} waiting matches with flexible tolerance`);
   }
   
   if (waitingMatches.length > 0) {
