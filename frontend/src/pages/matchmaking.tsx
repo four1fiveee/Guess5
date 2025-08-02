@@ -275,6 +275,8 @@ const Matchmaking: React.FC = () => {
               clearTimeout(timeoutId);
               clearInterval(countdownInterval);
               setIsPolling(false);
+              setIsMatchmakingInProgress(false); // Stop matchmaking
+              isStartMatchmakingRunning.current = false; // Reset running flag
               
               // Check if this is an active match (not escrow)
               if (data.message && data.message.includes('Already in active match')) {
@@ -362,6 +364,7 @@ const Matchmaking: React.FC = () => {
           if (matchData && status === 'matched') {
             console.log('🎮 Already have a match, stopping polling');
             clearInterval(pollInterval);
+            setIsPolling(false);
             return;
           }
 
@@ -389,6 +392,7 @@ const Matchmaking: React.FC = () => {
             setStatus('matched');
             clearInterval(pollInterval);
             clearInterval(countdownInterval);
+            clearTimeout(timeoutId); // Also clear timeout
             setIsPolling(false);
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
             isStartMatchmakingRunning.current = false; // Reset running flag
@@ -402,10 +406,15 @@ const Matchmaking: React.FC = () => {
       }, 3000); // Poll every 3 seconds
     };
 
-    startMatchmaking();
-    if (!isPolling) {
-      setIsPolling(true);
-      startPolling();
+    // Only start matchmaking if we don't already have a match
+    if (!matchData) {
+      startMatchmaking();
+      if (!isPolling) {
+        setIsPolling(true);
+        startPolling();
+      }
+    } else {
+      console.log('🎮 Already have match data, skipping matchmaking start');
     }
     
     // Countdown timer
@@ -434,7 +443,7 @@ const Matchmaking: React.FC = () => {
       setIsMatchmakingInProgress(false);
       isStartMatchmakingRunning.current = false; // Reset running flag
     };
-  }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress]); // Added isMatchmakingInProgress to dependencies
+  }, [publicKey, router, signTransaction, entryFee]); // Removed isMatchmakingInProgress to prevent infinite loops
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
