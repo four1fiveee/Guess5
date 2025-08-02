@@ -480,6 +480,13 @@ const Matchmaking: React.FC = () => {
     };
   }, [publicKey, router, signTransaction]); // Removed entryFee to prevent infinite loops
 
+  // Debug effect for matched status
+  useEffect(() => {
+    if (status === 'matched') {
+      console.log('🎮 Rendering matched status UI with:', { status, matchData, escrowStatus });
+    }
+  }, [status, matchData, escrowStatus]);
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
@@ -534,7 +541,7 @@ const Matchmaking: React.FC = () => {
             <div className="space-y-4">
               <div className="text-green-400 text-xl font-bold">🎉 Match Found!</div>
               
-              {(matchData?.matchStatus === 'escrow' || matchData?.message?.includes('lock your entry fee')) ? (
+              {(matchData?.status === 'matched' || matchData?.matchStatus === 'escrow' || matchData?.message?.includes('lock your entry fee')) ? (
                 <div className="space-y-4">
                   <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
                     <h3 className="text-green-400 font-semibold mb-2">🔒 Lock Your Entry Fee</h3>
@@ -569,7 +576,18 @@ const Matchmaking: React.FC = () => {
                     </div>
                     
                     <button
-                      onClick={handleEscrowPayment}
+                      onClick={() => {
+                        console.log('🔘 Lock Entry Fee button clicked!');
+                        console.log('🔍 Button debug info:', {
+                          hasPublicKey: !!publicKey,
+                          hasMatchData: !!matchData,
+                          hasSignTransaction: !!signTransaction,
+                          escrowStatus,
+                          matchDataStatus: matchData?.status,
+                          matchDataMatchStatus: matchData?.matchStatus
+                        });
+                        handleEscrowPayment();
+                      }}
                       disabled={escrowStatus === 'pending'}
                       className={`w-full mt-4 px-6 py-3 rounded-lg transition-colors font-semibold ${
                         escrowStatus === 'pending' 
