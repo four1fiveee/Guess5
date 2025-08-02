@@ -166,10 +166,7 @@ const Matchmaking: React.FC = () => {
         
         if (data.success) {
           console.log(`✅ Cleaned up ${data.cleanedMatches} stuck matches`);
-          // Retry matchmaking after cleanup
-          setTimeout(() => {
-            startMatchmaking();
-          }, 1000);
+          // Don't automatically restart matchmaking - let the polling handle it
         }
       } catch (error) {
         console.error('❌ Failed to cleanup stuck matches:', error);
@@ -195,8 +192,8 @@ const Matchmaking: React.FC = () => {
       }
 
       // Don't start matchmaking if we already have a match
-      if (matchData) {
-        console.log('🎮 Already have match data, not starting new matchmaking');
+      if (matchData || status === 'matched') {
+        console.log('🎮 Already have match data or matched status, not starting new matchmaking');
         return;
       }
 
@@ -443,7 +440,7 @@ const Matchmaking: React.FC = () => {
       setIsMatchmakingInProgress(false);
       isStartMatchmakingRunning.current = false; // Reset running flag
     };
-  }, [publicKey, router, signTransaction, entryFee]); // Removed isMatchmakingInProgress to prevent infinite loops
+  }, [publicKey, router, signTransaction]); // Removed entryFee to prevent infinite loops
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
