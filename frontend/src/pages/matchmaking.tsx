@@ -145,9 +145,9 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
-    // Don't start matchmaking if we already have a match
-    if (matchData) {
-      console.log('🎮 Already have match data, not starting matchmaking');
+    // Don't start matchmaking if we already have a valid match
+    if (matchData && (matchData.matchId || matchData.status === 'matched')) {
+      console.log('🎮 Already have valid match data, not starting matchmaking');
       return;
     }
 
@@ -405,9 +405,9 @@ const Matchmaking: React.FC = () => {
             return;
           }
 
-          // Don't start matchmaking if we already have a match
-          if (matchData) {
-            console.log('🎮 Already have match data, not starting matchmaking from polling');
+          // Don't start matchmaking if we already have a valid match
+          if (matchData && (matchData.matchId || matchData.status === 'matched')) {
+            console.log('🎮 Already have valid match data, not starting matchmaking from polling');
             return;
           }
 
@@ -437,15 +437,15 @@ const Matchmaking: React.FC = () => {
       }, 3000); // Poll every 3 seconds
     };
 
-    // Only start matchmaking if we don't already have a match
-    if (!matchData) {
+    // Only start matchmaking if we don't already have a valid match
+    if (!matchData || (!matchData.matchId && matchData.status !== 'matched')) {
       startMatchmaking();
       if (!isPolling) {
         setIsPolling(true);
         startPolling();
       }
     } else {
-      console.log('🎮 Already have match data, skipping matchmaking start');
+      console.log('🎮 Already have valid match data, skipping matchmaking start');
     }
     
     // Countdown timer
