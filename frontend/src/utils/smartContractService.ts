@@ -108,6 +108,7 @@ export class SmartContractService {
   async lockEntryFee(matchId: string, amount: number): Promise<{ success: boolean; error?: string; signature?: string }> {
     try {
       console.log('💰 Locking entry fee:', { matchId, amount });
+      console.log('🔍 Wallet public key:', this.provider.wallet.publicKey.toString());
       
       const amountLamports = amount * LAMPORTS_PER_SOL;
       
@@ -116,7 +117,10 @@ export class SmartContractService {
         [Buffer.from('match_escrow'), Buffer.from(matchId)],
         this.program.programId
       );
+      
+      console.log('🔍 Match escrow PDA:', matchEscrowPda.toString());
 
+      console.log('📝 Creating transaction...');
       const tx = await this.program.methods
         .lockEntryFee(new BN(amountLamports))
         .accounts({

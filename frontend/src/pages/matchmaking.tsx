@@ -31,11 +31,29 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    if (!signTransaction) {
+      console.error('❌ Missing signTransaction function');
+      setEscrowStatus('failed');
+      return;
+    }
+
     try {
       console.log('💰 Starting smart contract escrow payment...');
+      console.log('🔍 Debug info:', {
+        publicKey: publicKey.toString(),
+        matchId: matchData.matchId,
+        entryFee: entryFee,
+        hasSignTransaction: !!signTransaction
+      });
       setEscrowStatus('pending');
 
       // Create smart contract service instance
+      console.log('🔍 Creating SmartContractService with wallet:', {
+        publicKey: publicKey.toString(),
+        hasSignTransaction: !!signTransaction,
+        hasSignAllTransactions: !!signAllTransactions
+      });
+      
       const smartContractService = new SmartContractService({
         publicKey: publicKey,
         signTransaction: signTransaction,
