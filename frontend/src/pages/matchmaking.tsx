@@ -288,6 +288,7 @@ const Matchmaking: React.FC = () => {
             // Handle deduplication response
             if (data.duplicate === true) {
               console.log('🔄 Duplicate request detected, continuing with polling...');
+              console.log('⚠️ This means the backend is blocking the request due to deduplication');
               setStatus('waiting');
               break; // Success, exit retry loop - continue with polling
             }

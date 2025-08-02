@@ -33,9 +33,11 @@ export const deduplicateRequests = (req: any, res: any, next: any) => {
     const lastRequestTime = recentRequests.get(requestKey);
     const timeSinceLastRequest = now - lastRequestTime;
     
-    // Allow request if it's been more than 2 seconds (even within 5-second window)
-    if (timeSinceLastRequest < 2000) {
-      console.log(`🔄 Duplicate request detected for ${wallet} on ${req.url}, skipping`);
+    console.log(`🔍 Deduplication check for ${wallet}: ${timeSinceLastRequest}ms since last request`);
+    
+    // Allow request if it's been more than 1 second (even within 5-second window)
+    if (timeSinceLastRequest < 1000) {
+      console.log(`🔄 Duplicate request detected for ${wallet} on ${req.url}, skipping (${timeSinceLastRequest}ms < 1000ms)`);
       return res.status(200).json({
         success: true,
         message: 'Request already being processed',
