@@ -10,7 +10,7 @@
   - `FRONTEND_URL`: ✅ https://guess5.vercel.app
   - `NODE_ENV`: ✅ production
   - `PORT`: ✅ 40000
-  - `PROGRAM_ID`: ✅ 8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz
+  - `PROGRAM_ID`: ✅ bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1
   - `FEE_WALLET_ADDRESS`: ✅ AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
   - `SOLANA_NETWORK`: ✅ https://api.devnet.solana.com
 
@@ -21,7 +21,7 @@
   - `NEXT_PUBLIC_SOLANA_NETWORK`: ✅ https://api.devnet.solana.com
 
 ### **Smart Contract (Devnet):**
-- **Program ID**: 8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz
+- **Program ID**: bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1
 - **Network**: Devnet
 - **Status**: ✅ Deployed and verified
 - **Fee Wallet**: AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
@@ -57,7 +57,7 @@
 - **Solana Explorer**: https://explorer.solana.com/?cluster=devnet
 
 ### **Smart Contract Monitoring:**
-- **Program**: 8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz
+- **Program**: bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1
 - **Fee Wallet**: AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
 
 ## **🚀 Ready for Production Testing!**

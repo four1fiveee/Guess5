@@ -5,7 +5,7 @@
 ### **✅ What's Deployed:**
 
 **1. Smart Contract (Devnet):**
-- **Program ID**: `8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz`
+- **Program ID**: `bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1`
 - **Network**: Devnet
 - **Status**: ✅ Successfully deployed and verified
 - **Fee Wallet**: `AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A`
@@ -56,7 +56,7 @@
 **Backend (Render):**
 ```env
 NODE_ENV=production
-PROGRAM_ID=8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz
+PROGRAM_ID=bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1
 FEE_WALLET_ADDRESS=AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
 SOLANA_NETWORK=https://api.devnet.solana.com
 ```
@@ -132,7 +132,7 @@ npm run build
 ### **🔍 Monitoring Transactions:**
 
 **Solana Explorer (Devnet):**
-- **Program**: `8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz`
+- **Program**: `bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1`
 - **Fee Wallet**: `AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A`
 - **Transactions**: All escrow and payout transactions
 
