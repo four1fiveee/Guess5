@@ -37,6 +37,12 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    // Add timeout to prevent hanging
+    const timeoutId = setTimeout(() => {
+      console.error('❌ handleEscrowPayment timed out after 30 seconds');
+      setEscrowStatus('failed');
+    }, 30000); // 30 second timeout
+
     try {
       console.log('💰 Starting smart contract escrow payment...');
       console.log('🔍 Debug info:', {
@@ -127,15 +133,18 @@ const Matchmaking: React.FC = () => {
         console.error('❌ Smart contract escrow payment failed:', lockResult.error);
         setEscrowStatus('failed');
       }
-    } catch (error: any) {
-      console.error('❌ Smart contract escrow payment error:', error);
-      console.error('❌ Error details:', {
-        message: error?.message,
-        stack: error?.stack,
-        name: error?.name
-      });
-      setEscrowStatus('failed');
-    }
+          } catch (error: any) {
+        console.error('❌ Smart contract escrow payment error:', error);
+        console.error('❌ Error details:', {
+          message: error?.message,
+          stack: error?.stack,
+          name: error?.name
+        });
+        setEscrowStatus('failed');
+      } finally {
+        // Clear the timeout
+        clearTimeout(timeoutId);
+      }
   };
 
   useEffect(() => {
@@ -512,6 +521,12 @@ const Matchmaking: React.FC = () => {
   useEffect(() => {
     if (status === 'matched') {
       console.log('🎮 Rendering matched status UI with:', { status, matchData, escrowStatus });
+      
+      // Reset escrow status if it's stuck in pending
+      if (escrowStatus === 'pending') {
+        console.log('🔧 Resetting stuck escrow status from pending to failed');
+        setEscrowStatus('failed');
+      }
     }
   }, [status, matchData, escrowStatus]);
 
