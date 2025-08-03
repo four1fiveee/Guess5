@@ -652,7 +652,7 @@ const Matchmaking: React.FC = () => {
                           : 'bg-accent hover:bg-accent/80 text-white'
                       }`}
                     >
-                      {escrowStatus === 'pending' ? 'Processing...' : '🔒 Lock Entry Fee'}
+                      {escrowStatus === 'pending' ? '⏳ Processing Transaction...' : '🔒 Lock Entry Fee'}
                     </button>
                     
                     {escrowStatus === 'failed' && (

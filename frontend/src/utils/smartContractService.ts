@@ -34,10 +34,13 @@ export class SmartContractService {
   private provider: AnchorProvider;
 
   constructor(wallet: any) {
-    this.connection = new Connection(SOLANA_NETWORK);
+    this.connection = new Connection(SOLANA_NETWORK, {
+      commitment: 'processed', // Use 'processed' for faster confirmations
+      confirmTransactionInitialTimeout: 60000, // 60 second timeout
+    });
     this.provider = new AnchorProvider(this.connection, wallet, {
-      commitment: 'confirmed',
-      preflightCommitment: 'confirmed',
+      commitment: 'processed', // Use 'processed' instead of 'confirmed' for speed
+      preflightCommitment: 'processed', // Faster preflight
     });
     this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
   }
