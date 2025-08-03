@@ -5,7 +5,7 @@ import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
 
 // Program ID for the Guess5 escrow program
-const PROGRAM_ID = new PublicKey("8v2ZyLNP5Apk17MbQxryjXuL6HHN65dxuDwRJDGARShz");
+const PROGRAM_ID = new PublicKey("bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1");
 
 // Placeholder for anchor client - not currently used
 export const anchorClient = {
