@@ -127,17 +127,35 @@ export class SmartContractService {
       console.log('🔍 Match escrow PDA:', matchEscrowPda.toString());
 
       console.log('📝 Creating transaction...');
-      const tx = await this.program.methods
-        .lockEntryFee(new BN(amountLamports))
-        .accounts({
-          matchEscrow: matchEscrowPda,
-          player: this.provider.wallet.publicKey,
-          systemProgram: SystemProgram.programId,
-        })
-        .rpc();
+      console.log('🔍 Transaction accounts:', {
+        matchEscrow: matchEscrowPda.toString(),
+        player: this.provider.wallet.publicKey.toString(),
+        systemProgram: SystemProgram.programId.toString()
+      });
+      console.log('🔍 Transaction amount:', new BN(amountLamports).toString());
+      console.log('🔍 Program methods available:', Object.keys(this.program.methods));
+      
+      try {
+        const tx = await this.program.methods
+          .lockEntryFee(new BN(amountLamports))
+          .accounts({
+            matchEscrow: matchEscrowPda,
+            player: this.provider.wallet.publicKey,
+            systemProgram: SystemProgram.programId,
+          })
+          .rpc();
 
-      console.log('✅ Entry fee locked:', tx);
-      return { success: true, signature: tx };
+        console.log('✅ Entry fee locked:', tx);
+        return { success: true, signature: tx };
+      } catch (txError) {
+        console.error('❌ Transaction failed:', txError);
+        console.error('❌ Transaction error details:', {
+          message: txError?.message,
+          name: txError?.name,
+          stack: txError?.stack
+        });
+        throw txError;
+      }
     } catch (error) {
       console.error('❌ Error locking entry fee:', error);
       return { success: false, error: error instanceof Error ? error.message : 'Failed to lock entry fee' };
