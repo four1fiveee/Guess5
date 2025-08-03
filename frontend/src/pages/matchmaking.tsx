@@ -23,6 +23,9 @@ const Matchmaking: React.FC = () => {
   
   // Add ref to track if startMatchmaking is currently running
   const isStartMatchmakingRunning = useRef(false);
+  
+  // Add state to prevent multiple simultaneous requests
+  const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
 
   const handleEscrowPayment = async () => {
     if (!publicKey || !matchData) {
@@ -242,6 +245,12 @@ const Matchmaking: React.FC = () => {
         return;
       }
 
+      // Prevent multiple simultaneous requests
+      if (isRequestInProgress) {
+        console.log('🎮 Request already in progress, skipping...');
+        return;
+      }
+
       // Don't start matchmaking if we already have a match
       if (matchData || status === 'matched') {
         console.log('🎮 Already have match data or matched status, not starting new matchmaking');
@@ -250,6 +259,7 @@ const Matchmaking: React.FC = () => {
 
       // Mark as running
       isStartMatchmakingRunning.current = true;
+      setIsRequestInProgress(true);
 
       const wallet = publicKey.toString();
       console.log('🎮 Starting matchmaking with wallet:', wallet);
@@ -414,6 +424,7 @@ const Matchmaking: React.FC = () => {
       } finally {
         // Mark as not running after completion or failure
         isStartMatchmakingRunning.current = false;
+        setIsRequestInProgress(false);
       }
     };
 
