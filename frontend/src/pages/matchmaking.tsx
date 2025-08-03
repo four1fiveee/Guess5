@@ -45,7 +45,9 @@ const Matchmaking: React.FC = () => {
         entryFee: entryFee,
         hasSignTransaction: !!signTransaction
       });
+      console.log('🔍 About to set escrowStatus to pending...');
       setEscrowStatus('pending');
+      console.log('🔍 escrowStatus set to pending');
 
       // Create smart contract service instance
       console.log('🔍 Creating SmartContractService with wallet:', {
@@ -54,17 +56,24 @@ const Matchmaking: React.FC = () => {
         hasSignAllTransactions: !!signAllTransactions
       });
       
+      console.log('🔍 About to create SmartContractService...');
       const smartContractService = new SmartContractService({
         publicKey: publicKey,
         signTransaction: signTransaction,
         signAllTransactions: signAllTransactions
       });
+      console.log('🔍 SmartContractService created successfully');
 
       // Lock entry fee using smart contract
+      console.log('🔍 About to call lockEntryFee with:', {
+        matchId: matchData.matchId,
+        entryFee: entryFee
+      });
       const lockResult = await smartContractService.lockEntryFee(
         matchData.matchId,
         entryFee
       );
+      console.log('🔍 lockEntryFee completed with result:', lockResult);
 
       if (lockResult.success) {
         console.log('✅ Smart contract escrow payment successful:', lockResult.signature);
@@ -118,8 +127,13 @@ const Matchmaking: React.FC = () => {
         console.error('❌ Smart contract escrow payment failed:', lockResult.error);
         setEscrowStatus('failed');
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Smart contract escrow payment error:', error);
+      console.error('❌ Error details:', {
+        message: error?.message,
+        stack: error?.stack,
+        name: error?.name
+      });
       setEscrowStatus('failed');
     }
   };
