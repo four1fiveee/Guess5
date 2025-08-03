@@ -19,7 +19,7 @@ export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL!,
   entities: [Match, Guess, Transaction],
-  migrations: [process.env.NODE_ENV === 'production' ? 'dist/db/migrations/*.js' : 'src/db/migrations/*.ts'],
+  migrations: ['dist/db/migrations/*.js'],
   synchronize: false, // Use migrations instead of synchronize
   logging: process.env.NODE_ENV === 'development',
   extra: {

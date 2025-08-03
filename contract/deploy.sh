@@ -27,6 +27,10 @@ echo "🔑 Program ID: $PROGRAM_ID"
 echo "📝 Updating program ID in lib.rs..."
 sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/" programs/guess5/src/lib.rs
 
+# Verify lib.rs content after sed
+echo "🔍 Verifying declare_id! in lib.rs after update..."
+cat programs/guess5/src/lib.rs | grep "declare_id!"
+
 # Rebuild with correct program ID
 echo "🔨 Rebuilding with correct program ID..."
 anchor build

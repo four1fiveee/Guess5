@@ -54,11 +54,6 @@ pub mod guess5_escrow {
         ctx: Context<LockEntryFee>,
         amount: u64,
     ) -> Result<()> {
-        // Get account infos before any mutable borrows
-        let match_escrow_info = ctx.accounts.match_escrow.to_account_info();
-        let player_info = ctx.accounts.player.to_account_info();
-        let system_program_info = ctx.accounts.system_program.to_account_info();
-        
         let match_escrow = &mut ctx.accounts.match_escrow;
         
         // Verify match is in escrow status
@@ -74,15 +69,25 @@ pub mod guess5_escrow {
         // Verify correct entry fee amount
         require!(amount == match_escrow.entry_fee, Guess5Error::IncorrectEntryFee);
         
-        // Transfer SOL to escrow account
-        let transfer_ctx = CpiContext::new(
-            system_program_info,
-            Transfer {
-                from: player_info,
-                to: match_escrow_info,
-            },
+        // Set vault account data
+        ctx.accounts.vault_account.buyer = ctx.accounts.player.key();
+        ctx.accounts.vault_account.amount = amount;
+        
+        // Transfer SOL to vault account
+        let ix = anchor_lang::solana_program::system_instruction::transfer(
+            &ctx.accounts.player.to_account_info().key(),
+            &ctx.accounts.vault_account.to_account_info().key(),
+            amount,
         );
-        transfer(transfer_ctx, amount)?;
+
+        anchor_lang::solana_program::program::invoke(
+            &ix,
+            &[
+                ctx.accounts.player.to_account_info(),
+                ctx.accounts.vault_account.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+        )?;
         
         // Track which player has locked their fee
         if player == match_escrow.player1 {
@@ -110,13 +115,6 @@ pub mod guess5_escrow {
         attempts: u8,
         solved: bool,
     ) -> Result<()> {
-        // Get account infos before any mutable borrows
-        let match_escrow_info = ctx.accounts.match_escrow.to_account_info();
-        let player1_info = ctx.accounts.player1.to_account_info();
-        let player2_info = ctx.accounts.player2.to_account_info();
-        let fee_wallet_info = ctx.accounts.fee_wallet.to_account_info();
-        let system_program_info = ctx.accounts.system_program.to_account_info();
-        
         let match_escrow = &mut ctx.accounts.match_escrow;
         
         // Verify match is active
@@ -160,16 +158,16 @@ pub mod guess5_escrow {
             // Transfer to winner if there is one
             if let Some(winner) = match_escrow.winner {
                 let winner_account = if winner == match_escrow.player1 {
-                    player1_info
+                    ctx.accounts.player1.to_account_info()
                 } else {
-                    player2_info
+                    ctx.accounts.player2.to_account_info()
                 };
                 
-                // Transfer to winner
+                // Transfer from vault to winner
                 let transfer_winner_ctx = CpiContext::new(
-                    system_program_info.clone(),
+                    ctx.accounts.system_program.to_account_info(),
                     Transfer {
-                        from: match_escrow_info.clone(),
+                        from: ctx.accounts.vault_account.to_account_info(),
                         to: winner_account,
                     },
                 );
@@ -179,10 +177,10 @@ pub mod guess5_escrow {
             
             // Transfer fee to fee wallet
             let transfer_fee_ctx = CpiContext::new(
-                system_program_info,
+                ctx.accounts.system_program.to_account_info(),
                 Transfer {
-                    from: match_escrow_info,
-                    to: fee_wallet_info,
+                    from: ctx.accounts.vault_account.to_account_info(),
+                    to: ctx.accounts.fee_wallet.to_account_info(),
                 },
             );
             transfer(transfer_fee_ctx, fee_amount)?;
@@ -196,12 +194,6 @@ pub mod guess5_escrow {
 
     /// Refund both players (for ties or timeouts)
     pub fn refund_players(ctx: Context<RefundPlayers>) -> Result<()> {
-        // Get account infos before any mutable borrows
-        let match_escrow_info = ctx.accounts.match_escrow.to_account_info();
-        let player1_info = ctx.accounts.player1.to_account_info();
-        let player2_info = ctx.accounts.player2.to_account_info();
-        let system_program_info = ctx.accounts.system_program.to_account_info();
-        
         let match_escrow = &mut ctx.accounts.match_escrow;
         
         // Only allow refunds for completed matches or timeouts
@@ -215,24 +207,12 @@ pub mod guess5_escrow {
         let refund_amount = match_escrow.entry_fee;
         
         // Refund player 1
-        let transfer_player1_ctx = CpiContext::new(
-            system_program_info.clone(),
-            Transfer {
-                from: match_escrow_info.clone(),
-                to: player1_info,
-            },
-        );
-        transfer(transfer_player1_ctx, refund_amount)?;
+        **ctx.accounts.vault_account.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
+        **ctx.accounts.player1.to_account_info().try_borrow_mut_lamports()? += refund_amount;
         
         // Refund player 2
-        let transfer_player2_ctx = CpiContext::new(
-            system_program_info,
-            Transfer {
-                from: match_escrow_info,
-                to: player2_info,
-            },
-        );
-        transfer(transfer_player2_ctx, refund_amount)?;
+        **ctx.accounts.vault_account.to_account_info().try_borrow_mut_lamports()? -= refund_amount;
+        **ctx.accounts.player2.to_account_info().try_borrow_mut_lamports()? += refund_amount;
         
         match_escrow.status = MatchStatus::Refunded;
         msg!("Refunded {} lamports to each player", refund_amount);
@@ -274,12 +254,26 @@ pub struct JoinMatch<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(amount: u64)]
 pub struct LockEntryFee<'info> {
     #[account(mut)]
     pub match_escrow: Account<'info, MatchEscrow>,
     
-    #[account(mut)]
-    pub player: Signer<'info>,
+    #[account(mut, signer)]
+    /// CHECK: Player locking their entry fee
+    pub player: AccountInfo<'info>,
+    
+    /// CHECK: Vault authority
+    pub vault_authority: AccountInfo<'info>,
+    
+    #[account(
+        init,
+        payer = player,
+        seeds = [b"vault", player.key().as_ref(), match_escrow.key().as_ref()],
+        space = 32 + 32 + 8,
+        bump
+    )]
+    pub vault_account: Account<'info, LockAccount>,
     
     pub system_program: Program<'info, System>,
 }
@@ -303,6 +297,10 @@ pub struct SubmitResult<'info> {
     #[account(mut)]
     pub fee_wallet: AccountInfo<'info>,
     
+    /// CHECK: Vault account holding the SOL
+    #[account(mut)]
+    pub vault_account: AccountInfo<'info>,
+    
     pub system_program: Program<'info, System>,
 }
 
@@ -318,6 +316,10 @@ pub struct RefundPlayers<'info> {
     /// CHECK: Player 2 account for refund
     #[account(mut)]
     pub player2: AccountInfo<'info>,
+    
+    /// CHECK: Vault account holding the SOL
+    #[account(mut)]
+    pub vault_account: AccountInfo<'info>,
     
     pub system_program: Program<'info, System>,
 }
@@ -344,6 +346,12 @@ pub struct MatchEscrow {
     pub created_at: i64,
     pub game_start_time: i64,
     pub completed_at: i64,
+}
+
+#[account]
+pub struct LockAccount {
+    pub buyer: Pubkey,
+    pub amount: u64,
 }
 
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq, Debug)]

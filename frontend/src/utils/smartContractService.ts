@@ -5,8 +5,8 @@ import { createHash } from 'crypto';
 
 // Configuration
 const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "https://api.devnet.solana.com";
-const PROGRAM_ID = new PublicKey("bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1");
-const FEE_WALLET_ADDRESS = "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A";
+const PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_PROGRAM_ID || "bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1");
+const FEE_WALLET_ADDRESS = process.env.NEXT_PUBLIC_FEE_WALLET_ADDRESS || "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A";
 
 // Validate configuration
 const validateConfig = () => {
