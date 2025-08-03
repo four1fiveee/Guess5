@@ -19,11 +19,11 @@ echo "🌐 Deploying to: $NETWORK"
 echo "🔨 Building program..."
 anchor build
 
-# Get the program ID
-PROGRAM_ID=$(solana address -k target/deploy/guess5_escrow-keypair.json)
+# Use the correct program ID (the one that's actually deployed)
+PROGRAM_ID="bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1"
 echo "🔑 Program ID: $PROGRAM_ID"
 
-# Update the program ID in lib.rs
+# Update the program ID in lib.rs to match the deployed contract
 echo "📝 Updating program ID in lib.rs..."
 sed -i "s/declare_id!(\".*\")/declare_id!(\"$PROGRAM_ID\")/" programs/guess5/src/lib.rs
 
