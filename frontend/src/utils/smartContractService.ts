@@ -1,6 +1,7 @@
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Program, AnchorProvider, web3, BN } from '@project-serum/anchor';
 import { IDL } from '../types/guess5';
+import { createHash } from 'crypto';
 
 // Configuration
 const SOLANA_NETWORK = process.env.NEXT_PUBLIC_SOLANA_NETWORK || "https://api.devnet.solana.com";
@@ -21,6 +22,11 @@ const validateConfig = () => {
 
 // Validate on module load
 validateConfig();
+
+// Helper function to hash matchId for PDA seeds
+const hashMatchId = (matchId: string): Buffer => {
+  return Buffer.from(createHash('sha256').update(matchId).digest('hex').slice(0, 32), 'hex');
+};
 
 export class SmartContractService {
   private connection: Connection;
@@ -46,9 +52,9 @@ export class SmartContractService {
       const entryFeeLamports = entryFee * LAMPORTS_PER_SOL;
       const feeWallet = new PublicKey(FEE_WALLET_ADDRESS);
       
-      // Generate PDA for match escrow account
+      // Generate PDA for match escrow account using hashed matchId
       const [matchEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('match_escrow'), Buffer.from(matchId)],
+        [Buffer.from('match_escrow'), hashMatchId(matchId)],
         this.program.programId
       );
 
@@ -79,9 +85,9 @@ export class SmartContractService {
       
       const player2EntryFeeLamports = player2EntryFee * LAMPORTS_PER_SOL;
       
-      // Get match escrow PDA
+      // Get match escrow PDA using hashed matchId
       const [matchEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('match_escrow'), Buffer.from(matchId)],
+        [Buffer.from('match_escrow'), hashMatchId(matchId)],
         this.program.programId
       );
 
@@ -112,9 +118,9 @@ export class SmartContractService {
       
       const amountLamports = amount * LAMPORTS_PER_SOL;
       
-      // Get match escrow PDA
+      // Get match escrow PDA using hashed matchId to avoid seed length issues
       const [matchEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('match_escrow'), Buffer.from(matchId)],
+        [Buffer.from('match_escrow'), hashMatchId(matchId)],
         this.program.programId
       );
       
@@ -150,9 +156,9 @@ export class SmartContractService {
     try {
       console.log('📊 Submitting game result:', { matchId, result, attempts, solved });
       
-      // Get match escrow PDA
+      // Get match escrow PDA using hashed matchId
       const [matchEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('match_escrow'), Buffer.from(matchId)],
+        [Buffer.from('match_escrow'), hashMatchId(matchId)],
         this.program.programId
       );
 
@@ -188,7 +194,7 @@ export class SmartContractService {
   async getMatchEscrow(matchId: string): Promise<{ success: boolean; data?: any; error?: string }> {
     try {
       const [matchEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('match_escrow'), Buffer.from(matchId)],
+        [Buffer.from('match_escrow'), hashMatchId(matchId)],
         this.program.programId
       );
 
@@ -207,9 +213,9 @@ export class SmartContractService {
     try {
       console.log('🔄 Refunding players:', { matchId });
       
-      // Get match escrow PDA
+      // Get match escrow PDA using hashed matchId
       const [matchEscrowPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('match_escrow'), Buffer.from(matchId)],
+        [Buffer.from('match_escrow'), hashMatchId(matchId)],
         this.program.programId
       );
 
