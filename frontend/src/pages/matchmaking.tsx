@@ -315,7 +315,10 @@ const Matchmaking: React.FC = () => {
             if (data.duplicate === true) {
               console.log('🔄 Duplicate request detected, continuing with polling...');
               console.log('⚠️ This means the backend is blocking the request due to deduplication');
+              console.log('⏰ Waiting 2 seconds before next matchmaking attempt...');
               setStatus('waiting');
+              // Wait 2 seconds before next attempt to avoid rapid duplicates
+              await new Promise(resolve => setTimeout(resolve, 2000));
               break; // Success, exit retry loop - continue with polling
             }
 
