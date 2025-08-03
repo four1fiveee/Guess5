@@ -406,7 +406,7 @@ const Matchmaking: React.FC = () => {
     };
 
     const startPolling = () => {
-      // Poll every 3 seconds to check if we've been matched (less aggressive)
+      // Poll every 5 seconds to check if we've been matched (less aggressive to avoid rate limits)
       pollInterval = setInterval(async () => {
         try {
           // Don't poll if we already have a match
@@ -433,6 +433,20 @@ const Matchmaking: React.FC = () => {
           
           // Use the dedicated endpoint to check if we've been matched
           const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${publicKey.toString()}`);
+          
+          // Handle rate limiting
+          if (response.status === 429) {
+            console.log('⚠️ Rate limited during polling, waiting 10 seconds before next attempt...');
+            // Wait 10 seconds before next poll to avoid rate limits
+            await new Promise(resolve => setTimeout(resolve, 10000));
+            return; // Skip this poll cycle, try again next time
+          }
+          
+          if (!response.ok) {
+            console.error('❌ Polling request failed:', response.status, response.statusText);
+            return;
+          }
+          
           const data = await response.json();
           
           if (data.matched) {
@@ -452,7 +466,7 @@ const Matchmaking: React.FC = () => {
         } catch (error) {
           console.error('❌ Error polling for match:', error);
         }
-      }, 3000); // Poll every 3 seconds
+      }, 5000); // Poll every 5 seconds (increased to avoid rate limits)
     };
 
     // Only start matchmaking if we don't already have a valid match
