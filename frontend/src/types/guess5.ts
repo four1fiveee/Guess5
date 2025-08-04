@@ -86,6 +86,16 @@ export const IDL = {
           "isSigner": true
         },
         {
+          "name": "vaultAuthority",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "vaultAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "systemProgram",
           "isMut": false,
           "isSigner": false
@@ -130,6 +140,11 @@ export const IDL = {
           "isSigner": false
         },
         {
+          "name": "vaultAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
           "name": "systemProgram",
           "isMut": false,
           "isSigner": false
@@ -170,6 +185,11 @@ export const IDL = {
         },
         {
           "name": "player2",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vaultAccount",
           "isMut": true,
           "isSigner": false
         },
@@ -270,6 +290,22 @@ export const IDL = {
           }
         ]
       }
+    },
+    {
+      "name": "LockAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "publicKey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          }
+        ]
+      }
     }
   ],
   "types": [
@@ -339,4 +375,4 @@ export const IDL = {
       "msg": "Incorrect entry fee amount"
     }
   ]
-} as const; 
+}; 
