@@ -127,12 +127,28 @@ export class SmartContractService {
         this.program.programId
       );
       
+      // Get vault authority PDA
+      const [vaultAuthorityPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault_authority')],
+        this.program.programId
+      );
+      
+      // Get vault account PDA
+      const [vaultAccountPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), this.provider.wallet.publicKey.toBuffer(), matchEscrowPda.toBuffer()],
+        this.program.programId
+      );
+      
       console.log('🔍 Match escrow PDA:', matchEscrowPda.toString());
+      console.log('🔍 Vault authority PDA:', vaultAuthorityPda.toString());
+      console.log('🔍 Vault account PDA:', vaultAccountPda.toString());
 
       console.log('📝 Creating transaction...');
       console.log('🔍 Transaction accounts:', {
         matchEscrow: matchEscrowPda.toString(),
         player: this.provider.wallet.publicKey.toString(),
+        vaultAuthority: vaultAuthorityPda.toString(),
+        vaultAccount: vaultAccountPda.toString(),
         systemProgram: SystemProgram.programId.toString()
       });
       console.log('🔍 Transaction amount:', new BN(amountLamports).toString());
@@ -144,6 +160,8 @@ export class SmartContractService {
           .accounts({
             matchEscrow: matchEscrowPda,
             player: this.provider.wallet.publicKey,
+            vaultAuthority: vaultAuthorityPda,
+            vaultAccount: vaultAccountPda,
             systemProgram: SystemProgram.programId,
           })
           .rpc();
