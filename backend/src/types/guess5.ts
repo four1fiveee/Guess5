@@ -4,11 +4,14 @@ export const IDL = {
   "instructions": [
     {
       "name": "initializeMatch",
+      "docs": [
+        "Initialize a new match escrow"
+      ],
       "accounts": [
         {
           "name": "matchEscrow",
           "isMut": true,
-          "isSigner": true
+          "isSigner": false
         },
         {
           "name": "player1",
@@ -39,6 +42,9 @@ export const IDL = {
     },
     {
       "name": "joinMatch",
+      "docs": [
+        "Join an existing match (second player)"
+      ],
       "accounts": [
         {
           "name": "matchEscrow",
@@ -65,6 +71,9 @@ export const IDL = {
     },
     {
       "name": "lockEntryFee",
+      "docs": [
+        "Lock entry fee in escrow (called by each player)"
+      ],
       "accounts": [
         {
           "name": "matchEscrow",
@@ -75,6 +84,16 @@ export const IDL = {
           "name": "player",
           "isMut": true,
           "isSigner": true
+        },
+        {
+          "name": "vaultAuthority",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "vaultAccount",
+          "isMut": true,
+          "isSigner": false
         },
         {
           "name": "systemProgram",
@@ -91,6 +110,9 @@ export const IDL = {
     },
     {
       "name": "submitResult",
+      "docs": [
+        "Submit game result (called by each player)"
+      ],
       "accounts": [
         {
           "name": "matchEscrow",
@@ -114,6 +136,11 @@ export const IDL = {
         },
         {
           "name": "feeWallet",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vaultAccount",
           "isMut": true,
           "isSigner": false
         },
@@ -142,6 +169,9 @@ export const IDL = {
     },
     {
       "name": "refundPlayers",
+      "docs": [
+        "Refund both players (for ties or timeouts)"
+      ],
       "accounts": [
         {
           "name": "matchEscrow",
@@ -155,6 +185,11 @@ export const IDL = {
         },
         {
           "name": "player2",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vaultAccount",
           "isMut": true,
           "isSigner": false
         },
@@ -252,6 +287,22 @@ export const IDL = {
           {
             "name": "completedAt",
             "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "LockAccount",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "buyer",
+            "type": "publicKey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
           }
         ]
       }
