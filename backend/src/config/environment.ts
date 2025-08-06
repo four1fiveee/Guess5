@@ -10,7 +10,7 @@ export const config = {
   // Solana configuration
   solana: {
     network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-    programId: process.env.PROGRAM_ID || '3ZvWJs6FY47rUbnpdmKgAcFVLUhCETvwG7HS1xV2Torn',
+    programId: process.env.PROGRAM_ID || 'GMvV52s55SziXuMd6uPZSswfvhu2hSXRyqk7KkQh5u3L',
     feeWallet: process.env.FEE_WALLET_ADDRESS || 'AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A',
   },
   

@@ -1,5 +1,5 @@
 [programs.devnet]
-guess5_escrow = "3ZvWJs6FY47rUbnpdmKgAcFVLUhCETvwG7HS1xV2Torn"
+guess5 = "GMvV52s55SziXuMd6uPZSswfvhu2hSXRyqk7KkQh5u3L"
 
 [provider]
 cluster = "devnet"

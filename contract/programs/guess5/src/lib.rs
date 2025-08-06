@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program::{transfer, Transfer};
 
-declare_id!("3ZvWJs6FY47rUbnpdmKgAcFVLUhCETvwG7HS1xV2Torn");
+declare_id!("GMvV52s55SziXuMd6uPZSswfvhu2hSXRyqk7KkQh5u3L");
 
 #[program]
 pub mod guess5_escrow {

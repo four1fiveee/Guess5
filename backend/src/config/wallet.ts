@@ -7,7 +7,7 @@ export const FEE_WALLET_ADDRESS = process.env.FEE_WALLET_ADDRESS || "AdujK4E4Rme
 
 // Get program ID from environment or use default
 export const getProgramId = (): string => {
-  return process.env.PROGRAM_ID || "3ZvWJs6FY47rUbnpdmKgAcFVLUhCETvwG7HS1xV2Torn";
+  return process.env.PROGRAM_ID || "GMvV52s55SziXuMd6uPZSswfvhu2hSXRyqk7KkQh5u3L";
 };
 
 // Get fee wallet address
