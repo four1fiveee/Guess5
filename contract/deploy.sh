@@ -20,7 +20,7 @@ echo "🔨 Building program..."
 anchor build
 
 # Use the correct program ID (the one that's actually deployed)
-PROGRAM_ID="bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1"
+PROGRAM_ID="3ZvWJs6FY47rUbnpdmKgAcFVLUhCETvwG7HS1xV2Torn"
 echo "🔑 Program ID: $PROGRAM_ID"
 
 # Update the program ID in lib.rs to match the deployed contract
