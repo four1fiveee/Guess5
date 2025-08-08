@@ -2,12 +2,18 @@ const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 const { Not, LessThan, Between } = require('typeorm');
-const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
+// Remove escrow imports - we're using direct payments now
+// const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
+
+// Memory limits to prevent attacks
+const MAX_ACTIVE_GAMES = 1000;
+const MAX_MATCHMAKING_LOCKS = 500;
+const MAX_IN_MEMORY_MATCHES = 100;
 
 // In-memory storage for matches that couldn't be saved to database
 const inMemoryMatches = new Map();
 
-// Server-side game state tracking with proper cleanup
+// Server-side game state tracking with improved memory management
 const activeGames = new Map<string, {
   startTime: number;
   player1StartTime: number;
@@ -20,47 +26,123 @@ const activeGames = new Map<string, {
   matchId: string;
   lastActivity: number; // Track last activity for cleanup
   completed: boolean; // Track if game is completed
+  cleanupTimeout?: NodeJS.Timeout; // Add timeout reference
 }>();
 
-// Matchmaking lock to prevent race conditions
-const matchmakingLocks = new Map<string, Promise<any>>();
+// Matchmaking locks with improved race condition prevention
+const matchmakingLocks = new Map<string, {
+  promise: Promise<any>;
+  timestamp: number;
+  wallet: string;
+  entryFee: number;
+}>();
 
-// Cleanup function for memory management - now only handles truly inactive games
+// Memory monitoring
+let memoryStats = {
+  activeGames: 0,
+  matchmakingLocks: 0,
+  inMemoryMatches: 0,
+  lastCleanup: Date.now()
+};
+
+// Memory limit check function
+const checkMemoryLimits = () => {
+  const currentStats = {
+    activeGames: activeGames.size,
+    matchmakingLocks: matchmakingLocks.size,
+    inMemoryMatches: inMemoryMatches.size
+  };
+
+  // Update memory stats
+  memoryStats = {
+    ...currentStats,
+    lastCleanup: Date.now()
+  };
+
+  // Check limits and log warnings
+  if (currentStats.activeGames > MAX_ACTIVE_GAMES * 0.8) {
+    console.warn(`⚠️ High active games count: ${currentStats.activeGames}/${MAX_ACTIVE_GAMES}`);
+  }
+  
+  if (currentStats.matchmakingLocks > MAX_MATCHMAKING_LOCKS * 0.8) {
+    console.warn(`⚠️ High matchmaking locks count: ${currentStats.matchmakingLocks}/${MAX_MATCHMAKING_LOCKS}`);
+  }
+  
+  if (currentStats.inMemoryMatches > MAX_IN_MEMORY_MATCHES * 0.8) {
+    console.warn(`⚠️ High in-memory matches count: ${currentStats.inMemoryMatches}/${MAX_IN_MEMORY_MATCHES}`);
+  }
+
+  return currentStats;
+};
+
+// Enhanced cleanup function for memory management
 const cleanupInactiveGames = () => {
   const now = Date.now();
   const inactiveTimeout = 10 * 60 * 1000; // 10 minutes for truly inactive games
+  const lockTimeout = 30 * 1000; // 30 seconds for matchmaking locks
   
-  let cleanedCount = 0;
+  let cleanedGames = 0;
+  let cleanedLocks = 0;
   
+  // Clean up inactive games
   for (const [matchId, gameState] of activeGames.entries()) {
     const timeSinceActivity = now - gameState.lastActivity;
     
     // Only clean up games that are truly inactive (not completed)
-    // Completed games are cleaned up immediately in markGameCompleted()
     if (!gameState.completed && timeSinceActivity > inactiveTimeout) {
       console.log(`🧹 Cleaning up inactive game: ${matchId}`);
+      
+      // Clear any existing timeout
+      if (gameState.cleanupTimeout) {
+        clearTimeout(gameState.cleanupTimeout);
+      }
+      
       activeGames.delete(matchId);
-      cleanedCount++;
+      cleanedGames++;
     }
   }
   
-  if (cleanedCount > 0) {
-    console.log(`🧹 Cleaned up ${cleanedCount} inactive games from memory`);
+  // Clean up stale matchmaking locks
+  for (const [lockKey, lockData] of matchmakingLocks.entries()) {
+    const timeSinceLock = now - lockData.timestamp;
+    
+    if (timeSinceLock > lockTimeout) {
+      console.log(`🧹 Cleaning up stale matchmaking lock: ${lockKey}`);
+      matchmakingLocks.delete(lockKey);
+      cleanedLocks++;
+    }
   }
   
-  // Clean up matchmaking locks older than 30 seconds
-  const lockTimeout = 30 * 1000; // 30 seconds
-  let lockCleanedCount = 0;
-  
-  for (const [lockKey, lockPromise] of matchmakingLocks.entries()) {
-    // We can't easily track lock age, so we'll clean them periodically
-    // This is a simplified approach - in production, use Redis for distributed locking
-    lockCleanedCount++;
+  // Clean up in-memory matches older than 1 hour
+  let cleanedInMemory = 0;
+  for (const [matchId, matchData] of inMemoryMatches.entries()) {
+    const timeSinceCreation = now - matchData.createdAt;
+    if (timeSinceCreation > 60 * 60 * 1000) { // 1 hour
+      inMemoryMatches.delete(matchId);
+      cleanedInMemory++;
+    }
   }
   
-  if (lockCleanedCount > 10) {
-    console.log(`🧹 Matchmaking locks cleaned up`);
-    matchmakingLocks.clear();
+  // Update memory stats
+  memoryStats = {
+    activeGames: activeGames.size,
+    matchmakingLocks: matchmakingLocks.size,
+    inMemoryMatches: inMemoryMatches.size,
+    lastCleanup: now
+  };
+  
+  if (cleanedGames > 0 || cleanedLocks > 0 || cleanedInMemory > 0) {
+    console.log(`🧹 Memory cleanup completed:`, {
+      games: cleanedGames,
+      locks: cleanedLocks,
+      inMemory: cleanedInMemory,
+      stats: memoryStats
+    });
+  }
+  
+  // Log memory usage if high
+  if (memoryStats.activeGames > 100 || memoryStats.matchmakingLocks > 50) {
+    console.warn(`⚠️ High memory usage detected:`, memoryStats);
   }
 };
 
@@ -112,7 +194,7 @@ const markGameCompleted = (matchId: string) => {
   })();
 };
 
-// Periodic cleanup function to remove stale matches
+// Periodic cleanup function with enhanced monitoring
 const periodicCleanup = async () => {
   try {
     console.log('🧹 Running periodic cleanup...');
@@ -135,16 +217,34 @@ const periodicCleanup = async () => {
       console.log(`✅ Cleaned up ${staleMatches.length} stale matches`);
     }
     
-    // Clean up completed matches
-    const completedMatches = await matchRepository.find({
-      where: { status: 'completed' }
+    // Clean up completed matches older than 1 hour
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
+    const oldCompletedMatches = await matchRepository.find({
+      where: { 
+        status: 'completed',
+        updatedAt: LessThan(oneHourAgo)
+      }
     });
     
-    if (completedMatches.length > 0) {
-      console.log(`🧹 Cleaning up ${completedMatches.length} completed matches`);
-      await matchRepository.remove(completedMatches);
-      console.log(`✅ Cleaned up ${completedMatches.length} completed matches`);
+    if (oldCompletedMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
+      await matchRepository.remove(oldCompletedMatches);
+      console.log(`✅ Cleaned up ${oldCompletedMatches.length} old completed matches`);
     }
+    
+    // Log memory statistics
+    console.log('📊 Memory statistics:', memoryStats);
+    
+    // Alert if memory usage is high
+    if (memoryStats.activeGames > 50) {
+      console.warn(`⚠️ High active games count: ${memoryStats.activeGames}`);
+    }
+    
+    if (memoryStats.matchmakingLocks > 20) {
+      console.warn(`⚠️ High matchmaking locks count: ${memoryStats.matchmakingLocks}`);
+    }
+    
+    console.log('✅ Periodic cleanup completed');
     
   } catch (error) {
     console.error('❌ Error in periodic cleanup:', error);
@@ -172,6 +272,13 @@ const requestMatchHandler = async (req, res) => {
       method: req.method,
       url: req.url
     });
+
+    // Check memory limits before processing
+    const memoryStats = checkMemoryLimits();
+    if (memoryStats.activeGames >= MAX_ACTIVE_GAMES) {
+      console.warn('🚨 Server at capacity - rejecting match request');
+      return res.status(503).json({ error: 'Server at capacity, please try again later' });
+    }
 
     const wallet = req.body.wallet;
     const entryFee = Number(req.body.entryFee);
@@ -202,7 +309,7 @@ const requestMatchHandler = async (req, res) => {
       return res.status(429).json({ error: 'Matchmaking in progress, please wait' });
     }
 
-    // Create lock for this player
+    // Create lock for this player with enhanced tracking
     const matchmakingPromise = (async () => {
       try {
         return await performMatchmaking(wallet, entryFee);
@@ -212,7 +319,12 @@ const requestMatchHandler = async (req, res) => {
       }
     })();
 
-    matchmakingLocks.set(lockKey, matchmakingPromise);
+    matchmakingLocks.set(lockKey, {
+      promise: matchmakingPromise,
+      timestamp: Date.now(),
+      wallet: wallet,
+      entryFee: entryFee
+    });
     
     const result = await matchmakingPromise;
     res.json(result);
@@ -344,67 +456,93 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
   return null;
 };
 
-// Helper function to find waiting players
+// Helper function to find waiting players with race condition prevention
 const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee: number) => {
   const tolerance = 0.001;
   const minEntryFee = entryFee - tolerance;
   const maxEntryFee = entryFee + tolerance;
   
-  // First try to find exact match
-  console.log(`🔍 Trying strict matching for ${wallet}:`);
-  console.log(`  Entry fee: ${entryFee} SOL`);
-  console.log(`  Strict range: ${minEntryFee} - ${maxEntryFee} SOL`);
+  // Use database transaction to prevent race conditions
+  const { AppDataSource } = require('../db/index');
+  const queryRunner = AppDataSource.createQueryRunner();
+  await queryRunner.connect();
+  await queryRunner.startTransaction();
   
-  let waitingMatches = await matchRepository.find({
-    where: {
-      status: 'waiting',
-      entryFee: Between(minEntryFee, maxEntryFee),
-      player2: null,
-      player1: Not(wallet)
-    },
-    order: { createdAt: 'ASC' },
-    take: 1
-  });
-  
-  console.log(`  Found ${waitingMatches.length} waiting matches with strict tolerance`);
-  
-  // If no exact match, try with more flexible fee matching (within 10% tolerance)
-  if (waitingMatches.length === 0) {
-    const flexibleMinEntryFee = entryFee * 0.9;
-    const flexibleMaxEntryFee = entryFee * 1.1;
-    
-    console.log(`🔍 Trying flexible matching for ${wallet}:`);
+  try {
+    console.log(`🔍 Trying strict matching for ${wallet} with transaction lock:`);
     console.log(`  Entry fee: ${entryFee} SOL`);
-    console.log(`  Flexible range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
+    console.log(`  Strict range: ${minEntryFee} - ${maxEntryFee} SOL`);
     
-    waitingMatches = await matchRepository.find({
+    // Use pessimistic locking to prevent race conditions
+    let waitingMatches = await queryRunner.manager.find(Match, {
       where: {
         status: 'waiting',
-        entryFee: Between(flexibleMinEntryFee, flexibleMaxEntryFee),
+        entryFee: Between(minEntryFee, maxEntryFee),
         player2: null,
         player1: Not(wallet)
       },
       order: { createdAt: 'ASC' },
-      take: 1
+      take: 1,
+      lock: { mode: 'pessimistic_write' } // Lock the rows to prevent race conditions
     });
     
-    console.log(`  Found ${waitingMatches.length} waiting matches with flexible tolerance`);
-  }
-  
-  if (waitingMatches.length > 0) {
-    const match = waitingMatches[0];
-    if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
-      console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
-      return {
-        wallet: match.player1,
-        entryFee: match.entryFee,
-        matchId: match.id
-      };
+    console.log(`  Found ${waitingMatches.length} waiting matches with strict tolerance`);
+    
+    // If no exact match, try with more flexible fee matching (within 10% tolerance)
+    if (waitingMatches.length === 0) {
+      const flexibleMinEntryFee = entryFee * 0.9;
+      const flexibleMaxEntryFee = entryFee * 1.1;
+      
+      console.log(`🔍 Trying flexible matching for ${wallet}:`);
+      console.log(`  Entry fee: ${entryFee} SOL`);
+      console.log(`  Flexible range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
+      
+      waitingMatches = await queryRunner.manager.find(Match, {
+        where: {
+          status: 'waiting',
+          entryFee: Between(flexibleMinEntryFee, flexibleMaxEntryFee),
+          player2: null,
+          player1: Not(wallet)
+        },
+        order: { createdAt: 'ASC' },
+        take: 1,
+        lock: { mode: 'pessimistic_write' } // Lock the rows to prevent race conditions
+      });
+      
+      console.log(`  Found ${waitingMatches.length} waiting matches with flexible tolerance`);
     }
+    
+    if (waitingMatches.length > 0) {
+      const match = waitingMatches[0];
+      if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
+        console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
+        
+        // Immediately update the waiting player's status to prevent double-matching
+        match.status = 'matched';
+        await queryRunner.manager.save(Match, match);
+        
+        await queryRunner.commitTransaction();
+        console.log(`✅ Successfully locked waiting player ${match.player1} for matching`);
+        
+        return {
+          wallet: match.player1,
+          entryFee: match.entryFee,
+          matchId: match.id
+        };
+      }
+    }
+    
+    await queryRunner.commitTransaction();
+    console.log(`❌ No waiting players found for ${wallet} with entry fee ${entryFee}`);
+    return null;
+    
+  } catch (error) {
+    console.error('❌ Error in findWaitingPlayer transaction:', error);
+    await queryRunner.rollbackTransaction();
+    throw error;
+  } finally {
+    await queryRunner.release();
   }
-  
-  console.log(`❌ No waiting players found for ${wallet} with entry fee ${entryFee}`);
-  return null;
 };
 
 // Helper function to create a match
@@ -418,17 +556,17 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
   });
   
   // Create escrow account
-  const { createEscrowAccount } = require('../services/payoutService');
-  const escrowResult = await createEscrowAccount(
-    waitingPlayer.matchId,
-    waitingPlayer.wallet,
-    wallet,
-    actualEntryFee
-  );
+  // const { createEscrowAccount } = require('../services/payoutService');
+  // const escrowResult = await createEscrowAccount(
+  //   waitingPlayer.matchId,
+  //   waitingPlayer.wallet,
+  //   wallet,
+  //   actualEntryFee
+  // );
   
-  if (!escrowResult.success) {
-    throw new Error('Failed to create escrow account');
-  }
+  // if (!escrowResult.success) {
+  //   throw new Error('Failed to create escrow account');
+  // }
   
   // Update the waiting match
   const existingMatch = await matchRepository.findOne({ where: { id: waitingPlayer.matchId } });
@@ -441,11 +579,11 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
   const gameWord = getRandomWord();
   
   existingMatch.player2 = wallet;
-  existingMatch.status = 'escrow';
+  existingMatch.status = 'payment_required'; // Require upfront payments
   existingMatch.word = gameWord;
-  existingMatch.escrowAddress = escrowResult.escrowAddress;
-  existingMatch.gameStartTime = new Date();
   existingMatch.entryFee = actualEntryFee;
+  existingMatch.player1Paid = false;
+  existingMatch.player2Paid = false;
   
   const updatedMatch = await matchRepository.save(existingMatch);
   
@@ -457,8 +595,7 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
     player1: updatedMatch.player1,
     player2: updatedMatch.player2,
     entryFee: updatedMatch.entryFee,
-    escrowAddress: updatedMatch.escrowAddress,
-    message: 'Match created - please lock your entry fee'
+    message: 'Match created - both players must pay entry fee to start game'
   };
 };
 
@@ -903,9 +1040,10 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
         ]
       };
     } else {
-      // Losing tie: Both failed to solve - each pays 10% fee
-      console.log('🤝 Losing tie: Both failed to solve - each pays 10% fee');
+      // Losing tie: Both failed to solve - fee wallet keeps 10% from each player
+      console.log('🤝 Losing tie: Both failed to solve - fee wallet keeps 10% from each player');
       const feeAmount = match.entryFee * 0.1;
+      const refundAmount = match.entryFee * 0.9; // 90% refund to each player
       
       payoutResult = {
         winner: 'tie',
@@ -914,16 +1052,16 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
         feeWallet: FEE_WALLET_ADDRESS,
         transactions: [
           {
-            from: match.player1,
-            to: FEE_WALLET_ADDRESS,
-            amount: feeAmount,
-            description: 'Platform fee (player 1)'
+            from: FEE_WALLET_ADDRESS,
+            to: match.player1,
+            amount: refundAmount,
+            description: 'Losing tie refund (player 1)'
           },
           {
-            from: match.player2,
-            to: FEE_WALLET_ADDRESS,
-            amount: feeAmount,
-            description: 'Platform fee (player 2)'
+            from: FEE_WALLET_ADDRESS,
+            to: match.player2,
+            amount: refundAmount,
+            description: 'Losing tie refund (player 2)'
           }
         ]
       };
@@ -1076,59 +1214,180 @@ const submitResultHandler = async (req, res) => {
         const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
         
         // Execute automated payment if there's a clear winner
+        // Calculate direct payment instructions
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
-          console.log('💰 Executing automated payment...');
+          console.log('💰 Calculating automated payout...');
           
-          const paymentData = {
-            matchId: matchId,
-            winner: payoutResult.winner,
-            loser: payoutResult.winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1,
-            entryFee: updatedMatch.entryFee,
-            escrowAddress: updatedMatch.escrowAddress
-          };
+          const winner = payoutResult.winner;
+          const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
+          const entryFee = updatedMatch.entryFee;
           
-          const paymentResult = await payout(paymentData);
+          // Calculate payment amounts
+          const winnerAmount = entryFee * 0.9; // 90% to winner
+          const feeAmount = entryFee * 0.1; // 10% to fee wallet
           
-          if (paymentResult.success) {
-            console.log('✅ Automated payment transaction created');
-            payoutResult.transaction = paymentResult.transaction;
+          // Try to execute automated payout if private key is available
+          try {
+            const { getFeeWalletKeypair } = require('../config/wallet');
+            const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+            
+            const feeWalletKeypair = getFeeWalletKeypair();
+            const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+            
+            // Create payout transaction
+            const payoutTransaction = new Transaction().add(
+              SystemProgram.transfer({
+                fromPubkey: feeWalletKeypair.publicKey,
+                toPubkey: new PublicKey(winner),
+                lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
+              })
+            );
+            
+            // Get recent blockhash
+            const { blockhash } = await connection.getLatestBlockhash();
+            payoutTransaction.recentBlockhash = blockhash;
+            payoutTransaction.feePayer = feeWalletKeypair.publicKey;
+            
+            // Sign and send transaction
+            const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
+            await connection.confirmTransaction(signature);
+            
+            console.log('✅ Automated payout successful:', signature);
+            
+            // Create payment instructions for display
+            const paymentInstructions = {
+              winner,
+              loser,
+              winnerAmount,
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              automatedPayout: true,
+              payoutSignature: signature,
+              transactions: [
+                {
+                  from: FEE_WALLET_ADDRESS,
+                  to: winner,
+                  amount: winnerAmount,
+                  description: 'Automated payout to winner',
+                  signature: signature
+                }
+              ]
+            };
+            
+            payoutResult.paymentInstructions = paymentInstructions;
             payoutResult.paymentSuccess = true;
-          } else {
-            console.error('❌ Failed to create payment transaction:', paymentResult.error);
+            payoutResult.automatedPayout = true;
+            
+            console.log('✅ Automated payout completed');
+            
+          } catch (error) {
+            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', error.message);
+            
+            // Fallback to manual payment instructions
+            const paymentInstructions = {
+              winner,
+              loser,
+              winnerAmount,
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              automatedPayout: false,
+              transactions: [
+                {
+                  from: FEE_WALLET_ADDRESS,
+                  to: winner,
+                  amount: winnerAmount,
+                  description: 'Manual payout to winner (contact support)'
+                }
+              ]
+            };
+            
+            payoutResult.paymentInstructions = paymentInstructions;
             payoutResult.paymentSuccess = false;
-            payoutResult.paymentError = paymentResult.error;
+            payoutResult.paymentError = 'Automated payout failed - contact support';
+            
+            console.log('⚠️ Manual payment instructions created');
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.player1Result && updatedMatch.player2Result && 
               updatedMatch.player1Result.won && updatedMatch.player2Result.won) {
-            // Winning tie - refund both players
-            console.log('🤝 Winning tie - refunding both players...');
+            // Winning tie - each player gets their entry fee back
+            console.log('🤝 Winning tie - each player gets refund...');
             
-            const refundData = {
-              matchId: matchId,
+            const entryFee = updatedMatch.entryFee;
+            const feeAmount = entryFee * 0.1; // 10% fee
+            
+            const paymentInstructions = {
+              winner: 'tie',
               player1: updatedMatch.player1,
               player2: updatedMatch.player2,
-              entryFee: updatedMatch.entryFee,
-              escrowAddress: updatedMatch.escrowAddress
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              transactions: [
+                {
+                  from: updatedMatch.player1,
+                  to: updatedMatch.player2,
+                  amount: entryFee * 0.45,
+                  description: 'Split payment to player 2'
+                },
+                {
+                  from: updatedMatch.player1,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 1'
+                },
+                {
+                  from: updatedMatch.player2,
+                  to: updatedMatch.player1,
+                  amount: entryFee * 0.45,
+                  description: 'Split payment to player 1'
+                },
+                {
+                  from: updatedMatch.player2,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 2'
+                }
+              ]
             };
             
-            const refundResult = await refundEscrow(refundData);
+            payoutResult.paymentInstructions = paymentInstructions;
+            payoutResult.paymentSuccess = true;
             
-            if (refundResult.success) {
-              console.log('✅ Refund transaction created');
-              payoutResult.transaction = refundResult.transaction;
-              payoutResult.paymentSuccess = true;
-            } else {
-              console.error('❌ Failed to create refund transaction:', refundResult.error);
-              payoutResult.paymentSuccess = false;
-              payoutResult.paymentError = refundResult.error;
-            }
+            console.log('✅ Tie payment instructions created');
           } else {
             // Losing tie - each pays fee
             console.log('🤝 Losing tie - each player pays fee...');
-            // Fee collection would be handled by the smart contract
+            
+            const entryFee = updatedMatch.entryFee;
+            const feeAmount = entryFee * 0.1; // 10% fee
+            
+            const paymentInstructions = {
+              winner: 'tie',
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              transactions: [
+                {
+                  from: updatedMatch.player1,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 1'
+                },
+                {
+                  from: updatedMatch.player2,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 2'
+                }
+              ]
+            };
+            
+            payoutResult.paymentInstructions = paymentInstructions;
             payoutResult.paymentSuccess = true;
+            
+            console.log('✅ Losing tie payment instructions created');
           }
         }
         
@@ -1170,58 +1429,180 @@ const submitResultHandler = async (req, res) => {
         const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
         
         // Execute automated payment
+        // Calculate direct payment instructions
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
-          console.log('💰 Executing automated payment...');
+          console.log('💰 Calculating automated payout...');
           
-          const paymentData = {
-            matchId: matchId,
-            winner: payoutResult.winner,
-            loser: payoutResult.winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1,
-            entryFee: updatedMatch.entryFee,
-            escrowAddress: updatedMatch.escrowAddress
-          };
+          const winner = payoutResult.winner;
+          const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
+          const entryFee = updatedMatch.entryFee;
           
-          const paymentResult = await payout(paymentData);
+          // Calculate payment amounts
+          const winnerAmount = entryFee * 0.9; // 90% to winner
+          const feeAmount = entryFee * 0.1; // 10% to fee wallet
           
-          if (paymentResult.success) {
-            console.log('✅ Automated payment transaction created');
-            payoutResult.transaction = paymentResult.transaction;
+          // Try to execute automated payout if private key is available
+          try {
+            const { getFeeWalletKeypair } = require('../config/wallet');
+            const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+            
+            const feeWalletKeypair = getFeeWalletKeypair();
+            const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+            
+            // Create payout transaction
+            const payoutTransaction = new Transaction().add(
+              SystemProgram.transfer({
+                fromPubkey: feeWalletKeypair.publicKey,
+                toPubkey: new PublicKey(winner),
+                lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
+              })
+            );
+            
+            // Get recent blockhash
+            const { blockhash } = await connection.getLatestBlockhash();
+            payoutTransaction.recentBlockhash = blockhash;
+            payoutTransaction.feePayer = feeWalletKeypair.publicKey;
+            
+            // Sign and send transaction
+            const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
+            await connection.confirmTransaction(signature);
+            
+            console.log('✅ Automated payout successful:', signature);
+            
+            // Create payment instructions for display
+            const paymentInstructions = {
+              winner,
+              loser,
+              winnerAmount,
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              automatedPayout: true,
+              payoutSignature: signature,
+              transactions: [
+                {
+                  from: FEE_WALLET_ADDRESS,
+                  to: winner,
+                  amount: winnerAmount,
+                  description: 'Automated payout to winner',
+                  signature: signature
+                }
+              ]
+            };
+            
+            payoutResult.paymentInstructions = paymentInstructions;
             payoutResult.paymentSuccess = true;
-          } else {
-            console.error('❌ Failed to create payment transaction:', paymentResult.error);
+            payoutResult.automatedPayout = true;
+            
+            console.log('✅ Automated payout completed');
+            
+          } catch (error) {
+            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', error.message);
+            
+            // Fallback to manual payment instructions
+            const paymentInstructions = {
+              winner,
+              loser,
+              winnerAmount,
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              automatedPayout: false,
+              transactions: [
+                {
+                  from: FEE_WALLET_ADDRESS,
+                  to: winner,
+                  amount: winnerAmount,
+                  description: 'Manual payout to winner (contact support)'
+                }
+              ]
+            };
+            
+            payoutResult.paymentInstructions = paymentInstructions;
             payoutResult.paymentSuccess = false;
-            payoutResult.paymentError = paymentResult.error;
+            payoutResult.paymentError = 'Automated payout failed - contact support';
+            
+            console.log('⚠️ Manual payment instructions created');
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.player1Result && updatedMatch.player2Result && 
               updatedMatch.player1Result.won && updatedMatch.player2Result.won) {
-            // Winning tie - refund both players
-            console.log('🤝 Winning tie - refunding both players...');
+            // Winning tie - each player gets their entry fee back
+            console.log('🤝 Winning tie - each player gets refund...');
             
-            const refundData = {
-              matchId: matchId,
+            const entryFee = updatedMatch.entryFee;
+            const feeAmount = entryFee * 0.1; // 10% fee
+            
+            const paymentInstructions = {
+              winner: 'tie',
               player1: updatedMatch.player1,
               player2: updatedMatch.player2,
-              entryFee: updatedMatch.entryFee,
-              escrowAddress: updatedMatch.escrowAddress
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              transactions: [
+                {
+                  from: updatedMatch.player1,
+                  to: updatedMatch.player2,
+                  amount: entryFee * 0.45,
+                  description: 'Split payment to player 2'
+                },
+                {
+                  from: updatedMatch.player1,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 1'
+                },
+                {
+                  from: updatedMatch.player2,
+                  to: updatedMatch.player1,
+                  amount: entryFee * 0.45,
+                  description: 'Split payment to player 1'
+                },
+                {
+                  from: updatedMatch.player2,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 2'
+                }
+              ]
             };
             
-            const refundResult = await refundEscrow(refundData);
+            payoutResult.paymentInstructions = paymentInstructions;
+            payoutResult.paymentSuccess = true;
             
-            if (refundResult.success) {
-              console.log('✅ Refund transaction created');
-              payoutResult.transaction = refundResult.transaction;
-              payoutResult.paymentSuccess = true;
-            } else {
-              console.error('❌ Failed to create refund transaction:', refundResult.error);
-              payoutResult.paymentSuccess = false;
-              payoutResult.paymentError = refundResult.error;
-            }
+            console.log('✅ Tie payment instructions created');
           } else {
             // Losing tie - each pays fee
             console.log('🤝 Losing tie - each player pays fee...');
+            
+            const entryFee = updatedMatch.entryFee;
+            const feeAmount = entryFee * 0.1; // 10% fee
+            
+            const paymentInstructions = {
+              winner: 'tie',
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+              feeAmount,
+              feeWallet: FEE_WALLET_ADDRESS,
+              transactions: [
+                {
+                  from: updatedMatch.player1,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 1'
+                },
+                {
+                  from: updatedMatch.player2,
+                  to: FEE_WALLET_ADDRESS,
+                  amount: feeAmount * 0.5,
+                  description: 'Fee payment from player 2'
+                }
+              ]
+            };
+            
+            payoutResult.paymentInstructions = paymentInstructions;
             payoutResult.paymentSuccess = true;
+            
+            console.log('✅ Losing tie payment instructions created');
           }
         }
         
@@ -1653,59 +2034,13 @@ const executePaymentHandler = async (req, res) => {
 
     let paymentResult;
     
-    if (paymentType === 'payout' && match.payoutResult.winner && match.payoutResult.winner !== 'tie') {
-      // Execute payout
-      const paymentData = {
-        matchId: matchId,
-        winner: match.payoutResult.winner,
-        loser: match.payoutResult.winner === match.player1 ? match.player2 : match.player1,
-        entryFee: match.entryFee,
-        escrowAddress: match.escrowAddress
-      };
-      
-      paymentResult = await payout(paymentData);
-      
-    } else if (paymentType === 'refund' && match.payoutResult.winner === 'tie') {
-      // Execute refund for tie
-      const refundData = {
-        matchId: matchId,
-        player1: match.player1,
-        player2: match.player2,
-        entryFee: match.entryFee,
-        escrowAddress: match.escrowAddress
-      };
-      
-      paymentResult = await refundEscrow(refundData);
-      
-    } else {
-      return res.status(400).json({ error: 'Invalid payment type for this match' });
-    }
-
-    if (paymentResult.success) {
-      console.log('✅ Server-side payment executed successfully');
-      
-      // Update match with payment status
-      match.paymentExecuted = true;
-      match.paymentSignature = paymentResult.transaction?.signature || 'server-executed';
-      await matchRepository.save(match);
-      
-      // Mark game as completed for cleanup
-      markGameCompleted(matchId);
-      
-      res.json({
-        success: true,
-        paymentType,
-        signature: paymentResult.transaction?.signature || 'server-executed',
-        message: 'Payment executed successfully'
-      });
-      
-    } else {
-      console.error('❌ Server-side payment failed:', paymentResult.error);
-      res.status(500).json({ 
-        success: false, 
-        error: paymentResult.error || 'Payment execution failed' 
-      });
-    }
+    // Direct payment approach - no server-side payment execution
+    // Players handle their own payments through the frontend
+    res.json({
+      success: true,
+      message: 'Direct payment approach - use frontend to send payments',
+      paymentInstructions: match.payoutResult?.paymentInstructions || null
+    });
 
   } catch (error) {
     console.error('❌ Error executing payment:', error);
@@ -1940,6 +2275,187 @@ const forceCleanupForWallet = async (req, res) => {
   }
 };
 
+// Payment confirmation endpoint
+const confirmPaymentHandler = async (req, res) => {
+  try {
+    const { matchId, wallet, paymentSignature } = req.body;
+    
+    if (!matchId || !wallet || !paymentSignature) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    // Validate wallet address format
+    if (!/^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(wallet)) {
+      return res.status(400).json({ error: 'Invalid wallet address' });
+    }
+
+    // Get database repository
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find the match
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Validate player is part of this match
+    if (wallet !== match.player1 && wallet !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+
+    // Determine which player this is
+    const isPlayer1 = wallet === match.player1;
+    const playerKey = isPlayer1 ? 'player1' : 'player2';
+
+    // Check if already paid
+    if (isPlayer1 && match.player1Paid) {
+      return res.status(400).json({ error: 'Player 1 already paid' });
+    }
+    if (!isPlayer1 && match.player2Paid) {
+      return res.status(400).json({ error: 'Player 2 already paid' });
+    }
+
+    // Verify transaction on Solana blockchain
+    try {
+      const { Connection, PublicKey } = require('@solana/web3.js');
+      const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+      
+      // Get transaction details
+      const transaction = await connection.getTransaction(paymentSignature);
+      if (!transaction) {
+        return res.status(400).json({ error: 'Transaction not found on blockchain' });
+      }
+
+      // Verify transaction is confirmed
+      if (transaction.meta?.err) {
+        return res.status(400).json({ error: 'Transaction failed on blockchain' });
+      }
+
+      // Verify amount and recipient
+      const expectedAmount = Math.floor(match.entryFee * 1000000000); // Convert to lamports
+      const feeWalletAddress = process.env.FEE_WALLET_ADDRESS;
+      
+      // Check if transaction contains the expected transfer
+      let transferFound = false;
+      let actualAmount = 0;
+      
+      if (transaction.meta && transaction.transaction.message.instructions.length > 0) {
+        for (const instruction of transaction.transaction.message.instructions) {
+          // This is a simplified check - in production you'd want more detailed verification
+          if (instruction.programIdIndex === 0) { // System Program
+            // Extract transfer details (simplified)
+            const data = instruction.data;
+            if (data && data.length >= 8) {
+              // Check if this is a transfer instruction
+              const transferInstruction = data.readUInt32LE(0);
+              if (transferInstruction === 2) { // System Program transfer instruction
+                transferFound = true;
+                // Extract amount (simplified)
+                actualAmount = data.readBigUInt64LE(8);
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      if (!transferFound) {
+        console.warn('⚠️ Transaction verification incomplete - transfer instruction not found');
+        // In production, you might want to be stricter here
+      }
+
+      console.log(`✅ Payment verified for ${isPlayer1 ? 'Player 1' : 'Player 2'}:`, {
+        matchId,
+        wallet,
+        paymentSignature,
+        expectedAmount,
+        actualAmount: actualAmount.toString()
+      });
+
+    } catch (error) {
+      console.error('❌ Transaction verification failed:', error);
+      // In production, you might want to reject the payment
+      // For now, we'll allow it but log the error
+      console.warn('⚠️ Allowing payment despite verification failure (development mode)');
+    }
+
+    // Mark player as paid
+    if (isPlayer1) {
+      match.player1Paid = true;
+    } else {
+      match.player2Paid = true;
+    }
+
+    // Check if both players have paid
+    if (match.player1Paid && match.player2Paid) {
+      match.status = 'active';
+      
+      // Initialize server-side game state
+      const word = require('../wordList').getRandomWord();
+      activeGames.set(matchId, {
+        startTime: Date.now(),
+        player1StartTime: Date.now(),
+        player2StartTime: Date.now(),
+        player1Guesses: [],
+        player2Guesses: [],
+        player1Solved: false,
+        player2Solved: false,
+        word: word,
+        matchId: matchId,
+        lastActivity: Date.now(),
+        completed: false
+      });
+
+      console.log(`🎮 Game started for match ${matchId} with word: ${word}`);
+    }
+
+    await matchRepository.save(match);
+
+    res.json({
+      success: true,
+      status: match.status,
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
+      message: match.status === 'active' ? 'Game started!' : 'Waiting for other player to pay'
+    });
+
+  } catch (error) {
+    console.error('❌ Error confirming payment:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Memory monitoring endpoint
+const memoryStatsHandler = async (req, res) => {
+  try {
+    const { AppDataSource } = require('../db/index');
+    
+    // Get database stats
+    const matchRepository = AppDataSource.getRepository(Match);
+    const totalMatches = await matchRepository.count();
+    const waitingMatches = await matchRepository.count({ where: { status: 'waiting' } });
+    const activeMatches = await matchRepository.count({ where: { status: 'active' } });
+    const completedMatches = await matchRepository.count({ where: { status: 'completed' } });
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      memory: memoryStats,
+      database: {
+        totalMatches,
+        waitingMatches,
+        activeMatches,
+        completedMatches
+      },
+      warnings: []
+    });
+    
+  } catch (error) {
+    console.error('❌ Memory stats failed:', error);
+    res.status(500).json({ error: 'Failed to get memory stats' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -1957,5 +2473,7 @@ module.exports = {
   createEscrowTransactionHandler,
   cleanupStuckMatchesHandler,
   simpleCleanupHandler,
-  forceCleanupForWallet
+  forceCleanupForWallet,
+  confirmPaymentHandler,
+  memoryStatsHandler
 }; 

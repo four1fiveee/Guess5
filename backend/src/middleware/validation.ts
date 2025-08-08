@@ -30,6 +30,41 @@ const escrowSchema = Joi.object({
   escrowSignature: Joi.string().required()
 });
 
+// ReCaptcha3 validation middleware
+export const validateReCaptcha = async (req: Request, res: Response, next: any) => {
+  // Skip ReCaptcha in development for easier testing
+  if (process.env.NODE_ENV === 'development') {
+    console.log('🔓 Skipping ReCaptcha validation in development mode');
+    return next();
+  }
+
+  const token = req.headers['x-recaptcha-token'] as string;
+  if (!token) {
+    return res.status(400).json({ error: 'ReCaptcha token required' });
+  }
+
+  try {
+    // Verify token with Google (only in production)
+    const verification = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `secret=${process.env.RECAPTCHA_SECRET}&response=${token}`
+    });
+
+    const result = await verification.json();
+    if (!result.success) {
+      console.log('❌ ReCaptcha verification failed:', result);
+      return res.status(400).json({ error: 'ReCaptcha verification failed' });
+    }
+
+    console.log('✅ ReCaptcha verification successful');
+    next();
+  } catch (error) {
+    console.error('❌ ReCaptcha verification error:', error);
+    return res.status(500).json({ error: 'ReCaptcha verification error' });
+  }
+};
+
 // Validation middleware
 export const validateMatchRequest = (req: Request, res: Response, next: any) => {
   const { error } = matchRequestSchema.validate(req.body);
@@ -80,13 +115,16 @@ export const sanitizeInput = (input: string): string => {
   return input.replace(/[<>]/g, '').trim();
 };
 
-// Rate limiting helper
+// Rate limiting helper with wallet-based limiting
 export const createRateLimiter = (windowMs: number, max: number, keyGenerator?: (req: Request) => string) => {
   const { rateLimit } = require('express-rate-limit');
   return rateLimit({
     windowMs,
     max,
-    keyGenerator: keyGenerator || ((req: Request) => (req as any).ip),
+    keyGenerator: keyGenerator || ((req: Request) => {
+      // Use wallet address if available, otherwise fall back to IP
+      return req.body?.wallet || req.query?.wallet || (req as any).ip;
+    }),
     message: 'Too many requests, please try again later',
     standardHeaders: true,
     legacyHeaders: false

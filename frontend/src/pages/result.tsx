@@ -128,6 +128,8 @@ const Result: React.FC = () => {
                   feeWallet={payoutData.feeWallet}
                   transactions={payoutData.transactions}
                   playerWallet={playerWallet}
+                  automatedPayout={payoutData.automatedPayout}
+                  payoutSignature={payoutData.payoutSignature}
                 />
 
                 <div className="mt-8 text-center">

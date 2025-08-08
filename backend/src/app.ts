@@ -27,6 +27,29 @@ if (allowedOrigin && !allowedOrigins.includes(allowedOrigin)) {
   allowedOrigins.push(allowedOrigin);
 }
 
+// Security headers middleware
+app.use((req, res, next) => {
+  // Security headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
+  
+  // Content Security Policy (CSP)
+  res.setHeader('Content-Security-Policy', 
+    "default-src 'self'; " +
+    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com; " +
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+    "font-src 'self' https://fonts.gstatic.com; " +
+    "img-src 'self' data: https:; " +
+    "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com; " +
+    "frame-src 'self' https://www.google.com;"
+  );
+  
+  next();
+});
+
 // Security middleware with reduced limits
 app.use(express.json({ limit: '1mb' })); // Reduced from 10mb
 app.use(express.urlencoded({ extended: true, limit: '1mb' })); // Reduced from 10mb
@@ -65,38 +88,38 @@ app.options('*', (req, res) => {
 // Apply deduplication middleware
 app.use(deduplicateRequests);
 
-// Rate limiting configuration
-// More lenient for matchmaking to prevent stale matchmaking issues
-const matchmakingLimiter = rateLimit({
-  windowMs: 30 * 1000, // 30 seconds
-  max: 100, // Increased to 100 requests per 30 seconds for matchmaking
+// Enhanced rate limiting configuration with wallet-based limits
+const { createRateLimiter: createWalletRateLimiter } = require('./middleware/validation');
+
+// Wallet-based rate limiters (more lenient for testing)
+const appWalletMatchmakingLimiter = createWalletRateLimiter(30 * 1000, 20); // 20 requests per 30 seconds per wallet
+const appWalletGameLimiter = createWalletRateLimiter(60 * 1000, 50); // 50 requests per minute per wallet
+const appWalletResultLimiter = createWalletRateLimiter(60 * 1000, 10); // 10 result submissions per minute per wallet
+
+// IP-based fallback rate limiters (for requests without wallet)
+const ipMatchmakingLimiter = rateLimit({
+  windowMs: 30 * 1000,
+  max: 50, // Reduced from 100 for better security
   message: { error: 'Too many matchmaking requests, please try again in 30 seconds' },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting for health checks
-    return req.path === '/health';
-  }
+  skip: (req) => req.path === '/health'
 });
 
-// Stricter rate limiting for other API endpoints
-const apiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100, // Allow 100 requests per 15 minutes for other endpoints
+const ipApiLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 50, // Reduced from 100 for better security
   message: { error: 'Too many requests, please try again later' },
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => {
-    // Skip rate limiting for health checks
-    return req.path === '/health';
-  }
+  skip: (req) => req.path === '/health'
 });
 
 // Apply rate limiting to specific routes
-app.use('/api/match/request-match', matchmakingLimiter);
-app.use('/api/match/check-match', matchmakingLimiter);
-app.use('/api/match/status', matchmakingLimiter);
-app.use('/api/', apiLimiter);
+app.use('/api/match/request-match', appWalletMatchmakingLimiter, ipMatchmakingLimiter);
+app.use('/api/match/check-match', appWalletMatchmakingLimiter, ipMatchmakingLimiter);
+app.use('/api/match/status', appWalletGameLimiter, ipApiLimiter);
+app.use('/api/', ipApiLimiter);
 
 // Debug middleware to log requests (development only)
 if (process.env.NODE_ENV === 'development') {

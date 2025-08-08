@@ -57,7 +57,14 @@ export const WalletConnectButton: React.FC = () => {
         }
       } catch (err) {
         console.error('reCAPTCHA failed:', err);
-        alert('reCAPTCHA verification failed. Please try again.');
+        // More graceful error handling
+        if (err instanceof Error && err.message.includes('timeout')) {
+          alert('reCAPTCHA timed out. Please try again.');
+        } else if (err instanceof Error && err.message.includes('network')) {
+          alert('Network error with reCAPTCHA. Please check your connection and try again.');
+        } else {
+          alert('reCAPTCHA verification failed. Please try again.');
+        }
       }
     } finally {
       // Reset the processing flag after a short delay

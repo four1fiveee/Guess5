@@ -1,179 +1,125 @@
 import { errorHandler, apiCallWithRetry } from './errorHandler';
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:40000';
+// API utility functions with ReCaptcha integration
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4000';
 
-// API client with error handling
-class ApiClient {
-  private baseUrl: string;
+// Get ReCaptcha token for API requests
+const getReCaptchaToken = async (action: string): Promise<string | null> => {
+  try {
+    if (typeof window === 'undefined' || !window.grecaptcha?.enterprise) {
+      console.warn('ReCaptcha not available, skipping token generation');
+      return null;
+    }
 
-  constructor(baseUrl: string) {
-    this.baseUrl = baseUrl;
+    const token = await window.grecaptcha.enterprise.execute(
+      '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', 
+      { action }
+    );
+    
+    console.log(`✅ ReCaptcha token generated for action: ${action}`);
+    return token;
+  } catch (error) {
+    console.error('❌ ReCaptcha token generation failed:', error);
+    return null;
+  }
+};
+
+// Enhanced API request function with ReCaptcha
+const apiRequest = async (
+  endpoint: string, 
+  options: RequestInit = {}, 
+  requireReCaptcha: boolean = false,
+  reCaptchaAction: string = 'api_request'
+) => {
+  const url = `${API_BASE_URL}${endpoint}`;
+  
+  // Add ReCaptcha token if required
+  let headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (requireReCaptcha) {
+    const token = await getReCaptchaToken(reCaptchaAction);
+    if (token) {
+      headers['x-recaptcha-token'] = token;
+    }
   }
 
-  private async request<T>(
-    endpoint: string,
-    options: RequestInit = {}
-  ): Promise<T> {
-    const url = `${this.baseUrl}${endpoint}`;
-    
-    const defaultOptions: RequestInit = {
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      ...options,
-    };
+  const config: RequestInit = {
+    ...options,
+    headers,
+  };
 
-    const response = await fetch(url, defaultOptions);
+  try {
+    const response = await fetch(url, config);
     
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      throw {
-        response: {
-          status: response.status,
-          data: errorData
-        }
-      };
+      throw new Error(errorData.error || `HTTP ${response.status}`);
     }
-
-    return response.json();
+    
+    return await response.json();
+  } catch (error) {
+    console.error(`❌ API request failed for ${endpoint}:`, error);
+    throw error;
   }
+};
 
-  // Matchmaking
-  async requestMatch(wallet: string, entryFee: number) {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/request-match', {
-        method: 'POST',
-        body: JSON.stringify({ wallet, entryFee })
-      }),
-      'requestMatch'
-    );
-  }
+// API functions with ReCaptcha integration
+export const requestMatch = async (wallet: string, entryFee: number) => {
+  return apiRequest('/api/match/request-match', {
+    method: 'POST',
+    body: JSON.stringify({ wallet, entryFee }),
+  }, true, 'request_match');
+};
 
-  async getMatchStatus(matchId: string) {
-    return apiCallWithRetry(() => 
-      this.request(`/api/match/status/${matchId}`),
-      'getMatchStatus'
-    );
-  }
+export const submitResult = async (matchId: string, wallet: string, result: any) => {
+  return apiRequest('/api/match/submit-result', {
+    method: 'POST',
+    body: JSON.stringify({ matchId, wallet, result }),
+  }, true, 'submit_result');
+};
 
-  async checkPlayerMatch(wallet: string) {
-    return apiCallWithRetry(() => 
-      this.request(`/api/match/check-match/${wallet}`),
-      'checkPlayerMatch'
-    );
-  }
+export const submitGuess = async (matchId: string, wallet: string, guess: string) => {
+  return apiRequest('/api/match/submit-guess', {
+    method: 'POST',
+    body: JSON.stringify({ matchId, wallet, guess }),
+  }, true, 'submit_guess');
+};
 
-  // Game actions
-  async submitResult(matchId: string, wallet: string, result: any) {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/submit-result', {
-        method: 'POST',
-        body: JSON.stringify({ matchId, wallet, result })
-      }),
-      'submitResult'
-    );
-  }
+export const confirmPayment = async (matchId: string, wallet: string, paymentSignature: string) => {
+  return apiRequest('/api/match/confirm-payment', {
+    method: 'POST',
+    body: JSON.stringify({ matchId, wallet, paymentSignature }),
+  }, true, 'confirm_payment');
+};
 
-  async submitGuess(matchId: string, wallet: string, guess: string) {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/submit-guess', {
-        method: 'POST',
-        body: JSON.stringify({ matchId, wallet, guess })
-      }),
-      'submitGuess'
-    );
-  }
+// Non-critical endpoints (no ReCaptcha required)
+export const getMatchStatus = async (matchId: string) => {
+  return apiRequest(`/api/match/status/${matchId}`, {
+    method: 'GET',
+  }, false);
+};
 
-  async getGameState(matchId: string) {
-    return apiCallWithRetry(() => 
-      this.request(`/api/match/game-state?matchId=${matchId}`),
-      'getGameState'
-    );
-  }
+export const checkPlayerMatch = async (wallet: string) => {
+  return apiRequest(`/api/match/check-match/${wallet}`, {
+    method: 'GET',
+  }, false);
+};
 
-  // Escrow and payments
-  async confirmEscrow(matchId: string, wallet: string, escrowSignature: string) {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/confirm-escrow', {
-        method: 'POST',
-        body: JSON.stringify({ matchId, wallet, escrowSignature })
-      }),
-      'confirmEscrow'
-    );
-  }
+export const getGameState = async (matchId: string, wallet: string) => {
+  return apiRequest(`/api/match/game-state?matchId=${matchId}&wallet=${wallet}`, {
+    method: 'GET',
+  }, false);
+};
 
-  async createEscrowTransaction(matchId: string, wallet: string, entryFee: number) {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/create-escrow-transaction', {
-        method: 'POST',
-        body: JSON.stringify({ matchId, wallet, entryFee })
-      }),
-      'createEscrowTransaction'
-    );
-  }
-
-  async executePayment(matchId: string, wallet: string) {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/execute-payment', {
-        method: 'POST',
-        body: JSON.stringify({ matchId, wallet })
-      }),
-      'executePayment'
-    );
-  }
-
-  // Cleanup
-  async cleanupStuckMatches() {
-    return apiCallWithRetry(() => 
-      this.request('/api/match/cleanup-stuck-matches', {
-        method: 'POST'
-      }),
-      'cleanupStuckMatches'
-    );
-  }
-
-  // Health check
-  async healthCheck() {
-    return apiCallWithRetry(() => 
-      this.request('/health'),
-      'healthCheck'
-    );
-  }
-}
-
-// Export singleton instance
-export const apiClient = new ApiClient(API_BASE_URL);
-
-// Legacy functions for backward compatibility
-export const requestMatch = (wallet: string, entryFee: number) => 
-  apiClient.requestMatch(wallet, entryFee);
-
-export const getMatchStatus = (matchId: string) => 
-  apiClient.getMatchStatus(matchId);
-
-export const checkPlayerMatch = (wallet: string) => 
-  apiClient.checkPlayerMatch(wallet);
-
-export const submitResult = (matchId: string, wallet: string, result: any) => 
-  apiClient.submitResult(matchId, wallet, result);
-
-export const submitGuess = (matchId: string, wallet: string, guess: string) => 
-  apiClient.submitGuess(matchId, wallet, guess);
-
-export const getGameState = (matchId: string) => 
-  apiClient.getGameState(matchId);
-
-export const confirmEscrow = (matchId: string, wallet: string, escrowSignature: string) => 
-  apiClient.confirmEscrow(matchId, wallet, escrowSignature);
-
-export const createEscrowTransaction = (matchId: string, wallet: string, entryFee: number) => 
-  apiClient.createEscrowTransaction(matchId, wallet, entryFee);
-
-export const executePayment = (matchId: string, wallet: string) => 
-  apiClient.executePayment(matchId, wallet);
-
-export const cleanupStuckMatches = () => 
-  apiClient.cleanupStuckMatches();
-
-export const healthCheck = () => 
-  apiClient.healthCheck(); 
+export default {
+  requestMatch,
+  submitResult,
+  submitGuess,
+  confirmPayment,
+  getMatchStatus,
+  checkPlayerMatch,
+  getGameState,
+}; 

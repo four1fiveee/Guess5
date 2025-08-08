@@ -1,9 +1,0 @@
-[programs.devnet]
-guess5 = "GMvV52s55SziXuMd6uPZSswfvhu2hSXRyqk7KkQh5u3L"
-
-[provider]
-cluster = "devnet"
-wallet = "~/.config/solana/devnet.json"
-
-[scripts]
-test = "npx ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts" 

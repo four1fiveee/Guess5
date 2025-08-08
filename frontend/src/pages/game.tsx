@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
-import SmartContractService from '../utils/smartContractService';
+
 
 const Game: React.FC = () => {
   const router = useRouter();
@@ -66,7 +66,7 @@ const Game: React.FC = () => {
         }
         
         // If match is still in escrow, redirect back to matchmaking
-        if (matchData.status === 'escrow') {
+        if (matchData.status === 'active') {
           console.log('⚠️ Match is still in escrow, redirecting to matchmaking');
           router.push('/matchmaking');
           return;
@@ -266,100 +266,62 @@ const Game: React.FC = () => {
     console.log('🏁 Game ended:', result);
 
     try {
-      // Submit result to smart contract
-      const smartContractService = new SmartContractService({
-        publicKey: publicKey,
-        signTransaction: signTransaction,
-        signAllTransactions: signAllTransactions
+      // Submit result to backend for game state tracking and automated payouts
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId,
+          wallet: publicKey?.toString() || '',
+          result
+        }),
       });
 
-      // Determine game result for smart contract
-      let gameResult: 'Win' | 'Lose' | 'Tie';
-      if (won) {
-        gameResult = 'Win';
-      } else if (reason === 'timeout') {
-        gameResult = 'Lose';
-      } else {
-        gameResult = 'Lose';
-      }
+      const data = await response.json();
+      console.log('📝 Backend result submitted:', data);
 
-      console.log('📊 Submitting result to smart contract:', {
-        matchId,
-        result: gameResult,
-        attempts: serverGuesses.length,
-        solved: won
-      });
+      if (data.status === 'completed') {
+        // Store opponent's result if available
+        if (data.player1Result && data.player1Result.wallet !== publicKey?.toString()) {
+          setOpponentResult(data.player1Result);
+        } else if (data.player2Result && data.player2Result.wallet !== publicKey?.toString()) {
+          setOpponentResult(data.player2Result);
+        }
 
-      const submitResult = await smartContractService.submitResult(
-        matchId,
-        gameResult,
-        serverGuesses.length,
-        won
-      );
-
-      if (submitResult.success) {
-        console.log('✅ Smart contract result submission successful:', submitResult.signature);
-        
-        // Also submit to backend for game state tracking
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/submit-result`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            matchId,
-            wallet: publicKey?.toString() || '',
-            result
-          }),
+        // Determine final result
+        const isWinner = data.payout?.winner === publicKey?.toString();
+        setFinalResult({
+          won: isWinner,
+          payout: data.payout
         });
 
-        const data = await response.json();
-        console.log('📝 Backend result submitted:', data);
+        // Backend handles automated payouts
+        console.log('💰 Backend handled payout automatically');
+        data.payout.paymentSuccess = data.payout.automatedPayout || false;
+        data.payout.transactionSignature = data.payout.payoutSignature;
 
-        if (data.status === 'completed') {
-          // Store opponent's result if available
-          if (data.player1Result && data.player1Result.wallet !== publicKey?.toString()) {
-            setOpponentResult(data.player1Result);
-          } else if (data.player2Result && data.player2Result.wallet !== publicKey?.toString()) {
-            setOpponentResult(data.player2Result);
-          }
-
-          // Determine final result
-          const isWinner = data.payout?.winner === publicKey?.toString();
-          setFinalResult({
-            won: isWinner,
-            payout: data.payout
-          });
-
-          // Smart contract handles payouts automatically
-          console.log('💰 Smart contract handled payout automatically');
-          data.payout.paymentSuccess = true;
-          data.payout.transactionSignature = submitResult.signature;
-
-          // Store payout data for results page
-          localStorage.setItem('payoutData', JSON.stringify(data.payout));
-          
-          // IMMEDIATE CLEANUP: Set game state to completed and stop all polling
-          setGameState('completed');
-          setTimerActive(false);
-          
-          // Navigate to result page after a short delay
-          setTimeout(() => {
-            router.push('/result');
-          }, 3000);
-        } else if (reason === 'opponent_solved') {
-          // Opponent solved first - navigate to result immediately
-          console.log('🏆 Opponent solved first, navigating to result');
-          router.push(`/result?matchId=${matchId}`);
-        } else {
-          console.log('⏳ Waiting for other player...');
-          setGameState('waiting');
-        }
+        // Store payout data for results page
+        localStorage.setItem('payoutData', JSON.stringify(data.payout));
+        
+        // IMMEDIATE CLEANUP: Set game state to completed and stop all polling
+        setGameState('completed');
+        setTimerActive(false);
+        
+        // Navigate to result page after a short delay
+        setTimeout(() => {
+          router.push('/result');
+        }, 3000);
+      } else if (reason === 'opponent_solved') {
+        // Opponent solved first - navigate to result immediately
+        console.log('🏆 Opponent solved first, navigating to result');
+        router.push(`/result?matchId=${matchId}`);
       } else {
-        console.error('❌ Smart contract result submission failed:', submitResult.error);
+        console.log('⏳ Waiting for other player...');
+        setGameState('waiting');
       }
-
     } catch (error) {
       console.error('❌ Error submitting result:', error);
     }

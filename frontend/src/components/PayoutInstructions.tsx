@@ -16,6 +16,8 @@ interface PayoutInstructionsProps {
   feeWallet: string;
   transactions: PaymentTransaction[];
   playerWallet: string;
+  automatedPayout?: boolean;
+  payoutSignature?: string;
 }
 
 interface CompletedTransaction {
@@ -31,7 +33,9 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
   feeAmount,
   feeWallet,
   transactions,
-  playerWallet
+  playerWallet,
+  automatedPayout = false,
+  payoutSignature
 }) => {
   const { publicKey, sendTransaction } = useWallet();
   const [sendingTx, setSendingTx] = useState<string | null>(null);
@@ -164,113 +168,137 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
         )}
       </div>
 
-      {/* Fee Information */}
-              <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-3 rounded mb-6">
-        <h3 className="font-bold">💰 Fee Information</h3>
-        <p>Fee wallet: {feeWallet}</p>
-        <p>
-          Total fee: <span className="font-bold">{feeAmountUSD ? `$${feeAmountUSD.toFixed(2)}` : ''}</span>
-          <span className="text-gray-600"> ({feeAmount.toFixed(4)} SOL)</span>
-        </p>
-      </div>
-
-      {/* Required Transactions */}
-      <div className="mb-6">
-        <h3 className="text-lg font-semibold text-gray-700 mb-3">
-          📋 Required Transactions
-        </h3>
-        {transactions.map((tx, index) => {
-          const isYourTransaction = tx.from === playerWallet;
-          const txUSD = solPrice ? tx.amount * solPrice : null;
-          return (
-            <div 
-              key={index} 
-              className={`border rounded-lg p-4 mb-3 ${
-                isYourTransaction 
-                  ? 'border-orange-300 bg-orange-50' 
-                  : 'border-gray-200 bg-gray-50'
-              }`}
-            >
-              <div className="flex justify-between items-start">
-                <div className="flex-1">
-                  <p className="font-medium text-gray-800">
-                    {isYourTransaction ? '🔴 You need to send:' : '🟢 You will receive:'}
-                  </p>
-                  <p className="text-sm text-gray-600 mt-1">{tx.description}</p>
-                  <div className="mt-2 text-sm">
-                    <p><span className="font-medium">From:</span> {tx.from}</p>
-                    <p><span className="font-medium">To:</span> {tx.to}</p>
-                    <p>
-                      <span className="font-medium">Amount:</span> 
-                      <span className="font-bold">{txUSD ? `$${txUSD.toFixed(2)}` : ''}</span>
-                      <span className="text-gray-600"> ({tx.amount.toFixed(4)} SOL)</span>
-                    </p>
-                  </div>
-                </div>
-                {isYourTransaction && (
-                  <div className="ml-4">
-                    <button 
-                      className={`${getButtonClass(index)} text-white px-4 py-2 rounded text-sm transition-colors`}
-                      onClick={() => sendPayment(tx.to, tx.amount, index)}
-                      disabled={sendingTx === `tx-${index}` || txStatus[`tx-${index}`] === 'success'}
-                    >
-                      {getButtonText(index)}
-                    </button>
-                  </div>
-                )}
-              </div>
+      {/* Automated Payout Status */}
+      {automatedPayout && (
+        <div className="bg-green-100 border border-green-400 text-green-700 px-4 py-3 rounded mb-6">
+          <h3 className="font-bold">🤖 Automated Payout Completed!</h3>
+          <p>Your winnings have been automatically sent to your wallet.</p>
+          {payoutSignature && (
+            <div className="mt-2">
+              <p className="text-sm">Transaction: {payoutSignature.slice(0, 8)}...{payoutSignature.slice(-8)}</p>
+              <button
+                onClick={() => openExplorer(payoutSignature)}
+                className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs mt-1"
+              >
+                View on Explorer
+              </button>
             </div>
-          );
-        })}
-      </div>
-
-      {/* Completed Transactions */}
-      {completedTxs.length > 0 && (
-        <div className="mb-6">
-          <h3 className="text-lg font-semibold text-gray-700 mb-3">
-            ✅ Completed Transactions
-          </h3>
-          {completedTxs.map((tx, index) => (
-            <div key={index} className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
-              <div className="flex justify-between items-center">
-                <div>
-                  <p className="font-medium text-green-800">{tx.description}</p>
-                  <p className="text-sm text-green-600">
-                    {tx.amount.toFixed(4)} SOL → {tx.to.slice(0, 4)}...{tx.to.slice(-4)}
-                  </p>
-                </div>
-                <button
-                  onClick={() => openExplorer(tx.signature)}
-                  className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs"
-                >
-                  View on Explorer
-                </button>
-              </div>
-            </div>
-          ))}
+          )}
         </div>
       )}
 
-      {/* Instructions */}
-      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
-        <h3 className="font-semibold text-gray-700 mb-2">📝 How to Complete Payments</h3>
-        <ol className="list-decimal list-inside text-sm text-gray-600 space-y-1">
-          <li>All payments are made in SOL, but amounts are shown in USD for clarity (conversion rate is based on the time you matched with your opponent).</li>
-          <li>Make sure your Phantom wallet is connected</li>
-          <li>Click "Send Payment" for each transaction you need to make</li>
-          <li>Confirm the transaction in your Phantom wallet</li>
-          <li>Wait for transaction confirmation on devnet</li>
-          <li>Both players must complete their payments for the game to be fully settled</li>
-        </ol>
-      </div>
+      {/* Manual Payment Instructions (only show if not automated) */}
+      {!automatedPayout && (
+        <>
+          {/* Fee Information */}
+          <div className="bg-accent/10 border border-accent/20 text-accent px-4 py-3 rounded mb-6">
+            <h3 className="font-bold">💰 Fee Information</h3>
+            <p>Fee wallet: {feeWallet}</p>
+            <p>
+              Total fee: <span className="font-bold">{feeAmountUSD ? `$${feeAmountUSD.toFixed(2)}` : ''}</span>
+              <span className="text-gray-600"> ({feeAmount.toFixed(4)} SOL)</span>
+            </p>
+          </div>
 
-      {/* Warning */}
-      <div className="mt-6 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
-        <p className="text-sm">
-          ⚠️ <strong>Important:</strong> Make sure you have enough SOL in your wallet to cover the payments. 
-          The game results are final once both players have submitted their results.
-        </p>
-      </div>
+          {/* Required Transactions */}
+          <div className="mb-6">
+            <h3 className="text-lg font-semibold text-gray-700 mb-3">
+              📋 Required Transactions
+            </h3>
+            {transactions.map((tx, index) => {
+              const isYourTransaction = tx.from === playerWallet;
+              const txUSD = solPrice ? tx.amount * solPrice : null;
+              return (
+                <div 
+                  key={index} 
+                  className={`border rounded-lg p-4 mb-3 ${
+                    isYourTransaction 
+                      ? 'border-orange-300 bg-orange-50' 
+                      : 'border-gray-200 bg-gray-50'
+                  }`}
+                >
+                  <div className="flex justify-between items-start">
+                    <div className="flex-1">
+                      <p className="font-medium text-gray-800">
+                        {isYourTransaction ? '🔴 You need to send:' : '🟢 You will receive:'}
+                      </p>
+                      <p className="text-sm text-gray-600 mt-1">{tx.description}</p>
+                      <div className="mt-2 text-sm">
+                        <p><span className="font-medium">From:</span> {tx.from}</p>
+                        <p><span className="font-medium">To:</span> {tx.to}</p>
+                        <p>
+                          <span className="font-medium">Amount:</span> 
+                          <span className="font-bold">{txUSD ? `$${txUSD.toFixed(2)}` : ''}</span>
+                          <span className="text-gray-600"> ({tx.amount.toFixed(4)} SOL)</span>
+                        </p>
+                      </div>
+                    </div>
+                    {isYourTransaction && (
+                      <div className="ml-4">
+                        <button 
+                          className={`${getButtonClass(index)} text-white px-4 py-2 rounded text-sm transition-colors`}
+                          onClick={() => sendPayment(tx.to, tx.amount, index)}
+                          disabled={sendingTx === `tx-${index}` || txStatus[`tx-${index}`] === 'success'}
+                        >
+                          {getButtonText(index)}
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+
+          {/* Completed Transactions */}
+          {completedTxs.length > 0 && (
+            <div className="mb-6">
+              <h3 className="text-lg font-semibold text-gray-700 mb-3">
+                ✅ Completed Transactions
+              </h3>
+              {completedTxs.map((tx, index) => (
+                <div key={index} className="bg-green-50 border border-green-200 rounded-lg p-3 mb-2">
+                  <div className="flex justify-between items-center">
+                    <div>
+                      <p className="font-medium text-green-800">{tx.description}</p>
+                      <p className="text-sm text-green-600">
+                        {tx.amount.toFixed(4)} SOL → {tx.to.slice(0, 4)}...{tx.to.slice(-4)}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => openExplorer(tx.signature)}
+                      className="bg-green-500 hover:bg-green-600 text-white px-3 py-1 rounded text-xs"
+                    >
+                      View on Explorer
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Instructions */}
+          <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
+            <h3 className="font-semibold text-gray-700 mb-2">📝 How to Complete Payments</h3>
+            <ol className="list-decimal list-inside text-sm text-gray-600 space-y-1">
+              <li>All payments are made in SOL, but amounts are shown in USD for clarity (conversion rate is based on the time you matched with your opponent).</li>
+              <li>Make sure your Phantom wallet is connected</li>
+              <li>Click "Send Payment" for each transaction you need to make</li>
+              <li>Confirm the transaction in your Phantom wallet</li>
+              <li>Wait for transaction confirmation on devnet</li>
+              <li>Both players must complete their payments for the game to be fully settled</li>
+            </ol>
+          </div>
+
+          {/* Warning */}
+          <div className="mt-6 bg-yellow-50 border border-yellow-200 text-yellow-800 px-4 py-3 rounded">
+            <p className="text-sm">
+              ⚠️ <strong>Important:</strong> Make sure you have enough SOL in your wallet to cover the payments. 
+              The game results are final once both players have submitted their results.
+            </p>
+          </div>
+        </>
+      )}
     </div>
   );
 };

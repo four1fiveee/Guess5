@@ -1,24 +1,75 @@
 const expressRouter = require('express');
 const router = expressRouter.Router();
 const matchController = require('../controllers/matchController');
-const { validateMatchRequest: validateMatch, validateSubmitResult: validateResult, validateEscrow: validateEscrowData } = require('../middleware/validation');
+const { 
+  validateMatchRequest: validateMatch, 
+  validateSubmitResult: validateResult, 
+  validateEscrow: validateEscrowData,
+  validateReCaptcha,
+  createRateLimiter
+} = require('../middleware/validation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
-// Production routes (always available) - Updated with cleanup endpoints
-router.post('/request-match', validateMatch, asyncHandlerWrapper(matchController.requestMatchHandler));
-router.post('/submit-result', validateResult, asyncHandlerWrapper(matchController.submitResultHandler));
-router.get('/status/:matchId', asyncHandlerWrapper(matchController.getMatchStatusHandler));
-router.get('/check-match/:wallet', asyncHandlerWrapper(matchController.checkPlayerMatchHandler));
+// Wallet-based rate limiters (more lenient for testing)
+const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 20); // 20 requests per 30 seconds per wallet
+const walletGameLimiter = createRateLimiter(60 * 1000, 50); // 50 requests per minute per wallet
+const walletResultLimiter = createRateLimiter(60 * 1000, 10); // 10 result submissions per minute per wallet
+
+// Production routes with enhanced security
+router.post('/request-match', 
+  walletMatchmakingLimiter,
+  validateMatch, 
+  validateReCaptcha,
+  asyncHandlerWrapper(matchController.requestMatchHandler)
+);
+
+router.post('/submit-result', 
+  walletResultLimiter,
+  validateResult, 
+  validateReCaptcha,
+  asyncHandlerWrapper(matchController.submitResultHandler)
+);
+
+router.post('/submit-guess', 
+  walletGameLimiter,
+  validateReCaptcha,
+  asyncHandlerWrapper(matchController.submitGameGuessHandler)
+);
+
+router.post('/confirm-payment', 
+  walletGameLimiter,
+  validateReCaptcha,
+  asyncHandlerWrapper(matchController.confirmPaymentHandler)
+);
+
+// Less critical endpoints (still rate limited but no ReCaptcha for testing)
+router.get('/status/:matchId', 
+  walletGameLimiter,
+  asyncHandlerWrapper(matchController.getMatchStatusHandler)
+);
+
+router.get('/check-match/:wallet', 
+  walletMatchmakingLimiter,
+  asyncHandlerWrapper(matchController.checkPlayerMatchHandler)
+);
+
+router.get('/game-state', 
+  walletGameLimiter,
+  asyncHandlerWrapper(matchController.getGameStateHandler)
+);
+
+// Legacy endpoints (kept for compatibility)
 router.post('/confirm-escrow', validateEscrowData, asyncHandlerWrapper(matchController.confirmEscrowHandler));
-router.post('/submit-guess', asyncHandlerWrapper(matchController.submitGameGuessHandler));
-router.get('/game-state', asyncHandlerWrapper(matchController.getGameStateHandler));
 router.post('/execute-payment', asyncHandlerWrapper(matchController.executePaymentHandler));
 router.post('/create-escrow-transaction', asyncHandlerWrapper(matchController.createEscrowTransactionHandler));
+
+// Cleanup endpoints (admin only)
 router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanupStuckMatchesHandler));
 router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
 router.post('/cleanup', asyncHandlerWrapper(matchController.simpleCleanupHandler));
 router.get('/cleanup', asyncHandlerWrapper(matchController.simpleCleanupHandler));
 router.post('/force-cleanup-wallet', asyncHandlerWrapper(matchController.forceCleanupForWallet));
+router.get('/memory-stats', asyncHandlerWrapper(matchController.memoryStatsHandler));
 
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {

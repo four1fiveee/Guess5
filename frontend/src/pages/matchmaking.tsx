@@ -1,17 +1,18 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
-import SmartContractService from '../utils/smartContractService';
+import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction, signAllTransactions } = useWallet();
-  const [status, setStatus] = useState<'waiting' | 'matched' | 'escrow' | 'error'>('waiting');
+  const [status, setStatus] = useState<'waiting' | 'matched' | 'payment_required' | 'active' | 'error'>('waiting');
   const [timeLeft, setTimeLeft] = useState(120);
   const [timeoutMessage, setTimeoutMessage] = useState<string>('');
   const [waitingCount, setWaitingCount] = useState(0);
   const [matchData, setMatchData] = useState<any>(null);
-  const [escrowStatus, setEscrowStatus] = useState<'pending' | 'success' | 'failed'>('pending');
+
   const [entryFee, setEntryFee] = useState<number>(0);
   const [isPolling, setIsPolling] = useState<boolean>(false);
   
@@ -27,128 +28,98 @@ const Matchmaking: React.FC = () => {
   // Add state to prevent multiple simultaneous requests
   const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
 
-  const handleEscrowPayment = async () => {
+  const handlePayment = async () => {
     if (!publicKey || !matchData) {
       console.error('❌ Missing publicKey or matchData');
-      setEscrowStatus('failed');
       return;
     }
 
     if (!signTransaction) {
       console.error('❌ Missing signTransaction function');
-      setEscrowStatus('failed');
       return;
     }
 
-    // Add timeout to prevent hanging
-    const timeoutId = setTimeout(() => {
-      console.error('❌ handleEscrowPayment timed out after 30 seconds');
-      setEscrowStatus('failed');
-    }, 30000); // 30 second timeout
-
     try {
-      console.log('💰 Starting smart contract escrow payment...');
-      console.log('🔍 Debug info:', {
+      console.log('💰 Starting upfront payment...');
+      console.log('🔍 Payment info:', {
         publicKey: publicKey.toString(),
-        matchId: matchData.matchId,
-        entryFee: entryFee,
-        hasSignTransaction: !!signTransaction
-      });
-      console.log('🔍 About to set escrowStatus to pending...');
-      setEscrowStatus('pending');
-      console.log('🔍 escrowStatus set to pending');
-
-      // Create smart contract service instance
-      console.log('🔍 Creating SmartContractService with wallet:', {
-        publicKey: publicKey.toString(),
-        hasSignTransaction: !!signTransaction,
-        hasSignAllTransactions: !!signAllTransactions
-      });
-      
-      console.log('🔍 About to create SmartContractService...');
-      const smartContractService = new SmartContractService({
-        publicKey: publicKey,
-        signTransaction: signTransaction,
-        signAllTransactions: signAllTransactions
-      });
-      console.log('🔍 SmartContractService created successfully');
-
-      // Lock entry fee using smart contract
-      console.log('🔍 About to call lockEntryFee with:', {
         matchId: matchData.matchId,
         entryFee: entryFee
       });
-      const lockResult = await smartContractService.lockEntryFee(
-        matchData.matchId,
-        entryFee
+
+      // Create connection to devnet
+      const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+      
+      // Create transaction to pay entry fee to fee wallet
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: new PublicKey("AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A"), // Fee wallet
+          lamports: Math.floor(entryFee * LAMPORTS_PER_SOL),
+        })
       );
-      console.log('🔍 lockEntryFee completed with result:', lockResult);
 
-      if (lockResult.success) {
-        console.log('✅ Smart contract escrow payment successful:', lockResult.signature);
-        setEscrowStatus('success');
+      // Get recent blockhash
+      const { blockhash } = await connection.getLatestBlockhash();
+      transaction.recentBlockhash = blockhash;
+      transaction.feePayer = publicKey;
+
+      // Send transaction
+      const signedTransaction = await signTransaction(transaction);
+      const signature = await connection.sendRawTransaction(signedTransaction.serialize());
+      
+      // Wait for confirmation
+      const confirmation = await connection.confirmTransaction(signature);
+      
+      if (confirmation.value.err) {
+        throw new Error('Transaction failed');
+      }
+
+      console.log('✅ Payment successful:', signature);
+      
+      // Confirm payment with backend
+      const confirmResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/confirm-payment`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId: matchData.matchId,
+          wallet: publicKey.toString(),
+          paymentSignature: signature
+        }),
+      });
+
+      const confirmData = await confirmResponse.json();
+      console.log('✅ Payment confirmed with backend:', confirmData);
+
+      if (confirmData.status === 'active') {
+        console.log('🎮 Game started! Redirecting to game...');
         
-        // Confirm escrow payment with backend
-        try {
-          const confirmResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/confirm-escrow`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              matchId: matchData.matchId,
-              wallet: publicKey.toString(),
-              escrowSignature: lockResult.signature
-            }),
-          });
-
-          const confirmData = await confirmResponse.json();
-          console.log('✅ Escrow confirmed with backend:', confirmData);
-
-          if (confirmData.status === 'active') {
-            console.log('🎮 Game activated! Redirecting to game...');
-            
-            // Store match data and redirect to game
-            localStorage.setItem('matchId', matchData.matchId);
-            if (matchData.word) {
-              localStorage.setItem('word', matchData.word);
-            }
-            if (matchData.escrowAddress) {
-              localStorage.setItem('escrowAddress', matchData.escrowAddress);
-            }
-            if (matchData.entryFee) {
-              localStorage.setItem('entryFee', matchData.entryFee.toString());
-            }
-            
-            // Redirect to game after successful escrow
-            setTimeout(() => {
-              router.push(`/game?matchId=${matchData.matchId}`);
-            }, 2000);
-          } else {
-            console.log('⏳ Waiting for opponent to confirm escrow...');
-            // Stay on matchmaking page until both players confirm
-          }
-        } catch (confirmError) {
-          console.error('❌ Failed to confirm escrow with backend:', confirmError);
-          setEscrowStatus('failed');
+        // Store match data and redirect to game
+        localStorage.setItem('matchId', matchData.matchId);
+        if (matchData.word) {
+          localStorage.setItem('word', matchData.word);
         }
+        if (matchData.entryFee) {
+          localStorage.setItem('entryFee', matchData.entryFee.toString());
+        }
+        
+        // Redirect to game after successful payment
+        setTimeout(() => {
+          router.push(`/game?matchId=${matchData.matchId}`);
+        }, 2000);
       } else {
-        console.error('❌ Smart contract escrow payment failed:', lockResult.error);
-        setEscrowStatus('failed');
+        console.log('⏳ Waiting for other player to pay...');
+        setStatus('payment_required');
       }
-          } catch (error: any) {
-        console.error('❌ Smart contract escrow payment error:', error);
-        console.error('❌ Error details:', {
-          message: error?.message,
-          stack: error?.stack,
-          name: error?.name
-        });
-        setEscrowStatus('failed');
-      } finally {
-        // Clear the timeout
-        clearTimeout(timeoutId);
-      }
+      
+    } catch (error) {
+      console.error('❌ Payment error:', error);
+      alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   };
+
 
   useEffect(() => {
     if (!publicKey) {
@@ -337,7 +308,7 @@ const Matchmaking: React.FC = () => {
               setStatus('waiting');
               break; // Success, exit retry loop
             } else if (data.status === 'matched') {
-              console.log('✅ Match found, proceeding to escrow...');
+              console.log('✅ Match found, proceeding to payment...');
               console.log('�� Match data:', data);
               setMatchData(data);
               setStatus('matched');
@@ -483,7 +454,7 @@ const Matchmaking: React.FC = () => {
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
             isStartMatchmakingRunning.current = false; // Reset running flag
             
-            console.log('🎮 Match confirmed, proceeding to escrow...');
+                          console.log('🎮 Match confirmed, proceeding to game...');
             return; // Exit early, don't continue polling
           }
         } catch (error) {
@@ -534,22 +505,16 @@ const Matchmaking: React.FC = () => {
   // Debug effect for matched status
   useEffect(() => {
     if (status === 'matched') {
-      console.log('🎮 Rendering matched status UI with:', { status, matchData, escrowStatus });
-      
-      // Reset escrow status if it's stuck in pending
-      if (escrowStatus === 'pending') {
-        console.log('🔧 Resetting stuck escrow status from pending to failed');
-        setEscrowStatus('failed');
-      }
+      console.log('🎮 Rendering matched status UI with:', { status, matchData });
     }
-  }, [status, matchData, escrowStatus]);
+  }, [status, matchData]);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
         <div className="text-center">
           <h1 className="text-3xl font-bold text-white mb-6">
-            {status === 'escrow' ? 'Locking Entry Fee...' : 'Finding Opponent...'}
+            {status === 'active' ? 'Game Starting...' : 'Finding Opponent...'}
           </h1>
           {timeoutMessage && (
             <div className="text-yellow-400 text-lg mb-4">{timeoutMessage}</div>
@@ -598,136 +563,117 @@ const Matchmaking: React.FC = () => {
             <div className="space-y-4">
               <div className="text-green-400 text-xl font-bold">🎉 Match Found!</div>
               
-              {(matchData?.status === 'matched' || matchData?.matchStatus === 'escrow' || matchData?.message?.includes('lock your entry fee')) ? (
-                <div className="space-y-4">
-                  <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
-                    <h3 className="text-green-400 font-semibold mb-2">🔒 Lock Your Entry Fee</h3>
-                    <p className="text-white/80 mb-3">
-                      Your opponent is ready! Lock your entry fee to start the game.
-                    </p>
-                    
-                    <div className="bg-white/10 rounded-lg p-3 mb-4">
-                      <div className="flex justify-between items-center">
-                        <span className="text-white/80">Entry Fee:</span>
-                        <span className="text-accent font-bold">{entryFee} SOL</span>
-                      </div>
-                      <div className="flex justify-between items-center mt-1">
-                        <span className="text-white/80">Potential Win:</span>
-                        <span className="text-green-400 font-bold">{(entryFee * 1.8).toFixed(3)} SOL</span>
-                      </div>
+              <div className="space-y-4">
+                <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg p-4">
+                  <h3 className="text-orange-400 font-semibold mb-2">💰 Pay Entry Fee</h3>
+                  <p className="text-white/80 mb-3">
+                    Your opponent is ready! Pay the entry fee to start the game.
+                  </p>
+                  
+                  <div className="bg-white/10 rounded-lg p-3 mb-4">
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/80">Entry Fee:</span>
+                      <span className="text-accent font-bold">{entryFee} SOL</span>
                     </div>
-                    
-                    <div className="space-y-2 text-sm text-white/70">
-                      <div className="flex items-center">
-                        <span className="text-green-400 mr-2">✓</span>
-                        Your SOL will be locked in smart contract escrow
-                      </div>
-                      <div className="flex items-center">
-                        <span className="text-green-400 mr-2">✓</span>
-                        Winner gets 90% of total pot automatically
-                      </div>
-                      <div className="flex items-center">
-                        <span className="text-green-400 mr-2">✓</span>
-                        No one can steal or avoid payment
-                      </div>
+                    <div className="flex justify-between items-center mt-1">
+                      <span className="text-white/80">Potential Win:</span>
+                      <span className="text-green-400 font-bold">{(entryFee * 1.8).toFixed(3)} SOL</span>
                     </div>
-                    
-                    <button
-                      onClick={() => {
-                        console.log('🔘 Lock Entry Fee button clicked!');
-                        console.log('🔍 Button debug info:', {
-                          hasPublicKey: !!publicKey,
-                          hasMatchData: !!matchData,
-                          hasSignTransaction: !!signTransaction,
-                          escrowStatus,
-                          matchDataStatus: matchData?.status,
-                          matchDataMatchStatus: matchData?.matchStatus
-                        });
-                        handleEscrowPayment();
-                      }}
-                      disabled={escrowStatus === 'pending'}
-                      className={`w-full mt-4 px-6 py-3 rounded-lg transition-colors font-semibold ${
-                        escrowStatus === 'pending' 
-                          ? 'bg-gray-500 cursor-not-allowed' 
-                          : 'bg-accent hover:bg-accent/80 text-white'
-                      }`}
-                    >
-                      {escrowStatus === 'pending' ? '⏳ Processing Transaction...' : '🔒 Lock Entry Fee'}
-                    </button>
-                    
-                    {escrowStatus === 'failed' && (
-                      <div className="text-red-400 text-sm mt-2 bg-red-500/20 border border-red-500/30 rounded p-2">
-                        ❌ Failed to lock entry fee. Please try again.
-                      </div>
-                    )}
                   </div>
                   
-                  <div className="text-xs text-white/50 text-center">
-                    💡 Phantom wallet will pop up asking for approval. Review the transaction details carefully.
+                  <div className="space-y-2 text-sm text-white/70">
+                    <div className="flex items-center">
+                      <span className="text-orange-400 mr-2">⚠️</span>
+                      Both players must pay before game starts
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-orange-400 mr-2">💰</span>
+                      Payment goes to fee wallet for security
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-orange-400 mr-2">🎯</span>
+                      Winner gets 90% of total pot after game
+                    </div>
                   </div>
-                </div>
-              ) : matchData?.matchStatus === 'active' ? (
-                <div>
-                  <p className="text-white/80">Match is already active!</p>
-                  <p className="text-accent text-sm">Redirecting to game...</p>
+                  
                   <button
-                    onClick={() => {
-                      localStorage.setItem('matchId', matchData.matchId);
-                      if (matchData.escrowAddress) {
-                        localStorage.setItem('escrowAddress', matchData.escrowAddress);
-                      }
-                      if (matchData.entryFee) {
-                        localStorage.setItem('entryFee', matchData.entryFee.toString());
-                      }
-                      router.push(`/game?matchId=${matchData.matchId}`);
-                    }}
-                    className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
+                    onClick={handlePayment}
+                    className="w-full mt-4 px-6 py-3 rounded-lg transition-colors font-semibold bg-orange-500 hover:bg-orange-600 text-white"
                   >
-                    Go to Game
+                    💰 Pay {entryFee} SOL
                   </button>
                 </div>
-              ) : (
-                <div>
-                  <p className="text-white/80">Both players confirmed escrow!</p>
-                  <p className="text-accent text-sm">Redirecting to game...</p>
+                
+                <div className="text-xs text-white/50 text-center">
+                  💡 Phantom wallet will pop up asking for approval
                 </div>
-              )}
+              </div>
             </div>
           )}
-          {status === 'escrow' && (
+          {status === 'payment_required' && (
             <div className="space-y-4">
               <div className="flex justify-center">
                 <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
               </div>
-              <p className="text-white/80 text-center">🔒 Locking Entry Fee...</p>
+              <p className="text-white/80 text-center">⏳ Processing Payment...</p>
               
-              <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-4">
-                <h3 className="text-yellow-400 font-semibold mb-2">⏳ Processing Transaction</h3>
+              <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg p-4">
+                <h3 className="text-orange-400 font-semibold mb-2">⏳ Processing Transaction</h3>
                 <p className="text-white/80 mb-3">
                   Please approve the transaction in your Phantom wallet
                 </p>
                 
                 <div className="space-y-2 text-sm text-white/70">
                   <div className="flex items-center">
-                    <span className="text-yellow-400 mr-2">📱</span>
+                    <span className="text-orange-400 mr-2">📱</span>
                     Phantom wallet should have popped up
                   </div>
                   <div className="flex items-center">
-                    <span className="text-yellow-400 mr-2">💰</span>
+                    <span className="text-orange-400 mr-2">💰</span>
                     Review amount: {entryFee} SOL
                   </div>
                   <div className="flex items-center">
-                    <span className="text-yellow-400 mr-2">🔒</span>
-                    Recipient: Smart contract escrow
+                    <span className="text-orange-400 mr-2">🔒</span>
+                    Recipient: Fee wallet
                   </div>
                   <div className="flex items-center">
-                    <span className="text-yellow-400 mr-2">✅</span>
+                    <span className="text-orange-400 mr-2">✅</span>
                     Click "Approve" in Phantom
                   </div>
                 </div>
                 
                 <div className="mt-3 text-xs text-white/50">
                   ⚠️ Don't close Phantom or refresh the page during this process
+                </div>
+              </div>
+            </div>
+          )}
+          {status === 'active' && (
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+              </div>
+              <p className="text-white/80 text-center">🎮 Starting Game...</p>
+              
+              <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
+                <h3 className="text-green-400 font-semibold mb-2">🎯 Game Ready!</h3>
+                <p className="text-white/80 mb-3">
+                  Redirecting to the game...
+                </p>
+                
+                <div className="space-y-2 text-sm text-white/70">
+                  <div className="flex items-center">
+                    <span className="text-green-400 mr-2">🎮</span>
+                    Game is starting
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-green-400 mr-2">💰</span>
+                    Entry fee: {entryFee} SOL
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-green-400 mr-2">🎯</span>
+                    Solve the word puzzle to win!
+                  </div>
                 </div>
               </div>
             </div>
