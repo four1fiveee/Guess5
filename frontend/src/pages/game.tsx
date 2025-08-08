@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
+import Image from 'next/image';
+import logo from '../../public/logo.png';
 
 
 const Game: React.FC = () => {
@@ -354,6 +356,11 @@ const Game: React.FC = () => {
     <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-4">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-2xl w-full">
         <div className="text-center mb-6">
+          {/* Logo prominently displayed at the top */}
+          <div className="flex justify-center mb-4">
+            <Image src={logo} alt="Guess5 Logo" width={150} height={150} className="mb-2" />
+          </div>
+          
           <h1 className="text-3xl font-bold text-white mb-4">
             {gameState === 'solved' ? 'Game Complete!' : 'Guess5'}
           </h1>

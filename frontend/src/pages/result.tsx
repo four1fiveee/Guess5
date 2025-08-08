@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import PayoutInstructions from '../components/PayoutInstructions';
+import Image from 'next/image';
+import logo from '../../public/logo.png';
 
 const Result: React.FC = () => {
   const router = useRouter();
@@ -95,6 +97,11 @@ const Result: React.FC = () => {
     <div className="min-h-screen bg-primary">
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
+          {/* Logo prominently displayed at the top */}
+          <div className="flex justify-center mb-6">
+            <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
+          </div>
+          
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
             {payoutData.winner === 'tie' ? (
               <div className="text-center">

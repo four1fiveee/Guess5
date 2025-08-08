@@ -4,6 +4,8 @@ import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect } from 'react'
+import Image from 'next/image'
+import logo from '../../public/logo.png'
 
 const ENTRY_FEES_USD = [1, 5, 20];
 
@@ -117,6 +119,11 @@ export default function Lobby() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary">
+      {/* Logo prominently displayed at the top */}
+      <div className="flex justify-center mb-6">
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
+      </div>
+      
       <WalletConnectButton />
       <h2 className="text-3xl font-bold text-accent mb-6">Choose Entry Fee</h2>
       

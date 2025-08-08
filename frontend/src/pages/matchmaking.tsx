@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
+import Image from 'next/image';
+import logo from '../../public/logo.png';
 
 
 const Matchmaking: React.FC = () => {
@@ -513,6 +515,11 @@ const Matchmaking: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
       <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
         <div className="text-center">
+          {/* Logo prominently displayed at the top */}
+          <div className="flex justify-center mb-6">
+            <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
+          </div>
+          
           <h1 className="text-3xl font-bold text-white mb-6">
             {status === 'active' ? 'Game Starting...' : 'Finding Opponent...'}
           </h1>
