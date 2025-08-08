@@ -43,7 +43,7 @@ app.use((req, res, next) => {
     "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
     "font-src 'self' https://fonts.gstatic.com; " +
     "img-src 'self' data: https:; " +
-    "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com; " +
+    "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com https://guess5.vercel.app; " +
     "frame-src 'self' https://www.google.com;"
   );
   
@@ -69,7 +69,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Origin', 'X-Requested-With'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'Cache-Control', 'Pragma', 'Origin', 'X-Requested-With', 'x-recaptcha-token'],
   optionsSuccessStatus: 200
 }));
 
@@ -80,7 +80,7 @@ app.options('*', (req, res) => {
     res.header('Access-Control-Allow-Origin', origin);
   }
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');
   res.header('Access-Control-Allow-Credentials', 'true');
   res.status(200).end();
 });
