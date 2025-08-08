@@ -284,6 +284,8 @@ const requestMatchHandler = async (req, res) => {
     const entryFee = Number(req.body.entryFee);
     
     console.log('🔍 Parsed data:', { wallet, entryFee, originalEntryFee: req.body.entryFee });
+    console.log('🔍 Request body type:', typeof req.body);
+    console.log('🔍 Request body keys:', Object.keys(req.body || {}));
     
     if (!wallet || !entryFee) {
       console.log('❌ Missing required fields:', { wallet: !!wallet, entryFee: !!entryFee });
