@@ -1,6 +1,13 @@
 import { Request, Response } from 'express';
 import Joi from 'joi';
 
+// Extend Request interface to include headers
+interface RequestWithHeaders extends Request {
+  headers: {
+    [key: string]: string | string[] | undefined;
+  };
+}
+
 // Validation schemas
 const matchRequestSchema = Joi.object({
   wallet: Joi.string().pattern(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).required(),
@@ -31,7 +38,7 @@ const escrowSchema = Joi.object({
 });
 
 // ReCaptcha3 validation middleware
-export const validateReCaptcha = async (req: Request, res: Response, next: any) => {
+export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, next: any) => {
   // Skip ReCaptcha in development for easier testing
   if (process.env.NODE_ENV === 'development') {
     console.log('🔓 Skipping ReCaptcha validation in development mode');
@@ -116,12 +123,12 @@ export const sanitizeInput = (input: string): string => {
 };
 
 // Rate limiting helper with wallet-based limiting
-export const createRateLimiter = (windowMs: number, max: number, keyGenerator?: (req: Request) => string) => {
+export const createRateLimiter = (windowMs: number, max: number, keyGenerator?: (req: RequestWithHeaders) => string) => {
   const { rateLimit } = require('express-rate-limit');
   return rateLimit({
     windowMs,
     max,
-    keyGenerator: keyGenerator || ((req: Request) => {
+    keyGenerator: keyGenerator || ((req: RequestWithHeaders) => {
       // Use wallet address if available, otherwise fall back to IP
       return req.body?.wallet || req.query?.wallet || (req as any).ip;
     }),
