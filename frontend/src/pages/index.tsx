@@ -19,7 +19,7 @@ export default function Home() {
             <li><b>Guess the secret 5-letter word</b> in up to 7 tries.</li>
             <li><b>Hints</b> show if letters are correct or misplaced.</li>
             <li><b>Winner:</b> Fewest moves wins. If same moves, fastest time wins.</li>
-            <li><b>Payouts:</b> Winner gets 95% of pot, platform takes 5% fee. <span className="text-green-400">(Better than American roulette's -5.26% return!)</span></li>
+            <li><b>Payouts:</b> Winner gets 95% of pot, platform takes 5% fee. <span className="text-white/90">(Better than American roulette's -5.26% return!)</span></li>
           </ol>
           
           <h3 className="text-xl font-bold text-accent mt-4 mb-2 text-center">Tie Scenarios</h3>
