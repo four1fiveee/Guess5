@@ -2379,12 +2379,23 @@ const confirmPaymentHandler = async (req, res) => {
     // Mark player as paid
     if (isPlayer1) {
       match.player1Paid = true;
+      console.log(`✅ Marked Player 1 (${wallet}) as paid for match ${matchId}`);
     } else {
       match.player2Paid = true;
+      console.log(`✅ Marked Player 2 (${wallet}) as paid for match ${matchId}`);
     }
+
+    console.log(`🔍 Payment status for match ${matchId}:`, {
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
+      player1: match.player1,
+      player2: match.player2,
+      currentPlayer: wallet
+    });
 
     // Check if both players have paid
     if (match.player1Paid && match.player2Paid) {
+      console.log(`🎮 Both players have paid for match ${matchId}, starting game...`);
       match.status = 'active';
       
       // Initialize server-side game state
@@ -2405,6 +2416,8 @@ const confirmPaymentHandler = async (req, res) => {
 
       console.log(`🎮 Game started for match ${matchId} with word: ${word}`);
     } else {
+      console.log(`⏳ Waiting for other player to pay for match ${matchId}. Player1Paid: ${match.player1Paid}, Player2Paid: ${match.player2Paid}`);
+      
       // Set a timeout for payment completion (1 minute)
       const paymentTimeout = setTimeout(async () => {
         try {
@@ -2434,7 +2447,15 @@ const confirmPaymentHandler = async (req, res) => {
       }
     }
 
+    console.log(`💾 Saving match ${matchId} to database:`, {
+      status: match.status,
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid
+    });
+    
     await matchRepository.save(match);
+    
+    console.log(`✅ Match ${matchId} saved successfully`);
 
     res.json({
       success: true,

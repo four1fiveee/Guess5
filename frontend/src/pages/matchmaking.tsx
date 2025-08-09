@@ -502,9 +502,9 @@ const Matchmaking: React.FC = () => {
       // Poll every 5 seconds to check if we've been matched (less aggressive to avoid rate limits)
       pollInterval = setInterval(async () => {
         try {
-          // Don't poll if we already have a match
-          if (matchData && status === 'matched') {
-            console.log('🎮 Already have a match, stopping polling');
+          // Don't poll if we already have an active match
+          if (matchData && status === 'active') {
+            console.log('🎮 Already have an active match, stopping polling');
             clearInterval(pollInterval);
             setIsPolling(false);
             return;
@@ -516,9 +516,9 @@ const Matchmaking: React.FC = () => {
             return;
           }
 
-          // Don't start matchmaking if we already have a valid match
-          if (matchData && (matchData.matchId || matchData.status === 'matched')) {
-            console.log('🎮 Already have valid match data, not starting matchmaking from polling');
+          // Don't start matchmaking if we already have a valid match and it's active
+          if (matchData && matchData.status === 'active') {
+            console.log('🎮 Already have active match data, not starting matchmaking from polling');
             return;
           }
 
@@ -542,18 +542,40 @@ const Matchmaking: React.FC = () => {
           
           const data = await response.json();
           
+          console.log('🔍 Polling response:', data);
+          
           if (data.matched) {
             console.log('✅ We have been matched!', data);
             setMatchData(data);
-            setStatus('matched');
-            clearInterval(pollInterval);
+            setStatus(data.status || 'matched');
             clearInterval(countdownInterval);
             clearTimeout(timeoutId); // Also clear timeout
-            setIsPolling(false);
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
             isStartMatchmakingRunning.current = false; // Reset running flag
             
-            // Set payment timeout (1 minute)
+            // Check if the match is active (both players paid)
+            if (data.status === 'active') {
+              console.log('🎮 Match is active! Starting game...');
+              clearInterval(pollInterval);
+              setIsPolling(false);
+              
+              // Store match data and redirect to game
+              localStorage.setItem('matchId', data.matchId);
+              if (data.word) {
+                localStorage.setItem('word', data.word);
+              }
+              if (data.entryFee) {
+                localStorage.setItem('entryFee', data.entryFee.toString());
+              }
+              
+              // Redirect to game after successful payment
+              setTimeout(() => {
+                router.push(`/game?matchId=${data.matchId}`);
+              }, 2000);
+              return;
+            }
+            
+            // Set payment timeout (1 minute) if still waiting for payment
             if (data.status === 'payment_required') {
               const timeout = setTimeout(() => {
                 console.log('⏰ Payment timeout - redirecting to lobby');
@@ -564,7 +586,7 @@ const Matchmaking: React.FC = () => {
               setPaymentTimeout(timeout);
             }
             
-            console.log('🎮 Match confirmed, proceeding to game...');
+            console.log('🎮 Match confirmed, waiting for payment...');
             return; // Exit early, don't continue polling
           } else if (data.status === 'cancelled') {
             console.log('❌ Match was cancelled:', data);
