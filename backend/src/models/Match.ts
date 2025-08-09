@@ -38,6 +38,12 @@ export class Match {
   @Column({ nullable: true })
   player2EscrowSignature?: string;
 
+  @Column({ default: false })
+  player1Paid?: boolean;
+
+  @Column({ default: false })
+  player2Paid?: boolean;
+
   @Column({ type: 'simple-json', nullable: true })
   player1Result?: {
     won: boolean;

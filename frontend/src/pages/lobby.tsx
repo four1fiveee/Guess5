@@ -144,6 +144,29 @@ export default function Lobby() {
           </button>
         ))}
       </div>
+      
+      {/* Odds Information */}
+      <div className="mt-6 text-center max-w-2xl">
+        <div className="bg-white/10 rounded-lg p-4 border border-white/20">
+          <h3 className="text-accent font-semibold mb-2">🎯 Better Odds Than Roulette!</h3>
+          <div className="text-sm text-white/80 space-y-2">
+            <div className="flex justify-between">
+              <span>🎰 Roulette (0 & 00):</span>
+              <span className="text-red-400">5.26% house edge</span>
+            </div>
+            <div className="flex justify-between">
+              <span>🎮 Guess5:</span>
+              <span className="text-green-400">5.00% house edge</span>
+            </div>
+            <div className="text-xs text-white/60 mt-2">
+              💡 With a 50% win rate, you get better odds than roulette! 
+              Winner takes 95% of the pot, we keep only 5%.
+              <br />
+              <span className="text-green-400 font-semibold">Better returns than American roulette!</span>
+            </div>
+          </div>
+        </div>
+      </div>
       {publicKey && (
         <div className="mt-6 text-center">
           <p className="text-accent text-sm">

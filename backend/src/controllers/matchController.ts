@@ -302,7 +302,13 @@ const requestMatchHandler = async (req, res) => {
       return res.status(400).json({ error: 'Invalid wallet address' });
     }
 
-    console.log(`✅ Player ${wallet} waiting for match with $${entryFee} entry fee`);
+    // Validate entry fee is reasonable (between 0.001 and 100 SOL)
+    if (entryFee < 0.001 || entryFee > 100) {
+      console.log('❌ Entry fee out of reasonable range:', entryFee);
+      return res.status(400).json({ error: 'Entry fee must be between 0.001 and 100 SOL' });
+    }
+
+    console.log(`✅ Player ${wallet} waiting for match with ${entryFee} SOL entry fee`);
 
     // CRITICAL: Implement locking to prevent race conditions
     const lockKey = `matchmaking_${wallet}`;
@@ -329,6 +335,7 @@ const requestMatchHandler = async (req, res) => {
     });
     
     const result = await matchmakingPromise;
+    console.log(`✅ Matchmaking completed for ${wallet}:`, result);
     res.json(result);
     
   } catch (error) {
@@ -338,6 +345,15 @@ const requestMatchHandler = async (req, res) => {
       stack: error.stack,
       name: error.name
     });
+    
+    // Clean up any locks that might have been created
+    if (req.body.wallet) {
+      const lockKey = `matchmaking_${req.body.wallet}`;
+      if (matchmakingLocks.has(lockKey)) {
+        matchmakingLocks.delete(lockKey);
+      }
+    }
+    
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -360,17 +376,24 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       return existingMatch;
     }
     
-    // Look for waiting players
+    // Look for waiting players with improved error handling
     const waitingPlayer = await findWaitingPlayer(matchRepository, wallet, entryFee);
     
     if (waitingPlayer) {
+      console.log(`🎯 Found waiting player, creating match...`);
       return await createMatch(matchRepository, waitingPlayer, wallet, entryFee);
     } else {
+      console.log(`⏳ No waiting players, creating waiting entry...`);
       return await createWaitingEntry(matchRepository, wallet, entryFee);
     }
     
   } catch (error) {
     console.error('❌ Error in performMatchmaking:', error);
+    // Clean up any locks that might have been created
+    const lockKey = `matchmaking_${wallet}`;
+    if (matchmakingLocks.has(lockKey)) {
+      matchmakingLocks.delete(lockKey);
+    }
     throw error;
   }
 };
@@ -490,10 +513,10 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     
     console.log(`  Found ${waitingMatches.length} waiting matches with strict tolerance`);
     
-    // If no exact match, try with more flexible fee matching (within 10% tolerance)
+    // If no exact match, try with more flexible fee matching (within 5% tolerance for better matching)
     if (waitingMatches.length === 0) {
-      const flexibleMinEntryFee = entryFee * 0.9;
-      const flexibleMaxEntryFee = entryFee * 1.1;
+      const flexibleMinEntryFee = entryFee * 0.95;
+      const flexibleMaxEntryFee = entryFee * 1.05;
       
       console.log(`🔍 Trying flexible matching for ${wallet}:`);
       console.log(`  Entry fee: ${entryFee} SOL`);
@@ -516,11 +539,14 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     
     if (waitingMatches.length > 0) {
       const match = waitingMatches[0];
+      
+      // Double-check the match is still valid
       if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
         console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
         
         // Immediately update the waiting player's status to prevent double-matching
         match.status = 'matched';
+        match.player2 = wallet; // Set the second player immediately
         await queryRunner.manager.save(Match, match);
         
         await queryRunner.commitTransaction();
@@ -531,6 +557,8 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
           entryFee: match.entryFee,
           matchId: match.id
         };
+      } else {
+        console.log(`⚠️ Match ${match.id} is no longer valid for ${wallet}`);
       }
     }
     
@@ -549,95 +577,104 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
 
 // Helper function to create a match
 const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: string, entryFee: number) => {
-  const actualEntryFee = Math.min(waitingPlayer.entryFee, entryFee);
-  
-  console.log('🎮 Creating match between players:', {
-    player1: waitingPlayer.wallet,
-    player2: wallet,
-    actualEntryFee: actualEntryFee
-  });
-  
-  // Create escrow account
-  // const { createEscrowAccount } = require('../services/payoutService');
-  // const escrowResult = await createEscrowAccount(
-  //   waitingPlayer.matchId,
-  //   waitingPlayer.wallet,
-  //   wallet,
-  //   actualEntryFee
-  // );
-  
-  // if (!escrowResult.success) {
-  //   throw new Error('Failed to create escrow account');
-  // }
-  
-  // Update the waiting match
-  const existingMatch = await matchRepository.findOne({ where: { id: waitingPlayer.matchId } });
-  if (!existingMatch) {
-    throw new Error('Waiting match not found');
+  try {
+    const actualEntryFee = Math.min(waitingPlayer.entryFee, entryFee);
+    
+    console.log('🎮 Creating match between players:', {
+      player1: waitingPlayer.wallet,
+      player2: wallet,
+      actualEntryFee: actualEntryFee
+    });
+    
+    // Update the waiting match with better error handling
+    const existingMatch = await matchRepository.findOne({ where: { id: waitingPlayer.matchId } });
+    if (!existingMatch) {
+      throw new Error('Waiting match not found - may have been claimed by another player');
+    }
+    
+    // Verify the match is still in the correct state
+    if (existingMatch.status !== 'matched' || existingMatch.player2 !== wallet) {
+      throw new Error('Match state has changed - another player may have claimed this match');
+    }
+    
+    // Generate game word
+    const { getRandomWord } = require('../wordList');
+    const gameWord = getRandomWord();
+    
+    // Update match details
+    existingMatch.status = 'payment_required'; // Require upfront payments
+    existingMatch.word = gameWord;
+    existingMatch.entryFee = actualEntryFee;
+    existingMatch.player1Paid = false;
+    existingMatch.player2Paid = false;
+    existingMatch.createdAt = new Date(); // Update timestamp
+    
+    const updatedMatch = await matchRepository.save(existingMatch);
+    
+    console.log('✅ Match created successfully:', {
+      matchId: updatedMatch.id,
+      status: updatedMatch.status,
+      entryFee: updatedMatch.entryFee
+    });
+    
+    return {
+      status: 'matched',
+      matchId: updatedMatch.id,
+      player1: updatedMatch.player1,
+      player2: updatedMatch.player2,
+      entryFee: updatedMatch.entryFee,
+      message: 'Match created - both players must pay entry fee to start game'
+    };
+  } catch (error) {
+    console.error('❌ Error creating match:', error);
+    throw error;
   }
-  
-  // Generate game word
-  const { getRandomWord } = require('../wordList');
-  const gameWord = getRandomWord();
-  
-  existingMatch.player2 = wallet;
-  existingMatch.status = 'payment_required'; // Require upfront payments
-  existingMatch.word = gameWord;
-  existingMatch.entryFee = actualEntryFee;
-  existingMatch.player1Paid = false;
-  existingMatch.player2Paid = false;
-  
-  const updatedMatch = await matchRepository.save(existingMatch);
-  
-  console.log('✅ Match created successfully');
-  
-  return {
-    status: 'matched',
-    matchId: updatedMatch.id,
-    player1: updatedMatch.player1,
-    player2: updatedMatch.player2,
-    entryFee: updatedMatch.entryFee,
-    message: 'Match created - both players must pay entry fee to start game'
-  };
 };
 
 // Helper function to create a waiting entry
 const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee: number) => {
-  // Check if player already has a waiting entry
-  const existingWaitingEntry = await matchRepository.findOne({
-    where: {
-      player1: wallet,
-      status: 'waiting',
-      player2: null
+  try {
+    // Check if player already has a waiting entry
+    const existingWaitingEntry = await matchRepository.findOne({
+      where: {
+        player1: wallet,
+        status: 'waiting',
+        player2: null
+      }
+    });
+    
+    if (existingWaitingEntry) {
+      console.log('⚠️ Player already has waiting entry:', existingWaitingEntry.id);
+      return {
+        status: 'waiting',
+        message: 'Already waiting for opponent',
+        waitingCount: 0
+      };
     }
-  });
-  
-  if (existingWaitingEntry) {
-    console.log('⚠️ Player already has waiting entry');
+    
+    // Create new waiting entry
+    const waitingMatch = matchRepository.create({
+      player1: wallet,
+      player2: null,
+      entryFee: entryFee,
+      status: 'waiting',
+      word: null,
+      player1Paid: false,
+      player2Paid: false
+    });
+    
+    const savedMatch = await matchRepository.save(waitingMatch);
+    console.log(`✅ New waiting entry saved with ID: ${savedMatch.id} for wallet: ${wallet}`);
+    
     return {
       status: 'waiting',
-      message: 'Already waiting for opponent',
+      message: 'Waiting for opponent',
       waitingCount: 0
     };
+  } catch (error) {
+    console.error('❌ Error creating waiting entry:', error);
+    throw error;
   }
-  
-  // Create new waiting entry
-  const waitingMatch = matchRepository.create({
-    player1: wallet,
-    player2: null,
-    entryFee: entryFee,
-    status: 'waiting',
-    word: null
-  });
-  
-  const savedMatch = await matchRepository.save(waitingMatch);
-  console.log(`✅ New waiting entry saved with ID: ${savedMatch.id}`);
-  
-  return {
-    status: 'waiting',
-    message: 'Waiting for opponent',
-    waitingCount: 0
-  };
 };
 
 // Debug endpoint to check waiting players
@@ -989,8 +1026,8 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
     const winnerWallet = winner;
     const loserWallet = winner === match.player1 ? match.player2 : match.player1;
     const entryFee = match.entryFee;
-    const winnerAmount = entryFee * 0.9; // 90% of pot
-    const feeAmount = entryFee * 0.1; // 10% fee
+    const winnerAmount = entryFee * 0.95; // 95% of pot
+    const feeAmount = entryFee * 0.05; // 5% fee
 
     payoutResult = {
       winner: winnerWallet,
@@ -1042,10 +1079,10 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
         ]
       };
     } else {
-      // Losing tie: Both failed to solve - fee wallet keeps 10% from each player
-      console.log('🤝 Losing tie: Both failed to solve - fee wallet keeps 10% from each player');
-      const feeAmount = match.entryFee * 0.1;
-      const refundAmount = match.entryFee * 0.9; // 90% refund to each player
+      // Losing tie: Both failed to solve - fee wallet keeps 5% from each player
+      console.log('🤝 Losing tie: Both failed to solve - fee wallet keeps 5% from each player');
+      const feeAmount = match.entryFee * 0.05;
+      const refundAmount = match.entryFee * 0.95; // 95% refund to each player
       
       payoutResult = {
         winner: 'tie',
@@ -1225,8 +1262,8 @@ const submitResultHandler = async (req, res) => {
           const entryFee = updatedMatch.entryFee;
           
           // Calculate payment amounts
-          const winnerAmount = entryFee * 0.9; // 90% to winner
-          const feeAmount = entryFee * 0.1; // 10% to fee wallet
+          const winnerAmount = entryFee * 0.95; // 95% to winner
+          const feeAmount = entryFee * 0.05; // 5% fee
           
           // Try to execute automated payout if private key is available
           try {
@@ -1317,7 +1354,7 @@ const submitResultHandler = async (req, res) => {
             console.log('🤝 Winning tie - each player gets refund...');
             
             const entryFee = updatedMatch.entryFee;
-            const feeAmount = entryFee * 0.1; // 10% fee
+            const feeAmount = entryFee * 0.05; // 5% fee
             
             const paymentInstructions = {
               winner: 'tie',
@@ -1362,7 +1399,7 @@ const submitResultHandler = async (req, res) => {
             console.log('🤝 Losing tie - each player pays fee...');
             
             const entryFee = updatedMatch.entryFee;
-            const feeAmount = entryFee * 0.1; // 10% fee
+            const feeAmount = entryFee * 0.05; // 5% fee
             
             const paymentInstructions = {
               winner: 'tie',
@@ -1440,8 +1477,8 @@ const submitResultHandler = async (req, res) => {
           const entryFee = updatedMatch.entryFee;
           
           // Calculate payment amounts
-          const winnerAmount = entryFee * 0.9; // 90% to winner
-          const feeAmount = entryFee * 0.1; // 10% to fee wallet
+          const winnerAmount = entryFee * 0.95; // 95% to winner
+          const feeAmount = entryFee * 0.05; // 5% fee
           
           // Try to execute automated payout if private key is available
           try {
@@ -1532,7 +1569,7 @@ const submitResultHandler = async (req, res) => {
             console.log('🤝 Winning tie - each player gets refund...');
             
             const entryFee = updatedMatch.entryFee;
-            const feeAmount = entryFee * 0.1; // 10% fee
+            const feeAmount = entryFee * 0.05; // 5% fee
             
             const paymentInstructions = {
               winner: 'tie',
@@ -1577,7 +1614,7 @@ const submitResultHandler = async (req, res) => {
             console.log('🤝 Losing tie - each player pays fee...');
             
             const entryFee = updatedMatch.entryFee;
-            const feeAmount = entryFee * 0.1; // 10% fee
+            const feeAmount = entryFee * 0.05; // 5% fee
             
             const paymentInstructions = {
               winner: 'tie',
@@ -2421,18 +2458,23 @@ const confirmPaymentHandler = async (req, res) => {
       // Set a timeout for payment completion (1 minute)
       const paymentTimeout = setTimeout(async () => {
         try {
+          console.log(`⏰ Payment timeout check for match ${matchId}`);
           const { AppDataSource } = require('../db/index');
           const timeoutMatchRepository = AppDataSource.getRepository(Match);
           const timeoutMatch = await timeoutMatchRepository.findOne({ where: { id: matchId } });
           
           if (timeoutMatch && timeoutMatch.status === 'payment_required' && (!timeoutMatch.player1Paid || !timeoutMatch.player2Paid)) {
-            console.log(`⏰ Payment timeout for match ${matchId} - refunding players`);
+            console.log(`⏰ Payment timeout for match ${matchId} - cancelling match`);
             
-            // Mark match as cancelled and refund players
+            // Mark match as cancelled
             timeoutMatch.status = 'cancelled';
             timeoutMatch.player1Paid = false;
             timeoutMatch.player2Paid = false;
             await timeoutMatchRepository.save(timeoutMatch);
+            
+            // Clean up any in-memory references
+            activeGames.delete(matchId);
+            matchmakingLocks.delete(matchId);
             
             console.log(`✅ Match ${matchId} cancelled due to payment timeout`);
           }
@@ -2441,9 +2483,19 @@ const confirmPaymentHandler = async (req, res) => {
         }
       }, 60000); // 1 minute timeout
       
-      // Store the timeout reference
+      // Store the timeout reference in memory (since database might not have this field)
       if (!match.timeoutId) {
         match.timeoutId = paymentTimeout;
+      }
+      
+      // Also store in memory for cleanup
+      if (!matchmakingLocks.has(matchId)) {
+        matchmakingLocks.set(matchId, {
+          promise: Promise.resolve(),
+          timestamp: Date.now(),
+          wallet: wallet,
+          entryFee: match.entryFee
+        });
       }
     }
 

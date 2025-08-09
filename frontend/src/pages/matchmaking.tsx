@@ -701,7 +701,7 @@ const Matchmaking: React.FC = () => {
                   </div>
                   <div className="flex items-center">
                     <span className="text-blue-400 mr-2">ℹ️</span>
-                    Winner gets 90% of total pot automatically
+                    Winner gets 95% of total pot automatically
                   </div>
                 </div>
               </div>
@@ -729,7 +729,7 @@ const Matchmaking: React.FC = () => {
                     </div>
                     <div className="flex justify-between items-center mt-1">
                       <span className="text-white/80">Potential Win:</span>
-                      <span className="text-green-400 font-bold">{(entryFee * 1.8).toFixed(3)} SOL</span>
+                      <span className="text-green-400 font-bold">{(entryFee * 1.9).toFixed(3)} SOL</span>
                     </div>
                   </div>
                   
@@ -744,7 +744,11 @@ const Matchmaking: React.FC = () => {
                     </div>
                     <div className="flex items-center">
                       <span className="text-orange-400 mr-2">🎯</span>
-                      Winner gets 90% of total pot after game
+                      Winner gets 95% of total pot after game
+                    </div>
+                    <div className="flex items-center">
+                      <span className="text-green-400 mr-2">💰</span>
+                      Better returns than American roulette (0 and 00)
                     </div>
                   </div>
                   

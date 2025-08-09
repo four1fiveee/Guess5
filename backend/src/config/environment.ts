@@ -53,6 +53,7 @@ export const validateConfig = () => {
   }
   
   console.log('✅ Environment configuration validated');
+  console.log(`🔗 Solana Network: ${process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com'}`);
 };
 
 export default config; 

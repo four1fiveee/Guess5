@@ -110,8 +110,8 @@ export const payout = async (matchData: {
     console.log('Entry fee:', matchData.entryFee, 'SOL');
 
     const entryFeeLamports = matchData.entryFee * LAMPORTS_PER_SOL;
-    const winnerAmount = entryFeeLamports * 0.9; // 90% to winner
-    const feeAmount = entryFeeLamports * 0.1; // 10% to fee wallet
+    const winnerAmount = entryFeeLamports * 0.95; // 95% to winner
+    const feeAmount = entryFeeLamports * 0.05; // 5% fee
 
     console.log('💰 Payout breakdown:');
     console.log('  - Winner gets:', winnerAmount / LAMPORTS_PER_SOL, 'SOL');
@@ -119,13 +119,13 @@ export const payout = async (matchData: {
 
     // Create payout transaction from escrow
     const payoutTransaction = new Transaction().add(
-      // Transfer 90% to winner
+      // Transfer 95% to winner
       SystemProgram.transfer({
         fromPubkey: new PublicKey(matchData.escrowAddress),
         toPubkey: new PublicKey(matchData.winner),
         lamports: winnerAmount
       }),
-      // Transfer 10% to fee wallet
+      // Transfer 5% to fee wallet
       SystemProgram.transfer({
         fromPubkey: new PublicKey(matchData.escrowAddress),
         toPubkey: new PublicKey(FEE_WALLET_ADDRESS),
