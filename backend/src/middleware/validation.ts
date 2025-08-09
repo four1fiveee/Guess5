@@ -37,6 +37,12 @@ const escrowSchema = Joi.object({
   escrowSignature: Joi.string().required()
 });
 
+const confirmPaymentSchema = Joi.object({
+  matchId: Joi.string().required(),
+  wallet: Joi.string().pattern(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).required(),
+  paymentSignature: Joi.string().required()
+});
+
 // ReCaptcha3 validation middleware
 export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, next: any) => {
   // Temporarily skip ReCaptcha validation for testing
@@ -130,6 +136,26 @@ export const validateEscrow = (req: Request, res: Response, next: any) => {
       details: error.details[0].message 
     });
   }
+  next();
+};
+
+export const validateConfirmPayment = (req: Request, res: Response, next: any) => {
+  console.log('🔍 Validating confirm payment:', {
+    body: req.body,
+    bodyType: typeof req.body,
+    bodyKeys: Object.keys(req.body || {})
+  });
+  
+  const { error } = confirmPaymentSchema.validate(req.body);
+  if (error) {
+    console.log('❌ Confirm payment validation error:', error.details[0].message);
+    return res.status(400).json({ 
+      error: 'Invalid payment confirmation data', 
+      details: error.details[0].message 
+    });
+  }
+  
+  console.log('✅ Confirm payment validation passed');
   next();
 };
 

@@ -9,11 +9,12 @@ import logo from '../../public/logo.png';
 const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction, signAllTransactions } = useWallet();
-  const [status, setStatus] = useState<'waiting' | 'matched' | 'payment_required' | 'active' | 'error'>('waiting');
+  const [status, setStatus] = useState<'waiting' | 'matched' | 'payment_required' | 'active' | 'error' | 'cancelled'>('waiting');
   const [timeLeft, setTimeLeft] = useState(120);
   const [timeoutMessage, setTimeoutMessage] = useState<string>('');
   const [waitingCount, setWaitingCount] = useState(0);
   const [matchData, setMatchData] = useState<any>(null);
+  const [paymentTimeout, setPaymentTimeout] = useState<NodeJS.Timeout | null>(null);
 
   const [entryFee, setEntryFee] = useState<number>(0);
   const [isPolling, setIsPolling] = useState<boolean>(false);
@@ -97,6 +98,12 @@ const Matchmaking: React.FC = () => {
 
       if (confirmData.status === 'active') {
         console.log('🎮 Game started! Redirecting to game...');
+        
+        // Clear payment timeout since payment was successful
+        if (paymentTimeout) {
+          clearTimeout(paymentTimeout);
+          setPaymentTimeout(null);
+        }
         
         // Store match data and redirect to game
         localStorage.setItem('matchId', matchData.matchId);
@@ -456,8 +463,31 @@ const Matchmaking: React.FC = () => {
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
             isStartMatchmakingRunning.current = false; // Reset running flag
             
-                          console.log('🎮 Match confirmed, proceeding to game...');
+            // Set payment timeout (1 minute)
+            if (data.status === 'payment_required') {
+              const timeout = setTimeout(() => {
+                console.log('⏰ Payment timeout - redirecting to lobby');
+                setStatus('cancelled');
+                setTimeoutMessage('Payment timeout - returning to lobby...');
+                setTimeout(() => router.push('/lobby'), 3000);
+              }, 60000); // 1 minute
+              setPaymentTimeout(timeout);
+            }
+            
+            console.log('🎮 Match confirmed, proceeding to game...');
             return; // Exit early, don't continue polling
+          } else if (data.status === 'cancelled') {
+            console.log('❌ Match was cancelled:', data);
+            setStatus('cancelled');
+            clearInterval(pollInterval);
+            clearInterval(countdownInterval);
+            clearTimeout(timeoutId);
+            setIsPolling(false);
+            setIsMatchmakingInProgress(false);
+            isStartMatchmakingRunning.current = false;
+            setTimeoutMessage('Match was cancelled due to payment timeout - returning to lobby...');
+            setTimeout(() => router.push('/lobby'), 3000);
+            return;
           }
         } catch (error) {
           console.error('❌ Error polling for match:', error);
@@ -499,6 +529,9 @@ const Matchmaking: React.FC = () => {
       clearTimeout(timeoutId);
       clearInterval(pollInterval);
       clearInterval(countdownInterval);
+      if (paymentTimeout) {
+        clearTimeout(paymentTimeout);
+      }
       setIsMatchmakingInProgress(false);
       isStartMatchmakingRunning.current = false; // Reset running flag
     };
@@ -652,6 +685,25 @@ const Matchmaking: React.FC = () => {
                 <div className="mt-3 text-xs text-white/50">
                   ⚠️ Don't close Phantom or refresh the page during this process
                 </div>
+              </div>
+            </div>
+          )}
+          {status === 'cancelled' && (
+            <div className="space-y-4">
+              <div className="text-red-400 text-xl font-bold">⏰ Match Cancelled</div>
+              
+              <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4">
+                <h3 className="text-red-400 font-semibold mb-2">Payment Timeout</h3>
+                <p className="text-white/80 mb-3">
+                  The match was cancelled because one or both players didn't complete payment within 1 minute.
+                </p>
+                
+                <button
+                  onClick={() => router.push('/lobby')}
+                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-200"
+                >
+                  Return to Lobby
+                </button>
               </div>
             </div>
           )}

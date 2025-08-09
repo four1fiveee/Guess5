@@ -5,6 +5,7 @@ const {
   validateMatchRequest: validateMatch, 
   validateSubmitResult: validateResult, 
   validateEscrow: validateEscrowData,
+  validateConfirmPayment: validateConfirmPaymentData,
   validateReCaptcha,
   createRateLimiter
 } = require('../middleware/validation');
@@ -38,6 +39,7 @@ router.post('/submit-guess',
 
 router.post('/confirm-payment', 
   walletGameLimiter,
+  validateConfirmPaymentData,
   validateReCaptcha,
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
 );
