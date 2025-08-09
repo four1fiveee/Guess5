@@ -53,6 +53,27 @@ const Matchmaking: React.FC = () => {
       // Create connection to devnet
       const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
       
+      // Check if the user has enough balance
+      const balance = await connection.getBalance(publicKey);
+      const requiredAmount = Math.floor(entryFee * LAMPORTS_PER_SOL);
+      
+      console.log('🔍 Balance check:', {
+        currentBalance: balance / LAMPORTS_PER_SOL,
+        requiredAmount: requiredAmount / LAMPORTS_PER_SOL,
+        hasEnoughBalance: balance >= requiredAmount
+      });
+      
+      if (balance < requiredAmount) {
+        throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
+      }
+      
+      console.log('🔍 Creating transaction for:', {
+        from: publicKey.toString(),
+        to: "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A",
+        amount: entryFee,
+        lamports: Math.floor(entryFee * LAMPORTS_PER_SOL)
+      });
+      
       // Create transaction to pay entry fee to fee wallet
       const transaction = new Transaction().add(
         SystemProgram.transfer({
@@ -66,17 +87,73 @@ const Matchmaking: React.FC = () => {
       const { blockhash } = await connection.getLatestBlockhash();
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
+      
+      // Log transaction details for debugging
+      console.log('🔍 Transaction details:', {
+        recentBlockhash: blockhash,
+        feePayer: publicKey.toString(),
+        instructions: transaction.instructions.length,
+        signers: transaction.signatures.length
+      });
 
+      console.log('🔍 Transaction created, signing...');
+      
       // Send transaction
       const signedTransaction = await signTransaction(transaction);
-      const signature = await connection.sendRawTransaction(signedTransaction.serialize());
+      console.log('🔍 Transaction signed, sending...');
       
-      // Wait for confirmation
-      const confirmation = await connection.confirmTransaction(signature);
+      // Serialize the transaction
+      const serializedTransaction = signedTransaction.serialize();
+      console.log('🔍 Transaction serialized, length:', serializedTransaction.length);
+      
+      // Send the transaction
+      const signature = await connection.sendRawTransaction(serializedTransaction, {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed'
+      });
+      console.log('🔍 Transaction sent with signature:', signature);
+      
+      // Wait for confirmation with more detailed error handling
+      console.log('🔍 Waiting for transaction confirmation...');
+      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
       
       if (confirmation.value.err) {
-        throw new Error('Transaction failed');
+        console.error('❌ Transaction confirmation failed:', confirmation.value.err);
+        throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
       }
+      
+      console.log('✅ Transaction confirmed successfully');
+      
+      // Verify the transaction actually happened by checking the transaction
+      const transactionDetails = await connection.getTransaction(signature);
+      if (!transactionDetails) {
+        throw new Error('Transaction not found on blockchain');
+      }
+      
+      if (transactionDetails.meta?.err) {
+        console.error('❌ Transaction failed on blockchain:', transactionDetails.meta.err);
+        throw new Error(`Transaction failed on blockchain: ${JSON.stringify(transactionDetails.meta.err)}`);
+      }
+      
+      console.log('🔍 Transaction details:', {
+        signature: signature,
+        status: transactionDetails.meta?.err ? 'failed' : 'success',
+        fee: transactionDetails.meta?.fee,
+        lamports: transactionDetails.meta?.postBalances,
+        preBalances: transactionDetails.meta?.preBalances
+      });
+      
+      // Check if the transfer actually happened
+      const preBalance = transactionDetails.meta?.preBalances?.[0] || 0;
+      const postBalance = transactionDetails.meta?.postBalances?.[0] || 0;
+      const transferAmount = Math.floor(entryFee * LAMPORTS_PER_SOL);
+      
+      console.log('🔍 Balance check:', {
+        preBalance: preBalance / LAMPORTS_PER_SOL,
+        postBalance: postBalance / LAMPORTS_PER_SOL,
+        transferAmount: transferAmount / LAMPORTS_PER_SOL,
+        difference: (preBalance - postBalance) / LAMPORTS_PER_SOL
+      });
 
       console.log('✅ Payment successful:', signature);
       
@@ -92,6 +169,11 @@ const Matchmaking: React.FC = () => {
           paymentSignature: signature
         }),
       });
+
+      if (!confirmResponse.ok) {
+        const errorData = await confirmResponse.json().catch(() => ({}));
+        throw new Error(`Backend confirmation failed: ${errorData.error || confirmResponse.statusText}`);
+      }
 
       const confirmData = await confirmResponse.json();
       console.log('✅ Payment confirmed with backend:', confirmData);
@@ -126,6 +208,14 @@ const Matchmaking: React.FC = () => {
     } catch (error) {
       console.error('❌ Payment error:', error);
       alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Log additional details for debugging
+      if (error instanceof Error) {
+        console.error('❌ Error details:', {
+          message: error.message,
+          stack: error.stack
+        });
+      }
     }
   };
 
