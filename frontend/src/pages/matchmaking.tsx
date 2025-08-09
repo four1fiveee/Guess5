@@ -748,7 +748,7 @@ const Matchmaking: React.FC = () => {
                     </div>
                     <div className="flex items-center">
                       <span className="text-green-400 mr-2">💰</span>
-                      Better returns than American roulette (0 and 00)
+                      <span className="text-sm text-white/70">Better than American roulette's -5.26% return</span>
                     </div>
                   </div>
                   

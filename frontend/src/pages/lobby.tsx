@@ -162,7 +162,7 @@ export default function Lobby() {
               💡 With a 50% win rate, you get better odds than roulette! 
               Winner takes 95% of the pot, we keep only 5%.
               <br />
-              <span className="text-green-400 font-semibold">Better returns than American roulette!</span>
+              <span className="text-green-400 font-semibold">(Better than American roulette's -5.26% return!)</span>
             </div>
           </div>
         </div>
