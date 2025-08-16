@@ -50,8 +50,9 @@ const Matchmaking: React.FC = () => {
         entryFee: entryFee
       });
 
-      // Create connection to devnet
-      const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+      // Create connection to Solana network
+      const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
+      const connection = new Connection(solanaNetwork, 'confirmed');
       
       // Check if the user has enough balance
       const balance = await connection.getBalance(publicKey);
@@ -548,20 +549,17 @@ const Matchmaking: React.FC = () => {
             console.log('✅ We have been matched!', data);
             setMatchData(data);
             
-            // Check if we've already paid but other player hasn't
-            if (data.player1Paid === false && data.player2Paid === true) {
-              // We paid, waiting for other player
-              setStatus('waiting_for_opponent');
-            } else if (data.player1Paid === true && data.player2Paid === false) {
-              // Other player paid, we need to pay
-              setStatus('matched');
-            } else if (data.player1Paid === true && data.player2Paid === true) {
-              // Both paid, game should start
-              setStatus('active');
-            } else {
-              // Neither paid yet, show payment button
-              setStatus('matched');
-            }
+            // Always set status to 'matched' to show payment button, regardless of backend status
+            setStatus('matched');
+            
+            // Log payment status for debugging
+            console.log('💰 Payment status:', {
+              player1Paid: data.player1Paid,
+              player2Paid: data.player2Paid,
+              player1: data.player1,
+              player2: data.player2,
+              currentPlayer: publicKey.toString()
+            });
             
             clearInterval(countdownInterval);
             clearTimeout(timeoutId); // Also clear timeout

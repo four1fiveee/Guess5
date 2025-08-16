@@ -43,8 +43,10 @@ export default function Lobby() {
   const router = useRouter()
   const { publicKey } = useWallet()
   const [checkingBalance, setCheckingBalance] = useState(false)
+  const [isMatchmaking, setIsMatchmaking] = useState(false)
   const [solPrice, setSolPrice] = useState<number | null>(null)
   const [solAmounts, setSolAmounts] = useState<number[]>([])
+  const [walletBalance, setWalletBalance] = useState<number | null>(null)
 
   useEffect(() => {
     const getPrice = async () => {
@@ -64,6 +66,29 @@ export default function Lobby() {
     return () => clearInterval(interval);
   }, []);
 
+  // Check wallet balance when wallet connects
+  useEffect(() => {
+    const checkWalletBalance = async () => {
+      if (!publicKey) {
+        setWalletBalance(null);
+        return;
+      }
+      
+      try {
+        const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
+        const connection = new Connection(solanaNetwork, 'confirmed');
+        const balance = await connection.getBalance(publicKey);
+        const balanceInSol = balance / LAMPORTS_PER_SOL;
+        setWalletBalance(balanceInSol);
+      } catch (error) {
+        console.error('Failed to check wallet balance:', error);
+        setWalletBalance(null);
+      }
+    };
+    
+    checkWalletBalance();
+  }, [publicKey]);
+
   const checkBalance = async (requiredSol: number) => {
     if (!publicKey) {
       alert('Please connect your wallet first!')
@@ -71,7 +96,8 @@ export default function Lobby() {
     }
     setCheckingBalance(true)
     try {
-      const connection = new Connection('https://api.devnet.solana.com', 'confirmed')
+      const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
+      const connection = new Connection(solanaNetwork, 'confirmed')
       const balance = await connection.getBalance(publicKey)
       const balanceInSol = balance / LAMPORTS_PER_SOL
       if (balanceInSol < requiredSol) {
@@ -97,18 +123,22 @@ export default function Lobby() {
       return
     }
     
-    console.log('🔍 Checking balance for:', solAmount);
-    const hasBalance = await checkBalance(solAmount)
-    console.log('💰 Balance check result:', hasBalance);
-    
-    if (!hasBalance) {
-      console.log('❌ Insufficient balance, returning');
-      return
+    // Prevent multiple clicks
+    if (isMatchmaking) {
+      console.log('⏳ Already matchmaking, ignoring click');
+      return;
     }
-
+    
+    // Check if balance is sufficient
+    if (walletBalance !== null && walletBalance < solAmount) {
+      alert(`Insufficient balance! You have ${walletBalance.toFixed(4)} SOL but need ${solAmount.toFixed(4)} SOL for this game.`)
+      return;
+    }
+    
+    setIsMatchmaking(true);
+    
     try {
       console.log('💾 Storing entry fee in localStorage:', solAmount);
-      // Store the SOL amount in localStorage for consistency
       localStorage.setItem('entryFeeSOL', solAmount.toString());
       
       console.log('📡 Calling requestMatch with:', { wallet: publicKey.toString(), entryFee: solAmount });
@@ -124,10 +154,12 @@ export default function Lobby() {
       } else {
         console.log('❌ Unknown result status:', result.status);
         alert('Failed to start matchmaking. Please try again.')
+        setIsMatchmaking(false);
       }
     } catch (error) {
       console.error('❌ Matchmaking error:', error)
       alert('Failed to start matchmaking. Please try again.')
+      setIsMatchmaking(false);
     }
   }
 
@@ -142,21 +174,38 @@ export default function Lobby() {
       <h2 className="text-3xl font-bold text-accent mb-6">Choose Entry Fee</h2>
       
       <div className="flex gap-6">
-        {ENTRY_FEES_USD.map((usd, idx) => (
-          <button
-            key={usd}
-            className={`px-8 py-4 bg-accent text-primary rounded-lg text-2xl font-semibold transition ${
-              checkingBalance ? 'opacity-50 cursor-not-allowed' : 'hover:bg-yellow-400'
-            }`}
-            onClick={() => handleSelect(usd, solAmounts[idx])}
-            disabled={checkingBalance || solPrice === null}
-          >
-            {checkingBalance ? 'Checking...' : `$${usd}`}
-            <div className="text-xs text-gray-700 mt-1">
-              {solPrice !== null && solAmounts[idx] !== undefined ? `(${solAmounts[idx]} SOL)` : ''}
-            </div>
-          </button>
-        ))}
+        {ENTRY_FEES_USD.map((usd, idx) => {
+          const solAmount = solAmounts[idx];
+          const hasInsufficientBalance = walletBalance !== null && solAmount !== undefined && walletBalance < solAmount;
+          const isDisabled = checkingBalance || solPrice === null || isMatchmaking || hasInsufficientBalance;
+          
+          return (
+            <button
+              key={usd}
+              className={`px-8 py-4 rounded-lg text-2xl font-semibold transition ${
+                hasInsufficientBalance 
+                  ? 'bg-gray-500 text-gray-300 cursor-not-allowed line-through' 
+                  : isDisabled
+                    ? 'bg-accent/50 text-primary/50 cursor-not-allowed'
+                    : 'bg-accent text-primary hover:bg-yellow-400'
+              }`}
+              onClick={() => handleSelect(usd, solAmounts[idx])}
+              disabled={isDisabled}
+            >
+              {isMatchmaking ? 'Finding Opponent...' : `$${usd}`}
+              <div className={`text-xs mt-1 ${
+                hasInsufficientBalance ? 'text-gray-400' : 'text-gray-700'
+              }`}>
+                {solPrice !== null && solAmount !== undefined ? `(${solAmount} SOL)` : ''}
+              </div>
+              {hasInsufficientBalance && (
+                <div className="text-xs text-red-400 mt-1">
+                  Insufficient Balance
+                </div>
+              )}
+            </button>
+          );
+        })}
       </div>
       
       {/* Odds Information */}

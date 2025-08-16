@@ -6,7 +6,7 @@ export default function Status() {
 
   useEffect(() => {
     const checkStatus = async () => {
-      const url = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:40000'
+      const url = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com'
       setApiUrl(url || '')
       
       try {
