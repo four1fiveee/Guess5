@@ -2,14 +2,19 @@ const { Request, Response, NextFunction } = require('express');
 
 // Track recent requests to prevent duplicates
 const recentRequests = new Map<string, number>();
-const DEDUPLICATION_WINDOW = 2000; // 2 second window (less aggressive)
-const MIN_REQUEST_INTERVAL = 1000; // 1 second minimum between requests
+const DEDUPLICATION_WINDOW = 5000; // 5 second window
+const MIN_REQUEST_INTERVAL = 500; // 500ms minimum between requests (much more lenient)
 
 export const deduplicateRequests = (req: any, res: any, next: any) => {
-  // Only apply to POST requests for specific matchmaking endpoints that are prone to spam
+  // Temporarily disable deduplication for matchmaking during testing
+  if (req.url.includes('/request-match')) {
+    console.log('🔓 Skipping deduplication for matchmaking request during testing');
+    return next();
+  }
+  
+  // Only apply to POST requests for specific endpoints that are prone to spam
   if (req.method !== 'POST' || 
-      (!req.url.includes('/request-match') && 
-       !req.url.includes('/submit-result') && 
+      (!req.url.includes('/submit-result') && 
        !req.url.includes('/submit-guess'))) {
     return next();
   }
