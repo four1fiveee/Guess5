@@ -551,8 +551,14 @@ const Matchmaking: React.FC = () => {
             console.log('✅ We have been matched!', data);
             setMatchData(data);
             
-            // Always set status to 'matched' to show payment button, regardless of backend status
-            setStatus('matched');
+            // Set status based on backend status
+            if (data.status === 'payment_required') {
+              setStatus('payment_required');
+            } else if (data.status === 'active') {
+              setStatus('active');
+            } else {
+              setStatus('matched');
+            }
             
             // Log payment status for debugging
             console.log('💰 Payment status:', {
@@ -705,8 +711,17 @@ const Matchmaking: React.FC = () => {
             <div>
               <h2 className="text-2xl font-bold text-accent mb-4">Match Found!</h2>
               <div className="text-white/80 mb-4">
-                Opponent found. Preparing game...
+                Opponent found. Please pay the entry fee to start the game.
               </div>
+              <div className="text-white/80 mb-4">
+                Entry Fee: {entryFee} SOL
+              </div>
+              <button
+                onClick={handlePayment}
+                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+              >
+                Pay Entry Fee
+              </button>
             </div>
           )}
           
