@@ -348,42 +348,47 @@ const Game: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-primary flex flex-col items-center justify-center p-4">
-      <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-2xl w-full">
-        <div className="text-center mb-6">
-          {/* Logo prominently displayed at the top */}
-          <div className="flex justify-center mb-4">
-            <Image src={logo} alt="Guess5 Logo" width={150} height={150} className="mb-2" />
-          </div>
-          
-          <h1 className="text-3xl font-bold text-white mb-4">
-            {gameState === 'solved' ? 'Game Complete!' : 'Guess5'}
-          </h1>
-          {gameState === 'playing' && (
-            <div className="text-white text-lg">
-              Time Remaining: {formatTime(timeRemaining)}
-            </div>
-          )}
-          {gameState === 'waiting' && (
-            <div className="text-white text-lg">
-              Waiting for opponent to finish...
-            </div>
-          )}
-        </div>
-
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
+      <div className="flex flex-col items-center">
+        {/* Logo prominently displayed at the top */}
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
+        
+        {/* Game Title */}
+        <h1 className="text-3xl font-bold text-white mb-4">
+          {gameState === 'solved' ? 'Game Complete!' : 'Guess5'}
+        </h1>
+        
+        {/* Timer */}
         {gameState === 'playing' && (
-          <GameGrid
-            guesses={serverGuesses}
-            currentGuess={currentGuess}
-            setCurrentGuess={setCurrentGuess}
-            onGuess={handleGuess}
-            remainingGuesses={remainingGuesses}
-          />
+          <div className="text-accent text-lg mb-6 font-semibold">
+            ⏰ Time Remaining: {formatTime(timeRemaining)}
+          </div>
+        )}
+        
+        {/* Waiting Message */}
+        {gameState === 'waiting' && (
+          <div className="text-accent text-lg mb-6 font-semibold">
+            ⏳ Waiting for opponent to finish...
+          </div>
         )}
 
+        {/* Game Grid - No box wrapper */}
+        {gameState === 'playing' && (
+          <div className="mb-6">
+            <GameGrid
+              guesses={serverGuesses}
+              currentGuess={currentGuess}
+              setCurrentGuess={setCurrentGuess}
+              onGuess={handleGuess}
+              remainingGuesses={remainingGuesses}
+            />
+          </div>
+        )}
+
+        {/* Game Results */}
         {gameState === 'solved' && (
-          <div className="text-center">
-            <div className="text-white text-xl mb-4">
+          <div className="text-center mb-6">
+            <div className="text-2xl font-bold text-accent mb-2">
               {playerResult?.won ? '🎉 You solved it!' : '❌ Game Over'}
             </div>
             <div className="text-white text-lg">
@@ -392,9 +397,10 @@ const Game: React.FC = () => {
           </div>
         )}
 
+        {/* Game Completed */}
         {gameState === 'completed' && (
-          <div className="text-center">
-            <div className="text-white text-xl mb-4">
+          <div className="text-center mb-6">
+            <div className="text-2xl font-bold text-accent mb-2">
               {finalResult?.won ? '🏆 You won!' : '😔 You lost'}
             </div>
             <div className="text-white text-lg">

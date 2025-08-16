@@ -29,14 +29,14 @@ const GameGrid: React.FC<{
   return (
     <div className="flex flex-col items-center justify-center w-full">
       {/* Render 7 rows for guesses */}
-      <div className="flex flex-col gap-2 items-center">
+      <div className="flex flex-col gap-3 items-center mb-6">
         {[...Array(7)].map((_, row) => (
-          <div key={row} className="flex gap-2 justify-center">
+          <div key={row} className="flex gap-3 justify-center">
             {[...Array(5)].map((_, col) => (
               <div
                 key={col}
-                className={`w-12 h-12 flex items-center justify-center border-2 rounded-full text-2xl font-bold
-                  ${hintColors[row]?.[col] || 'bg-white border-gray-300'} text-gray-800 transition-all duration-200`}
+                className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold
+                  ${hintColors[row]?.[col] || 'bg-white/10 border-white/30 text-white'} transition-all duration-200`}
                 style={{ aspectRatio: '1 / 1' }}
               >
                 {guesses[row]?.[col] || ''}
@@ -48,22 +48,22 @@ const GameGrid: React.FC<{
       
       {/* Input for current guess */}
       {remainingGuesses > 0 && (
-        <div className="mt-4 flex flex-col items-center gap-2 w-full">
-          <div className="text-gray-600 text-lg text-center">Guesses: {guesses.length}/7</div>
-          <div className="flex gap-2 justify-center w-full">
+        <div className="flex flex-col items-center gap-4 w-full max-w-md">
+          <div className="text-accent text-lg font-semibold">Guesses: {guesses.length}/7</div>
+          <div className="flex gap-3 justify-center w-full">
             <input
               type="text"
               maxLength={5}
               value={currentGuess}
               onChange={e => setCurrentGuess(e.target.value.toUpperCase())}
-              className="px-4 py-2 rounded border text-gray-800 text-center"
+              className="px-6 py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white text-center text-xl font-semibold placeholder-white/50 focus:outline-none focus:border-accent"
               disabled={remainingGuesses <= 0}
               onKeyDown={handleKeyDown}
               placeholder="Enter 5-letter word"
             />
             <button
               onClick={handleSubmit}
-              className="px-4 py-2 bg-accent text-white rounded font-semibold hover:bg-accent/80 disabled:bg-gray-400"
+              className="px-6 py-3 bg-accent text-primary rounded-lg font-bold text-lg hover:bg-yellow-400 disabled:bg-gray-600 disabled:text-gray-400 transition-colors"
               disabled={currentGuess.length !== 5 || remainingGuesses <= 0}
             >
               Guess

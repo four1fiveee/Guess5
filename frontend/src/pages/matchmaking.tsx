@@ -190,25 +190,26 @@ const Matchmaking: React.FC = () => {
         
         // Store match data and redirect to game
         localStorage.setItem('matchId', matchData.matchId);
-        if (matchData.word) {
-          localStorage.setItem('word', matchData.word);
-        }
         if (matchData.entryFee) {
           localStorage.setItem('entryFee', matchData.entryFee.toString());
         }
         
-        // Redirect to game after successful payment
-        setTimeout(() => {
-          router.push(`/game?matchId=${matchData.matchId}`);
-        }, 2000);
+        // Redirect to game immediately
+        router.push(`/game?matchId=${matchData.matchId}`);
       } else {
         console.log('⏳ Waiting for other player to pay...');
-        setStatus('payment_required');
+        setStatus('waiting_for_opponent');
+        
+        // Continue polling to detect when other player pays
+        console.log('🔄 Continuing to poll for game start...');
       }
       
     } catch (error) {
       console.error('❌ Payment error:', error);
       alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Reset status to allow retry
+      setStatus('matched');
       
       // Log additional details for debugging
       if (error instanceof Error) {
@@ -574,17 +575,12 @@ const Matchmaking: React.FC = () => {
               
               // Store match data and redirect to game
               localStorage.setItem('matchId', data.matchId);
-              if (data.word) {
-                localStorage.setItem('word', data.word);
-              }
               if (data.entryFee) {
                 localStorage.setItem('entryFee', data.entryFee.toString());
               }
               
-              // Redirect to game after successful payment
-              setTimeout(() => {
-                router.push(`/game?matchId=${data.matchId}`);
-              }, 2000);
+              // Redirect to game immediately
+              router.push(`/game?matchId=${data.matchId}`);
               return;
             }
             
