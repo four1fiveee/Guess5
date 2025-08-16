@@ -1959,6 +1959,12 @@ const submitGameGuessHandler = async (req, res) => {
       return res.status(400).json({ error: 'Invalid guess format - must be 5 letters' });
     }
 
+    // Validate guess is a real word
+    const { isValidWord } = require('../wordList');
+    if (!isValidWord(guess)) {
+      return res.status(400).json({ error: 'Invalid word - not in word list' });
+    }
+
     // Get server-side game state
     const serverGameState = activeGames.get(matchId as string);
     if (!serverGameState) {
@@ -2037,13 +2043,7 @@ const getGameStateHandler = async (req, res) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Get server-side game state
-    const serverGameState = activeGames.get(matchId as string);
-    if (!serverGameState) {
-      return res.status(404).json({ error: 'Game not found or already completed' });
-    }
-
-    // Validate player is part of this match
+    // Validate player is part of this match first
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
@@ -2054,6 +2054,54 @@ const getGameStateHandler = async (req, res) => {
 
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+
+    // Get server-side game state
+    const serverGameState = activeGames.get(matchId as string);
+    if (!serverGameState) {
+      console.log(`❌ Game state not found for match ${matchId}`);
+      console.log(`🔍 Active games:`, Array.from(activeGames.keys()));
+      console.log(`🔍 Match status:`, match?.status);
+      
+      // If match is active but no game state, try to reinitialize
+      if (match?.status === 'active') {
+        console.log(`🔄 Attempting to reinitialize game state for match ${matchId}`);
+        const word = require('../wordList').getRandomWord();
+        const newGameState = {
+          startTime: Date.now(),
+          player1StartTime: Date.now(),
+          player2StartTime: Date.now(),
+          player1Guesses: [],
+          player2Guesses: [],
+          player1Solved: false,
+          player2Solved: false,
+          word: word,
+          matchId: matchId,
+          lastActivity: Date.now(),
+          completed: false
+        };
+        activeGames.set(matchId as string, newGameState);
+        console.log(`✅ Reinitialized game state for match ${matchId}`);
+        
+        // Use the new game state
+        const reinitializedGameState = activeGames.get(matchId as string);
+        if (reinitializedGameState) {
+          const isPlayer1 = wallet === match.player1;
+          const playerGuesses = isPlayer1 ? reinitializedGameState.player1Guesses : reinitializedGameState.player2Guesses;
+          
+          return res.json({
+            success: true,
+            playerGuesses,
+            totalGuesses: playerGuesses.length,
+            remainingGuesses: 7 - playerGuesses.length,
+            solved: isPlayer1 ? reinitializedGameState.player1Solved : reinitializedGameState.player2Solved,
+            opponentSolved: isPlayer1 ? reinitializedGameState.player2Solved : reinitializedGameState.player1Solved,
+            gameActive: !reinitializedGameState.player1Solved && !reinitializedGameState.player2Solved
+          });
+        }
+      }
+      
+      return res.status(404).json({ error: 'Game not found or already completed' });
     }
 
     // Determine which player this is
@@ -2571,6 +2619,14 @@ const confirmPaymentHandler = async (req, res) => {
       });
 
       console.log(`🎮 Game started for match ${matchId} with word: ${word}`);
+      console.log(`🎮 Active games count: ${activeGames.size}`);
+      console.log(`🎮 Game state initialized:`, {
+        matchId,
+        word,
+        player1: match.player1,
+        player2: match.player2,
+        startTime: Date.now()
+      });
     } else {
       console.log(`⏳ Waiting for other player to pay for match ${matchId}. Player1Paid: ${match.player1Paid}, Player2Paid: ${match.player2Paid}`);
       
@@ -2642,6 +2698,50 @@ const confirmPaymentHandler = async (req, res) => {
   } catch (error) {
     console.error('❌ Error confirming payment:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Debug matches endpoint
+const debugMatchesHandler = async (req, res) => {
+  try {
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get all matches
+    const allMatches = await matchRepository.find({
+      order: { createdAt: 'DESC' },
+      take: 20
+    });
+    
+    // Get active games
+    const activeGamesList = Array.from(activeGames.entries()).map(([matchId, gameState]) => ({
+      matchId,
+      word: gameState.word,
+      player1Solved: gameState.player1Solved,
+      player2Solved: gameState.player2Solved,
+      startTime: gameState.startTime
+    }));
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      totalMatches: allMatches.length,
+      activeGames: activeGamesList,
+      matches: allMatches.map(match => ({
+        id: match.id,
+        status: match.status,
+        player1: match.player1,
+        player2: match.player2,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        entryFee: match.entryFee,
+        createdAt: match.createdAt,
+        updatedAt: match.updatedAt
+      }))
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in debug matches:', error);
+    res.status(500).json({ error: 'Debug failed' });
   }
 };
 
@@ -2752,6 +2852,7 @@ module.exports = {
   getMatchStatusHandler,
   checkPlayerMatchHandler,
   debugWaitingPlayersHandler,
+  debugMatchesHandler,
   matchTestHandler,
   testRepositoryHandler,
   testDatabaseHandler,

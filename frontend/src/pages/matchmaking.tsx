@@ -570,6 +570,15 @@ const Matchmaking: React.FC = () => {
             // Check if the match is active (both players paid)
             if (data.status === 'active') {
               console.log('🎮 Match is active! Starting game...');
+              console.log('🎮 Game data:', {
+                matchId: data.matchId,
+                word: data.word,
+                player1: data.player1,
+                player2: data.player2,
+                player1Paid: data.player1Paid,
+                player2Paid: data.player2Paid
+              });
+              
               clearInterval(pollInterval);
               setIsPolling(false);
               

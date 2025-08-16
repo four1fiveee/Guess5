@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import wordList from './wordList'
 
 // Props: guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses
 const GameGrid: React.FC<{
@@ -13,6 +14,12 @@ const GameGrid: React.FC<{
   // Handle guess submission
   const handleSubmit = async () => {
     if (currentGuess.length !== 5 || remainingGuesses <= 0) return
+    
+    // Validate word is in the word list
+    if (!wordList.includes(currentGuess.toUpperCase())) {
+      alert('Invalid word - not in word list')
+      return
+    }
     
     // Server will validate the guess and provide feedback
     await onGuess(currentGuess)
@@ -49,7 +56,7 @@ const GameGrid: React.FC<{
       {/* Input for current guess */}
       {remainingGuesses > 0 && (
         <div className="flex flex-col items-center gap-4 w-full max-w-md">
-          <div className="text-accent text-lg font-semibold">Guesses: {guesses.length}/7</div>
+          <div className="text-accent text-lg font-semibold">Guesses: {guesses.length}/7 (Max 7 guesses)</div>
           <div className="flex gap-3 justify-center w-full">
             <input
               type="text"

@@ -77,6 +77,7 @@ router.get('/memory-stats', asyncHandlerWrapper(matchController.memoryStatsHandl
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));
+  router.get('/debug/matches', asyncHandlerWrapper(matchController.debugMatchesHandler));
   router.get('/test', asyncHandlerWrapper(matchController.matchTestHandler));
   router.get('/test-repository', asyncHandlerWrapper(matchController.testRepositoryHandler));
   router.get('/test-database', asyncHandlerWrapper(matchController.testDatabaseHandler));

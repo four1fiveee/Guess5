@@ -244,7 +244,11 @@ const Game: React.FC = () => {
       
     } catch (error) {
       console.error('❌ Error submitting guess:', error);
-      setError('Failed to submit guess');
+      const errorMessage = error instanceof Error ? error.message : 'Failed to submit guess';
+      setError(errorMessage);
+      
+      // Clear error after 3 seconds
+      setTimeout(() => setError(null), 3000);
     }
   };
 
@@ -367,6 +371,13 @@ const Game: React.FC = () => {
         {gameState === 'playing' && (
           <div className="text-accent text-lg mb-6 font-semibold">
             ⏰ Time Remaining: {formatTime(timeRemaining)}
+          </div>
+        )}
+        
+        {/* Error Display */}
+        {error && (
+          <div className="bg-red-500 text-white px-4 py-2 rounded-lg mb-4 text-center">
+            ❌ {error}
           </div>
         )}
         
