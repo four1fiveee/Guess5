@@ -584,8 +584,13 @@ const Matchmaking: React.FC = () => {
               currentPlayer: publicKey.toString()
             });
             
+            // STOP ALL TIMERS when match is found
             clearInterval(countdownInterval);
-            clearTimeout(timeoutId); // Also clear timeout
+            clearTimeout(timeoutId);
+            if (paymentTimeout) {
+              clearTimeout(paymentTimeout);
+              setPaymentTimeout(null);
+            }
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
             isStartMatchmakingRunning.current = false; // Reset running flag
             
@@ -633,7 +638,14 @@ const Matchmaking: React.FC = () => {
                 player2Paid: data.player2Paid
               });
               
+              // STOP ALL TIMERS when both players paid
               clearInterval(pollInterval);
+              clearInterval(countdownInterval);
+              clearTimeout(timeoutId);
+              if (paymentTimeout) {
+                clearTimeout(paymentTimeout);
+                setPaymentTimeout(null);
+              }
               setIsPolling(false);
               
               // Store match data and redirect to game

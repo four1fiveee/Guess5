@@ -1959,11 +1959,8 @@ const submitGameGuessHandler = async (req, res) => {
       return res.status(400).json({ error: 'Invalid guess format - must be 5 letters' });
     }
 
-    // Validate guess is a real word
-    const { isValidWord } = require('../wordList');
-    if (!isValidWord(guess)) {
-      return res.status(400).json({ error: 'Invalid word - not in word list' });
-    }
+    // Allow any 5-letter word (no word list validation)
+    // The game is about guessing, not about using specific words
 
     // Get server-side game state
     const serverGameState = activeGames.get(matchId as string);

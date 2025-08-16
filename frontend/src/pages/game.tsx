@@ -230,8 +230,8 @@ const Game: React.FC = () => {
       const data = await response.json();
       
       // Update local state with server response
-      setServerGuesses(data.totalGuesses);
-      setRemainingGuesses(data.remainingGuesses);
+      setServerGuesses(data.playerGuesses || []);
+      setRemainingGuesses(data.remainingGuesses || 7);
       
       if (data.solved) {
         setGameState('solved');

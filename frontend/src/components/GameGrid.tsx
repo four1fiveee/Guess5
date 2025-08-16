@@ -11,18 +11,40 @@ const GameGrid: React.FC<{
 }> = ({ guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses }) => {
   const [hintColors, setHintColors] = useState<string[][]>([])
 
+  // Calculate hint colors for each guess
+  const calculateHintColors = (guess: string, targetWord: string) => {
+    const colors = new Array(5).fill('bg-white/10 border-white/30 text-white')
+    const targetLetters = targetWord.split('')
+    const guessLetters = guess.split('')
+    
+    // First pass: mark correct letters (green)
+    for (let i = 0; i < 5; i++) {
+      if (guessLetters[i] === targetLetters[i]) {
+        colors[i] = 'bg-green-500 border-green-500 text-white'
+        targetLetters[i] = '*' // Mark as used
+      }
+    }
+    
+    // Second pass: mark misplaced letters (yellow)
+    for (let i = 0; i < 5; i++) {
+      if (colors[i] === 'bg-white/10 border-white/30 text-white') {
+        const letterIndex = targetLetters.indexOf(guessLetters[i])
+        if (letterIndex !== -1) {
+          colors[i] = 'bg-yellow-500 border-yellow-500 text-white'
+          targetLetters[letterIndex] = '*' // Mark as used
+        }
+      }
+    }
+    
+    return colors
+  }
+
   // Handle guess submission
   const handleSubmit = async () => {
     if (currentGuess.length !== 5 || remainingGuesses <= 0) return
     
-    // Validate word is in the word list
-    if (!wordList.includes(currentGuess.toUpperCase())) {
-      alert('Invalid word - not in word list')
-      return
-    }
-    
-    // Server will validate the guess and provide feedback
-    await onGuess(currentGuess)
+    // Allow any 5-letter word (server will validate if needed)
+    await onGuess(currentGuess.toUpperCase())
     setCurrentGuess('')
   }
 
@@ -37,26 +59,37 @@ const GameGrid: React.FC<{
     <div className="flex flex-col items-center justify-center w-full">
       {/* Render 7 rows for guesses */}
       <div className="flex flex-col gap-3 items-center mb-6">
-        {[...Array(7)].map((_, row) => (
-          <div key={row} className="flex gap-3 justify-center">
-            {[...Array(5)].map((_, col) => (
-              <div
-                key={col}
-                className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold
-                  ${hintColors[row]?.[col] || 'bg-white/10 border-white/30 text-white'} transition-all duration-200`}
-                style={{ aspectRatio: '1 / 1' }}
-              >
-                {guesses[row]?.[col] || ''}
-              </div>
-            ))}
-          </div>
-        ))}
+        {[...Array(7)].map((_, row) => {
+          const guess = guesses[row] || ''
+          const isCurrentRow = row === guesses.length
+          const displayGuess = isCurrentRow ? currentGuess : guess
+          
+          return (
+            <div key={row} className="flex gap-3 justify-center">
+              {[...Array(5)].map((_, col) => (
+                <div
+                  key={col}
+                  className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold
+                    ${isCurrentRow 
+                      ? 'bg-white/10 border-white/30 text-white' 
+                      : guess 
+                        ? 'bg-white/10 border-white/30 text-white' 
+                        : 'bg-white/5 border-white/20 text-white/50'
+                    } transition-all duration-200`}
+                  style={{ aspectRatio: '1 / 1' }}
+                >
+                  {displayGuess[col] || ''}
+                </div>
+              ))}
+            </div>
+          )
+        })}
       </div>
       
       {/* Input for current guess */}
       {remainingGuesses > 0 && (
         <div className="flex flex-col items-center gap-4 w-full max-w-md">
-          <div className="text-accent text-lg font-semibold">Guesses: {guesses.length}/7 (Max 7 guesses)</div>
+          <div className="text-accent text-lg font-semibold">Guess {guesses.length + 1} of 7</div>
           <div className="flex gap-3 justify-center w-full">
             <input
               type="text"
