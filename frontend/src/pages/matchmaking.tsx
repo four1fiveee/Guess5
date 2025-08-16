@@ -70,7 +70,7 @@ const Matchmaking: React.FC = () => {
       
       console.log('🔍 Creating transaction for:', {
         from: publicKey.toString(),
-        to: "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A",
+        to: "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
         amount: entryFee,
         lamports: Math.floor(entryFee * LAMPORTS_PER_SOL)
       });
@@ -79,7 +79,7 @@ const Matchmaking: React.FC = () => {
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey("AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A"), // Fee wallet
+          toPubkey: new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt"), // Fee wallet
           lamports: Math.floor(entryFee * LAMPORTS_PER_SOL),
         })
       );

@@ -176,7 +176,7 @@ const Game: React.FC = () => {
       } catch (error) {
         console.error('❌ Error polling opponent status:', error);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 5000); // Poll every 5 seconds (increased to avoid rate limits)
 
     return () => clearInterval(pollInterval);
   }, [matchId, gameState, publicKey, router, opponentSolved]);
@@ -217,8 +217,13 @@ const Game: React.FC = () => {
         }),
       });
 
+      if (response.status === 429) {
+        throw new Error('Rate limited - please wait a moment before trying again');
+      }
+      
       if (!response.ok) {
-        throw new Error('Failed to submit guess');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to submit guess');
       }
 
       const data = await response.json();

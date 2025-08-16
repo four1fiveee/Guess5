@@ -8,7 +8,7 @@ export const config = {
   // Solana
   solana: {
     network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-    feeWalletAddress: process.env.FEE_WALLET_ADDRESS || 'AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A',
+    feeWalletAddress: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
     feeWalletPrivateKey: process.env.FEE_WALLET_PRIVATE_KEY,
   },
   
