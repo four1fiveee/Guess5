@@ -547,7 +547,8 @@ const Matchmaking: React.FC = () => {
           if (data.matched) {
             console.log('✅ We have been matched!', data);
             setMatchData(data);
-            setStatus(data.status || 'matched');
+            // Always set status to 'matched' to show payment button, regardless of backend status
+            setStatus('matched');
             clearInterval(countdownInterval);
             clearTimeout(timeoutId); // Also clear timeout
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
@@ -575,7 +576,7 @@ const Matchmaking: React.FC = () => {
               return;
             }
             
-            // Set payment timeout (1 minute) if still waiting for payment
+            // Set payment timeout (1 minute) if backend status is payment_required
             if (data.status === 'payment_required') {
               const timeout = setTimeout(() => {
                 console.log('⏰ Payment timeout - redirecting to lobby');
