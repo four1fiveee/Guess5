@@ -2576,6 +2576,77 @@ const memoryStatsHandler = async (req, res) => {
   }
 };
 
+// Debug endpoint to check matchmaking state
+const debugMatchmakingHandler = async (req, res) => {
+  try {
+    const { wallet } = req.query;
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet parameter required' });
+    }
+    
+    console.log('🔍 Debug matchmaking for wallet:', wallet);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get all matches for this wallet
+    const allMatches = await matchRepository.find({
+      where: [
+        { player1: wallet },
+        { player2: wallet }
+      ],
+      order: { createdAt: 'DESC' }
+    });
+    
+    // Get waiting matches
+    const waitingMatches = await matchRepository.find({
+      where: { status: 'waiting' },
+      order: { createdAt: 'ASC' }
+    });
+    
+    // Check matchmaking locks
+    const lockKey = `matchmaking_${wallet}`;
+    const hasLock = matchmakingLocks.has(lockKey);
+    const lockData = hasLock ? matchmakingLocks.get(lockKey) : null;
+    
+    res.json({
+      wallet,
+      timestamp: new Date().toISOString(),
+      allMatches: allMatches.map(m => ({
+        id: m.id,
+        status: m.status,
+        player1: m.player1,
+        player2: m.player2,
+        entryFee: m.entryFee,
+        createdAt: m.createdAt,
+        player1Paid: m.player1Paid,
+        player2Paid: m.player2Paid
+      })),
+      waitingMatches: waitingMatches.map(m => ({
+        id: m.id,
+        player1: m.player1,
+        entryFee: m.entryFee,
+        createdAt: m.createdAt
+      })),
+      matchmakingLock: {
+        hasLock,
+        lockData: hasLock ? {
+          timestamp: lockData.timestamp,
+          wallet: lockData.wallet,
+          entryFee: lockData.entryFee,
+          age: Date.now() - lockData.timestamp
+        } : null
+      },
+      memoryStats
+    });
+    
+  } catch (error) {
+    console.error('❌ Debug matchmaking failed:', error);
+    res.status(500).json({ error: 'Failed to get debug info' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -2595,5 +2666,6 @@ module.exports = {
   simpleCleanupHandler,
   forceCleanupForWallet,
   confirmPaymentHandler,
-  memoryStatsHandler
+  memoryStatsHandler,
+  debugMatchmakingHandler
 }; 

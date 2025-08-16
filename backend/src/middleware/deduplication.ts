@@ -2,7 +2,8 @@ const { Request, Response, NextFunction } = require('express');
 
 // Track recent requests to prevent duplicates
 const recentRequests = new Map<string, number>();
-const DEDUPLICATION_WINDOW = 5000; // 5 second window (less aggressive)
+const DEDUPLICATION_WINDOW = 2000; // 2 second window (less aggressive)
+const MIN_REQUEST_INTERVAL = 1000; // 1 second minimum between requests
 
 export const deduplicateRequests = (req: any, res: any, next: any) => {
   // Only apply to POST requests for specific matchmaking endpoints that are prone to spam
@@ -35,9 +36,9 @@ export const deduplicateRequests = (req: any, res: any, next: any) => {
     
     console.log(`🔍 Deduplication check for ${wallet}: ${timeSinceLastRequest}ms since last request`);
     
-    // Allow request if it's been more than 500ms (even within 5-second window)
-    if (timeSinceLastRequest < 500) {
-      console.log(`🔄 Duplicate request detected for ${wallet} on ${req.url}, skipping (${timeSinceLastRequest}ms < 500ms)`);
+    // Allow request if it's been more than 1 second (less aggressive)
+    if (timeSinceLastRequest < MIN_REQUEST_INTERVAL) {
+      console.log(`🔄 Duplicate request detected for ${wallet} on ${req.url}, skipping (${timeSinceLastRequest}ms < ${MIN_REQUEST_INTERVAL}ms)`);
       return res.status(200).json({
         success: true,
         message: 'Request already being processed',

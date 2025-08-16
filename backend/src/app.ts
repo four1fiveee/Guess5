@@ -140,6 +140,11 @@ app.get('/health', asyncHandler(async (req, res) => {
   await healthCheckHandler(req, res);
 }));
 
+// Root endpoint - redirect to frontend
+app.get('/', (req, res) => {
+  res.redirect(process.env.FRONTEND_URL || 'https://guess5.vercel.app');
+});
+
 // API routes without rate limiting
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
@@ -154,6 +159,9 @@ if (process.env.NODE_ENV !== 'production') {
       database: AppDataSource.isInitialized ? 'connected' : 'disconnected'
     });
   });
+  
+  // Debug matchmaking endpoint
+  app.get('/api/debug/matchmaking', require('./controllers/matchController').debugMatchmakingHandler);
 }
 
 // 404 handler
