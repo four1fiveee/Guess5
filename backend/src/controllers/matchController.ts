@@ -504,25 +504,17 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
   return null;
 };
 
-// Helper function to find waiting players with race condition prevention
+// Helper function to find waiting players with simplified logic
 const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee: number) => {
   const tolerance = 0.001;
   const minEntryFee = entryFee - tolerance;
   const maxEntryFee = entryFee + tolerance;
   
-  // Use database transaction to prevent race conditions
-  const { AppDataSource } = require('../db/index');
-  const queryRunner = AppDataSource.createQueryRunner();
-  await queryRunner.connect();
-  await queryRunner.startTransaction();
-  
   try {
-    console.log(`🔍 Trying strict matching for ${wallet} with transaction lock:`);
-    console.log(`  Entry fee: ${entryFee} SOL`);
-    console.log(`  Strict range: ${minEntryFee} - ${maxEntryFee} SOL`);
+    console.log(`🔍 Looking for waiting players for ${wallet} with entry fee: ${entryFee} SOL`);
     
-    // Use pessimistic locking to prevent race conditions
-    let waitingMatches = await queryRunner.manager.find(Match, {
+    // First try exact match
+    let waitingMatches = await matchRepository.find({
       where: {
         status: 'waiting',
         entryFee: Between(minEntryFee, maxEntryFee),
@@ -530,22 +522,20 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
         player1: Not(wallet)
       },
       order: { createdAt: 'ASC' },
-      take: 1,
-      lock: { mode: 'pessimistic_write' } // Lock the rows to prevent race conditions
+      take: 1
     });
     
-    console.log(`  Found ${waitingMatches.length} waiting matches with strict tolerance`);
+    console.log(`  Found ${waitingMatches.length} waiting matches with exact tolerance`);
     
-    // If no exact match, try with more flexible fee matching (within 5% tolerance for better matching)
+    // If no exact match, try flexible matching (within 10% tolerance for better matching)
     if (waitingMatches.length === 0) {
-      const flexibleMinEntryFee = entryFee * 0.95;
-      const flexibleMaxEntryFee = entryFee * 1.05;
+      const flexibleMinEntryFee = entryFee * 0.90;
+      const flexibleMaxEntryFee = entryFee * 1.10;
       
-      console.log(`🔍 Trying flexible matching for ${wallet}:`);
-      console.log(`  Entry fee: ${entryFee} SOL`);
-      console.log(`  Flexible range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
+      console.log(`🔍 Trying flexible matching (10% tolerance):`);
+      console.log(`  Range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
       
-      waitingMatches = await queryRunner.manager.find(Match, {
+      waitingMatches = await matchRepository.find({
         where: {
           status: 'waiting',
           entryFee: Between(flexibleMinEntryFee, flexibleMaxEntryFee),
@@ -553,27 +543,42 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
           player1: Not(wallet)
         },
         order: { createdAt: 'ASC' },
-        take: 1,
-        lock: { mode: 'pessimistic_write' } // Lock the rows to prevent race conditions
+        take: 1
       });
       
       console.log(`  Found ${waitingMatches.length} waiting matches with flexible tolerance`);
     }
     
+    // If still no match, try any waiting player (for testing)
+    if (waitingMatches.length === 0) {
+      console.log(`🔍 Trying any waiting player (for testing):`);
+      
+      waitingMatches = await matchRepository.find({
+        where: {
+          status: 'waiting',
+          player2: null,
+          player1: Not(wallet)
+        },
+        order: { createdAt: 'ASC' },
+        take: 1
+      });
+      
+      console.log(`  Found ${waitingMatches.length} any waiting players`);
+    }
+    
     if (waitingMatches.length > 0) {
       const match = waitingMatches[0];
       
-      // Double-check the match is still valid
+      // Verify the match is still valid
       if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
         console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
         
-        // Immediately update the waiting player's status to prevent double-matching
+        // Update the match to mark it as matched
         match.status = 'matched';
-        match.player2 = wallet; // Set the second player immediately
-        await queryRunner.manager.save(Match, match);
+        match.player2 = wallet;
+        await matchRepository.save(match);
         
-        await queryRunner.commitTransaction();
-        console.log(`✅ Successfully locked waiting player ${match.player1} for matching`);
+        console.log(`✅ Successfully matched ${match.player1} with ${wallet}`);
         
         return {
           wallet: match.player1,
@@ -585,16 +590,12 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       }
     }
     
-    await queryRunner.commitTransaction();
     console.log(`❌ No waiting players found for ${wallet} with entry fee ${entryFee}`);
     return null;
     
   } catch (error) {
-    console.error('❌ Error in findWaitingPlayer transaction:', error);
-    await queryRunner.rollbackTransaction();
+    console.error('❌ Error in findWaitingPlayer:', error);
     throw error;
-  } finally {
-    await queryRunner.release();
   }
 };
 
@@ -657,8 +658,8 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
 // Helper function to create a waiting entry
 const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee: number) => {
   try {
-    // Check if player already has a waiting entry
-    const existingWaitingEntry = await matchRepository.findOne({
+    // Clean up any old waiting entries for this player first
+    const oldWaitingEntries = await matchRepository.find({
       where: {
         player1: wallet,
         status: 'waiting',
@@ -666,16 +667,12 @@ const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee
       }
     });
     
-    if (existingWaitingEntry) {
-      console.log('⚠️ Player already has waiting entry:', existingWaitingEntry.id);
-      return {
-        status: 'waiting',
-        message: 'Already waiting for opponent',
-        waitingCount: 0
-      };
+    if (oldWaitingEntries.length > 0) {
+      console.log(`🧹 Cleaning up ${oldWaitingEntries.length} old waiting entries for ${wallet}`);
+      await matchRepository.remove(oldWaitingEntries);
     }
     
-    // Create new waiting entry
+    // Create new waiting entry (always create a fresh one)
     const waitingMatch = matchRepository.create({
       player1: wallet,
       player2: null,
@@ -687,7 +684,14 @@ const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee
     });
     
     const savedMatch = await matchRepository.save(waitingMatch);
-    console.log(`✅ New waiting entry saved with ID: ${savedMatch.id} for wallet: ${wallet}`);
+    console.log(`✅ New waiting entry created with ID: ${savedMatch.id} for wallet: ${wallet}`);
+    console.log(`📊 Waiting entry details:`, {
+      id: savedMatch.id,
+      player1: savedMatch.player1,
+      entryFee: savedMatch.entryFee,
+      status: savedMatch.status,
+      createdAt: savedMatch.createdAt
+    });
     
     return {
       status: 'waiting',
