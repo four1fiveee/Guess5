@@ -604,6 +604,13 @@ const Matchmaking: React.FC = () => {
             if (data.player1Paid && data.player2Paid && data.status === 'payment_required') {
               console.log('💰 Both players have paid, waiting for status to update to active...');
               // Continue polling to wait for status to become 'active'
+              setStatus('waiting_for_opponent');
+            }
+            
+            // Check if both players have paid but status hasn't updated yet
+            if (data.player1Paid && data.player2Paid && data.status === 'payment_required') {
+              console.log('💰 Both players have paid, waiting for status to update to active...');
+              // Continue polling to wait for status to become 'active'
             }
             
             // Set payment timeout (1 minute) if backend status is payment_required
@@ -781,9 +788,12 @@ const Matchmaking: React.FC = () => {
           
           {status === 'waiting_for_opponent' && (
             <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Opponent</h2>
+              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Game to Start</h2>
               <div className="text-white/80 mb-4">
-                Both players have paid. Waiting for game to start...
+                Both players have paid! The game is being initialized...
+              </div>
+              <div className="text-accent text-lg font-semibold">
+                Redirecting to game...
               </div>
             </div>
           )}
