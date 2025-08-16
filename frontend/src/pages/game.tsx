@@ -4,6 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
+import { TopRightWallet } from '../components/WalletConnect';
 
 
 const Game: React.FC = () => {
@@ -357,15 +358,11 @@ const Game: React.FC = () => {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+      <TopRightWallet />
       <div className="flex flex-col items-center">
         {/* Logo prominently displayed at the top */}
         <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
-        
-        {/* Game Title */}
-        <h1 className="text-3xl font-bold text-white mb-4">
-          {gameState === 'solved' ? 'Game Complete!' : 'Guess5'}
-        </h1>
         
         {/* Timer */}
         {gameState === 'playing' && (

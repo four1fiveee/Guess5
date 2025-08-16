@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router'
-import { WalletConnectButton } from '../components/WalletConnect'
+import { WalletConnectButton, TopRightWallet } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
@@ -164,83 +164,71 @@ export default function Lobby() {
   }
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary">
-      {/* Logo prominently displayed at the top */}
-      <div className="flex justify-center mb-6">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
-      </div>
-      
-      <WalletConnectButton />
-      <h2 className="text-3xl font-bold text-accent mb-6">Choose Entry Fee</h2>
-      
-      <div className="flex gap-6">
-        {ENTRY_FEES_USD.map((usd, idx) => {
-          const solAmount = solAmounts[idx];
-          const hasInsufficientBalance = walletBalance !== null && solAmount !== undefined && walletBalance < solAmount;
-          const isDisabled = checkingBalance || solPrice === null || isMatchmaking || hasInsufficientBalance;
-          
-          return (
-            <button
-              key={usd}
-              className={`px-8 py-4 rounded-lg text-2xl font-semibold transition ${
-                hasInsufficientBalance 
-                  ? 'bg-gray-500 text-gray-300 cursor-not-allowed line-through' 
-                  : isDisabled
-                    ? 'bg-accent/50 text-primary/50 cursor-not-allowed'
-                    : 'bg-accent text-primary hover:bg-yellow-400'
-              }`}
-              onClick={() => handleSelect(usd, solAmounts[idx])}
-              disabled={isDisabled}
-            >
-              {isMatchmaking ? 'Finding Opponent...' : `$${usd}`}
-              <div className={`text-xs mt-1 ${
-                hasInsufficientBalance ? 'text-gray-400' : 'text-gray-700'
-              }`}>
-                {solPrice !== null && solAmount !== undefined ? `(${solAmount} SOL)` : ''}
-              </div>
-              {hasInsufficientBalance && (
-                <div className="text-xs text-red-400 mt-1">
-                  Insufficient Balance
-                </div>
-              )}
-            </button>
-          );
-        })}
-      </div>
-      
-      {/* Odds Information */}
-      <div className="mt-6 text-center max-w-2xl">
-        <div className="bg-white/10 rounded-lg p-4 border border-white/20">
-          <h3 className="text-accent font-semibold mb-2">🎯 Better Odds Than Roulette!</h3>
-          <div className="text-sm text-white/80 space-y-2">
-            <div className="flex justify-between">
-              <span>🎰 Roulette (0 & 00):</span>
-              <span className="text-red-400">5.26% house edge</span>
-            </div>
-            <div className="flex justify-between">
-              <span>🎮 Guess5:</span>
-              <span className="text-green-400">5.00% house edge</span>
-            </div>
-            <div className="text-xs text-white/60 mt-2">
-              💡 With a 50% win rate, you get better odds than roulette! 
-              Winner takes 95% of the pot, we keep only 5%.
-            </div>
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+      <TopRightWallet />
+      <div className="flex flex-col items-center">
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        <WalletConnectButton />
+        
+        {!publicKey ? (
+          <div className="text-white text-xl text-center">
+            Please connect your wallet to continue
           </div>
-        </div>
+        ) : (
+          <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-accent shadow">
+            <h2 className="text-2xl font-bold text-accent mb-4 text-center">Choose Entry Fee</h2>
+            
+            {solPrice && (
+              <div className="text-white/80 text-center mb-4">
+                Current SOL Price: ${solPrice.toFixed(2)}
+              </div>
+            )}
+            
+            {walletBalance !== null && (
+              <div className="text-white/80 text-center mb-4">
+                Your Balance: {walletBalance.toFixed(4)} SOL
+              </div>
+            )}
+            
+            <div className="space-y-3">
+              {ENTRY_FEES_USD.map((usdAmount, index) => {
+                const solAmount = solAmounts[index];
+                const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
+                
+                return (
+                  <button
+                    key={usdAmount}
+                    className={`w-full p-4 rounded-lg font-bold transition-colors shadow ${
+                      hasEnoughBalance
+                        ? 'bg-accent text-primary hover:bg-yellow-400'
+                        : 'bg-gray-600 text-gray-300 cursor-not-allowed'
+                    } ${isMatchmaking ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    onClick={() => handleSelect(usdAmount, solAmount)}
+                    disabled={!hasEnoughBalance || isMatchmaking}
+                  >
+                    <div className="text-lg">${usdAmount}</div>
+                    <div className="text-sm opacity-80">
+                      {solAmount ? `${solAmount} SOL` : 'Loading...'}
+                    </div>
+                    {!hasEnoughBalance && walletBalance !== null && (
+                      <div className="text-xs text-red-400 mt-1">
+                        Insufficient balance
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+            
+            {isMatchmaking && (
+              <div className="text-center mt-4">
+                <div className="text-accent text-lg font-semibold">Finding opponent...</div>
+                <div className="text-white/80 text-sm">Please wait</div>
+              </div>
+            )}
+          </div>
+        )}
       </div>
-      {publicKey && (
-        <div className="mt-6 text-center">
-          <p className="text-accent text-sm">
-            💡 Make sure you have enough SOL in your wallet for the entry fee
-          </p>
-          <p className="text-accent text-xs mt-1">
-            Connected: {publicKey.toString().slice(0, 4)}...{publicKey.toString().slice(-4)}
-          </p>
-        </div>
-      )}
-      {solPrice === null && (
-        <div className="mt-4 text-red-500">Unable to fetch SOL price. Please refresh.</div>
-      )}
     </div>
-  )
+  );
 } 

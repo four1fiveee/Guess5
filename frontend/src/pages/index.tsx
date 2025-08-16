@@ -1,11 +1,12 @@
 import Image from 'next/image';
 import logo from '../../public/logo.png';
-import { WalletConnectButton } from '../components/WalletConnect';
+import { WalletConnectButton, TopRightWallet } from '../components/WalletConnect';
 import Link from 'next/link';
 
 export default function Home() {
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+      <TopRightWallet />
       <div className="flex flex-col items-center">
         <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-6" />
         <WalletConnectButton />

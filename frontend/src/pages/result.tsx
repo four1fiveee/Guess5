@@ -4,6 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import PayoutInstructions from '../components/PayoutInstructions';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
+import { TopRightWallet } from '../components/WalletConnect';
 
 const Result: React.FC = () => {
   const router = useRouter();
@@ -94,7 +95,8 @@ const Result: React.FC = () => {
   const playerWallet = publicKey?.toString() || '';
 
   return (
-    <div className="min-h-screen bg-primary">
+    <div className="min-h-screen bg-primary relative">
+      <TopRightWallet />
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
           {/* Logo prominently displayed at the top */}
@@ -102,53 +104,75 @@ const Result: React.FC = () => {
             <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
           </div>
           
+          {/* Game Results */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
-            {payoutData.winner === 'tie' ? (
-              <div className="text-center">
-                <div className="text-yellow-400 text-2xl mb-4">🤝 It's a Tie!</div>
-                <p className="text-white/80 mb-6">Both players had the same result. You'll receive a full refund of your entry fee.</p>
-                <button
-                  onClick={handlePlayAgain}
-                  className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
-                >
-                  Play Again
-                </button>
+            <div className="text-center">
+              <h1 className="text-3xl font-bold text-white mb-6">Game Results</h1>
+              
+              {/* Result Status */}
+              <div className="mb-6">
+                {payoutData.won ? (
+                  <div className="text-green-400 text-2xl font-bold mb-2">🏆 You Won!</div>
+                ) : payoutData.isTie ? (
+                  <div className="text-yellow-400 text-2xl font-bold mb-2">🤝 It's a Tie!</div>
+                ) : (
+                  <div className="text-red-400 text-2xl font-bold mb-2">😔 You Lost</div>
+                )}
               </div>
-            ) : (
-              <div>
-                <div className="text-center mb-6">
-                  <div className="text-2xl font-bold text-white mb-2">
-                    {payoutData.winner === playerWallet ? '🎉 You Won!' : '😔 You Lost'}
+              
+              {/* Game Details */}
+              <div className="bg-white/5 rounded-lg p-4 mb-6">
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-white/60">Your Guesses:</span>
+                    <div className="text-white font-semibold">{payoutData.numGuesses || 0}/7</div>
                   </div>
-                  <p className="text-white/80">
-                    {payoutData.winner === playerWallet 
-                      ? `You won ${payoutData.winnerAmount} SOL!`
-                      : 'Better luck next time!'
-                    }
-                  </p>
+                  <div>
+                    <span className="text-white/60">Entry Fee:</span>
+                    <div className="text-white font-semibold">{payoutData.entryFee} SOL</div>
+                  </div>
+                  <div>
+                    <span className="text-white/60">Your Time:</span>
+                    <div className="text-white font-semibold">{payoutData.timeElapsed || 'N/A'}</div>
+                  </div>
+                  <div>
+                    <span className="text-white/60">Opponent Time:</span>
+                    <div className="text-white font-semibold">{payoutData.opponentTimeElapsed || 'N/A'}</div>
+                  </div>
                 </div>
-
-                <PayoutInstructions
+              </div>
+              
+              {/* Payout Information */}
+              <div className="mb-6">
+                <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
+                <PayoutInstructions 
                   winner={payoutData.winner}
-                  winnerAmount={payoutData.winnerAmount}
-                  feeAmount={payoutData.feeAmount}
-                  feeWallet={payoutData.feeWallet}
-                  transactions={payoutData.transactions}
+                  winnerAmount={payoutData.winnerAmount || 0}
+                  feeAmount={payoutData.feeAmount || 0}
+                  feeWallet={payoutData.feeWallet || ''}
+                  transactions={payoutData.transactions || []}
                   playerWallet={playerWallet}
                   automatedPayout={payoutData.automatedPayout}
                   payoutSignature={payoutData.payoutSignature}
                 />
-
-                <div className="mt-8 text-center">
-                  <button
-                    onClick={handlePlayAgain}
-                    className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
-                  >
-                    Play Again
-                  </button>
-                </div>
               </div>
-            )}
+              
+              {/* Action Buttons */}
+              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+                <button
+                  onClick={handlePlayAgain}
+                  className="bg-accent hover:bg-accent/80 text-white px-8 py-3 rounded-lg font-bold transition-colors"
+                >
+                  Play Again
+                </button>
+                <button
+                  onClick={() => router.push('/')}
+                  className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-bold transition-colors"
+                >
+                  Back to Home
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

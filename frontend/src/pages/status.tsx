@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { TopRightWallet } from '../components/WalletConnect'
 
 export default function Status() {
   const [status, setStatus] = useState('Checking...')
@@ -25,7 +26,8 @@ export default function Status() {
   }, [])
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary p-4">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary p-4 relative">
+      <TopRightWallet />
       <h1 className="text-3xl font-bold text-accent mb-6">Deployment Status</h1>
       
       <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full">

@@ -4,6 +4,7 @@ import { useWallet } from '@solana/wallet-adapter-react';
 import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
+import { TopRightWallet } from '../components/WalletConnect';
 
 
 const Matchmaking: React.FC = () => {
@@ -681,241 +682,104 @@ const Matchmaking: React.FC = () => {
   }, [status, matchData]);
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-primary">
-      <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
-        <div className="text-center">
-          {/* Logo prominently displayed at the top */}
-          <div className="flex justify-center mb-6">
-            <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
-          </div>
-          
-          <h1 className="text-3xl font-bold text-white mb-6">
-            {status === 'active' ? 'Game Starting...' : 'Finding Opponent...'}
-          </h1>
-          {timeoutMessage && (
-            <div className="text-yellow-400 text-lg mb-4">{timeoutMessage}</div>
-          )}
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+      <TopRightWallet />
+      <div className="flex flex-col items-center">
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        
+        {/* Status Display */}
+        <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-center shadow">
           {status === 'waiting' && (
-            <div className="space-y-4">
-              <div className="flex justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            <div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Finding Opponent...</h2>
+              <div className="text-white/80 mb-4">
+                Waiting for another player to join
               </div>
-              <p className="text-white/80 text-center">🔍 Finding Opponent...</p>
-              
-              <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
-                <h3 className="text-blue-400 font-semibold mb-2">⏳ Waiting for Players</h3>
-                <p className="text-white/80 mb-3">
-                  Looking for other players with the same entry fee ({entryFee} SOL)
-                </p>
-                
-                {waitingCount > 0 && (
-                  <div className="text-accent text-sm bg-white/10 rounded p-2">
-                    {waitingCount === 1 ? 'You are the only player waiting' : `${waitingCount} players waiting`}
-                  </div>
-                )}
-                
-                <div className="space-y-2 text-sm text-white/70 mt-3">
-                  <div className="flex items-center">
-                    <span className="text-blue-400 mr-2">ℹ️</span>
-                    Match will start automatically when opponent joins
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-blue-400 mr-2">ℹ️</span>
-                    Both players will lock entry fees before game starts
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-blue-400 mr-2">ℹ️</span>
-                    Winner gets 95% of total pot after game
-                  </div>
-                </div>
-              </div>
-              
-              <div className="text-xs text-white/50 text-center">
-                💡 Try different entry fees if no one joins (0.05, 0.1, 0.2 SOL are popular)
+              <div className="text-accent text-lg font-semibold">
+                {waitingCount > 0 ? `${waitingCount} players waiting` : 'Searching...'}
               </div>
             </div>
           )}
+          
           {status === 'matched' && (
-            <div className="space-y-4">
-              <div className="text-green-400 text-xl font-bold">🎉 Match Found!</div>
-              
-              <div className="space-y-4">
-                <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg p-4">
-                  <h3 className="text-orange-400 font-semibold mb-2">💰 Pay Entry Fee</h3>
-                  <p className="text-white/80 mb-3">
-                    Your opponent is ready! Pay the entry fee to start the game.
-                  </p>
-                  
-                  <div className="bg-white/10 rounded-lg p-3 mb-4">
-                    <div className="flex justify-between items-center">
-                      <span className="text-white/80">Entry Fee:</span>
-                      <span className="text-accent font-bold">{entryFee} SOL</span>
-                    </div>
-                    <div className="flex justify-between items-center mt-1">
-                      <span className="text-white/80">Potential Win:</span>
-                      <span className="text-green-400 font-bold">{(entryFee * 1.9).toFixed(3)} SOL</span>
-                    </div>
-                  </div>
-                  
-                  <div className="space-y-2 text-sm text-white/70">
-                    <div className="flex items-center">
-                      <span className="text-orange-400 mr-2">⚠️</span>
-                      Both players must pay before game starts
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-orange-400 mr-2">💰</span>
-                      Payment goes to fee wallet for security
-                    </div>
-                    <div className="flex items-center">
-                      <span className="text-orange-400 mr-2">🎯</span>
-                      Winner gets 95% of total pot after game
-                    </div>
-                  </div>
-                  
-                  <button
-                    onClick={handlePayment}
-                    className="w-full mt-4 px-6 py-3 rounded-lg transition-colors font-semibold bg-orange-500 hover:bg-orange-600 text-white"
-                  >
-                    💰 Pay {entryFee} SOL
-                  </button>
-                </div>
-                
-                <div className="text-xs text-white/50 text-center">
-                  💡 Phantom wallet will pop up asking for approval
-                </div>
+            <div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Match Found!</h2>
+              <div className="text-white/80 mb-4">
+                Opponent found. Preparing game...
               </div>
             </div>
           )}
+          
           {status === 'payment_required' && (
-            <div className="space-y-4">
-              <div className="flex justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+            <div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Payment Required</h2>
+              <div className="text-white/80 mb-4">
+                Entry Fee: {entryFee} SOL
               </div>
-              <p className="text-white/80 text-center">⏳ Processing Payment...</p>
-              
-              <div className="bg-orange-500/20 border border-orange-500/30 rounded-lg p-4">
-                <h3 className="text-orange-400 font-semibold mb-2">⏳ Processing Transaction</h3>
-                <p className="text-white/80 mb-3">
-                  Please approve the transaction in your Phantom wallet
-                </p>
-                
-                <div className="space-y-2 text-sm text-white/70">
-                  <div className="flex items-center">
-                    <span className="text-orange-400 mr-2">📱</span>
-                    Phantom wallet should have popped up
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-orange-400 mr-2">💰</span>
-                    Review amount: {entryFee} SOL
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-orange-400 mr-2">🔒</span>
-                    Recipient: Fee wallet
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-orange-400 mr-2">✅</span>
-                    Click "Approve" in Phantom
-                  </div>
-                </div>
-                
-                <div className="mt-3 text-xs text-white/50">
-                  ⚠️ Don't close Phantom or refresh the page during this process
-                </div>
-              </div>
-            </div>
-          )}
-          {status === 'cancelled' && (
-            <div className="space-y-4">
-              <div className="text-red-400 text-xl font-bold">⏰ Match Cancelled</div>
-              
-              <div className="bg-red-500/20 border border-red-500/30 rounded-lg p-4">
-                <h3 className="text-red-400 font-semibold mb-2">Payment Timeout</h3>
-                <p className="text-white/80 mb-3">
-                  The match was cancelled because one or both players didn't complete payment within 1 minute.
-                </p>
-                
-                <button
-                  onClick={() => router.push('/lobby')}
-                  className="w-full bg-gradient-to-r from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white font-bold py-3 px-6 rounded-lg transition-all duration-200"
-                >
-                  Return to Lobby
-                </button>
-              </div>
-            </div>
-          )}
-          {status === 'waiting_for_opponent' && (
-            <div className="space-y-4">
-              <div className="flex justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-              </div>
-              <p className="text-white/80 text-center">⏳ Waiting for Opponent to Pay...</p>
-              
-              <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
-                <h3 className="text-blue-400 font-semibold mb-2">✅ Payment Confirmed!</h3>
-                <p className="text-white/80 mb-3">
-                  Your payment was successful! Waiting for your opponent to complete their payment.
-                </p>
-                
-                <div className="space-y-2 text-sm text-white/70">
-                  <div className="flex items-center">
-                    <span className="text-blue-400 mr-2">✅</span>
-                    Your payment: {entryFee} SOL sent
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-blue-400 mr-2">⏳</span>
-                    Waiting for opponent to pay
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-blue-400 mr-2">🎮</span>
-                    Game will start automatically when both players pay
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          {status === 'active' && (
-            <div className="space-y-4">
-              <div className="flex justify-center">
-                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
-              </div>
-              <p className="text-white/80 text-center">🎮 Starting Game...</p>
-              
-              <div className="bg-green-500/20 border border-green-500/30 rounded-lg p-4">
-                <h3 className="text-green-400 font-semibold mb-2">🎯 Game Ready!</h3>
-                <p className="text-white/80 mb-3">
-                  Redirecting to the game...
-                </p>
-                
-                <div className="space-y-2 text-sm text-white/70">
-                  <div className="flex items-center">
-                    <span className="text-green-400 mr-2">🎮</span>
-                    Game is starting
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-green-400 mr-2">💰</span>
-                    Entry fee: {entryFee} SOL
-                  </div>
-                  <div className="flex items-center">
-                    <span className="text-green-400 mr-2">🎯</span>
-                    Solve the word puzzle to win!
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
-          {status === 'error' && (
-            <div className="space-y-4">
-              <div className="text-red-400 text-xl">✗ Error</div>
-              <p className="text-white/80">Failed to find match. Please try again.</p>
               <button
-                onClick={() => window.location.reload()}
-                className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
+                onClick={handlePayment}
+                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
               >
-                Retry
+                Pay Entry Fee
               </button>
             </div>
           )}
+          
+          {status === 'active' && (
+            <div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Game Starting!</h2>
+              <div className="text-white/80 mb-4">
+                Redirecting to game...
+              </div>
+            </div>
+          )}
+          
+          {status === 'error' && (
+            <div>
+              <h2 className="text-2xl font-bold text-red-400 mb-4">Error</h2>
+              <div className="text-white/80 mb-4">
+                {timeoutMessage || 'An error occurred'}
+              </div>
+              <button
+                onClick={() => router.push('/lobby')}
+                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+              >
+                Back to Lobby
+              </button>
+            </div>
+          )}
+          
+          {status === 'cancelled' && (
+            <div>
+              <h2 className="text-2xl font-bold text-red-400 mb-4">Match Cancelled</h2>
+              <div className="text-white/80 mb-4">
+                The match was cancelled
+              </div>
+              <button
+                onClick={() => router.push('/lobby')}
+                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+              >
+                Back to Lobby
+              </button>
+            </div>
+          )}
+          
+          {status === 'waiting_for_opponent' && (
+            <div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Opponent</h2>
+              <div className="text-white/80 mb-4">
+                Both players have paid. Waiting for game to start...
+              </div>
+            </div>
+          )}
         </div>
+        
+        {/* Timer */}
+        {timeLeft > 0 && (
+          <div className="mt-4 text-accent text-lg font-semibold">
+            ⏰ Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+          </div>
+        )}
       </div>
     </div>
   );
