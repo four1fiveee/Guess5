@@ -231,7 +231,7 @@ export const TopRightWallet: React.FC = () => {
 
   return (
     <div className="absolute top-4 right-4 bg-secondary bg-opacity-20 rounded-lg p-4 backdrop-blur-sm min-w-[280px]">
-      <div className="flex flex-col items-end">
+      <div className="flex flex-col items-center">
         <div className="text-base text-white/80 mb-2">
           {publicKey?.toString().slice(0, 4)}...{publicKey?.toString().slice(-4)}
         </div>

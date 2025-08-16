@@ -8,7 +8,7 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-6 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center max-w-4xl w-full">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
+        <Image src={logo} alt="Guess5 Logo" width={280} height={280} className="mb-4" />
         <p className="text-lg text-white/80 mb-6 text-center">The Solana-powered word game for real rewards</p>
         <div className="bg-secondary bg-opacity-10 rounded-lg p-5 max-w-4xl w-full mb-6 text-accent shadow">
           <h2 className="text-xl font-bold text-accent mb-3 text-center">How to Play</h2>
