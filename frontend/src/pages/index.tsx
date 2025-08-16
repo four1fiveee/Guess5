@@ -24,9 +24,10 @@ export default function Home() {
           
           <h3 className="text-xl font-bold text-accent mt-4 mb-2 text-center">Tie Scenarios</h3>
           <ul className="list-disc list-inside text-base text-white/90 space-y-1">
-            <li><b>Winning Tie:</b> Both solve same moves + same time → No payments, just a draw.</li>
-            <li><b>Losing Tie:</b> Both fail to solve → Each pays 5% fee, no other transactions.</li>
+            <li><b>Winning Tie:</b> Both solve same moves + same time → <span className="text-green-400">Full refund to both players</span></li>
+            <li><b>Losing Tie:</b> Both fail to solve → <span className="text-red-400">5% fee kept, 95% refunded to both players</span></li>
             <li><b>Disconnect:</b> If opponent disconnects, you win if you solved, otherwise it's a losing tie.</li>
+            <li><b>Game Timeout:</b> If game doesn't start within 1 minute → <span className="text-green-400">Full refund to both players</span></li>
           </ul>
         </div>
         <Link href="/lobby">

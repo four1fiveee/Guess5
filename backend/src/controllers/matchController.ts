@@ -1841,6 +1841,8 @@ const checkPlayerMatchHandler = async (req, res) => {
         status: activeMatch.status,
         player1: activeMatch.player1,
         player2: activeMatch.player2,
+        player1Paid: activeMatch.player1Paid,
+        player2Paid: activeMatch.player2Paid,
         word: activeMatch.word,
         escrowAddress: activeMatch.escrowAddress,
         entryFee: activeMatch.entryFee,
@@ -2282,6 +2284,24 @@ const simpleCleanupHandler = async (req, res) => {
       console.log(`🧹 Cleaned up ${escrowMatches.length} escrow matches`);
     }
     
+    // Clean up old payment_required matches and process refunds
+    const paymentRequiredMatches = await matchRepository.find({
+      where: { status: 'payment_required' }
+    });
+    
+    if (paymentRequiredMatches.length > 0) {
+      console.log(`🧹 Found ${paymentRequiredMatches.length} payment_required matches, processing refunds...`);
+      
+      // Process refunds for these matches before cleaning up
+      for (const match of paymentRequiredMatches) {
+        await processRefundsForFailedMatch(match);
+      }
+      
+      await matchRepository.remove(paymentRequiredMatches);
+      cleanedCount += paymentRequiredMatches.length;
+      console.log(`🧹 Cleaned up ${paymentRequiredMatches.length} payment_required matches with refunds`);
+    }
+    
     // Clear in-memory games
     const activeGamesSize = activeGames.size;
     activeGames.clear();
@@ -2361,6 +2381,70 @@ const forceCleanupForWallet = async (req, res) => {
       success: false,
       error: 'Failed to force cleanup matches'
     });
+  }
+};
+
+// Process refunds for failed matches
+const processRefundsForFailedMatch = async (match) => {
+  try {
+    console.log(`💰 Processing refunds for failed match ${match.id}`);
+    
+    const { getFeeWalletKeypair } = require('../config/wallet');
+    const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+    
+    const feeWalletKeypair = getFeeWalletKeypair();
+    if (!feeWalletKeypair) {
+      console.error('❌ Fee wallet private key not available for refunds');
+      return;
+    }
+    
+    const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+    const entryFeeLamports = Math.floor(match.entryFee * LAMPORTS_PER_SOL);
+    
+    // Check fee wallet balance
+    const feeWalletBalance = await connection.getBalance(feeWalletKeypair.publicKey);
+    if (feeWalletBalance < entryFeeLamports) {
+      console.error('❌ Fee wallet has insufficient balance for refund');
+      return;
+    }
+    
+    // Process refunds for players who paid
+    const refundPromises = [];
+    
+    if (match.player1Paid) {
+      console.log(`💰 Processing refund for Player 1: ${match.player1}`);
+      const refundTx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: feeWalletKeypair.publicKey,
+          toPubkey: new PublicKey(match.player1),
+          lamports: entryFeeLamports,
+        })
+      );
+      
+      const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
+      await connection.confirmTransaction(signature);
+      console.log(`✅ Refund sent to Player 1: ${signature}`);
+    }
+    
+    if (match.player2Paid) {
+      console.log(`💰 Processing refund for Player 2: ${match.player2}`);
+      const refundTx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: feeWalletKeypair.publicKey,
+          toPubkey: new PublicKey(match.player2),
+          lamports: entryFeeLamports,
+        })
+      );
+      
+      const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
+      await connection.confirmTransaction(signature);
+      console.log(`✅ Refund sent to Player 2: ${signature}`);
+    }
+    
+    console.log(`✅ All refunds processed for match ${match.id}`);
+    
+  } catch (error) {
+    console.error('❌ Error processing refunds:', error);
   }
 };
 
@@ -2460,6 +2544,14 @@ const confirmPaymentHandler = async (req, res) => {
     // Check if both players have paid
     if (match.player1Paid && match.player2Paid) {
       console.log(`🎮 Both players have paid for match ${matchId}, starting game...`);
+      console.log(`💰 Payment details:`, {
+        matchId,
+        player1: match.player1,
+        player2: match.player2,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        entryFee: match.entryFee
+      });
       match.status = 'active';
       
       // Initialize server-side game state
@@ -2491,7 +2583,10 @@ const confirmPaymentHandler = async (req, res) => {
           const timeoutMatch = await timeoutMatchRepository.findOne({ where: { id: matchId } });
           
           if (timeoutMatch && timeoutMatch.status === 'payment_required' && (!timeoutMatch.player1Paid || !timeoutMatch.player2Paid)) {
-            console.log(`⏰ Payment timeout for match ${matchId} - cancelling match`);
+            console.log(`⏰ Payment timeout for match ${matchId} - cancelling match and processing refunds`);
+            
+            // Process refunds for any players who paid
+            await processRefundsForFailedMatch(timeoutMatch);
             
             // Mark match as cancelled
             timeoutMatch.status = 'cancelled';

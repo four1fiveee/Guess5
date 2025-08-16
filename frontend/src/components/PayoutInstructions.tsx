@@ -163,7 +163,8 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
         {isTie && (
           <div className="bg-yellow-100 border border-yellow-400 text-yellow-700 px-4 py-3 rounded">
             <h3 className="font-bold">🤝 It's a Tie!</h3>
-            <p>Each player pays the other {(winnerAmount / 2).toFixed(4)} SOL</p>
+            <p>Both players receive a full refund of their entry fee</p>
+            <p className="text-sm mt-1">No additional payments required</p>
           </div>
         )}
       </div>

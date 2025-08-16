@@ -201,4 +201,73 @@ export const refundEscrow = async (matchData: {
     console.error('❌ Error creating refund transaction:', error);
     return { success: false, error: error.message };
   }
+};
+
+// Refund from fee wallet for failed matches
+export const refundFromFeeWallet = async (matchData: {
+  matchId: string;
+  player1: string;
+  player2: string;
+  entryFee: number;
+  player1Paid: boolean;
+  player2Paid: boolean;
+}) => {
+  try {
+    console.log('🔄 Processing refunds from fee wallet for failed match:', matchData.matchId);
+
+    const entryFeeLamports = matchData.entryFee * LAMPORTS_PER_SOL;
+    const refundTransactions = [];
+
+    // Create refund transaction for player 1 if they paid
+    if (matchData.player1Paid) {
+      console.log(`💰 Creating refund transaction for Player 1: ${matchData.player1}`);
+      const player1RefundTx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: new PublicKey(FEE_WALLET_ADDRESS),
+          toPubkey: new PublicKey(matchData.player1),
+          lamports: entryFeeLamports
+        })
+      );
+      refundTransactions.push({
+        player: matchData.player1,
+        transaction: player1RefundTx,
+        amount: entryFeeLamports
+      });
+    }
+
+    // Create refund transaction for player 2 if they paid
+    if (matchData.player2Paid) {
+      console.log(`💰 Creating refund transaction for Player 2: ${matchData.player2}`);
+      const player2RefundTx = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: new PublicKey(FEE_WALLET_ADDRESS),
+          toPubkey: new PublicKey(matchData.player2),
+          lamports: entryFeeLamports
+        })
+      );
+      refundTransactions.push({
+        player: matchData.player2,
+        transaction: player2RefundTx,
+        amount: entryFeeLamports
+      });
+    }
+
+    console.log(`✅ Created ${refundTransactions.length} refund transactions`);
+    console.log('📤 Refund details:', {
+      matchId: matchData.matchId,
+      player1Paid: matchData.player1Paid,
+      player2Paid: matchData.player2Paid,
+      refundCount: refundTransactions.length
+    });
+
+    return {
+      success: true,
+      transactions: refundTransactions,
+      message: `Created ${refundTransactions.length} refund transactions`
+    };
+
+  } catch (error) {
+    console.error('❌ Error creating fee wallet refund transactions:', error);
+    return { success: false, error: error.message };
+  }
 }; 

@@ -106,7 +106,7 @@ const Result: React.FC = () => {
             {payoutData.winner === 'tie' ? (
               <div className="text-center">
                 <div className="text-yellow-400 text-2xl mb-4">🤝 It's a Tie!</div>
-                <p className="text-white/80 mb-6">Both players had the same result. No payout required.</p>
+                <p className="text-white/80 mb-6">Both players had the same result. You'll receive a full refund of your entry fee.</p>
                 <button
                   onClick={handlePlayAgain}
                   className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"

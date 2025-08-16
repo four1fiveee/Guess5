@@ -584,6 +584,12 @@ const Matchmaking: React.FC = () => {
               return;
             }
             
+            // Check if both players have paid but status hasn't updated yet
+            if (data.player1Paid && data.player2Paid && data.status === 'payment_required') {
+              console.log('💰 Both players have paid, waiting for status to update to active...');
+              // Continue polling to wait for status to become 'active'
+            }
+            
             // Set payment timeout (1 minute) if backend status is payment_required
             if (data.status === 'payment_required') {
               const timeout = setTimeout(() => {
