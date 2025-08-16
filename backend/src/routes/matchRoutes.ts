@@ -11,10 +11,10 @@ const {
 } = require('../middleware/validation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
-// Wallet-based rate limiters (more lenient for testing)
-const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 100); // 100 requests per 30 seconds per wallet (increased for testing)
-const walletGameLimiter = createRateLimiter(60 * 1000, 200); // 200 requests per minute per wallet (increased for testing)
-const walletResultLimiter = createRateLimiter(60 * 1000, 50); // 50 result submissions per minute per wallet (increased for testing)
+// Wallet-based rate limiters (very lenient for testing)
+const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 500); // 500 requests per 30 seconds per wallet (very lenient)
+const walletGameLimiter = createRateLimiter(60 * 1000, 1000); // 1000 requests per minute per wallet (very lenient)
+const walletResultLimiter = createRateLimiter(60 * 1000, 200); // 200 result submissions per minute per wallet (very lenient)
 
 // Production routes with enhanced security
 router.post('/request-match', 
@@ -51,7 +51,7 @@ router.get('/status/:matchId',
 );
 
 router.get('/check-match/:wallet', 
-  walletMatchmakingLimiter,
+  // No rate limiting for polling endpoint to avoid 429 errors
   asyncHandlerWrapper(matchController.checkPlayerMatchHandler)
 );
 

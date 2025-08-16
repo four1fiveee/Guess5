@@ -54,6 +54,13 @@ const apiRequest = async (
   try {
     const response = await fetch(url, config);
     
+    if (response.status === 429) {
+      console.log('⚠️ Rate limited, waiting before retry...');
+      // Wait 2 seconds before throwing error to allow retry
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      throw new Error('Too many requests, please try again later');
+    }
+    
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
       throw new Error(errorData.error || `HTTP ${response.status}`);

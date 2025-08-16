@@ -613,7 +613,7 @@ const Matchmaking: React.FC = () => {
         } catch (error) {
           console.error('❌ Error polling for match:', error);
         }
-      }, 5000); // Poll every 5 seconds (increased to avoid rate limits)
+      }, 10000); // Poll every 10 seconds (increased to avoid rate limits)
     };
 
     // Only start matchmaking if we don't already have a valid match

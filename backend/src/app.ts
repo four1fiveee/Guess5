@@ -91,10 +91,10 @@ app.use(deduplicateRequests);
 // Enhanced rate limiting configuration with wallet-based limits
 const { createRateLimiter: createWalletRateLimiter } = require('./middleware/validation');
 
-// Wallet-based rate limiters (more lenient for testing)
-const appWalletMatchmakingLimiter = createWalletRateLimiter(30 * 1000, 100); // 100 requests per 30 seconds per wallet (increased for testing)
-const appWalletGameLimiter = createWalletRateLimiter(60 * 1000, 200); // 200 requests per minute per wallet (increased for testing)
-const appWalletResultLimiter = createWalletRateLimiter(60 * 1000, 50); // 50 result submissions per minute per wallet (increased for testing)
+// Wallet-based rate limiters (very lenient for testing)
+const appWalletMatchmakingLimiter = createWalletRateLimiter(30 * 1000, 500); // 500 requests per 30 seconds per wallet (very lenient)
+const appWalletGameLimiter = createWalletRateLimiter(60 * 1000, 1000); // 1000 requests per minute per wallet (very lenient)
+const appWalletResultLimiter = createWalletRateLimiter(60 * 1000, 200); // 200 result submissions per minute per wallet (very lenient)
 
 // IP-based fallback rate limiters (for requests without wallet)
 const ipMatchmakingLimiter = rateLimit({
