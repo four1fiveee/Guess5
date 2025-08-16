@@ -43,6 +43,21 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    // Prevent double payment
+    if (status === 'payment_required' && matchData.player1Paid && matchData.player2Paid) {
+      console.log('⚠️ Both players already paid, preventing double payment');
+      return;
+    }
+
+    // Check if current player already paid
+    const isPlayer1 = publicKey.toString() === matchData.player1;
+    const currentPlayerPaid = isPlayer1 ? matchData.player1Paid : matchData.player2Paid;
+    
+    if (currentPlayerPaid) {
+      console.log('⚠️ Current player already paid, preventing double payment');
+      return;
+    }
+
     try {
       console.log('💰 Starting upfront payment...');
       console.log('🔍 Payment info:', {
@@ -607,10 +622,29 @@ const Matchmaking: React.FC = () => {
               setStatus('waiting_for_opponent');
             }
             
-            // Check if both players have paid but status hasn't updated yet
-            if (data.player1Paid && data.player2Paid && data.status === 'payment_required') {
-              console.log('💰 Both players have paid, waiting for status to update to active...');
-              // Continue polling to wait for status to become 'active'
+            // IMMEDIATE redirect if both players paid (even if backend status hasn't updated)
+            if (data.player1Paid && data.player2Paid) {
+              console.log('🎮 Both players confirmed paid - IMMEDIATELY redirecting to game!');
+              console.log('🎮 Game data:', {
+                matchId: data.matchId,
+                player1: data.player1,
+                player2: data.player2,
+                player1Paid: data.player1Paid,
+                player2Paid: data.player2Paid
+              });
+              
+              clearInterval(pollInterval);
+              setIsPolling(false);
+              
+              // Store match data and redirect to game
+              localStorage.setItem('matchId', data.matchId);
+              if (data.entryFee) {
+                localStorage.setItem('entryFee', data.entryFee.toString());
+              }
+              
+              // Redirect to game immediately
+              router.push(`/game?matchId=${data.matchId}`);
+              return;
             }
             
             // Set payment timeout (1 minute) if backend status is payment_required
@@ -723,11 +757,24 @@ const Matchmaking: React.FC = () => {
               <div className="text-white/80 mb-4">
                 Entry Fee: {entryFee} SOL
               </div>
+              {matchData && (
+                <div className="text-sm text-white/60 mb-4">
+                  Payment Status: {matchData.player1Paid ? 'Player 1 Paid' : 'Player 1 Pending'} | {matchData.player2Paid ? 'Player 2 Paid' : 'Player 2 Pending'}
+                </div>
+              )}
               <button
                 onClick={handlePayment}
-                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+                disabled={matchData && ((publicKey?.toString() === matchData.player1 && matchData.player1Paid) || (publicKey?.toString() === matchData.player2 && matchData.player2Paid))}
+                className={`px-6 py-3 rounded-lg font-bold transition-colors ${
+                  matchData && ((publicKey?.toString() === matchData.player1 && matchData.player1Paid) || (publicKey?.toString() === matchData.player2 && matchData.player2Paid))
+                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
+                    : 'bg-accent text-primary hover:bg-yellow-400'
+                }`}
               >
-                Pay Entry Fee
+                {matchData && ((publicKey?.toString() === matchData.player1 && matchData.player1Paid) || (publicKey?.toString() === matchData.player2 && matchData.player2Paid))
+                  ? 'Payment Confirmed'
+                  : 'Pay Entry Fee'
+                }
               </button>
             </div>
           )}

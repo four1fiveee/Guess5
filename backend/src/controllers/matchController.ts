@@ -2591,7 +2591,7 @@ const confirmPaymentHandler = async (req, res) => {
 
     // Check if both players have paid
     if (match.player1Paid && match.player2Paid) {
-      console.log(`🎮 Both players have paid for match ${matchId}, starting game...`);
+      console.log(`🎮 Both players have paid for match ${matchId}, starting game IMMEDIATELY...`);
       console.log(`💰 Payment details:`, {
         matchId,
         player1: match.player1,
@@ -2600,9 +2600,11 @@ const confirmPaymentHandler = async (req, res) => {
         player2Paid: match.player2Paid,
         entryFee: match.entryFee
       });
+      
+      // IMMEDIATELY set status to active
       match.status = 'active';
       
-      // Initialize server-side game state
+      // Initialize server-side game state with the SAME word for both players
       const word = require('../wordList').getRandomWord();
       activeGames.set(matchId, {
         startTime: Date.now(),
@@ -2612,7 +2614,7 @@ const confirmPaymentHandler = async (req, res) => {
         player2Guesses: [],
         player1Solved: false,
         player2Solved: false,
-        word: word,
+        word: word, // SAME word for both players to compete
         matchId: matchId,
         lastActivity: Date.now(),
         completed: false
@@ -2627,6 +2629,10 @@ const confirmPaymentHandler = async (req, res) => {
         player2: match.player2,
         startTime: Date.now()
       });
+      
+      // IMMEDIATELY save to database so both players can see the status change
+      await matchRepository.save(match);
+      console.log(`✅ Match ${matchId} status saved as 'active' - both players will be redirected`);
     } else {
       console.log(`⏳ Waiting for other player to pay for match ${matchId}. Player1Paid: ${match.player1Paid}, Player2Paid: ${match.player2Paid}`);
       
