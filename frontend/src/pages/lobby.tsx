@@ -90,30 +90,43 @@ export default function Lobby() {
   }
 
   const handleSelect = async (usdAmount: number, solAmount: number) => {
+    console.log('🎮 handleSelect called with:', { usdAmount, solAmount });
+    
     if (!publicKey) {
       alert('Please connect your wallet first!')
       return
     }
     
+    console.log('🔍 Checking balance for:', solAmount);
     const hasBalance = await checkBalance(solAmount)
+    console.log('💰 Balance check result:', hasBalance);
+    
     if (!hasBalance) {
+      console.log('❌ Insufficient balance, returning');
       return
     }
 
     try {
+      console.log('💾 Storing entry fee in localStorage:', solAmount);
       // Store the SOL amount in localStorage for consistency
       localStorage.setItem('entryFeeSOL', solAmount.toString());
       
+      console.log('📡 Calling requestMatch with:', { wallet: publicKey.toString(), entryFee: solAmount });
       const result = await requestMatch(publicKey.toString(), solAmount) as any
+      console.log('📡 requestMatch result:', result);
+      
       if (result.status === 'matched') {
+        console.log('✅ Match found, redirecting to matchmaking with matchId');
         router.push(`/matchmaking?matchId=${result.matchId}&entryFee=${solAmount}`)
       } else if (result.status === 'waiting') {
+        console.log('⏳ Waiting for opponent, redirecting to matchmaking');
         router.push(`/matchmaking?entryFee=${solAmount}`)
       } else {
+        console.log('❌ Unknown result status:', result.status);
         alert('Failed to start matchmaking. Please try again.')
       }
     } catch (error) {
-      console.error('Matchmaking error:', error)
+      console.error('❌ Matchmaking error:', error)
       alert('Failed to start matchmaking. Please try again.')
     }
   }
