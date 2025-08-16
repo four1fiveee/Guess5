@@ -9,7 +9,7 @@ import logo from '../../public/logo.png';
 const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction, signAllTransactions } = useWallet();
-  const [status, setStatus] = useState<'waiting' | 'matched' | 'payment_required' | 'active' | 'error' | 'cancelled'>('waiting');
+  const [status, setStatus] = useState<'waiting' | 'matched' | 'payment_required' | 'active' | 'error' | 'cancelled' | 'waiting_for_opponent'>('waiting');
   const [timeLeft, setTimeLeft] = useState(120);
   const [timeoutMessage, setTimeoutMessage] = useState<string>('');
   const [waitingCount, setWaitingCount] = useState(0);
@@ -547,8 +547,22 @@ const Matchmaking: React.FC = () => {
           if (data.matched) {
             console.log('✅ We have been matched!', data);
             setMatchData(data);
-            // Always set status to 'matched' to show payment button, regardless of backend status
-            setStatus('matched');
+            
+            // Check if we've already paid but other player hasn't
+            if (data.player1Paid === false && data.player2Paid === true) {
+              // We paid, waiting for other player
+              setStatus('waiting_for_opponent');
+            } else if (data.player1Paid === true && data.player2Paid === false) {
+              // Other player paid, we need to pay
+              setStatus('matched');
+            } else if (data.player1Paid === true && data.player2Paid === true) {
+              // Both paid, game should start
+              setStatus('active');
+            } else {
+              // Neither paid yet, show payment button
+              setStatus('matched');
+            }
+            
             clearInterval(countdownInterval);
             clearTimeout(timeoutId); // Also clear timeout
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
@@ -817,6 +831,36 @@ const Matchmaking: React.FC = () => {
                 >
                   Return to Lobby
                 </button>
+              </div>
+            </div>
+          )}
+          {status === 'waiting_for_opponent' && (
+            <div className="space-y-4">
+              <div className="flex justify-center">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white"></div>
+              </div>
+              <p className="text-white/80 text-center">⏳ Waiting for Opponent to Pay...</p>
+              
+              <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-4">
+                <h3 className="text-blue-400 font-semibold mb-2">✅ Payment Confirmed!</h3>
+                <p className="text-white/80 mb-3">
+                  Your payment was successful! Waiting for your opponent to complete their payment.
+                </p>
+                
+                <div className="space-y-2 text-sm text-white/70">
+                  <div className="flex items-center">
+                    <span className="text-blue-400 mr-2">✅</span>
+                    Your payment: {entryFee} SOL sent
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-blue-400 mr-2">⏳</span>
+                    Waiting for opponent to pay
+                  </div>
+                  <div className="flex items-center">
+                    <span className="text-blue-400 mr-2">🎮</span>
+                    Game will start automatically when both players pay
+                  </div>
+                </div>
               </div>
             </div>
           )}
