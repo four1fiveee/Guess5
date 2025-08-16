@@ -79,6 +79,7 @@ export default function Lobby() {
         setCheckingBalance(false)
         return false
       }
+      setCheckingBalance(false) // Reset checking state on success
       return true
     } catch (error) {
       console.error('Balance check error:', error)
