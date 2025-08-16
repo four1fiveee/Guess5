@@ -9,6 +9,9 @@ export default function Home() {
       <TopRightWallet />
       <div className="flex flex-col items-center max-w-4xl w-full">
         <Image src={logo} alt="Guess5 Logo" width={280} height={280} className="mb-4" />
+        <Link href="/lobby">
+          <button className="bg-accent text-primary text-lg font-bold px-8 py-2 rounded-lg shadow hover:bg-yellow-400 transition mb-6">Play</button>
+        </Link>
         <p className="text-lg text-white/80 mb-6 text-center">The Solana-powered word game for real rewards</p>
         <div className="bg-secondary bg-opacity-10 rounded-lg p-5 max-w-4xl w-full mb-6 text-accent shadow">
           <h2 className="text-xl font-bold text-accent mb-3 text-center">How to Play</h2>
@@ -30,9 +33,6 @@ export default function Home() {
             <li><b>Game Timeout:</b> If game doesn't start within 1 minute → <span className="text-green-400">Full refund to both players</span></li>
           </ul>
         </div>
-        <Link href="/lobby">
-          <button className="bg-accent text-primary text-lg font-bold px-8 py-2 rounded-lg shadow hover:bg-yellow-400 transition">Play</button>
-        </Link>
       </div>
     </div>
   );

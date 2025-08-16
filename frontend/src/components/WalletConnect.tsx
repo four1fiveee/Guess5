@@ -230,16 +230,16 @@ export const TopRightWallet: React.FC = () => {
   }
 
   return (
-    <div className="absolute top-4 right-4 bg-secondary bg-opacity-20 rounded-lg p-4 backdrop-blur-sm min-w-[280px]">
+    <div className="absolute top-4 right-4 bg-secondary bg-opacity-20 rounded-lg p-3 backdrop-blur-sm min-w-[220px]">
       <div className="flex flex-col items-center">
-        <div className="text-base text-white/80 mb-2">
+        <div className="text-sm text-white/80 mb-1">
           {publicKey?.toString().slice(0, 4)}...{publicKey?.toString().slice(-4)}
         </div>
-        <div className="text-xl font-bold text-accent mb-3">
+        <div className="text-lg font-bold text-accent mb-2">
           {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
         </div>
         <button
-          className="px-8 py-3 text-lg font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors w-full"
+          className="px-6 py-2 text-sm font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors w-full"
           onClick={disconnect}
         >
           Disconnect
