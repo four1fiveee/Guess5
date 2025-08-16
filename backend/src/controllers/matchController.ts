@@ -45,6 +45,29 @@ let memoryStats = {
   lastCleanup: Date.now()
 };
 
+// Helper function to check fee wallet balance
+const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
+  try {
+    const { Connection, PublicKey } = require('@solana/web3.js');
+    const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+    const feeWalletPublicKey = new PublicKey(FEE_WALLET_ADDRESS);
+    
+    const balance = await connection.getBalance(feeWalletPublicKey);
+    const hasEnough = balance >= requiredAmount;
+    
+    console.log('💰 Fee wallet balance check:', {
+      balance: balance / 1000000000, // Convert lamports to SOL
+      required: requiredAmount / 1000000000,
+      hasEnough
+    });
+    
+    return hasEnough;
+  } catch (error) {
+    console.error('❌ Error checking fee wallet balance:', error);
+    return false;
+  }
+};
+
 // Memory limit check function
 const checkMemoryLimits = () => {
   const currentStats = {
