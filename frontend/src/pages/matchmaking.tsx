@@ -173,6 +173,24 @@ const Matchmaking: React.FC = () => {
     const startMatchmaking = async () => {
       if (!publicKey || isRequestInProgress) return;
 
+      // Get entry fee from URL parameters or localStorage
+      let currentEntryFee = entryFee;
+      const urlEntryFee = router.query.entryFee as string;
+      if (urlEntryFee) {
+        currentEntryFee = parseFloat(urlEntryFee);
+      } else {
+        const storedEntryFee = localStorage.getItem('entryFeeSOL');
+        if (storedEntryFee) {
+          currentEntryFee = parseFloat(storedEntryFee);
+        }
+      }
+
+      if (!currentEntryFee || currentEntryFee <= 0) {
+        console.error('❌ No valid entry fee found');
+        setStatus('error');
+        return;
+      }
+
       setIsRequestInProgress(true);
       
       try {
@@ -183,7 +201,7 @@ const Matchmaking: React.FC = () => {
           },
           body: JSON.stringify({
             wallet: publicKey.toString(),
-            entryFee: entryFee
+            entryFee: currentEntryFee
           }),
         });
 
