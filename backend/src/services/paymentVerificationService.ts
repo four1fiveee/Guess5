@@ -232,6 +232,14 @@ class PaymentVerificationService {
         let keyStr: string;
         if (typeof key === 'string') {
           keyStr = key;
+        } else if (key && typeof key === 'object' && 'pubkey' in key) {
+          // Handle account key objects with pubkey property
+          const pubkey = (key as any).pubkey;
+          if (pubkey && typeof pubkey === 'object' && 'toBase58' in pubkey) {
+            keyStr = pubkey.toBase58();
+          } else {
+            keyStr = String(pubkey);
+          }
         } else if (key && typeof key === 'object' && 'toBase58' in key) {
           keyStr = (key as any).toBase58();
         } else if (key && typeof key === 'object' && 'toString' in key) {
@@ -245,6 +253,14 @@ class PaymentVerificationService {
         let keyStr: string;
         if (typeof key === 'string') {
           keyStr = key;
+        } else if (key && typeof key === 'object' && 'pubkey' in key) {
+          // Handle account key objects with pubkey property
+          const pubkey = (key as any).pubkey;
+          if (pubkey && typeof pubkey === 'object' && 'toBase58' in pubkey) {
+            keyStr = pubkey.toBase58();
+          } else {
+            keyStr = String(pubkey);
+          }
         } else if (key && typeof key === 'object' && 'toBase58' in key) {
           keyStr = (key as any).toBase58();
         } else if (key && typeof key === 'object' && 'toString' in key) {
@@ -265,6 +281,14 @@ class PaymentVerificationService {
       console.log('🔍 Transaction account keys:', accountKeys.map(key => {
         if (typeof key === 'string') {
           return key;
+        } else if (key && typeof key === 'object' && 'pubkey' in key) {
+          // Handle account key objects with pubkey property
+          const pubkey = (key as any).pubkey;
+          if (pubkey && typeof pubkey === 'object' && 'toBase58' in pubkey) {
+            return pubkey.toBase58();
+          } else {
+            return String(pubkey);
+          }
         } else if (key && typeof key === 'object' && 'toBase58' in key) {
           return (key as any).toBase58();
         } else if (key && typeof key === 'object' && 'toString' in key) {
