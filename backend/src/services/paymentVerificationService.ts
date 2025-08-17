@@ -227,14 +227,14 @@ class PaymentVerificationService {
       const postBalances = transaction.meta?.postBalances || [];
       const accountKeys = transaction.transaction.message.accountKeys;
 
-      // Find account indices (use toString() for comparison)
-      const feeWalletIndex = accountKeys.findIndex(key => key.toString() === feeWalletPublicKey.toString());
-      const fromWalletIndex = accountKeys.findIndex(key => key.toString() === fromWalletPublicKey.toString());
+      // Find account indices (use toBase58() for comparison)
+      const feeWalletIndex = accountKeys.findIndex(key => key.toString() === feeWalletPublicKey.toBase58());
+      const fromWalletIndex = accountKeys.findIndex(key => key.toString() === fromWalletPublicKey.toBase58());
 
       // Debug: Log all account keys to see what's in the transaction
       console.log('🔍 Transaction account keys:', accountKeys.map(key => key.toString()));
-      console.log('🔍 Looking for fromWallet:', fromWalletPublicKey.toString());
-      console.log('🔍 Looking for feeWallet:', feeWalletPublicKey.toString());
+      console.log('🔍 Looking for fromWallet:', fromWalletPublicKey.toBase58());
+      console.log('🔍 Looking for feeWallet:', feeWalletPublicKey.toBase58());
       console.log('🔍 fromWalletIndex:', fromWalletIndex);
       console.log('🔍 feeWalletIndex:', feeWalletIndex);
 
@@ -242,8 +242,7 @@ class PaymentVerificationService {
         // Try alternative wallet address formats
         const fromWalletBase58 = fromWalletPublicKey.toBase58();
         const fromWalletIndexAlt = accountKeys.findIndex(key => 
-          key.toString() === fromWalletBase58 || 
-          key.toString() === fromWalletPublicKey.toString()
+          key.toString() === fromWalletBase58
         );
         
         if (fromWalletIndexAlt === -1) {
