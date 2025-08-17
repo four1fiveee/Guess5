@@ -563,9 +563,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       SELECT 
         id,
         "player1",
-        "player2",
-        "entryFee",
-        status
+        "entryFee"
       FROM "match" 
       WHERE "status" = $1 
         AND "entryFee" BETWEEN $2 AND $3 
@@ -589,9 +587,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
         SELECT 
           id,
           "player1",
-          "player2",
-          "entryFee",
-          status
+          "entryFee"
         FROM "match" 
         WHERE "status" = $1 
           AND "entryFee" BETWEEN $2 AND $3 
@@ -612,9 +608,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
         SELECT 
           id,
           "player1",
-          "player2",
-          "entryFee",
-          status
+          "entryFee"
         FROM "match" 
         WHERE "status" = $1 
           AND "player2" IS NULL 
@@ -627,29 +621,45 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     }
     
     if (waitingMatches.length > 0) {
-      const match = waitingMatches[0];
+      const waitingEntry = waitingMatches[0];
       
-      // Verify the match is still valid
-      if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
-        console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
-        
-        // Update the match to mark it as matched using raw SQL
-        await matchRepository.query(`
-          UPDATE "match" 
-          SET "status" = $1, "player2" = $2
-          WHERE id = $3
-        `, ['matched', wallet, match.id]);
-        
-        console.log(`✅ Successfully matched ${match.player1} with ${wallet}`);
-        
-        return {
-          wallet: match.player1,
-          entryFee: match.entryFee,
-          matchId: match.id
-        };
-      } else {
-        console.log(`⚠️ Match ${match.id} is no longer valid for ${wallet}`);
-      }
+      console.log(`🎯 Found waiting player: ${waitingEntry.player1} for ${wallet}`);
+      
+      // Create a NEW match record (not update the waiting entry)
+      const actualEntryFee = Math.min(waitingEntry.entryFee, entryFee);
+      
+      // Generate game word
+      const { getRandomWord } = require('../wordList');
+      const gameWord = getRandomWord();
+      
+      // Create new match record
+      const newMatchResult = await matchRepository.query(`
+        INSERT INTO "match" (
+          "player1", "player2", "entryFee", "status", "word", 
+          "player1Paid", "player2Paid", "createdAt", "updatedAt"
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        RETURNING id, "player1", "player2", "entryFee", "status"
+      `, [
+        waitingEntry.player1, wallet, actualEntryFee, 'payment_required', gameWord,
+        false, false, new Date(), new Date()
+      ]);
+      
+      const newMatch = newMatchResult[0];
+      
+      // Delete the waiting entry since we've created a match
+      await matchRepository.query(`
+        DELETE FROM "match" 
+        WHERE id = $1
+      `, [waitingEntry.id]);
+      
+      console.log(`✅ Successfully created match ${newMatch.id} between ${waitingEntry.player1} and ${wallet}`);
+      
+      return {
+        wallet: waitingEntry.player1,
+        entryFee: actualEntryFee,
+        matchId: newMatch.id
+      };
     }
     
     console.log(`❌ No waiting players found for ${wallet} with entry fee ${entryFee}`);
@@ -661,66 +671,26 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   }
 };
 
-// Helper function to create a match
+// Helper function to create a match (now handled in findWaitingPlayer)
 const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: string, entryFee: number) => {
   try {
-    const actualEntryFee = Math.min(waitingPlayer.entryFee, entryFee);
-    
-    console.log('🎮 Creating match between players:', {
+    console.log('🎮 Match already created in findWaitingPlayer, returning details:', {
       player1: waitingPlayer.wallet,
       player2: wallet,
-      actualEntryFee: actualEntryFee
-    });
-    
-    // Update the waiting match with better error handling using raw SQL
-    const existingMatches = await matchRepository.query(`
-      SELECT 
-        id,
-        "player1",
-        "player2",
-        status
-      FROM "match" 
-      WHERE id = $1
-    `, [waitingPlayer.matchId]);
-    
-    if (existingMatches.length === 0) {
-      throw new Error('Waiting match not found - may have been claimed by another player');
-    }
-    
-    const existingMatch = existingMatches[0];
-    
-    // Verify the match is still in the correct state
-    if (existingMatch.status !== 'matched' || existingMatch.player2 !== wallet) {
-      throw new Error('Match state has changed - another player may have claimed this match');
-    }
-    
-    // Generate game word
-    const { getRandomWord } = require('../wordList');
-    const gameWord = getRandomWord();
-    
-    // Update match details using raw SQL
-    await matchRepository.query(`
-      UPDATE "match" 
-      SET "status" = $1, "word" = $2, "entryFee" = $3, "player1Paid" = $4, "player2Paid" = $5, "createdAt" = $6
-      WHERE id = $7
-    `, ['payment_required', gameWord, actualEntryFee, false, false, new Date(), waitingPlayer.matchId]);
-    
-    console.log('✅ Match created successfully:', {
-      matchId: waitingPlayer.matchId,
-      status: 'payment_required',
-      entryFee: actualEntryFee
+      entryFee: waitingPlayer.entryFee,
+      matchId: waitingPlayer.matchId
     });
     
     return {
       status: 'matched',
       matchId: waitingPlayer.matchId,
-      player1: existingMatch.player1,
+      player1: waitingPlayer.wallet,
       player2: wallet,
-      entryFee: actualEntryFee,
+      entryFee: waitingPlayer.entryFee,
       message: 'Match created - both players must pay entry fee to start game'
     };
   } catch (error) {
-    console.error('❌ Error creating match:', error);
+    console.error('❌ Error in createMatch:', error);
     throw error;
   }
 };
@@ -1848,29 +1818,37 @@ const checkPlayerMatchHandler = async (req, res) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Check for active matches with this player (including payment_required status)
-    const activeMatch = await matchRepository.findOne({
-      where: [
-        { player1: wallet, status: 'active' },
-        { player2: wallet, status: 'active' },
-        { player1: wallet, status: 'escrow' },
-        { player2: wallet, status: 'escrow' },
-        { player1: wallet, status: 'matched' },
-        { player2: wallet, status: 'matched' },
-        { player1: wallet, status: 'payment_required' },
-        { player2: wallet, status: 'payment_required' }
-      ]
-    });
+    // Check for active matches with this player using raw SQL
+    const activeMatches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        status,
+        "player1Paid",
+        "player2Paid",
+        word,
+        "escrowAddress",
+        "entryFee"
+      FROM "match" 
+      WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6, $7))
+      LIMIT 1
+    `, [wallet, wallet, 'active', 'escrow', 'matched', 'payment_required']);
 
     // Also check for cancelled matches
-    const cancelledMatch = await matchRepository.findOne({
-      where: [
-        { player1: wallet, status: 'cancelled' },
-        { player2: wallet, status: 'cancelled' }
-      ]
-    });
+    const cancelledMatches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        status
+      FROM "match" 
+      WHERE (("player1" = $1 OR "player2" = $2) AND "status" = $3)
+      LIMIT 1
+    `, [wallet, wallet, 'cancelled']);
     
-    if (activeMatch) {
+    if (activeMatches.length > 0) {
+      const activeMatch = activeMatches[0];
       console.log('✅ Player has been matched:', {
         matchId: activeMatch.id,
         player1: activeMatch.player1,
@@ -1880,12 +1858,16 @@ const checkPlayerMatchHandler = async (req, res) => {
       });
       
       // Also log all matches for this player for debugging
-      const allPlayerMatches = await matchRepository.find({
-        where: [
-          { player1: wallet },
-          { player2: wallet }
-        ]
-      });
+      const allPlayerMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          status,
+          "player1",
+          "player2"
+        FROM "match" 
+        WHERE "player1" = $1 OR "player2" = $2
+      `, [wallet, wallet]);
+      
       console.log('🔍 All matches for player:', allPlayerMatches.map(m => ({
         id: m.id,
         status: m.status,
@@ -1914,7 +1896,8 @@ const checkPlayerMatchHandler = async (req, res) => {
         entryFee: activeMatch.entryFee,
         message: message
       });
-    } else if (cancelledMatch) {
+    } else if (cancelledMatches.length > 0) {
+      const cancelledMatch = cancelledMatches[0];
       console.log('❌ Player has cancelled match:', {
         matchId: cancelledMatch.id,
         player1: cancelledMatch.player1,
@@ -1931,59 +1914,83 @@ const checkPlayerMatchHandler = async (req, res) => {
       console.log('⏳ Player still waiting for match');
       
       // Check if there are any waiting matches this player could join
-      const availableWaitingMatch = await matchRepository.findOne({
-        where: {
-          status: 'waiting',
-          player2: null,
-          player1: Not(wallet)
-        },
-        order: { createdAt: 'ASC' }
-      });
+      const availableWaitingMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          "entryFee"
+        FROM "match" 
+        WHERE "status" = $1 AND "player2" IS NULL AND "player1" != $2
+        ORDER BY "createdAt" ASC
+        LIMIT 1
+      `, ['waiting', wallet]);
       
-      if (availableWaitingMatch) {
+      if (availableWaitingMatches.length > 0) {
+        const availableWaitingMatch = availableWaitingMatches[0];
         console.log('🎯 Found available waiting match for player to join:', {
-          matchId: availableWaitingMatch.id,
+          waitingEntryId: availableWaitingMatch.id,
           waitingPlayer: availableWaitingMatch.player1,
           entryFee: availableWaitingMatch.entryFee,
           requestingPlayer: wallet
         });
         
-        // Try to match them immediately
-        try {
-          // Update the match to include this player
-          availableWaitingMatch.status = 'matched';
-          availableWaitingMatch.player2 = wallet;
-          await matchRepository.save(availableWaitingMatch);
-          
-          console.log('✅ Successfully matched player with waiting opponent');
-          
-          res.json({
-            matched: true,
-            matchId: availableWaitingMatch.id,
-            status: 'matched',
-            player1: availableWaitingMatch.player1,
-            player2: wallet,
-            player1Paid: availableWaitingMatch.player1Paid,
-            player2Paid: availableWaitingMatch.player2Paid,
-            entryFee: availableWaitingMatch.entryFee,
-            message: 'Match created - please pay your entry fee'
-          });
-          return;
-        } catch (error) {
-          console.error('❌ Error matching player with waiting opponent:', error);
-        }
+        // Create a new match (don't update the waiting entry)
+        const actualEntryFee = Math.min(availableWaitingMatch.entryFee, 0.1039); // Use the entry fee from the request
+        
+        // Generate game word
+        const { getRandomWord } = require('../wordList');
+        const gameWord = getRandomWord();
+        
+        // Create new match record
+        const newMatchResult = await matchRepository.query(`
+          INSERT INTO "match" (
+            "player1", "player2", "entryFee", "status", "word", 
+            "player1Paid", "player2Paid", "createdAt", "updatedAt"
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          RETURNING id, "player1", "player2", "entryFee", "status"
+        `, [
+          availableWaitingMatch.player1, wallet, actualEntryFee, 'payment_required', gameWord,
+          false, false, new Date(), new Date()
+        ]);
+        
+        const newMatch = newMatchResult[0];
+        
+        // Delete the waiting entry since we've created a match
+        await matchRepository.query(`
+          DELETE FROM "match" 
+          WHERE id = $1
+        `, [availableWaitingMatch.id]);
+        
+        console.log('✅ Successfully created match and removed waiting entry');
+        
+        res.json({
+          matched: true,
+          matchId: newMatch.id,
+          status: 'payment_required',
+          player1: newMatch.player1,
+          player2: wallet,
+          player1Paid: false,
+          player2Paid: false,
+          entryFee: newMatch.entryFee,
+          message: 'Match created - please pay your entry fee'
+        });
+        return;
       }
       
-      // Also check for waiting matches to debug
-      const waitingMatch = await matchRepository.findOne({
-        where: {
-          player1: wallet,
-          status: 'waiting',
-          player2: null
-        }
-      });
+      // Also check for waiting matches to debug using raw SQL
+      const waitingMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          status
+        FROM "match" 
+        WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
+        LIMIT 1
+      `, [wallet, 'waiting']);
       
-      if (waitingMatch) {
+      if (waitingMatches.length > 0) {
+        const waitingMatch = waitingMatches[0];
         console.log('🔍 Player has waiting entry:', {
           matchId: waitingMatch.id,
           player1: waitingMatch.player1,
@@ -3651,6 +3658,118 @@ const verifyBlockchainDataHandler = async (req, res) => {
   }
 };
 
+// Server-Sent Events endpoint for real-time wallet balance updates
+const walletBalanceSSEHandler = async (req, res) => {
+  try {
+    const { wallet } = req.params;
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+    
+    console.log('🔌 SSE connection requested for wallet:', wallet);
+    
+    // Set SSE headers
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'Access-Control-Allow-Origin': '*',
+      'Access-Control-Allow-Headers': 'Cache-Control'
+    });
+    
+    // Send initial connection message
+    const connectionMessage = {
+      type: 'connected',
+      wallet: wallet,
+      timestamp: new Date().toISOString()
+    };
+    
+    res.write(`data: ${JSON.stringify(connectionMessage)}\n\n`);
+    
+    // Get initial balance
+    const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+    const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com');
+    const publicKey = new PublicKey(wallet);
+    
+    try {
+      const balance = await connection.getBalance(publicKey);
+      const balanceInSOL = balance / LAMPORTS_PER_SOL;
+      
+      const balanceMessage = {
+        type: 'balance_update',
+        wallet: wallet,
+        balance: balanceInSOL,
+        timestamp: new Date().toISOString()
+      };
+      
+      res.write(`data: ${JSON.stringify(balanceMessage)}\n\n`);
+    } catch (error) {
+      console.error('❌ Error fetching initial balance:', error);
+      const errorMessage = {
+        type: 'error',
+        wallet: wallet,
+        message: 'Failed to fetch initial balance',
+        timestamp: new Date().toISOString()
+      };
+      res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
+    }
+    
+    // Set up periodic balance checks (every 10 seconds)
+    const balanceInterval = setInterval(async () => {
+      try {
+        const balance = await connection.getBalance(publicKey);
+        const balanceInSOL = balance / LAMPORTS_PER_SOL;
+        
+        const balanceMessage = {
+          type: 'balance_update',
+          wallet: wallet,
+          balance: balanceInSOL,
+          timestamp: new Date().toISOString()
+        };
+        
+        res.write(`data: ${JSON.stringify(balanceMessage)}\n\n`);
+      } catch (error) {
+        console.error('❌ Error fetching balance update:', error);
+        const errorMessage = {
+          type: 'error',
+          wallet: wallet,
+          message: 'Failed to fetch balance update',
+          timestamp: new Date().toISOString()
+        };
+        res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
+      }
+    }, 10000); // Check every 10 seconds
+    
+    // Handle client disconnect
+    req.on('close', () => {
+      console.log('🔌 SSE connection closed for wallet:', wallet);
+      clearInterval(balanceInterval);
+    });
+    
+    // Handle server shutdown
+    req.on('error', (error) => {
+      console.error('❌ SSE connection error:', error);
+      clearInterval(balanceInterval);
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in wallet balance SSE handler:', error);
+    
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Internal server error' });
+    } else {
+      const errorMessage = {
+        type: 'error',
+        wallet: req.params.wallet || 'unknown',
+        message: 'Internal server error',
+        timestamp: new Date().toISOString()
+      };
+      res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
+    }
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -3678,5 +3797,6 @@ module.exports = {
   runMigrationHandler,
   generateReportHandler,
   verifyBlockchainDataHandler,
-  processAutomatedRefunds
+  processAutomatedRefunds,
+  walletBalanceSSEHandler,
 }; 

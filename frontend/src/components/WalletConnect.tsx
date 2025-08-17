@@ -3,6 +3,7 @@ import { useWallet, WalletContextState } from '@solana/wallet-adapter-react';
 import { useWalletModal } from '@solana/wallet-adapter-react-ui';
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { LegalDisclaimer } from './LegalDisclaimer';
+import { useWalletBalanceSSE } from '../hooks/useWalletBalanceSSE';
 
 declare global {
   interface Window {
@@ -18,40 +19,12 @@ export const WalletConnectButton: React.FC = () => {
   const { publicKey, connect, disconnect, connected }: WalletContextState = useWallet();
   const { setVisible } = useWalletModal();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [showLegalDisclaimer, setShowLegalDisclaimer] = useState(false);
 
-  // Fetch wallet balance
-  const fetchWalletBalance = async () => {
-    if (!publicKey) {
-      setWalletBalance(null);
-      return;
-    }
-    
-    try {
-      const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
-      const connection = new Connection(solanaNetwork, 'confirmed');
-      const balance = await connection.getBalance(publicKey);
-      const balanceInSol = balance / LAMPORTS_PER_SOL;
-      setWalletBalance(balanceInSol);
-    } catch (error) {
-      console.error('Failed to check wallet balance:', error);
-      setWalletBalance(null);
-    }
-  };
-
-  // Update balance when wallet connects/disconnects
-  useEffect(() => {
-    fetchWalletBalance();
-  }, [publicKey]);
-
-  // Update balance every 30 seconds when connected
-  useEffect(() => {
-    if (!connected) return;
-    
-    const interval = setInterval(fetchWalletBalance, 30000);
-    return () => clearInterval(interval);
-  }, [connected, publicKey]);
+  // Use SSE for real-time wallet balance updates
+  const { balance: walletBalance, isConnected: sseConnected, error: sseError, refreshBalance } = useWalletBalanceSSE(
+    publicKey?.toString() || null
+  );
 
   const handleConnect = async () => {
     // Show legal disclaimer first
@@ -280,6 +253,16 @@ export const TopRightWallet: React.FC = () => {
           <div className="text-lg font-bold text-accent mb-2">
             {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
           </div>
+          {/* SSE Connection Status */}
+          <div className="text-xs text-white/60 mb-2 flex items-center">
+            <div className={`w-2 h-2 rounded-full mr-1 ${sseConnected ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
+            {sseConnected ? 'Live Updates' : 'Polling'}
+          </div>
+          {sseError && (
+            <div className="text-xs text-red-400 mb-2 text-center">
+              {sseError}
+            </div>
+          )}
           <button
             className="px-6 py-2 text-sm font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors w-full"
             onClick={disconnect}

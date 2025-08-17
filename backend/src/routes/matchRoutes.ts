@@ -56,6 +56,12 @@ router.get('/check-match/:wallet',
   asyncHandlerWrapper(matchController.checkPlayerMatchHandler)
 );
 
+// Real-time wallet balance updates via Server-Sent Events
+router.get('/wallet-balance/:wallet', 
+  // No rate limiting for SSE endpoint
+  asyncHandlerWrapper(matchController.walletBalanceSSEHandler)
+);
+
 router.get('/game-state', 
   // No rate limiting for game state polling to avoid 429 errors
   asyncHandlerWrapper(matchController.getGameStateHandler)
