@@ -236,6 +236,7 @@ const Matchmaking: React.FC = () => {
       console.log('🔄 Starting polling for match updates...');
       pollInterval = setInterval(async () => {
         console.log('🔄 Polling tick...');
+        console.log('🔄 Current matchData state:', matchData);
         try {
           // Check if we have a match and need to update payment status
           if (matchData && matchData.matchId) {
@@ -297,6 +298,7 @@ const Matchmaking: React.FC = () => {
             }
           } else {
             // Check if we've been matched while waiting
+            console.log('🔄 No matchData, checking for new match...');
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${publicKey.toString()}`);
             
             if (response.ok) {
@@ -311,11 +313,13 @@ const Matchmaking: React.FC = () => {
                 clearInterval(pollInterval);
                 setIsMatchmakingInProgress(false);
                 
-                // Start polling for payment status updates
-                if (!isPolling) {
-                  setIsPolling(true);
-                  startPolling();
-                }
+                // Start polling for payment status updates after a short delay to ensure state is updated
+                setTimeout(() => {
+                  if (!isPolling) {
+                    setIsPolling(true);
+                    startPolling();
+                  }
+                }, 100);
               }
             }
           }
