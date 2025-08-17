@@ -3143,6 +3143,110 @@ const runMigrationHandler = async (req, res) => {
   }
 };
 
+// Match report endpoint (exports to CSV)
+const generateReportHandler = async (req, res) => {
+  try {
+    const { startDate = '2025-08-16', endDate } = req.query;
+    
+    console.log('📊 Generating match report...');
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Build date filter
+    let dateFilter = `DATE("createdAt") >= '${startDate}'`;
+    if (endDate) {
+      dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
+    }
+    
+    // Get all matches with full data
+    const matches = await matchRepository
+      .createQueryBuilder('match')
+      .where(dateFilter)
+      .orderBy('match.createdAt', 'DESC')
+      .getMany();
+    
+    console.log(`📊 Found ${matches.length} matches for report`);
+    
+    // Generate CSV headers
+    const csvHeaders = [
+      'Match ID',
+      'Player 1 Wallet',
+      'Player 2 Wallet', 
+      'Entry Fee (SOL)',
+      'Match Status',
+      'Player 1 Paid',
+      'Player 2 Paid',
+      'Match Outcome',
+      'Player 1 Moves',
+      'Player 2 Moves',
+      'Player 1 Time (sec)',
+      'Player 2 Time (sec)',
+      'Total Match Duration (sec)',
+      'Total Fees Collected (SOL)',
+      'Platform Fee (SOL)',
+      'Game End Time',
+      'Match Created',
+      'Last Updated',
+      'Player 1 Payment TX',
+      'Player 2 Payment TX',
+      'Winner Payout TX',
+      'Player 1 Refund TX',
+      'Player 2 Refund TX',
+      'Refund Reason',
+      'Refunded At'
+    ];
+    
+    // Generate CSV rows
+    const csvRows = matches.map(match => [
+      match.id,
+      match.player1,
+      match.player2,
+      match.entryFee,
+      match.status,
+      match.player1Paid,
+      match.player2Paid,
+      match.matchOutcome,
+      match.player1Moves,
+      match.player2Moves,
+      match.player1CompletionTime,
+      match.player2CompletionTime,
+      match.matchDuration,
+      match.totalFeesCollected,
+      match.platformFee,
+      match.gameEndTime,
+      match.createdAt,
+      match.updatedAt,
+      match.player1PaymentSignature,
+      match.player2PaymentSignature,
+      match.winnerPayoutSignature,
+      match.player1RefundSignature,
+      match.player2RefundSignature,
+      match.refundReason,
+      match.refundedAt
+    ]);
+    
+    // Combine headers and rows
+    const csvContent = [csvHeaders, ...csvRows]
+      .map(row => row.map(field => `"${field || ''}"`).join(','))
+      .join('\n');
+    
+    // Set response headers for CSV download
+    const filename = `guess5_matches_${startDate}${endDate ? '_to_' + endDate : ''}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    console.log(`✅ Report generated: ${filename} with ${matches.length} matches`);
+    
+    res.send(csvContent);
+    
+  } catch (error) {
+    console.error('❌ Error generating report:', error);
+    res.status(500).json({ error: 'Failed to generate report' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -3168,5 +3272,6 @@ module.exports = {
   manualRefundHandler,
   manualMatchHandler,
   runMigrationHandler,
+  generateReportHandler,
   processAutomatedRefunds
 }; 

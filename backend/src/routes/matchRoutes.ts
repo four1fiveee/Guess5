@@ -83,6 +83,9 @@ router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHand
 // Database migration endpoint
 router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHandler));
 
+// Match report endpoint (CSV export)
+router.get('/generate-report', asyncHandlerWrapper(matchController.generateReportHandler));
+
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));
