@@ -138,9 +138,14 @@ class WebSocketService {
         case 'unsubscribe_match':
           this.unsubscribeFromMatch(connectionId, message.matchId);
           break;
-        case 'ping':
-          this.sendToConnection(connectionId, { type: 'pong', timestamp: Date.now() });
-          break;
+                 case 'ping':
+           this.sendToConnection(connectionId, { 
+             type: WebSocketEventType.MATCH_CREATED, 
+             matchId: 'ping',
+             data: { type: 'pong', timestamp: Date.now() },
+             timestamp: new Date().toISOString()
+           });
+           break;
         default:
           enhancedLogger.warn('Unknown WebSocket message type', { 
             connectionId, 

@@ -46,6 +46,8 @@ export interface UseWebSocketReturn {
   subscribeToMatch: (matchId: string) => void;
   unsubscribeFromMatch: (matchId: string) => void;
   sendMessage: (message: any) => void;
+  addEventHandler: (eventType: WebSocketEventType, handler: (event: WebSocketEvent) => void) => void;
+  removeEventHandler: (eventType: WebSocketEventType, handler: (event: WebSocketEvent) => void) => void;
 }
 
 export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn => {
@@ -168,7 +170,7 @@ export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn =
         isConnecting: false
       }));
     }
-  }, [wallet, state.isConnected, state.isConnecting, getWebSocketUrl, matchId, reconnectInterval, maxReconnectAttempts]);
+  }, [wallet, state.isConnected, state.isConnecting, getWebSocketUrl, matchId, reconnectInterval, maxReconnectAttempts, subscribeToMatch]);
 
   // Disconnect from WebSocket
   const disconnect = useCallback(() => {

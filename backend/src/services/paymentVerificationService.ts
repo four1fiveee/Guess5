@@ -38,12 +38,11 @@ class PaymentVerificationService {
 
   constructor() {
     this.connection = new Connection(
-      process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+      process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com',
       'confirmed'
     );
     this.feeWalletAddress = process.env.FEE_WALLET_ADDRESS || '';
-    this.isDevnet = (process.env.SOLANA_RPC_URL || '').includes('devnet') || 
-                   (process.env.NEXT_PUBLIC_SOLANA_NETWORK || '').includes('devnet');
+    this.isDevnet = (process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_NETWORK || '').includes('devnet');
   }
 
   // Enhanced payment verification with comprehensive validation
@@ -105,11 +104,11 @@ class PaymentVerificationService {
         };
       }
 
-      // Verify confirmation status
-      if (requireConfirmation && transaction.meta?.confirmationStatus !== 'confirmed') {
+      // Verify confirmation status (use status instead of confirmationStatus)
+      if (requireConfirmation && transaction.meta?.status !== 'confirmed') {
         return {
           verified: false,
-          error: `Transaction not confirmed. Status: ${transaction.meta?.confirmationStatus}`
+          error: `Transaction not confirmed. Status: ${transaction.meta?.status}`
         };
       }
 
@@ -226,9 +225,9 @@ class PaymentVerificationService {
       const postBalances = transaction.meta?.postBalances || [];
       const accountKeys = transaction.transaction.message.accountKeys;
 
-      // Find account indices
-      const feeWalletIndex = accountKeys.findIndex(key => key.equals(feeWalletPublicKey));
-      const fromWalletIndex = accountKeys.findIndex(key => key.equals(fromWalletPublicKey));
+      // Find account indices (use toString() for comparison)
+      const feeWalletIndex = accountKeys.findIndex(key => key.toString() === feeWalletPublicKey.toString());
+      const fromWalletIndex = accountKeys.findIndex(key => key.toString() === fromWalletPublicKey.toString());
 
       if (feeWalletIndex === -1 || fromWalletIndex === -1) {
         return {
@@ -248,30 +247,31 @@ class PaymentVerificationService {
 
       const transactionFee = transaction.meta?.fee || 0;
 
-      enhancedLogger.debug('🔍 Transaction balance analysis', {
-        feeWalletGain: feeWalletGain / 1000000000,
-        fromWalletLoss: fromWalletLoss / 1000000000,
-        transactionFee: transactionFee / 1000000000,
-        expectedAmount,
-        tolerance
-      });
+             enhancedLogger.debug('🔍 Transaction balance analysis', {
+         feeWalletGain: feeWalletGain / 1000000000,
+         fromWalletLoss: fromWalletLoss / 1000000000,
+         transactionFee: transactionFee / 1000000000,
+         expectedAmount,
+         tolerance,
+         signature: signature
+       });
 
       // Verify payment amount
       const expectedAmountLamports = expectedAmount * 1000000000;
       const minExpectedGain = expectedAmountLamports - (tolerance * 1000000000);
 
       if (feeWalletGain < minExpectedGain) {
-        return {
-          verified: false,
-          error: 'Payment amount insufficient',
-          details: {
-            feeWalletGain: feeWalletGain / 1000000000,
-            fromWalletLoss: fromWalletLoss / 1000000000,
-            transactionFee: transactionFee / 1000000000,
-            network: this.connection.rpcEndpoint,
-            confirmationStatus: transaction.meta?.confirmationStatus || 'unknown'
-          }
-        };
+               return {
+         verified: false,
+         error: 'Payment amount insufficient',
+         details: {
+           feeWalletGain: feeWalletGain / 1000000000,
+           fromWalletLoss: fromWalletLoss / 1000000000,
+           transactionFee: transactionFee / 1000000000,
+           network: this.connection.rpcEndpoint,
+           confirmationStatus: transaction.meta?.status || 'unknown'
+         }
+       };
       }
 
       // Additional devnet-specific validations
@@ -282,20 +282,20 @@ class PaymentVerificationService {
         }
       }
 
-      return {
-        verified: true,
-        amount: feeWalletGain / 1000000000,
-        timestamp: transaction.blockTime || undefined,
-        slot: transaction.slot,
-        signature: signature,
-        details: {
-          feeWalletGain: feeWalletGain / 1000000000,
-          fromWalletLoss: fromWalletLoss / 1000000000,
-          transactionFee: transactionFee / 1000000000,
-          network: this.connection.rpcEndpoint,
-          confirmationStatus: transaction.meta?.confirmationStatus || 'unknown'
-        }
-      };
+             return {
+         verified: true,
+         amount: feeWalletGain / 1000000000,
+         timestamp: transaction.blockTime || undefined,
+         slot: transaction.slot,
+         signature: signature,
+         details: {
+           feeWalletGain: feeWalletGain / 1000000000,
+           fromWalletLoss: fromWalletLoss / 1000000000,
+           transactionFee: transactionFee / 1000000000,
+           network: this.connection.rpcEndpoint,
+           confirmationStatus: transaction.meta?.status || 'unknown'
+         }
+       };
 
     } catch (error) {
       enhancedLogger.error('❌ Transaction parsing failed', { error });

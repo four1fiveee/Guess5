@@ -3012,7 +3012,7 @@ const confirmPaymentHandler = async (req, res) => {
       });
       
       // Use state machine to transition to active
-      const transitionSuccess = await matchStateMachine.transition(match, 'active', {
+      const transitionSuccess = await matchStateMachine.transition(match, 'active' as any, {
         action: 'payment_complete',
         wallet,
         verificationResult

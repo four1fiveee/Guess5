@@ -1,5 +1,16 @@
 import { Request } from 'express';
 
+// Add missing methods to avoid TypeScript errors
+declare global {
+  interface Console {
+    log(message: any, ...args: any[]): void;
+    error(message: any, ...args: any[]): void;
+    warn(message: any, ...args: any[]): void;
+    info(message: any, ...args: any[]): void;
+    debug(message: any, ...args: any[]): void;
+  }
+}
+
 export enum LogLevel {
   ERROR = 'error',
   WARN = 'warn',
