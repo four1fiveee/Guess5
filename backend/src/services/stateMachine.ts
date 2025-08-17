@@ -60,6 +60,14 @@ class MatchStateMachine {
       description: 'Both payments received, game active'
     });
 
+    // PAYMENT_REQUIRED -> ACTIVE (when both players pay directly)
+    this.addTransition({
+      from: [MatchState.PAYMENT_REQUIRED],
+      to: MatchState.ACTIVE,
+      condition: (match) => match.player1Paid && match.player2Paid,
+      description: 'Both payments received, game active'
+    });
+
     // PAYMENT_REQUIRED -> CANCELLED (payment timeout)
     this.addTransition({
       from: [MatchState.PAYMENT_REQUIRED],
