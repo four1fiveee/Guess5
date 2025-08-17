@@ -10,6 +10,9 @@ const guessRoutes = require('./routes/guessRoutes');
 
 const app = express();
 
+// Trust proxy for rate limiting behind Render/Cloudflare
+app.set('trust proxy', 1);
+
 // Use FRONTEND_URL from environment or default to localhost
 const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
 console.log('CORS allowed origin:', allowedOrigin);
