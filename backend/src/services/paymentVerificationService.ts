@@ -117,7 +117,8 @@ class PaymentVerificationService {
         transaction, 
         fromWallet, 
         expectedAmount, 
-        tolerance
+        tolerance,
+        signature
       );
 
       const duration = Date.now() - startTime;
@@ -215,7 +216,8 @@ class PaymentVerificationService {
     transaction: ParsedTransactionWithMeta,
     fromWallet: string,
     expectedAmount: number,
-    tolerance: number
+    tolerance: number,
+    signature: string
   ): Promise<PaymentVerificationResult> {
     try {
       const feeWalletPublicKey = new PublicKey(this.feeWalletAddress);
