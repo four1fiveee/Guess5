@@ -240,6 +240,25 @@ const periodicCleanup = async () => {
       console.log(`✅ Cleaned up ${staleMatches.length} stale matches`);
     }
     
+    // Process refunds for payment_required matches that are too old (5 minutes)
+    const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
+    const oldPaymentRequiredMatches = await matchRepository.find({
+      where: {
+        status: 'payment_required',
+        updatedAt: LessThan(fiveMinutesAgo)
+      }
+    });
+    
+    if (oldPaymentRequiredMatches.length > 0) {
+      console.log(`💰 Processing refunds for ${oldPaymentRequiredMatches.length} old payment_required matches`);
+      
+      for (const match of oldPaymentRequiredMatches) {
+        await processAutomatedRefunds(match, 'payment_timeout');
+      }
+      
+      console.log(`✅ Processed refunds for ${oldPaymentRequiredMatches.length} old payment_required matches`);
+    }
+    
     // Clean up completed matches older than 1 hour
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const oldCompletedMatches = await matchRepository.find({
@@ -434,7 +453,15 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   });
   
   if (oldPlayerMatches.length > 0) {
-    console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, removing them`);
+    console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, processing refunds and removing them`);
+    
+    // Process refunds for any matches where players paid but match failed
+    for (const match of oldPlayerMatches) {
+      if ((match.player1Paid || match.player2Paid) && match.status !== 'completed') {
+        await processAutomatedRefunds(match, 'cleanup');
+      }
+    }
+    
     await matchRepository.remove(oldPlayerMatches);
     console.log(`✅ Cleaned up ${oldPlayerMatches.length} old matches for ${wallet}`);
   } else {
@@ -2446,50 +2473,90 @@ const processRefundsForFailedMatch = async (match) => {
     const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
     const entryFeeLamports = Math.floor(match.entryFee * LAMPORTS_PER_SOL);
     
+    // Calculate refund amount (entry fee minus network fee)
+    const networkFeeLamports = Math.floor(0.0001 * LAMPORTS_PER_SOL); // 0.0001 SOL network fee
+    const refundLamports = entryFeeLamports - networkFeeLamports;
+    
+    console.log(`💰 Refund calculation: ${match.entryFee} SOL - 0.0001 SOL = ${refundLamports / LAMPORTS_PER_SOL} SOL`);
+    
     // Check fee wallet balance
     const feeWalletBalance = await connection.getBalance(feeWalletKeypair.publicKey);
-    if (feeWalletBalance < entryFeeLamports) {
-      console.error('❌ Fee wallet has insufficient balance for refund');
-      return;
-    }
+    console.log(`💰 Fee wallet balance: ${feeWalletBalance / LAMPORTS_PER_SOL} SOL`);
     
     // Process refunds for players who paid
-    const refundPromises = [];
-    
     if (match.player1Paid) {
-      console.log(`💰 Processing refund for Player 1: ${match.player1}`);
-      const refundTx = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: feeWalletKeypair.publicKey,
-          toPubkey: new PublicKey(match.player1),
-          lamports: entryFeeLamports,
-        })
-      );
-      
-      const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
-      await connection.confirmTransaction(signature);
-      console.log(`✅ Refund sent to Player 1: ${signature}`);
+      console.log(`💰 Processing refund for Player 1: ${match.player1} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+      try {
+        const refundTx = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: feeWalletKeypair.publicKey,
+            toPubkey: new PublicKey(match.player1),
+            lamports: refundLamports,
+          })
+        );
+        
+        const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
+        await connection.confirmTransaction(signature);
+        console.log(`✅ Refund sent to Player 1: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+      } catch (error) {
+        console.error(`❌ Failed to refund Player 1: ${error.message}`);
+      }
     }
     
     if (match.player2Paid) {
-      console.log(`💰 Processing refund for Player 2: ${match.player2}`);
-      const refundTx = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: feeWalletKeypair.publicKey,
-          toPubkey: new PublicKey(match.player2),
-          lamports: entryFeeLamports,
-        })
-      );
-      
-      const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
-      await connection.confirmTransaction(signature);
-      console.log(`✅ Refund sent to Player 2: ${signature}`);
+      console.log(`💰 Processing refund for Player 2: ${match.player2} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+      try {
+        const refundTx = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: feeWalletKeypair.publicKey,
+            toPubkey: new PublicKey(match.player2),
+            lamports: refundLamports,
+          })
+        );
+        
+        const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
+        await connection.confirmTransaction(signature);
+        console.log(`✅ Refund sent to Player 2: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+      } catch (error) {
+        console.error(`❌ Failed to refund Player 2: ${error.message}`);
+      }
     }
     
-    console.log(`✅ All refunds processed for match ${match.id}`);
+    console.log(`✅ All refunds processed for match ${match.id} (0.0001 SOL fee deducted per refund)`);
     
   } catch (error) {
     console.error('❌ Error processing refunds:', error);
+  }
+};
+
+// Automated refund system - handles all refund scenarios
+const processAutomatedRefunds = async (match, reason = 'unknown') => {
+  try {
+    console.log(`💰 Processing automated refunds for match ${match.id} - Reason: ${reason}`);
+    
+    // Only process refunds if players actually paid
+    if (!match.player1Paid && !match.player2Paid) {
+      console.log(`💰 No refunds needed - no players paid for match ${match.id}`);
+      return;
+    }
+    
+    // Process refunds
+    await processRefundsForFailedMatch(match);
+    
+    // Mark match as cancelled/refunded
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    match.status = 'cancelled';
+    match.refundReason = reason;
+    match.refundedAt = new Date();
+    
+    await matchRepository.save(match);
+    
+    console.log(`✅ Automated refunds completed for match ${match.id}`);
+    
+  } catch (error) {
+    console.error(`❌ Error in automated refunds for match ${match.id}:`, error);
   }
 };
 
@@ -2630,6 +2697,15 @@ const confirmPaymentHandler = async (req, res) => {
       // IMMEDIATELY save to database so both players can see the status change
       await matchRepository.save(match);
       console.log(`✅ Match ${matchId} status saved as 'active' - both players will be redirected`);
+      
+      // Return the updated status immediately
+      return res.json({
+        success: true,
+        status: 'active',
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        message: 'Game started!'
+      });
     } else {
       console.log(`⏳ Waiting for other player to pay for match ${matchId}. Player1Paid: ${match.player1Paid}, Player2Paid: ${match.player2Paid}`);
       
@@ -2849,6 +2925,52 @@ const debugMatchmakingHandler = async (req, res) => {
   }
 };
 
+// Manual refund endpoint for testing
+const manualRefundHandler = async (req, res) => {
+  try {
+    const { matchId } = req.body;
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID required' });
+    }
+    
+    console.log(`💰 Manual refund requested for match: ${matchId}`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    console.log(`💰 Processing manual refund for match ${matchId}:`, {
+      player1: match.player1,
+      player2: match.player2,
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
+      status: match.status
+    });
+    
+    // Process refunds
+    await processRefundsForFailedMatch(match);
+    
+    // Mark match as cancelled
+    match.status = 'cancelled';
+    await matchRepository.save(match);
+    
+    res.json({
+      success: true,
+      message: 'Manual refund processed successfully',
+      matchId: matchId
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in manual refund:', error);
+    res.status(500).json({ error: 'Failed to process manual refund' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -2870,5 +2992,7 @@ module.exports = {
   forceCleanupForWallet,
   confirmPaymentHandler,
   memoryStatsHandler,
-  debugMatchmakingHandler
+  debugMatchmakingHandler,
+  manualRefundHandler,
+  processAutomatedRefunds
 }; 

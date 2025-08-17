@@ -74,6 +74,9 @@ router.get('/cleanup', asyncHandlerWrapper(matchController.simpleCleanupHandler)
 router.post('/force-cleanup-wallet', asyncHandlerWrapper(matchController.forceCleanupForWallet));
 router.get('/memory-stats', asyncHandlerWrapper(matchController.memoryStatsHandler));
 
+// Manual refund endpoint for testing
+router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHandler));
+
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));

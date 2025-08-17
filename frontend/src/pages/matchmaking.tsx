@@ -627,9 +627,16 @@ const Matchmaking: React.FC = () => {
               setStatus('waiting_for_opponent');
             }
             
-            // IMMEDIATE redirect if both players paid (even if backend status hasn't updated)
-            if (data.player1Paid && data.player2Paid) {
-              console.log('🎮 Both players confirmed paid - IMMEDIATELY redirecting to game!');
+            // Wait for backend to update status to 'active' when both players paid
+            if (data.player1Paid && data.player2Paid && data.status === 'payment_required') {
+              console.log('💰 Both players confirmed paid - waiting for backend to activate game...');
+              setStatus('waiting_for_opponent');
+              // Continue polling to wait for status to become 'active'
+            }
+            
+            // Redirect when backend confirms game is active
+            if (data.status === 'active') {
+              console.log('🎮 Backend confirmed game is active - redirecting to game!');
               console.log('🎮 Game data:', {
                 matchId: data.matchId,
                 player1: data.player1,
@@ -638,7 +645,7 @@ const Matchmaking: React.FC = () => {
                 player2Paid: data.player2Paid
               });
               
-              // STOP ALL TIMERS when both players paid
+              // STOP ALL TIMERS when game is active
               clearInterval(pollInterval);
               clearInterval(countdownInterval);
               clearTimeout(timeoutId);
@@ -688,7 +695,7 @@ const Matchmaking: React.FC = () => {
         } catch (error) {
           console.error('❌ Error polling for match:', error);
         }
-      }, 10000); // Poll every 10 seconds (increased to avoid rate limits)
+      }, 2000); // Poll every 2 seconds for faster matchmaking
     };
 
     // Only start matchmaking if we don't already have a valid match

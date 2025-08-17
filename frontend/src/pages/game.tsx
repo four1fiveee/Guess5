@@ -66,6 +66,16 @@ const Game: React.FC = () => {
         // Verify match is active and player is part of this match
         if (matchData.status !== 'active') {
           console.log('⚠️ Match is not active, status:', matchData.status);
+          
+          // If both players have paid but status is still payment_required, wait a moment and retry
+          if (matchData.status === 'payment_required' && matchData.player1Paid && matchData.player2Paid) {
+            console.log('💰 Both players paid but status not updated yet, waiting...');
+            setTimeout(() => {
+              router.reload();
+            }, 2000);
+            return;
+          }
+          
           router.push('/matchmaking');
           return;
         }
