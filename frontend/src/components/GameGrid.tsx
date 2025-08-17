@@ -79,16 +79,12 @@ const GameGrid: React.FC<{
                 let cellClass = 'w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold transition-all duration-200'
                 let displayLetter = ''
                 
-                if (isCurrentRow) {
-                  // Current row - show current guess
-                  cellClass += ' bg-white/10 border-white/30 text-white'
-                  displayLetter = currentGuess[col] || ''
-                } else if (guess) {
+                if (guess) {
                   // Completed guess - show with colors
                   cellClass += ` ${rowHintColors[col] || 'bg-white/10 border-white/30 text-white'}`
                   displayLetter = guess[col] || ''
                 } else {
-                  // Empty row
+                  // Empty row (including current row)
                   cellClass += ' bg-white/5 border-white/20 text-white/50'
                   displayLetter = ''
                 }
