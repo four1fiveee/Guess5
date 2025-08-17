@@ -95,6 +95,21 @@ router.get('/generate-report', asyncHandlerWrapper(matchController.generateRepor
 // Blockchain verification endpoint
 router.post('/verify-blockchain/:matchId', asyncHandlerWrapper(matchController.verifyBlockchainDataHandler));
 
+// WebSocket stats endpoint
+router.get('/websocket-stats', asyncHandlerWrapper(matchController.websocketStatsHandler));
+
+// Payment verification test endpoint
+router.post('/test-payment-verification', asyncHandlerWrapper(async (req, res) => {
+  const { signature, wallet, amount } = req.body;
+  
+  if (!signature || !wallet || !amount) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+  
+  const result = await matchController.verifyPaymentTransaction(signature, wallet, amount);
+  res.json(result);
+}));
+
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));

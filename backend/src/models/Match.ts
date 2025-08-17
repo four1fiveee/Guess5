@@ -85,6 +85,19 @@ export class Match {
   @Column({ nullable: true })
   player1PaymentSignature?: string;
 
+  // Idempotency and payment tracking
+  @Column({ nullable: true })
+  idempotencyKey?: string;
+
+  @Column({ default: 0 })
+  paymentAttempts?: number;
+
+  @Column({ nullable: true })
+  lastPaymentAttempt?: Date;
+
+  @Column({ nullable: true })
+  paymentVerificationSignature?: string;
+
   @Column({ nullable: true })
   player2PaymentSignature?: string;
 

@@ -99,6 +99,50 @@ const checkMemoryLimits = () => {
   return currentStats;
 };
 
+// IDEMPOTENCY: Generate unique idempotency key
+const generateIdempotencyKey = (wallet: string, action: string, matchId?: string) => {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 15);
+  return `${wallet}-${action}-${matchId || 'new'}-${timestamp}-${random}`;
+};
+
+// IDEMPOTENCY: Check if request is duplicate
+const checkIdempotency = async (matchRepository: any, idempotencyKey: string) => {
+  try {
+    const existingMatch = await matchRepository.findOne({
+      where: { idempotencyKey: idempotencyKey }
+    });
+    
+    if (existingMatch) {
+      console.log(`🔄 IDEMPOTENCY: Duplicate request detected for key: ${idempotencyKey}`);
+      return {
+        isDuplicate: true,
+        existingMatch: existingMatch
+      };
+    }
+    
+    return { isDuplicate: false };
+  } catch (error) {
+    console.error('❌ IDEMPOTENCY: Error checking idempotency:', error);
+    return { isDuplicate: false, error: error.message };
+  }
+};
+
+// IDEMPOTENCY: Mark request as processed
+const markIdempotencyProcessed = async (matchRepository: any, matchId: string, idempotencyKey: string) => {
+  try {
+    await matchRepository.query(`
+      UPDATE "match" 
+      SET "idempotencyKey" = $1, "updatedAt" = $2
+      WHERE id = $3
+    `, [idempotencyKey, new Date(), matchId]);
+    
+    console.log(`✅ IDEMPOTENCY: Marked match ${matchId} as processed with key: ${idempotencyKey}`);
+  } catch (error) {
+    console.error('❌ IDEMPOTENCY: Error marking as processed:', error);
+  }
+};
+
 // Enhanced cleanup function for memory management
 const cleanupInactiveGames = () => {
   const now = Date.now();
@@ -404,7 +448,7 @@ const requestMatchHandler = async (req, res) => {
 // Separate function for the actual matchmaking logic
 const performMatchmaking = async (wallet: string, entryFee: number) => {
   try {
-    console.log(`🔍 Starting matchmaking for wallet: ${wallet} with entry fee: ${entryFee}`);
+    console.log(`🔒 ATOMIC: Starting matchmaking for wallet: ${wallet} with entry fee: ${entryFee}`);
     
     // Get database repository
     const { AppDataSource } = require('../db/index');
@@ -419,15 +463,52 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       return existingMatch;
     }
     
-    // Look for waiting players with improved error handling
-    const waitingPlayer = await findWaitingPlayer(matchRepository, wallet, entryFee);
+    // Generate idempotency key for this matchmaking request
+    const idempotencyKey = generateIdempotencyKey(wallet, 'matchmaking');
     
-    if (waitingPlayer) {
-      console.log(`🎯 Found waiting player, creating match...`);
-      return await createMatch(matchRepository, waitingPlayer, wallet, entryFee);
+    // Check for duplicate requests
+    const idempotencyCheck = await checkIdempotency(matchRepository, idempotencyKey);
+    if (idempotencyCheck.isDuplicate) {
+      console.log(`🔄 IDEMPOTENCY: Returning existing match for duplicate request`);
+      return {
+        status: 'matched',
+        matchId: idempotencyCheck.existingMatch.id,
+        player1: idempotencyCheck.existingMatch.player1,
+        player2: idempotencyCheck.existingMatch.player2,
+        entryFee: idempotencyCheck.existingMatch.entryFee,
+        message: 'Match already created from previous request'
+      };
+    }
+    
+    // ATOMIC: Try to find and claim waiting player
+    const claimedMatch = await findAndClaimWaitingPlayer(matchRepository, wallet, entryFee);
+    
+    if (claimedMatch) {
+      console.log(`✅ ATOMIC: Successfully claimed waiting player and created match`);
+      
+      // Mark as processed with idempotency key
+      await markIdempotencyProcessed(matchRepository, claimedMatch.matchId, idempotencyKey);
+      
+      return {
+        status: 'matched',
+        matchId: claimedMatch.matchId,
+        player1: claimedMatch.player1,
+        player2: claimedMatch.player2,
+        entryFee: claimedMatch.entryFee,
+        message: 'Match created - both players must pay entry fee to start game'
+      };
     } else {
-      console.log(`⏳ No waiting players, creating waiting entry...`);
-      return await createWaitingEntry(matchRepository, wallet, entryFee);
+      console.log(`⏳ ATOMIC: No waiting players, creating waiting entry...`);
+      
+      // Create waiting entry with idempotency key
+      const waitingResult = await createWaitingEntry(matchRepository, wallet, entryFee);
+      
+      // Mark waiting entry with idempotency key
+      if (waitingResult.matchId) {
+        await markIdempotencyProcessed(matchRepository, waitingResult.matchId, idempotencyKey);
+      }
+      
+      return waitingResult;
     }
     
   } catch (error) {
@@ -671,6 +752,96 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   }
 };
 
+// ATOMIC MATCHMAKING: Find and claim waiting player in single transaction
+const findAndClaimWaitingPlayer = async (matchRepository: any, wallet: string, entryFee: number) => {
+  const tolerance = 0.001;
+  const minEntryFee = entryFee - tolerance;
+  const maxEntryFee = entryFee + tolerance;
+  
+  try {
+    console.log(`🔒 ATOMIC: Looking for waiting players for ${wallet} with entry fee: ${entryFee} SOL`);
+    
+    // Use database transaction to ensure atomicity
+    const result = await matchRepository.manager.transaction(async (manager) => {
+      // Find waiting player with row-level lock (FIFO order)
+      const waitingMatch = await manager.query(`
+        SELECT 
+          id,
+          "player1",
+          "entryFee",
+          "createdAt"
+        FROM "match" 
+        WHERE "status" = $1 
+          AND "entryFee" BETWEEN $2 AND $3 
+          AND "player2" IS NULL 
+          AND "player1" != $4
+        ORDER BY "createdAt" ASC 
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED
+      `, ['waiting', minEntryFee, maxEntryFee, wallet]);
+      
+      if (waitingMatch.length === 0) {
+        console.log(`❌ ATOMIC: No waiting players found for ${wallet}`);
+        return null;
+      }
+      
+      const waitingPlayer = waitingMatch[0];
+      console.log(`🔒 ATOMIC: Found waiting player:`, {
+        matchId: waitingPlayer.id,
+        player: waitingPlayer.player1,
+        entryFee: waitingPlayer.entryFee,
+        createdAt: waitingPlayer.createdAt
+      });
+      
+      // Generate game word
+      const { getRandomWord } = require('../wordList');
+      const gameWord = getRandomWord();
+      
+      // Update the match atomically within transaction
+      const actualEntryFee = Math.min(waitingPlayer.entryFee, entryFee);
+      
+      await manager.query(`
+        UPDATE "match" 
+        SET 
+          "player2" = $1,
+          "entryFee" = $2,
+          "status" = $3,
+          "word" = $4,
+          "player1Paid" = $5,
+          "player2Paid" = $6,
+          "updatedAt" = $7
+        WHERE id = $8
+      `, [
+        wallet, 
+        actualEntryFee, 
+        'payment_required', 
+        gameWord,
+        false, 
+        false, 
+        new Date(),
+        waitingPlayer.id
+      ]);
+      
+      console.log(`✅ ATOMIC: Successfully claimed waiting player and created match`);
+      
+      return {
+        matchId: waitingPlayer.id,
+        player1: waitingPlayer.player1,
+        player2: wallet,
+        entryFee: actualEntryFee,
+        status: 'payment_required',
+        word: gameWord
+      };
+    });
+    
+    return result;
+    
+  } catch (error) {
+    console.error('❌ ATOMIC: Error in findAndClaimWaitingPlayer:', error);
+    throw error;
+  }
+};
+
 // Helper function to create a match (now handled in findWaitingPlayer)
 const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: string, entryFee: number) => {
   try {
@@ -732,7 +903,8 @@ const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee
     return {
       status: 'waiting',
       message: 'Waiting for opponent',
-      waitingCount: 0
+      waitingCount: 0,
+      matchId: savedMatch.id
     };
   } catch (error) {
     console.error('❌ Error creating waiting entry:', error);
@@ -1815,37 +1987,64 @@ const checkPlayerMatchHandler = async (req, res) => {
     
     console.log('🔍 Checking if player has been matched:', wallet);
     
+    if (!wallet) {
+      console.log('❌ No wallet provided in request');
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+    
     const { AppDataSource } = require('../db/index');
+    
+    // Check if database is connected
+    if (!AppDataSource.isInitialized) {
+      console.error('❌ Database not initialized');
+      return res.status(500).json({ error: 'Database connection error' });
+    }
+    
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Check for active matches with this player using raw SQL
-    const activeMatches = await matchRepository.query(`
-      SELECT 
-        id,
-        "player1",
-        "player2",
-        status,
-        "player1Paid",
-        "player2Paid",
-        word,
-        "escrowAddress",
-        "entryFee"
-      FROM "match" 
-      WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6, $7))
-      LIMIT 1
-    `, [wallet, wallet, 'active', 'escrow', 'matched', 'payment_required']);
+    let activeMatches = [];
+    let cancelledMatches = [];
+    
+    try {
+      activeMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          "player2",
+          status,
+          "player1Paid",
+          "player2Paid",
+          word,
+          "escrowAddress",
+          "entryFee"
+        FROM "match" 
+        WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6, $7))
+        LIMIT 1
+      `, [wallet, wallet, 'active', 'escrow', 'matched', 'payment_required']);
 
-    // Also check for cancelled matches
-    const cancelledMatches = await matchRepository.query(`
-      SELECT 
-        id,
-        "player1",
-        "player2",
-        status
-      FROM "match" 
-      WHERE (("player1" = $1 OR "player2" = $2) AND "status" = $3)
-      LIMIT 1
-    `, [wallet, wallet, 'cancelled']);
+      // Also check for cancelled matches
+      cancelledMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          "player2",
+          status
+        FROM "match" 
+        WHERE (("player1" = $1 OR "player2" = $2) AND "status" = $3)
+        LIMIT 1
+      `, [wallet, wallet, 'cancelled']);
+      
+      console.log('✅ Database queries completed successfully');
+    } catch (dbError) {
+      console.error('❌ Database query error:', dbError);
+      console.error('❌ Error details:', {
+        message: dbError.message,
+        stack: dbError.stack,
+        code: dbError.code
+      });
+      return res.status(500).json({ error: 'Database query failed' });
+    }
     
     if (activeMatches.length > 0) {
       const activeMatch = activeMatches[0];
@@ -1858,15 +2057,21 @@ const checkPlayerMatchHandler = async (req, res) => {
       });
       
       // Also log all matches for this player for debugging
-      const allPlayerMatches = await matchRepository.query(`
-        SELECT 
-          id,
-          status,
-          "player1",
-          "player2"
-        FROM "match" 
-        WHERE "player1" = $1 OR "player2" = $2
-      `, [wallet, wallet]);
+      let allPlayerMatches = [];
+      try {
+        allPlayerMatches = await matchRepository.query(`
+          SELECT 
+            id,
+            status,
+            "player1",
+            "player2"
+          FROM "match" 
+          WHERE "player1" = $1 OR "player2" = $2
+        `, [wallet, wallet]);
+      } catch (debugError) {
+        console.error('❌ Error fetching debug matches:', debugError);
+        // Don't fail the request for debug data
+      }
       
       console.log('🔍 All matches for player:', allPlayerMatches.map(m => ({
         id: m.id,
@@ -1914,16 +2119,22 @@ const checkPlayerMatchHandler = async (req, res) => {
       console.log('⏳ Player still waiting for match');
       
       // Check if there are any waiting matches this player could join
-      const availableWaitingMatches = await matchRepository.query(`
-        SELECT 
-          id,
-          "player1",
-          "entryFee"
-        FROM "match" 
-        WHERE "status" = $1 AND "player2" IS NULL AND "player1" != $2
-        ORDER BY "createdAt" ASC
-        LIMIT 1
-      `, ['waiting', wallet]);
+      let availableWaitingMatches = [];
+      try {
+        availableWaitingMatches = await matchRepository.query(`
+          SELECT 
+            id,
+            "player1",
+            "entryFee"
+          FROM "match" 
+          WHERE "status" = $1 AND "player2" IS NULL AND "player1" != $2
+          ORDER BY "createdAt" ASC
+          LIMIT 1
+        `, ['waiting', wallet]);
+      } catch (waitingError) {
+        console.error('❌ Error checking waiting matches:', waitingError);
+        // Continue without failing the request
+      }
       
       if (availableWaitingMatches.length > 0) {
         const availableWaitingMatch = availableWaitingMatches[0];
@@ -1942,52 +2153,69 @@ const checkPlayerMatchHandler = async (req, res) => {
         const gameWord = getRandomWord();
         
         // Create new match record
-        const newMatchResult = await matchRepository.query(`
-          INSERT INTO "match" (
-            "player1", "player2", "entryFee", "status", "word", 
-            "player1Paid", "player2Paid", "createdAt", "updatedAt"
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-          RETURNING id, "player1", "player2", "entryFee", "status"
-        `, [
-          availableWaitingMatch.player1, wallet, actualEntryFee, 'payment_required', gameWord,
-          false, false, new Date(), new Date()
-        ]);
-        
-        const newMatch = newMatchResult[0];
-        
-        // Delete the waiting entry since we've created a match
-        await matchRepository.query(`
-          DELETE FROM "match" 
-          WHERE id = $1
-        `, [availableWaitingMatch.id]);
-        
-        console.log('✅ Successfully created match and removed waiting entry');
-        
-        res.json({
-          matched: true,
-          matchId: newMatch.id,
-          status: 'payment_required',
-          player1: newMatch.player1,
-          player2: wallet,
-          player1Paid: false,
-          player2Paid: false,
-          entryFee: newMatch.entryFee,
-          message: 'Match created - please pay your entry fee'
-        });
-        return;
+        let newMatchResult = [];
+        try {
+          newMatchResult = await matchRepository.query(`
+            INSERT INTO "match" (
+              "player1", "player2", "entryFee", "status", "word", 
+              "player1Paid", "player2Paid", "createdAt", "updatedAt"
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            RETURNING id, "player1", "player2", "entryFee", "status"
+          `, [
+            availableWaitingMatch.player1, wallet, actualEntryFee, 'payment_required', gameWord,
+            false, false, new Date(), new Date()
+          ]);
+          
+          const newMatch = newMatchResult[0];
+          
+          // Delete the waiting entry since we've created a match
+          try {
+            await matchRepository.query(`
+              DELETE FROM "match" 
+              WHERE id = $1
+            `, [availableWaitingMatch.id]);
+          } catch (deleteError) {
+            console.error('❌ Error deleting waiting entry:', deleteError);
+            // Continue even if deletion fails
+          }
+          
+          console.log('✅ Successfully created match and removed waiting entry');
+          
+          res.json({
+            matched: true,
+            matchId: newMatch.id,
+            status: 'payment_required',
+            player1: newMatch.player1,
+            player2: wallet,
+            player1Paid: false,
+            player2Paid: false,
+            entryFee: newMatch.entryFee,
+            message: 'Match created - please pay your entry fee'
+          });
+          return;
+        } catch (createError) {
+          console.error('❌ Error creating match:', createError);
+          // Continue to check for waiting matches
+        }
       }
       
       // Also check for waiting matches to debug using raw SQL
-      const waitingMatches = await matchRepository.query(`
-        SELECT 
-          id,
-          "player1",
-          status
-        FROM "match" 
-        WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
-        LIMIT 1
-      `, [wallet, 'waiting']);
+      let waitingMatches = [];
+      try {
+        waitingMatches = await matchRepository.query(`
+          SELECT 
+            id,
+            "player1",
+            status
+          FROM "match" 
+          WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
+          LIMIT 1
+        `, [wallet, 'waiting']);
+      } catch (waitingDebugError) {
+        console.error('❌ Error checking waiting matches for debug:', waitingDebugError);
+        // Don't fail the request for debug data
+      }
       
       if (waitingMatches.length > 0) {
         const waitingMatch = waitingMatches[0];
@@ -2703,39 +2931,65 @@ const confirmPaymentHandler = async (req, res) => {
       return res.status(400).json({ error: 'Player 2 already paid' });
     }
 
-    // Verify transaction on Solana blockchain (simplified for testing)
-    try {
-      const { Connection, PublicKey } = require('@solana/web3.js');
-      const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
-      
-      // Get transaction details
-      const transaction = await connection.getTransaction(paymentSignature);
-      if (!transaction) {
-        console.warn('⚠️ Transaction not found on blockchain, but allowing for testing');
-      } else if (transaction.meta?.err) {
-        console.warn('⚠️ Transaction failed on blockchain, but allowing for testing');
-      } else {
-        console.log(`✅ Payment verified for ${isPlayer1 ? 'Player 1' : 'Player 2'}:`, {
-          matchId,
-          wallet,
-          paymentSignature,
-          expectedAmount: Math.floor(match.entryFee * 1000000000)
-        });
+    // Enhanced transaction verification using Phase 2 service
+    const verificationResult = await paymentVerificationService.verifyPayment(
+      paymentSignature, 
+      wallet, 
+      match.entryFee,
+      {
+        tolerance: 0.001,
+        requireConfirmation: true,
+        maxRetries: 3,
+        timeout: 30000
       }
+    );
 
-    } catch (error) {
-      console.error('❌ Transaction verification failed:', error);
-      console.warn('⚠️ Allowing payment despite verification failure (testing mode)');
+    if (!verificationResult.verified) {
+      console.error('❌ Payment verification failed:', verificationResult.error);
+      return res.status(400).json({ 
+        error: 'Payment verification failed',
+        details: verificationResult.error
+      });
     }
+
+    console.log(`✅ Payment verified for ${isPlayer1 ? 'Player 1' : 'Player 2'}:`, {
+      matchId,
+      wallet,
+      paymentSignature,
+      amount: verificationResult.amount,
+      timestamp: verificationResult.timestamp,
+      slot: verificationResult.slot
+    });
 
     // Mark player as paid
     if (isPlayer1) {
       match.player1Paid = true;
+      match.player1PaymentSignature = paymentSignature;
       console.log(`✅ Marked Player 1 (${wallet}) as paid for match ${matchId}`);
     } else {
       match.player2Paid = true;
+      match.player2PaymentSignature = paymentSignature;
       console.log(`✅ Marked Player 2 (${wallet}) as paid for match ${matchId}`);
     }
+
+    // Update payment tracking
+    match.paymentAttempts = (match.paymentAttempts || 0) + 1;
+    match.lastPaymentAttempt = new Date();
+    match.paymentVerificationSignature = paymentSignature;
+
+    // Send WebSocket event for payment received
+    websocketService.broadcastToMatch(matchId, {
+      type: WebSocketEventType.PAYMENT_RECEIVED,
+      matchId,
+      data: {
+        player: isPlayer1 ? 'player1' : 'player2',
+        wallet,
+        amount: verificationResult.amount,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid
+      },
+      timestamp: new Date().toISOString()
+    });
 
     console.log(`🔍 Payment status for match ${matchId}:`, {
       player1Paid: match.player1Paid,
@@ -2757,11 +3011,20 @@ const confirmPaymentHandler = async (req, res) => {
         entryFee: match.entryFee
       });
       
-      // IMMEDIATELY set status to active
-      match.status = 'active';
+      // Use state machine to transition to active
+      const transitionSuccess = await matchStateMachine.transition(match, 'active', {
+        action: 'payment_complete',
+        wallet,
+        verificationResult
+      });
+
+      if (!transitionSuccess) {
+        console.error('❌ State transition failed for match:', matchId);
+        return res.status(500).json({ error: 'Failed to activate game' });
+      }
       
       // Initialize server-side game state with the SAME word for both players
-      const word = require('../wordList').getRandomWord();
+      const word = match.word || require('../wordList').getRandomWord();
       activeGames.set(matchId, {
         startTime: Date.now(),
         player1StartTime: Date.now(),
@@ -2789,6 +3052,19 @@ const confirmPaymentHandler = async (req, res) => {
       // IMMEDIATELY save to database so both players can see the status change
       await matchRepository.save(match);
       console.log(`✅ Match ${matchId} status saved as 'active' - both players will be redirected`);
+      
+      // Send WebSocket event for game started
+      websocketService.broadcastToMatch(matchId, {
+        type: WebSocketEventType.GAME_STARTED,
+        matchId,
+        data: {
+          player1: match.player1,
+          player2: match.player2,
+          entryFee: match.entryFee,
+          startTime: match.gameStartTime
+        },
+        timestamp: new Date().toISOString()
+      });
       
       // Return the updated status immediately
       return res.json({
@@ -2869,6 +3145,139 @@ const confirmPaymentHandler = async (req, res) => {
   } catch (error) {
     console.error('❌ Error confirming payment:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Import Phase 2 services
+const { websocketService } = require('../services/websocketService');
+const { matchStateMachine } = require('../services/stateMachine');
+const { paymentVerificationService } = require('../services/paymentVerificationService');
+const { WebSocketEventType } = require('../services/websocketService');
+const { enhancedLogger } = require('../utils/enhancedLogger');
+
+// WebSocket stats endpoint
+const websocketStatsHandler = async (req, res) => {
+  try {
+    const stats = websocketService.getStats();
+    res.json({
+      timestamp: new Date().toISOString(),
+      websocket: stats,
+      services: {
+        stateMachine: matchStateMachine.getStats(),
+        paymentVerification: paymentVerificationService.getStats()
+      }
+    });
+  } catch (error) {
+    enhancedLogger.error('❌ WebSocket stats failed:', error);
+    res.status(500).json({ error: 'Failed to get WebSocket stats' });
+  }
+};
+
+// Enhanced payment verification function with idempotency
+const verifyPaymentTransaction = async (signature: string, fromWallet: string, expectedAmount: number) => {
+  try {
+    const { Connection, PublicKey } = require('@solana/web3.js');
+    const connection = new Connection(process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com');
+    
+    console.log('🔍 ENHANCED: Verifying payment transaction:', {
+      signature,
+      fromWallet,
+      expectedAmount,
+      network: process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com'
+    });
+    
+    const transaction = await connection.getTransaction(signature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
+    
+    if (!transaction) {
+      return {
+        verified: false,
+        error: 'Transaction not found on blockchain'
+      };
+    }
+    
+    if (transaction.meta?.err) {
+      return {
+        verified: false,
+        error: `Transaction failed: ${JSON.stringify(transaction.meta.err)}`
+      };
+    }
+    
+    // Verify the transaction is a transfer to the fee wallet
+    const feeWalletPublicKey = new PublicKey(process.env.FEE_WALLET_ADDRESS);
+    const fromWalletPublicKey = new PublicKey(fromWallet);
+    
+    const preBalances = transaction.meta?.preBalances || [];
+    const postBalances = transaction.meta?.postBalances || [];
+    const accountKeys = transaction.transaction.message.accountKeys;
+    
+    // Find the fee wallet account index
+    const feeWalletIndex = accountKeys.findIndex(key => key.equals(feeWalletPublicKey));
+    const fromWalletIndex = accountKeys.findIndex(key => key.equals(fromWalletPublicKey));
+    
+    if (feeWalletIndex === -1 || fromWalletIndex === -1) {
+      return {
+        verified: false,
+        error: 'Invalid transaction - fee wallet or from wallet not found in transaction'
+      };
+    }
+    
+    // Check if the fee wallet received the payment
+    const feeWalletPreBalance = preBalances[feeWalletIndex] || 0;
+    const feeWalletPostBalance = postBalances[feeWalletIndex] || 0;
+    const feeWalletGain = feeWalletPostBalance - feeWalletPreBalance;
+    
+    const fromWalletPreBalance = preBalances[fromWalletIndex] || 0;
+    const fromWalletPostBalance = postBalances[fromWalletIndex] || 0;
+    const fromWalletLoss = fromWalletPreBalance - fromWalletPostBalance;
+    
+    console.log('🔍 ENHANCED: Payment verification details:', {
+      feeWalletGain: feeWalletGain / 1000000000,
+      fromWalletLoss: fromWalletLoss / 1000000000,
+      expectedAmount: expectedAmount,
+      signature: signature,
+      slot: transaction.slot,
+      blockTime: transaction.blockTime
+    });
+    
+    // Verify the payment amount (with small tolerance for transaction fees)
+    const tolerance = 0.001; // 0.001 SOL tolerance
+    const expectedAmountLamports = expectedAmount * 1000000000;
+    const minExpectedGain = expectedAmountLamports - (tolerance * 1000000000);
+    
+    if (feeWalletGain < minExpectedGain) {
+      return {
+        verified: false,
+        error: 'Payment amount insufficient',
+        details: {
+          received: feeWalletGain / 1000000000,
+          expected: expectedAmount,
+          tolerance: tolerance
+        }
+      };
+    }
+    
+    return {
+      verified: true,
+      amount: feeWalletGain / 1000000000,
+      timestamp: transaction.blockTime,
+      slot: transaction.slot,
+      signature: signature,
+      details: {
+        feeWalletGain: feeWalletGain / 1000000000,
+        fromWalletLoss: fromWalletLoss / 1000000000,
+        transactionFee: transaction.meta?.fee ? transaction.meta.fee / 1000000000 : 0
+      }
+    };
+    
+  } catch (error) {
+    console.error('❌ ENHANCED: Payment verification error:', error);
+    return {
+      verified: false,
+      error: `Verification failed: ${error.message}`
+    };
   }
 };
 
@@ -3799,4 +4208,10 @@ module.exports = {
   verifyBlockchainDataHandler,
   processAutomatedRefunds,
   walletBalanceSSEHandler,
+  verifyPaymentTransaction,
+  generateIdempotencyKey,
+  checkIdempotency,
+  markIdempotencyProcessed,
+  findAndClaimWaitingPlayer,
+  websocketStatsHandler,
 }; 
