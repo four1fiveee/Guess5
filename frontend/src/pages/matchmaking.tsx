@@ -233,7 +233,9 @@ const Matchmaking: React.FC = () => {
     };
 
     const startPolling = () => {
+      console.log('🔄 Starting polling for match updates...');
       pollInterval = setInterval(async () => {
+        console.log('🔄 Polling tick...');
         try {
           // Check if we have a match and need to update payment status
           if (matchData && matchData.matchId) {
@@ -242,14 +244,27 @@ const Matchmaking: React.FC = () => {
             if (response.ok) {
               const data = await response.json();
               console.log('🔄 Polling update:', data);
-              
-              // Update match data with latest payment status
-              setMatchData((prev: any) => ({
-                ...prev,
+              console.log('🔄 Current matchData:', matchData);
+              console.log('🔄 Checking conditions:', {
                 player1Paid: data.player1Paid,
                 player2Paid: data.player2Paid,
-                status: data.status
-              }));
+                status: data.status,
+                bothPaid: data.player1Paid && data.player2Paid,
+                isActive: data.status === 'active',
+                shouldRedirect: data.player1Paid && data.player2Paid && data.status === 'active'
+              });
+              
+              // Update match data with latest payment status
+              setMatchData((prev: any) => {
+                const updated = {
+                  ...prev,
+                  player1Paid: data.player1Paid,
+                  player2Paid: data.player2Paid,
+                  status: data.status
+                };
+                console.log('🔄 Updated matchData:', updated);
+                return updated;
+              });
 
               // Check if both players have paid and game is active
               if (data.player1Paid && data.player2Paid && data.status === 'active') {
@@ -299,6 +314,7 @@ const Matchmaking: React.FC = () => {
           }
         } catch (error) {
           console.error('❌ Error polling for match:', error);
+          console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
         }
       }, 2000);
     };
