@@ -21,6 +21,9 @@ const Matchmaking: React.FC = () => {
   
   const hasInitialized = useRef(false);
   const isStartMatchmakingRunning = useRef(false);
+  
+  // Use ref to track current matchData to avoid closure issues
+  const matchDataRef = useRef<any>(null);
 
   const handlePayment = async () => {
     if (!publicKey || !matchData) {
@@ -242,10 +245,14 @@ const Matchmaking: React.FC = () => {
       
       pollInterval = setInterval(async () => {
         console.log('🔄 Polling tick...');
-        console.log('🔄 Current matchData state:', matchData);
+        
+        // Get the current matchData from ref to avoid closure issues
+        const currentMatchData = matchDataRef.current;
+        console.log('🔄 Current matchData state:', currentMatchData);
+        
         try {
           // Check if we have a match and need to update payment status
-          if (matchData && matchData.matchId) {
+          if (currentMatchData && currentMatchData.matchId) {
             console.log('🔄 Polling for match status:', matchData.matchId);
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}?wallet=${publicKey.toString()}`);
             
@@ -272,6 +279,7 @@ const Matchmaking: React.FC = () => {
                   status: data.status
                 };
                 console.log('🔄 Updated matchData:', updated);
+                matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
               });
 
@@ -320,6 +328,7 @@ const Matchmaking: React.FC = () => {
                 
                 // Set the match data
                 setMatchData(data);
+                matchDataRef.current = data; // Update ref to avoid closure issues
                 setStatus('payment_required');
                 
                 // Start new polling for status updates
@@ -338,7 +347,7 @@ const Matchmaking: React.FC = () => {
       }, 2000);
     };
 
-    if (!matchData || !matchData.matchId) {
+    if (!matchDataRef.current || !matchDataRef.current.matchId) {
       startMatchmaking();
       if (!isPolling) {
         setIsPolling(true);
