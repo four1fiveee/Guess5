@@ -62,16 +62,8 @@ export class EnhanceMatchTracking1700000000000 implements MigrationInterface {
             }
         }
 
-        // Add signature field to payoutResult JSON if it exists
-        await queryRunner.query(`
-            UPDATE "match" 
-            SET "payoutResult" = jsonb_set(
-                COALESCE("payoutResult"::jsonb, '{}'::jsonb),
-                '{transactions}',
-                COALESCE("payoutResult"->'transactions', '[]'::jsonb)
-            )
-            WHERE "payoutResult" IS NOT NULL
-        `);
+        // Note: payoutResult is stored as TEXT (simple-json), not JSONB, so we skip JSON operations
+        console.log('✅ Migration completed - skipped JSON operations on payoutResult (stored as TEXT)');
     }
 
     public async down(queryRunner: QueryRunner): Promise<void> {
