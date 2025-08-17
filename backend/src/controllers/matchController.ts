@@ -445,13 +445,18 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
 const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   console.log(`🧹 Cleaning up old matches for wallet: ${wallet}`);
   
-  // Find all matches for this player (EXCEPT escrow status - those are active matches)
-  const oldPlayerMatches = await matchRepository.find({
-    where: [
-      { player1: wallet, status: Not('escrow') },
-      { player2: wallet, status: Not('escrow') }
-    ]
-  });
+  // Use raw SQL to avoid TypeORM column issues - only select existing columns
+  const oldPlayerMatches = await matchRepository.query(`
+    SELECT 
+      id,
+      "player1",
+      "player2",
+      status,
+      "player1Paid",
+      "player2Paid"
+    FROM "match" 
+    WHERE (("player1" = $1 AND "status" != $2) OR ("player2" = $3 AND "status" != $4))
+  `, [wallet, 'escrow', wallet, 'escrow']);
   
   if (oldPlayerMatches.length > 0) {
     console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, processing refunds and removing them`);
@@ -463,7 +468,12 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       }
     }
     
-    await matchRepository.remove(oldPlayerMatches);
+    // Remove old matches using raw SQL
+    await matchRepository.query(`
+      DELETE FROM "match" 
+      WHERE (("player1" = $1 AND "status" != $2) OR ("player2" = $3 AND "status" != $4))
+    `, [wallet, 'escrow', wallet, 'escrow']);
+    
     console.log(`✅ Cleaned up ${oldPlayerMatches.length} old matches for ${wallet}`);
   } else {
     console.log(`✅ No old matches found for ${wallet}`);
@@ -471,31 +481,33 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   
   // Also cleanup any stale waiting entries older than 5 minutes
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-  const staleWaitingMatches = await matchRepository.find({
-    where: {
-      status: 'waiting',
-      createdAt: LessThan(fiveMinutesAgo)
-    }
-  });
+  const staleWaitingMatches = await matchRepository.query(`
+    SELECT id FROM "match" 
+    WHERE "status" = $1 AND "createdAt" < $2
+  `, ['waiting', fiveMinutesAgo]);
   
   if (staleWaitingMatches.length > 0) {
     console.log(`🧹 Found ${staleWaitingMatches.length} stale waiting matches, removing them`);
-    await matchRepository.remove(staleWaitingMatches);
+    await matchRepository.query(`
+      DELETE FROM "match" 
+      WHERE "status" = $1 AND "createdAt" < $2
+    `, ['waiting', fiveMinutesAgo]);
     console.log(`✅ Cleaned up ${staleWaitingMatches.length} stale waiting matches`);
   }
   
   // Cleanup any completed matches older than 1 hour
   const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const oldCompletedMatches = await matchRepository.find({
-    where: {
-      status: 'completed',
-      updatedAt: LessThan(oneHourAgo)
-    }
-  });
+  const oldCompletedMatches = await matchRepository.query(`
+    SELECT id FROM "match" 
+    WHERE "status" = $1 AND "updatedAt" < $2
+  `, ['completed', oneHourAgo]);
   
   if (oldCompletedMatches.length > 0) {
     console.log(`🧹 Found ${oldCompletedMatches.length} old completed matches, removing them`);
-    await matchRepository.remove(oldCompletedMatches);
+    await matchRepository.query(`
+      DELETE FROM "match" 
+      WHERE "status" = $1 AND "updatedAt" < $2
+    `, ['completed', oneHourAgo]);
     console.log(`✅ Cleaned up ${oldCompletedMatches.length} old completed matches`);
   }
 };
@@ -505,17 +517,22 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
   // First, cleanup any old matches for this player
   await cleanupOldMatches(matchRepository, wallet);
   
-  // Now check if there are any remaining active matches
-  const existingMatch = await matchRepository.findOne({
-    where: [
-      { player1: wallet, status: 'active' },
-      { player2: wallet, status: 'active' },
-      { player1: wallet, status: 'escrow' },
-      { player2: wallet, status: 'escrow' }
-    ]
-  });
+  // Now check if there are any remaining active matches using raw SQL
+  const existingMatches = await matchRepository.query(`
+    SELECT 
+      id,
+      "player1",
+      "player2",
+      "entryFee",
+      "escrowAddress",
+      status
+    FROM "match" 
+    WHERE (("player1" = $1 AND "status" IN ($2, $3)) OR ("player2" = $4 AND "status" IN ($5, $6)))
+    LIMIT 1
+  `, [wallet, 'active', 'escrow', wallet, 'active', 'escrow']);
   
-  if (existingMatch) {
+  if (existingMatches.length > 0) {
+    const existingMatch = existingMatches[0];
     console.log('⚠️ Player still has an active/escrow match after cleanup');
     return {
       status: 'matched',
@@ -541,17 +558,22 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   try {
     console.log(`🔍 Looking for waiting players for ${wallet} with entry fee: ${entryFee} SOL`);
     
-    // First try exact match
-    let waitingMatches = await matchRepository.find({
-      where: {
-        status: 'waiting',
-        entryFee: Between(minEntryFee, maxEntryFee),
-        player2: null,
-        player1: Not(wallet)
-      },
-      order: { createdAt: 'ASC' },
-      take: 1
-    });
+    // First try exact match using raw SQL
+    let waitingMatches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        "entryFee",
+        status
+      FROM "match" 
+      WHERE "status" = $1 
+        AND "entryFee" BETWEEN $2 AND $3 
+        AND "player2" IS NULL 
+        AND "player1" != $4
+      ORDER BY "createdAt" ASC 
+      LIMIT 1
+    `, ['waiting', minEntryFee, maxEntryFee, wallet]);
     
     console.log(`  Found ${waitingMatches.length} waiting matches with exact tolerance`);
     
@@ -563,16 +585,21 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       console.log(`🔍 Trying flexible matching (10% tolerance):`);
       console.log(`  Range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
       
-      waitingMatches = await matchRepository.find({
-        where: {
-          status: 'waiting',
-          entryFee: Between(flexibleMinEntryFee, flexibleMaxEntryFee),
-          player2: null,
-          player1: Not(wallet)
-        },
-        order: { createdAt: 'ASC' },
-        take: 1
-      });
+      waitingMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          "player2",
+          "entryFee",
+          status
+        FROM "match" 
+        WHERE "status" = $1 
+          AND "entryFee" BETWEEN $2 AND $3 
+          AND "player2" IS NULL 
+          AND "player1" != $4
+        ORDER BY "createdAt" ASC 
+        LIMIT 1
+      `, ['waiting', flexibleMinEntryFee, flexibleMaxEntryFee, wallet]);
       
       console.log(`  Found ${waitingMatches.length} waiting matches with flexible tolerance`);
     }
@@ -581,15 +608,20 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     if (waitingMatches.length === 0) {
       console.log(`🔍 Trying any waiting player (for testing):`);
       
-      waitingMatches = await matchRepository.find({
-        where: {
-          status: 'waiting',
-          player2: null,
-          player1: Not(wallet)
-        },
-        order: { createdAt: 'ASC' },
-        take: 1
-      });
+      waitingMatches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          "player2",
+          "entryFee",
+          status
+        FROM "match" 
+        WHERE "status" = $1 
+          AND "player2" IS NULL 
+          AND "player1" != $2
+        ORDER BY "createdAt" ASC 
+        LIMIT 1
+      `, ['waiting', wallet]);
       
       console.log(`  Found ${waitingMatches.length} any waiting players`);
     }
@@ -601,10 +633,12 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       if (match.player2 === null && match.status === 'waiting' && match.player1 !== wallet) {
         console.log(`🎯 Found waiting player: ${match.player1} for ${wallet}`);
         
-        // Update the match to mark it as matched
-        match.status = 'matched';
-        match.player2 = wallet;
-        await matchRepository.save(match);
+        // Update the match to mark it as matched using raw SQL
+        await matchRepository.query(`
+          UPDATE "match" 
+          SET "status" = $1, "player2" = $2
+          WHERE id = $3
+        `, ['matched', wallet, match.id]);
         
         console.log(`✅ Successfully matched ${match.player1} with ${wallet}`);
         
@@ -638,11 +672,22 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
       actualEntryFee: actualEntryFee
     });
     
-    // Update the waiting match with better error handling
-    const existingMatch = await matchRepository.findOne({ where: { id: waitingPlayer.matchId } });
-    if (!existingMatch) {
+    // Update the waiting match with better error handling using raw SQL
+    const existingMatches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        status
+      FROM "match" 
+      WHERE id = $1
+    `, [waitingPlayer.matchId]);
+    
+    if (existingMatches.length === 0) {
       throw new Error('Waiting match not found - may have been claimed by another player');
     }
+    
+    const existingMatch = existingMatches[0];
     
     // Verify the match is still in the correct state
     if (existingMatch.status !== 'matched' || existingMatch.player2 !== wallet) {
@@ -653,28 +698,25 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
     const { getRandomWord } = require('../wordList');
     const gameWord = getRandomWord();
     
-    // Update match details
-    existingMatch.status = 'payment_required'; // Require upfront payments
-    existingMatch.word = gameWord;
-    existingMatch.entryFee = actualEntryFee;
-    existingMatch.player1Paid = false;
-    existingMatch.player2Paid = false;
-    existingMatch.createdAt = new Date(); // Update timestamp
-    
-    const updatedMatch = await matchRepository.save(existingMatch);
+    // Update match details using raw SQL
+    await matchRepository.query(`
+      UPDATE "match" 
+      SET "status" = $1, "word" = $2, "entryFee" = $3, "player1Paid" = $4, "player2Paid" = $5, "createdAt" = $6
+      WHERE id = $7
+    `, ['payment_required', gameWord, actualEntryFee, false, false, new Date(), waitingPlayer.matchId]);
     
     console.log('✅ Match created successfully:', {
-      matchId: updatedMatch.id,
-      status: updatedMatch.status,
-      entryFee: updatedMatch.entryFee
+      matchId: waitingPlayer.matchId,
+      status: 'payment_required',
+      entryFee: actualEntryFee
     });
     
     return {
       status: 'matched',
-      matchId: updatedMatch.id,
-      player1: updatedMatch.player1,
-      player2: updatedMatch.player2,
-      entryFee: updatedMatch.entryFee,
+      matchId: waitingPlayer.matchId,
+      player1: existingMatch.player1,
+      player2: wallet,
+      entryFee: actualEntryFee,
       message: 'Match created - both players must pay entry fee to start game'
     };
   } catch (error) {
@@ -686,32 +728,28 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
 // Helper function to create a waiting entry
 const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee: number) => {
   try {
-    // Clean up any old waiting entries for this player first
-    const oldWaitingEntries = await matchRepository.find({
-      where: {
-        player1: wallet,
-        status: 'waiting',
-        player2: null
-      }
-    });
+    // Clean up any old waiting entries for this player first using raw SQL
+    const oldWaitingEntries = await matchRepository.query(`
+      SELECT id FROM "match" 
+      WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
+    `, [wallet, 'waiting']);
     
     if (oldWaitingEntries.length > 0) {
       console.log(`🧹 Cleaning up ${oldWaitingEntries.length} old waiting entries for ${wallet}`);
-      await matchRepository.remove(oldWaitingEntries);
+      await matchRepository.query(`
+        DELETE FROM "match" 
+        WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
+      `, [wallet, 'waiting']);
     }
     
-    // Create new waiting entry (always create a fresh one)
-    const waitingMatch = matchRepository.create({
-      player1: wallet,
-      player2: null,
-      entryFee: entryFee,
-      status: 'waiting',
-      word: null,
-      player1Paid: false,
-      player2Paid: false
-    });
+    // Create new waiting entry using raw SQL
+    const result = await matchRepository.query(`
+      INSERT INTO "match" ("player1", "player2", "entryFee", "status", "word", "player1Paid", "player2Paid", "createdAt", "updatedAt")
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, "player1", "entryFee", "status", "createdAt"
+    `, [wallet, null, entryFee, 'waiting', null, false, false, new Date(), new Date()]);
     
-    const savedMatch = await matchRepository.save(waitingMatch);
+    const savedMatch = result[0];
     console.log(`✅ New waiting entry created with ID: ${savedMatch.id} for wallet: ${wallet}`);
     console.log(`📊 Waiting entry details:`, {
       id: savedMatch.id,
