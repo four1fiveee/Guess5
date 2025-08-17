@@ -234,6 +234,12 @@ const Matchmaking: React.FC = () => {
 
     const startPolling = () => {
       console.log('🔄 Starting polling for match updates...');
+      
+      // Clear any existing interval first
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+      
       pollInterval = setInterval(async () => {
         console.log('🔄 Polling tick...');
         console.log('🔄 Current matchData state:', matchData);
@@ -306,20 +312,20 @@ const Matchmaking: React.FC = () => {
               
               if (data.matched) {
                 console.log('🎯 Match found!', data);
-                setMatchData(data);
-                setStatus('payment_required');
+                console.log('🎯 Setting matchData to:', data);
                 
-                // Stop matchmaking polling and start payment status polling
+                // Stop current polling
                 clearInterval(pollInterval);
                 setIsMatchmakingInProgress(false);
                 
-                // Start polling for payment status updates after a short delay to ensure state is updated
-                setTimeout(() => {
-                  if (!isPolling) {
-                    setIsPolling(true);
-                    startPolling();
-                  }
-                }, 100);
+                // Set the match data
+                setMatchData(data);
+                setStatus('payment_required');
+                
+                // Start new polling for status updates
+                console.log('🎯 Starting new polling for status updates');
+                setIsPolling(true);
+                startPolling();
               }
             }
           }
@@ -334,6 +340,12 @@ const Matchmaking: React.FC = () => {
 
     if (!matchData || !matchData.matchId) {
       startMatchmaking();
+      if (!isPolling) {
+        setIsPolling(true);
+        startPolling();
+      }
+    } else {
+      // If we already have matchData, start polling for status updates
       if (!isPolling) {
         setIsPolling(true);
         startPolling();
