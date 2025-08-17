@@ -574,7 +574,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
 
 // Helper function to find waiting players with simplified logic
 const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee: number) => {
-  const tolerance = 0.001;
+  const tolerance = 0.01; // Increased tolerance to 0.01 SOL for better matching
   const minEntryFee = entryFee - tolerance;
   const maxEntryFee = entryFee + tolerance;
   
@@ -695,7 +695,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
 
 // ATOMIC MATCHMAKING: Find and claim waiting player in single transaction
 const findAndClaimWaitingPlayer = async (matchRepository: any, wallet: string, entryFee: number) => {
-  const tolerance = 0.001;
+  const tolerance = 0.01; // Increased tolerance to 0.01 SOL for better matching
   const minEntryFee = entryFee - tolerance;
   const maxEntryFee = entryFee + tolerance;
   
