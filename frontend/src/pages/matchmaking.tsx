@@ -239,8 +239,10 @@ const Matchmaking: React.FC = () => {
         try {
           // Check if we have a match and need to update payment status
           if (matchData && matchData.matchId) {
+            console.log('🔄 Polling for match status:', matchData.matchId);
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}?wallet=${publicKey.toString()}`);
             
+            console.log('🔄 Response status:', response.status);
             if (response.ok) {
               const data = await response.json();
               console.log('🔄 Polling update:', data);
@@ -305,10 +307,15 @@ const Matchmaking: React.FC = () => {
                 setMatchData(data);
                 setStatus('payment_required');
                 
-                // Stop polling since we have a match
+                // Stop matchmaking polling and start payment status polling
                 clearInterval(pollInterval);
-                setIsPolling(false);
                 setIsMatchmakingInProgress(false);
+                
+                // Start polling for payment status updates
+                if (!isPolling) {
+                  setIsPolling(true);
+                  startPolling();
+                }
               }
             }
           }
@@ -316,6 +323,8 @@ const Matchmaking: React.FC = () => {
           console.error('❌ Error polling for match:', error);
           console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
         }
+        
+        console.log('🔄 Polling tick completed, next tick in 2 seconds...');
       }, 2000);
     };
 
