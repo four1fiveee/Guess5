@@ -231,11 +231,30 @@ class PaymentVerificationService {
       const feeWalletIndex = accountKeys.findIndex(key => key.toString() === feeWalletPublicKey.toString());
       const fromWalletIndex = accountKeys.findIndex(key => key.toString() === fromWalletPublicKey.toString());
 
+      // Debug: Log all account keys to see what's in the transaction
+      console.log('🔍 Transaction account keys:', accountKeys.map(key => key.toString()));
+      console.log('🔍 Looking for fromWallet:', fromWalletPublicKey.toString());
+      console.log('🔍 Looking for feeWallet:', feeWalletPublicKey.toString());
+      console.log('🔍 fromWalletIndex:', fromWalletIndex);
+      console.log('🔍 feeWalletIndex:', feeWalletIndex);
+
       if (fromWalletIndex === -1) {
-        return {
-          verified: false,
-          error: 'Invalid transaction - from wallet not found in transaction'
-        };
+        // Try alternative wallet address formats
+        const fromWalletBase58 = fromWalletPublicKey.toBase58();
+        const fromWalletIndexAlt = accountKeys.findIndex(key => 
+          key.toString() === fromWalletBase58 || 
+          key.toString() === fromWalletPublicKey.toString()
+        );
+        
+        if (fromWalletIndexAlt === -1) {
+          return {
+            verified: false,
+            error: 'Invalid transaction - from wallet not found in transaction'
+          };
+        }
+        
+        // Use the alternative index
+        const fromWalletIndex = fromWalletIndexAlt;
       }
 
       // For escrow payments, the fee wallet (escrow) should be the destination
