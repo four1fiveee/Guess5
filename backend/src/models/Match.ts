@@ -134,6 +134,100 @@ export class Match {
   @Column({ nullable: true })
   player2CompletionTime?: number; // Time in seconds to complete the word
 
+  // Game state tracking for dispute resolution
+  @Column({ nullable: true })
+  targetWord?: string; // The actual word both players were trying to guess
+
+  @Column({ type: 'jsonb', nullable: true })
+  player1Guesses?: string[]; // Array of all guesses made by player1
+
+  @Column({ type: 'jsonb', nullable: true })
+  player2Guesses?: string[]; // Array of all guesses made by player2
+
+  // Payment timing tracking
+  @Column({ nullable: true })
+  player1PaymentTime?: Date; // When player1 paid
+
+  @Column({ nullable: true })
+  player2PaymentTime?: Date; // When player2 paid
+
+  // Guess timing tracking
+  @Column({ nullable: true })
+  player1LastGuessTime?: Date; // Timestamp of player1's final guess
+
+  @Column({ nullable: true })
+  player2LastGuessTime?: Date; // Timestamp of player2's final guess
+
+  // Financial tracking
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  refundAmount?: number; // Amount refunded (entry fee minus network fee)
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  payoutAmount?: number; // Amount paid to winner (after platform fee)
+
+  // Dispute resolution tracking
+  @Column({ default: false })
+  disputeFlagged?: boolean; // Boolean if match was flagged for review
+
+  @Column({ type: 'text', nullable: true })
+  disputeNotes?: string; // Text field for dispute resolution notes
+
+  @Column({ nullable: true })
+  resolvedBy?: string; // Admin wallet that resolved the dispute
+
+  @Column({ nullable: true })
+  resolutionTime?: Date; // When dispute was resolved
+
+  // Tax and financial tracking
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  totalRevenue?: number; // Total SOL collected (entry fees)
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  totalPayouts?: number; // Total SOL paid to winners
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  totalRefunds?: number; // Total SOL refunded to players
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  netRevenue?: number; // Revenue minus payouts minus refunds
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  platformRevenue?: number; // Total platform fees collected
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  networkFees?: number; // Total network fees paid
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  taxableIncome?: number; // Platform revenue minus network fees
+
+  @Column({ nullable: true })
+  fiscalYear?: number; // For tax year organization
+
+  @Column({ nullable: true })
+  quarter?: number; // For quarterly reporting
+
+  // USD equivalents at transaction time
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  entryFeeUSD?: number; // Entry fee in USD at transaction time
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  refundAmountUSD?: number; // Refund amount in USD
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  payoutAmountUSD?: number; // Payout amount in USD
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  platformFeeUSD?: number; // Platform fee in USD
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  totalFeesCollectedUSD?: number; // Total fees in USD
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  solPriceAtTransaction?: number; // SOL price in USD at transaction time
+
+  @Column({ nullable: true })
+  transactionTimestamp?: Date; // When the transaction occurred
+
   @Column({ default: false })
   isCompleted!: boolean;
 

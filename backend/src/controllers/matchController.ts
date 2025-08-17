@@ -3100,7 +3100,36 @@ const runMigrationHandler = async (req, res) => {
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1Moves" INTEGER`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2Moves" INTEGER`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1CompletionTime" INTEGER`,
-      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2CompletionTime" INTEGER`
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2CompletionTime" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "targetWord" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1Guesses" JSONB`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2Guesses" JSONB`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1PaymentTime" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2PaymentTime" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1LastGuessTime" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2LastGuessTime" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "refundAmount" DECIMAL(10,6)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "payoutAmount" DECIMAL(10,6)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "disputeFlagged" BOOLEAN DEFAULT FALSE`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "disputeNotes" TEXT`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "resolvedBy" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "resolutionTime" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "totalRevenue" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "totalPayouts" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "totalRefunds" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "netRevenue" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "platformRevenue" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "networkFees" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "taxableIncome" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "fiscalYear" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "quarter" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "entryFeeUSD" DECIMAL(10,2)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "refundAmountUSD" DECIMAL(10,2)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "payoutAmountUSD" DECIMAL(10,2)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "platformFeeUSD" DECIMAL(10,2)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "totalFeesCollectedUSD" DECIMAL(10,2)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "solPriceAtTransaction" DECIMAL(10,2)`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "transactionTimestamp" TIMESTAMP`
     ];
     
     for (const query of migrationQueries) {
@@ -3133,7 +3162,36 @@ const runMigrationHandler = async (req, res) => {
         'player1Moves',
         'player2Moves',
         'player1CompletionTime',
-        'player2CompletionTime'
+        'player2CompletionTime',
+        'targetWord',
+        'player1Guesses',
+        'player2Guesses',
+        'player1PaymentTime',
+        'player2PaymentTime',
+        'player1LastGuessTime',
+        'player2LastGuessTime',
+        'refundAmount',
+        'payoutAmount',
+        'disputeFlagged',
+        'disputeNotes',
+        'resolvedBy',
+        'resolutionTime',
+        'totalRevenue',
+        'totalPayouts',
+        'totalRefunds',
+        'netRevenue',
+        'platformRevenue',
+        'networkFees',
+        'taxableIncome',
+        'fiscalYear',
+        'quarter',
+        'entryFeeUSD',
+        'refundAmountUSD',
+        'payoutAmountUSD',
+        'platformFeeUSD',
+        'totalFeesCollectedUSD',
+        'solPriceAtTransaction',
+        'transactionTimestamp'
       ]
     });
     
@@ -3141,6 +3199,35 @@ const runMigrationHandler = async (req, res) => {
     console.error('❌ Error running migration:', error);
     res.status(500).json({ error: 'Failed to run migration' });
   }
+};
+
+// Helper function to convert UTC to EST
+const convertToEST = (date) => {
+  if (!date) return '';
+  const utcDate = new Date(date);
+  const estDate = new Date(utcDate.toLocaleString("en-US", {timeZone: "America/New_York"}));
+  return estDate.toISOString().replace('T', ' ').substring(0, 19);
+};
+
+// Helper function to get SOL price in USD
+const getSolPriceUSD = async () => {
+  try {
+    // Using CoinGecko API for SOL price
+    const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+    const data = await response.json();
+    return data.solana.usd;
+  } catch (error) {
+    console.error('❌ Error fetching SOL price:', error);
+    return null;
+  }
+};
+
+// Helper function to calculate fiscal year and quarter
+const getFiscalInfo = (date) => {
+  const year = date.getFullYear();
+  const month = date.getMonth() + 1;
+  const quarter = Math.ceil(month / 3);
+  return { fiscalYear: year, quarter };
 };
 
 // Match report endpoint (exports to CSV)
@@ -3174,6 +3261,7 @@ const generateReportHandler = async (req, res) => {
       'Player 1 Wallet',
       'Player 2 Wallet', 
       'Entry Fee (SOL)',
+      'Entry Fee (USD)',
       'Match Status',
       'Player 1 Paid',
       'Player 2 Paid',
@@ -3184,17 +3272,41 @@ const generateReportHandler = async (req, res) => {
       'Player 2 Time (sec)',
       'Total Match Duration (sec)',
       'Total Fees Collected (SOL)',
+      'Total Fees Collected (USD)',
       'Platform Fee (SOL)',
-      'Game End Time',
-      'Match Created',
-      'Last Updated',
+      'Platform Fee (USD)',
+      'Game End Time (EST)',
+      'Match Created (EST)',
+      'Last Updated (EST)',
       'Player 1 Payment TX',
       'Player 2 Payment TX',
       'Winner Payout TX',
       'Player 1 Refund TX',
       'Player 2 Refund TX',
       'Refund Reason',
-      'Refunded At'
+      'Refunded At (EST)',
+      'Target Word',
+      'Player 1 Guesses',
+      'Player 2 Guesses',
+      'Player 1 Payment Time (EST)',
+      'Player 2 Payment Time (EST)',
+      'Player 1 Last Guess Time (EST)',
+      'Player 2 Last Guess Time (EST)',
+      'Refund Amount (SOL)',
+      'Refund Amount (USD)',
+      'Payout Amount (SOL)',
+      'Payout Amount (USD)',
+      'SOL Price at Transaction',
+      'Transaction Timestamp (EST)',
+      'Total Revenue (SOL)',
+      'Total Payouts (SOL)',
+      'Total Refunds (SOL)',
+      'Net Revenue (SOL)',
+      'Platform Revenue (SOL)',
+      'Network Fees (SOL)',
+      'Taxable Income (SOL)',
+      'Fiscal Year',
+      'Quarter'
     ];
     
     // Generate CSV rows
@@ -3203,6 +3315,7 @@ const generateReportHandler = async (req, res) => {
       match.player1,
       match.player2,
       match.entryFee,
+      match.entryFeeUSD,
       match.status,
       match.player1Paid,
       match.player2Paid,
@@ -3213,17 +3326,41 @@ const generateReportHandler = async (req, res) => {
       match.player2CompletionTime,
       match.matchDuration,
       match.totalFeesCollected,
+      match.totalFeesCollectedUSD,
       match.platformFee,
-      match.gameEndTime,
-      match.createdAt,
-      match.updatedAt,
+      match.platformFeeUSD,
+      convertToEST(match.gameEndTime),
+      convertToEST(match.createdAt),
+      convertToEST(match.updatedAt),
       match.player1PaymentSignature,
       match.player2PaymentSignature,
       match.winnerPayoutSignature,
       match.player1RefundSignature,
       match.player2RefundSignature,
       match.refundReason,
-      match.refundedAt
+      convertToEST(match.refundedAt),
+      match.targetWord,
+      JSON.stringify(match.player1Guesses || []),
+      JSON.stringify(match.player2Guesses || []),
+      convertToEST(match.player1PaymentTime),
+      convertToEST(match.player2PaymentTime),
+      convertToEST(match.player1LastGuessTime),
+      convertToEST(match.player2LastGuessTime),
+      match.refundAmount,
+      match.refundAmountUSD,
+      match.payoutAmount,
+      match.payoutAmountUSD,
+      match.solPriceAtTransaction,
+      convertToEST(match.transactionTimestamp),
+      match.totalRevenue,
+      match.totalPayouts,
+      match.totalRefunds,
+      match.netRevenue,
+      match.platformRevenue,
+      match.networkFees,
+      match.taxableIncome,
+      match.fiscalYear,
+      match.quarter
     ]);
     
     // Combine headers and rows
