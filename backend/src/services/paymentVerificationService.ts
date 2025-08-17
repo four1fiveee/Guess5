@@ -238,7 +238,10 @@ class PaymentVerificationService {
       });
 
       // Debug: Log all account keys to see what's in the transaction
-      console.log('🔍 Transaction account keys:', accountKeys.map(key => key.toString()));
+      console.log('🔍 Transaction account keys:', accountKeys.map(key => {
+        const keyStr = (key as any).toBase58 ? (key as any).toBase58() : key.toString();
+        return keyStr;
+      }));
       console.log('🔍 Looking for fromWallet:', fromWalletPublicKey.toBase58());
       console.log('🔍 Looking for feeWallet:', feeWalletPublicKey.toBase58());
       console.log('🔍 fromWalletIndex:', fromWalletIndex);
