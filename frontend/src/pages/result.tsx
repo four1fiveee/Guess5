@@ -100,8 +100,8 @@ const Result: React.FC = () => {
       <div className="container mx-auto px-4 py-8">
         <div className="max-w-2xl mx-auto">
           {/* Logo prominently displayed at the top */}
-          <div className="flex justify-center mb-6">
-            <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
+          <div className="flex justify-center mb-8">
+            <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-4" />
           </div>
           
           {/* Game Results */}

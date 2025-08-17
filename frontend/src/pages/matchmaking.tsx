@@ -761,7 +761,7 @@ const Matchmaking: React.FC = () => {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-8" />
         
         {/* Status Display */}
         <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-center shadow">

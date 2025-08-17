@@ -8,7 +8,7 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-6 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center max-w-4xl w-full">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-2" />
+        <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-4" />
         <Link href="/lobby">
           <button className="bg-accent text-primary text-xl font-bold px-8 py-4 rounded-lg shadow hover:bg-yellow-400 transition mb-4">Play</button>
         </Link>

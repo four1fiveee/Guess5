@@ -167,7 +167,7 @@ export default function Lobby() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6" />
+        <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-8" />
         <WalletConnectButton />
         
         {!publicKey ? (
@@ -181,12 +181,6 @@ export default function Lobby() {
             {solPrice && (
               <div className="text-white/80 text-center mb-4">
                 Current SOL Price: ${solPrice.toFixed(2)}
-              </div>
-            )}
-            
-            {walletBalance !== null && (
-              <div className="text-white/80 text-center mb-4">
-                Your Balance: {walletBalance.toFixed(4)} SOL
               </div>
             )}
             

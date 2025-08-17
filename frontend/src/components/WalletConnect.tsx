@@ -217,26 +217,13 @@ export const TopRightWallet: React.FC = () => {
 
   return (
     <>
-      <div className="absolute top-4 right-4 bg-secondary bg-opacity-20 rounded-lg p-3 backdrop-blur-sm min-w-[220px]">
+      <div className="absolute top-4 right-4 bg-secondary bg-opacity-20 rounded-lg p-3 backdrop-blur-sm">
         <div className="flex flex-col items-center">
-          <div className="text-sm text-white/80 mb-1">
-            {publicKey?.toString().slice(0, 4)}...{publicKey?.toString().slice(-4)}
-          </div>
           <div className="text-lg font-bold text-accent mb-2">
             {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
           </div>
-          {/* SSE Connection Status */}
-          <div className="text-xs text-white/60 mb-2 flex items-center">
-            <div className={`w-2 h-2 rounded-full mr-1 ${sseConnected ? 'bg-green-400' : 'bg-yellow-400'}`}></div>
-            {sseConnected ? 'Live Updates' : 'Polling'}
-          </div>
-          {sseError && (
-            <div className="text-xs text-red-400 mb-2 text-center">
-              {sseError}
-            </div>
-          )}
           <button
-            className="px-6 py-2 text-sm font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors w-full"
+            className="px-4 py-1 text-xs font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
             onClick={disconnect}
           >
             Disconnect
