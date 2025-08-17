@@ -1891,6 +1891,50 @@ const checkPlayerMatchHandler = async (req, res) => {
     } else {
       console.log('⏳ Player still waiting for match');
       
+      // Check if there are any waiting matches this player could join
+      const availableWaitingMatch = await matchRepository.findOne({
+        where: {
+          status: 'waiting',
+          player2: null,
+          player1: Not(wallet)
+        },
+        order: { createdAt: 'ASC' }
+      });
+      
+      if (availableWaitingMatch) {
+        console.log('🎯 Found available waiting match for player to join:', {
+          matchId: availableWaitingMatch.id,
+          waitingPlayer: availableWaitingMatch.player1,
+          entryFee: availableWaitingMatch.entryFee,
+          requestingPlayer: wallet
+        });
+        
+        // Try to match them immediately
+        try {
+          // Update the match to include this player
+          availableWaitingMatch.status = 'matched';
+          availableWaitingMatch.player2 = wallet;
+          await matchRepository.save(availableWaitingMatch);
+          
+          console.log('✅ Successfully matched player with waiting opponent');
+          
+          res.json({
+            matched: true,
+            matchId: availableWaitingMatch.id,
+            status: 'matched',
+            player1: availableWaitingMatch.player1,
+            player2: wallet,
+            player1Paid: availableWaitingMatch.player1Paid,
+            player2Paid: availableWaitingMatch.player2Paid,
+            entryFee: availableWaitingMatch.entryFee,
+            message: 'Match created - please pay your entry fee'
+          });
+          return;
+        } catch (error) {
+          console.error('❌ Error matching player with waiting opponent:', error);
+        }
+      }
+      
       // Also check for waiting matches to debug
       const waitingMatch = await matchRepository.findOne({
         where: {
@@ -2971,6 +3015,65 @@ const manualRefundHandler = async (req, res) => {
   }
 };
 
+// Manual match endpoint to fix stuck matchmaking
+const manualMatchHandler = async (req, res) => {
+  try {
+    const { player1, player2, entryFee } = req.body;
+    
+    if (!player1 || !player2 || !entryFee) {
+      return res.status(400).json({ error: 'player1, player2, and entryFee required' });
+    }
+    
+    console.log(`🎮 Manual match requested: ${player1} vs ${player2} with ${entryFee} SOL`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Clean up any existing waiting matches for these players
+    const existingMatches = await matchRepository.find({
+      where: [
+        { player1: player1, status: 'waiting' },
+        { player2: player1, status: 'waiting' },
+        { player1: player2, status: 'waiting' },
+        { player2: player2, status: 'waiting' }
+      ]
+    });
+    
+    if (existingMatches.length > 0) {
+      console.log(`🧹 Cleaning up ${existingMatches.length} existing waiting matches`);
+      await matchRepository.remove(existingMatches);
+    }
+    
+    // Create a new match
+    const newMatch = matchRepository.create({
+      player1: player1,
+      player2: player2,
+      entryFee: entryFee,
+      status: 'matched',
+      createdAt: new Date(),
+      updatedAt: new Date()
+    });
+    
+    await matchRepository.save(newMatch);
+    
+    console.log(`✅ Manual match created: ${newMatch.id}`);
+    
+    res.json({
+      success: true,
+      message: 'Manual match created successfully',
+      matchId: newMatch.id,
+      player1: player1,
+      player2: player2,
+      entryFee: entryFee,
+      status: 'matched'
+    });
+    
+  } catch (error) {
+    console.error('❌ Error in manual match:', error);
+    res.status(500).json({ error: 'Failed to create manual match' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -2994,5 +3097,6 @@ module.exports = {
   memoryStatsHandler,
   debugMatchmakingHandler,
   manualRefundHandler,
+  manualMatchHandler,
   processAutomatedRefunds
 }; 

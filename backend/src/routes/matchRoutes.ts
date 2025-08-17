@@ -77,6 +77,9 @@ router.get('/memory-stats', asyncHandlerWrapper(matchController.memoryStatsHandl
 // Manual refund endpoint for testing
 router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHandler));
 
+// Manual match endpoint for testing
+router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHandler));
+
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));
