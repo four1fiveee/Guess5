@@ -137,40 +137,12 @@ export const TopRightWallet: React.FC = () => {
   const { publicKey, disconnect, connected }: WalletContextState = useWallet();
   const { setVisible } = useWalletModal();
   const [isProcessing, setIsProcessing] = useState(false);
-  const [walletBalance, setWalletBalance] = useState<number | null>(null);
   const [showLegalDisclaimer, setShowLegalDisclaimer] = useState(false);
 
-  // Fetch wallet balance
-  const fetchWalletBalance = async () => {
-    if (!publicKey) {
-      setWalletBalance(null);
-      return;
-    }
-    
-    try {
-      const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
-      const connection = new Connection(solanaNetwork, 'confirmed');
-      const balance = await connection.getBalance(publicKey);
-      const balanceInSol = balance / LAMPORTS_PER_SOL;
-      setWalletBalance(balanceInSol);
-    } catch (error) {
-      console.error('Failed to check wallet balance:', error);
-      setWalletBalance(null);
-    }
-  };
-
-  // Update balance when wallet connects/disconnects
-  useEffect(() => {
-    fetchWalletBalance();
-  }, [publicKey]);
-
-  // Update balance every 30 seconds when connected
-  useEffect(() => {
-    if (!connected) return;
-    
-    const interval = setInterval(fetchWalletBalance, 30000);
-    return () => clearInterval(interval);
-  }, [connected, publicKey]);
+  // Use SSE for real-time wallet balance updates
+  const { balance: walletBalance, isConnected: sseConnected, error: sseError, refreshBalance } = useWalletBalanceSSE(
+    publicKey?.toString() || null
+  );
 
   const handleConnect = async () => {
     // Show legal disclaimer first
