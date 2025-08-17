@@ -2020,7 +2020,7 @@ const checkPlayerMatchHandler = async (req, res) => {
           "escrowAddress",
           "entryFee"
         FROM "match" 
-        WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6, $7))
+        WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6))
         LIMIT 1
       `, [wallet, wallet, 'active', 'escrow', 'matched', 'payment_required']);
 
