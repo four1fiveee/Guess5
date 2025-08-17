@@ -105,7 +105,12 @@ export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn =
 
         // Subscribe to match if provided
         if (matchId) {
-          subscribeToMatch(matchId);
+          const message = {
+            type: 'subscribe_match',
+            matchId
+          };
+          ws.send(JSON.stringify(message));
+          console.log('📡 Subscribed to match:', matchId);
         }
       };
 
@@ -170,7 +175,7 @@ export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn =
         isConnecting: false
       }));
     }
-  }, [wallet, state.isConnected, state.isConnecting, getWebSocketUrl, matchId, reconnectInterval, maxReconnectAttempts, subscribeToMatch]);
+  }, [wallet, state.isConnected, state.isConnecting, getWebSocketUrl, matchId, reconnectInterval, maxReconnectAttempts]);
 
   // Disconnect from WebSocket
   const disconnect = useCallback(() => {

@@ -104,11 +104,11 @@ class PaymentVerificationService {
         };
       }
 
-      // Verify confirmation status (use status instead of confirmationStatus)
-      if (requireConfirmation && transaction.meta?.status !== 'confirmed') {
+      // Verify confirmation status (use err to check if transaction failed)
+      if (requireConfirmation && transaction.meta?.err) {
         return {
           verified: false,
-          error: `Transaction not confirmed. Status: ${transaction.meta?.status}`
+          error: `Transaction failed: ${JSON.stringify(transaction.meta.err)}`
         };
       }
 
@@ -252,27 +252,26 @@ class PaymentVerificationService {
          fromWalletLoss: fromWalletLoss / 1000000000,
          transactionFee: transactionFee / 1000000000,
          expectedAmount,
-         tolerance,
-         signature: signature
+         tolerance
        });
 
       // Verify payment amount
       const expectedAmountLamports = expectedAmount * 1000000000;
       const minExpectedGain = expectedAmountLamports - (tolerance * 1000000000);
 
-      if (feeWalletGain < minExpectedGain) {
-               return {
-         verified: false,
-         error: 'Payment amount insufficient',
-         details: {
-           feeWalletGain: feeWalletGain / 1000000000,
-           fromWalletLoss: fromWalletLoss / 1000000000,
-           transactionFee: transactionFee / 1000000000,
-           network: this.connection.rpcEndpoint,
-           confirmationStatus: transaction.meta?.status || 'unknown'
-         }
-       };
-      }
+             if (feeWalletGain < minExpectedGain) {
+                return {
+          verified: false,
+          error: 'Payment amount insufficient',
+          details: {
+            feeWalletGain: feeWalletGain / 1000000000,
+            fromWalletLoss: fromWalletLoss / 1000000000,
+            transactionFee: transactionFee / 1000000000,
+            network: this.connection.rpcEndpoint,
+            confirmationStatus: transaction.meta?.err ? 'failed' : 'confirmed'
+          }
+        };
+       }
 
       // Additional devnet-specific validations
       if (this.isDevnet) {
@@ -282,20 +281,20 @@ class PaymentVerificationService {
         }
       }
 
-             return {
-         verified: true,
-         amount: feeWalletGain / 1000000000,
-         timestamp: transaction.blockTime || undefined,
-         slot: transaction.slot,
-         signature: signature,
-         details: {
-           feeWalletGain: feeWalletGain / 1000000000,
-           fromWalletLoss: fromWalletLoss / 1000000000,
-           transactionFee: transactionFee / 1000000000,
-           network: this.connection.rpcEndpoint,
-           confirmationStatus: transaction.meta?.status || 'unknown'
-         }
-       };
+                           return {
+          verified: true,
+          amount: feeWalletGain / 1000000000,
+          timestamp: transaction.blockTime || undefined,
+          slot: transaction.slot,
+          signature: signature,
+          details: {
+            feeWalletGain: feeWalletGain / 1000000000,
+            fromWalletLoss: fromWalletLoss / 1000000000,
+            transactionFee: transactionFee / 1000000000,
+            network: this.connection.rpcEndpoint,
+            confirmationStatus: transaction.meta?.err ? 'failed' : 'confirmed'
+          }
+        };
 
     } catch (error) {
       enhancedLogger.error('❌ Transaction parsing failed', { error });
