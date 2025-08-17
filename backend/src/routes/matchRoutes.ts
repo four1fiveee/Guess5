@@ -86,6 +86,9 @@ router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHa
 // Match report endpoint (CSV export)
 router.get('/generate-report', asyncHandlerWrapper(matchController.generateReportHandler));
 
+// Blockchain verification endpoint
+router.post('/verify-blockchain/:matchId', asyncHandlerWrapper(matchController.verifyBlockchainDataHandler));
+
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));

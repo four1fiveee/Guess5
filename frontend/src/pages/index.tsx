@@ -33,6 +33,47 @@ export default function Home() {
             <li><b>Game Timeout:</b> If game doesn't start within 1 minute → <span className="text-green-400">Full refund to both players</span></li>
           </ul>
         </div>
+
+        {/* Transparency & Fairness Section */}
+        <div className="bg-secondary bg-opacity-10 rounded-lg p-4 max-w-4xl w-full text-accent shadow mt-4">
+          <h2 className="text-lg font-bold text-accent mb-2 text-center">🔍 Complete Transparency & Fairness</h2>
+          <p className="text-xs text-white/90 mb-3 text-center">
+            Guess5 believes in complete transparency. Every match, transaction, and fee is publicly verifiable on the Solana blockchain.
+          </p>
+          
+          <div className="text-xs text-white/90 space-y-2">
+            <div className="flex items-start space-x-2">
+              <span className="text-green-400 font-bold">✓</span>
+              <span><b>Blockchain Verified:</b> All transactions are permanently recorded on Solana's public blockchain</span>
+            </div>
+            <div className="flex items-start space-x-2">
+              <span className="text-green-400 font-bold">✓</span>
+              <span><b>Real-Time Data:</b> Access complete match history with actual blockchain fees and timestamps</span>
+            </div>
+            <div className="flex items-start space-x-2">
+              <span className="text-green-400 font-bold">✓</span>
+              <span><b>Click to Verify:</b> Every transaction includes direct links to Solana Explorer for instant verification</span>
+            </div>
+            <div className="flex items-start space-x-2">
+              <span className="text-green-400 font-bold">✓</span>
+              <span><b>Fair Play Guaranteed:</b> All game outcomes, moves, and completion times are publicly auditable</span>
+            </div>
+          </div>
+
+          <div className="mt-4 text-center">
+            <a 
+              href="https://guess5.onrender.com/api/match/generate-report" 
+              target="_blank" 
+              rel="noopener noreferrer"
+              className="inline-flex items-center bg-accent text-primary text-sm font-bold px-4 py-2 rounded-lg shadow hover:bg-yellow-400 transition-colors"
+            >
+              📊 Download Complete Match Data (CSV)
+            </a>
+            <p className="text-xs text-white/70 mt-2">
+              Includes all matches from 8/16/2025 with blockchain verification links, actual fees, and complete audit trail
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

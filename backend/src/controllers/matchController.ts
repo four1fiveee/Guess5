@@ -2,6 +2,7 @@ const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 const { Not, LessThan, Between } = require('typeorm');
+const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 // Remove escrow imports - we're using direct payments now
 // const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
 
@@ -3129,7 +3130,9 @@ const runMigrationHandler = async (req, res) => {
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "platformFeeUSD" DECIMAL(10,2)`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "totalFeesCollectedUSD" DECIMAL(10,2)`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "solPriceAtTransaction" DECIMAL(10,2)`,
-      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "transactionTimestamp" TIMESTAMP`
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "transactionTimestamp" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "actualNetworkFees" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "actualNetworkFeesUSD" DECIMAL(10,2) DEFAULT 0`
     ];
     
     for (const query of migrationQueries) {
@@ -3191,7 +3194,9 @@ const runMigrationHandler = async (req, res) => {
         'platformFeeUSD',
         'totalFeesCollectedUSD',
         'solPriceAtTransaction',
-        'transactionTimestamp'
+        'transactionTimestamp',
+        'actualNetworkFees',
+        'actualNetworkFeesUSD'
       ]
     });
     
@@ -3218,6 +3223,186 @@ const getSolPriceUSD = async () => {
     return data.solana.usd;
   } catch (error) {
     console.error('❌ Error fetching SOL price:', error);
+    return null;
+  }
+};
+
+// Helper function to get transaction details from blockchain
+const getTransactionDetails = async (signature) => {
+  try {
+    const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+    const transaction = await connection.getTransaction(signature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
+    
+    if (!transaction) {
+      console.log(`⚠️ Transaction not found: ${signature}`);
+      return null;
+    }
+    
+    // Get actual transaction fee (what Phantom charged)
+    const actualFee = transaction.meta?.fee || 0;
+    const feeInSOL = actualFee / LAMPORTS_PER_SOL;
+    
+    // Get transaction timestamp
+    const blockTime = transaction.blockTime;
+    const transactionDate = blockTime ? new Date(blockTime * 1000) : new Date();
+    
+    // Get SOL price at transaction time
+    const solPrice = await getSolPriceUSD();
+    
+    // Create explorer links
+    const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet';
+    const explorerLink = `https://explorer.solana.com/tx/${signature}?cluster=${network}`;
+    const solscanLink = `https://solscan.io/tx/${signature}?cluster=${network}`;
+    
+    return {
+      signature,
+      actualFee: feeInSOL,
+      actualFeeUSD: solPrice ? feeInSOL * solPrice : null,
+      transactionDate,
+      solPriceAtTime: solPrice,
+      confirmed: transaction.meta?.err === null,
+      slot: transaction.slot,
+      blockTime: blockTime,
+      explorerLink,
+      solscanLink
+    };
+  } catch (error) {
+    console.error(`❌ Error fetching transaction ${signature}:`, error);
+    return null;
+  }
+};
+
+// Helper function to verify and update match with blockchain data
+const updateMatchWithBlockchainData = async (match) => {
+  try {
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    let totalNetworkFees = 0;
+    let totalNetworkFeesUSD = 0;
+    let totalActualFees = 0;
+    let totalActualFeesUSD = 0;
+    
+    // Verify player1 payment
+    if (match.player1PaymentSignature) {
+      const txDetails = await getTransactionDetails(match.player1PaymentSignature);
+      if (txDetails) {
+        match.player1PaymentTime = txDetails.transactionDate;
+        match.player1PaymentBlockTime = txDetails.transactionDate;
+        match.player1PaymentBlockNumber = txDetails.slot;
+        match.player1PaymentConfirmed = txDetails.confirmed;
+        match.player1PaymentFee = txDetails.actualFee;
+        match.solPriceAtTransaction = txDetails.solPriceAtTime;
+        match.entryFeeUSD = match.entryFee * (txDetails.solPriceAtTime || 0);
+        totalActualFees += txDetails.actualFee;
+        totalActualFeesUSD += txDetails.actualFeeUSD || 0;
+        console.log(`✅ Verified Player1 payment: ${txDetails.actualFee} SOL (${txDetails.actualFeeUSD} USD) - Block ${txDetails.slot}`);
+      }
+    }
+    
+    // Verify player2 payment
+    if (match.player2PaymentSignature) {
+      const txDetails = await getTransactionDetails(match.player2PaymentSignature);
+      if (txDetails) {
+        match.player2PaymentTime = txDetails.transactionDate;
+        match.player2PaymentBlockTime = txDetails.transactionDate;
+        match.player2PaymentBlockNumber = txDetails.slot;
+        match.player2PaymentConfirmed = txDetails.confirmed;
+        match.player2PaymentFee = txDetails.actualFee;
+        if (!match.solPriceAtTransaction) {
+          match.solPriceAtTransaction = txDetails.solPriceAtTime;
+          match.entryFeeUSD = match.entryFee * (txDetails.solPriceAtTime || 0);
+        }
+        totalActualFees += txDetails.actualFee;
+        totalActualFeesUSD += txDetails.actualFeeUSD || 0;
+        console.log(`✅ Verified Player2 payment: ${txDetails.actualFee} SOL (${txDetails.actualFeeUSD} USD) - Block ${txDetails.slot}`);
+      }
+    }
+    
+    // Verify winner payout
+    if (match.winnerPayoutSignature) {
+      const txDetails = await getTransactionDetails(match.winnerPayoutSignature);
+      if (txDetails) {
+        match.payoutAmount = match.entryFee * 2 * 0.95; // 95% of total entry fees
+        match.payoutAmountUSD = match.payoutAmount * (txDetails.solPriceAtTime || 0);
+        match.winnerPayoutBlockTime = txDetails.transactionDate;
+        match.winnerPayoutBlockNumber = txDetails.slot;
+        match.winnerPayoutConfirmed = txDetails.confirmed;
+        match.winnerPayoutFee = txDetails.actualFee;
+        totalActualFees += txDetails.actualFee;
+        totalActualFeesUSD += txDetails.actualFeeUSD || 0;
+        console.log(`✅ Verified winner payout: ${txDetails.actualFee} SOL (${txDetails.actualFeeUSD} USD) - Block ${txDetails.slot}`);
+      }
+    }
+    
+    // Verify refunds
+    if (match.player1RefundSignature) {
+      const txDetails = await getTransactionDetails(match.player1RefundSignature);
+      if (txDetails) {
+        match.refundAmount = match.entryFee - 0.0001; // Entry fee minus network fee
+        match.refundAmountUSD = match.refundAmount * (txDetails.solPriceAtTime || 0);
+        match.player1RefundBlockTime = txDetails.transactionDate;
+        match.player1RefundBlockNumber = txDetails.slot;
+        match.player1RefundConfirmed = txDetails.confirmed;
+        match.player1RefundFee = txDetails.actualFee;
+        totalActualFees += txDetails.actualFee;
+        totalActualFeesUSD += txDetails.actualFeeUSD || 0;
+        console.log(`✅ Verified Player1 refund: ${txDetails.actualFee} SOL (${txDetails.actualFeeUSD} USD) - Block ${txDetails.slot}`);
+      }
+    }
+    
+    if (match.player2RefundSignature) {
+      const txDetails = await getTransactionDetails(match.player2RefundSignature);
+      if (txDetails) {
+        if (!match.refundAmount) {
+          match.refundAmount = match.entryFee - 0.0001;
+          match.refundAmountUSD = match.refundAmount * (txDetails.solPriceAtTime || 0);
+        }
+        match.player2RefundBlockTime = txDetails.transactionDate;
+        match.player2RefundBlockNumber = txDetails.slot;
+        match.player2RefundConfirmed = txDetails.confirmed;
+        match.player2RefundFee = txDetails.actualFee;
+        totalActualFees += txDetails.actualFee;
+        totalActualFeesUSD += txDetails.actualFeeUSD || 0;
+        console.log(`✅ Verified Player2 refund: ${txDetails.actualFee} SOL (${txDetails.actualFeeUSD} USD) - Block ${txDetails.slot}`);
+      }
+    }
+    
+    // Calculate financial totals
+    match.totalFeesCollected = match.entryFee * 2;
+    match.totalFeesCollectedUSD = match.totalFeesCollected * (match.solPriceAtTransaction || 0);
+    match.platformFee = match.totalFeesCollected * 0.05; // 5% platform fee
+    match.platformFeeUSD = match.platformFee * (match.solPriceAtTransaction || 0);
+    match.actualNetworkFees = totalActualFees; // Actual blockchain fees from Phantom
+    match.actualNetworkFeesUSD = totalActualFeesUSD; // Actual fees in USD
+    match.networkFees = totalActualFees; // For backward compatibility
+    match.totalRevenue = match.totalFeesCollected;
+    match.totalPayouts = match.payoutAmount || 0;
+    match.totalRefunds = (match.player1RefundSignature ? match.refundAmount : 0) + 
+                        (match.player2RefundSignature ? match.refundAmount : 0);
+    match.netRevenue = match.totalRevenue - match.totalPayouts - match.totalRefunds;
+    match.platformRevenue = match.platformFee;
+    match.taxableIncome = match.platformRevenue - match.actualNetworkFees; // Use actual network fees
+    
+    // Set fiscal info
+    const fiscalInfo = getFiscalInfo(match.createdAt);
+    match.fiscalYear = fiscalInfo.fiscalYear;
+    match.quarter = fiscalInfo.quarter;
+    
+    // Save updated match
+    await matchRepository.save(match);
+    
+    console.log(`💰 Updated match ${match.id} with blockchain data:`);
+    console.log(`   Total actual fees: ${totalActualFees} SOL (${totalActualFeesUSD} USD)`);
+    console.log(`   Taxable income: ${match.taxableIncome} SOL`);
+    
+    return match;
+    
+  } catch (error) {
+    console.error('❌ Error updating match with blockchain data:', error);
     return null;
   }
 };
@@ -3278,11 +3463,43 @@ const generateReportHandler = async (req, res) => {
       'Game End Time (EST)',
       'Match Created (EST)',
       'Last Updated (EST)',
-      'Player 1 Payment TX',
-      'Player 2 Payment TX',
-      'Winner Payout TX',
-      'Player 1 Refund TX',
-      'Player 2 Refund TX',
+      '🔗 BLOCKCHAIN VERIFICATION DATA 🔗',
+      'Player 1 Payment TX (Click to Verify)',
+      'Player 2 Payment TX (Click to Verify)',
+      'Winner Payout TX (Click to Verify)',
+      'Player 1 Refund TX (Click to Verify)',
+      'Player 2 Refund TX (Click to Verify)',
+      '🔗 BLOCKCHAIN EXPLORER LINKS 🔗',
+      'Player 1 Payment Explorer Link',
+      'Player 2 Payment Explorer Link',
+      'Winner Payout Explorer Link',
+      'Player 1 Refund Explorer Link',
+      'Player 2 Refund Explorer Link',
+      '🔗 BLOCKCHAIN TRANSACTION DETAILS 🔗',
+      'Player 1 Payment Block Time (EST)',
+      'Player 2 Payment Block Time (EST)',
+      'Winner Payout Block Time (EST)',
+      'Player 1 Refund Block Time (EST)',
+      'Player 2 Refund Block Time (EST)',
+      'Player 1 Payment Block Number',
+      'Player 2 Payment Block Number',
+      'Winner Payout Block Number',
+      'Player 1 Refund Block Number',
+      'Player 2 Refund Block Number',
+      'Player 1 Payment Confirmed',
+      'Player 2 Payment Confirmed',
+      'Winner Payout Confirmed',
+      'Player 1 Refund Confirmed',
+      'Player 2 Refund Confirmed',
+      '🔗 BLOCKCHAIN FEES (FROM PHANTOM) 🔗',
+      'Player 1 Payment Fee (SOL) - From Blockchain',
+      'Player 2 Payment Fee (SOL) - From Blockchain',
+      'Winner Payout Fee (SOL) - From Blockchain',
+      'Player 1 Refund Fee (SOL) - From Blockchain',
+      'Player 2 Refund Fee (SOL) - From Blockchain',
+      'Total Blockchain Fees (SOL) - From Phantom',
+      'Total Blockchain Fees (USD) - From Phantom',
+      '🔗 FINANCIAL CALCULATIONS 🔗',
       'Refund Reason',
       'Refunded At (EST)',
       'Target Word',
@@ -3303,8 +3520,7 @@ const generateReportHandler = async (req, res) => {
       'Total Refunds (SOL)',
       'Net Revenue (SOL)',
       'Platform Revenue (SOL)',
-      'Network Fees (SOL)',
-      'Taxable Income (SOL)',
+      'Taxable Income (SOL) - Platform Revenue Minus Blockchain Fees',
       'Fiscal Year',
       'Quarter'
     ];
@@ -3332,11 +3548,43 @@ const generateReportHandler = async (req, res) => {
       convertToEST(match.gameEndTime),
       convertToEST(match.createdAt),
       convertToEST(match.updatedAt),
+      '', // 🔗 BLOCKCHAIN VERIFICATION DATA 🔗
       match.player1PaymentSignature,
       match.player2PaymentSignature,
       match.winnerPayoutSignature,
       match.player1RefundSignature,
       match.player2RefundSignature,
+      '', // 🔗 BLOCKCHAIN EXPLORER LINKS 🔗
+      match.player1PaymentSignature ? `https://explorer.solana.com/tx/${match.player1PaymentSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
+      match.player2PaymentSignature ? `https://explorer.solana.com/tx/${match.player2PaymentSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
+      match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
+      match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
+      match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
+      '', // 🔗 BLOCKCHAIN TRANSACTION DETAILS 🔗
+      convertToEST(match.player1PaymentBlockTime),
+      convertToEST(match.player2PaymentBlockTime),
+      convertToEST(match.winnerPayoutBlockTime),
+      convertToEST(match.player1RefundBlockTime),
+      convertToEST(match.player2RefundBlockTime),
+      match.player1PaymentBlockNumber,
+      match.player2PaymentBlockNumber,
+      match.winnerPayoutBlockNumber,
+      match.player1RefundBlockNumber,
+      match.player2RefundBlockNumber,
+      match.player1PaymentConfirmed,
+      match.player2PaymentConfirmed,
+      match.winnerPayoutConfirmed,
+      match.player1RefundConfirmed,
+      match.player2RefundConfirmed,
+      '', // 🔗 BLOCKCHAIN FEES (FROM PHANTOM) 🔗
+      match.player1PaymentFee,
+      match.player2PaymentFee,
+      match.winnerPayoutFee,
+      match.player1RefundFee,
+      match.player2RefundFee,
+      match.actualNetworkFees,
+      match.actualNetworkFeesUSD,
+      '', // 🔗 FINANCIAL CALCULATIONS 🔗
       match.refundReason,
       convertToEST(match.refundedAt),
       match.targetWord,
@@ -3352,6 +3600,8 @@ const generateReportHandler = async (req, res) => {
       match.payoutAmountUSD,
       match.solPriceAtTransaction,
       convertToEST(match.transactionTimestamp),
+      match.actualNetworkFees,
+      match.actualNetworkFeesUSD,
       match.totalRevenue,
       match.totalPayouts,
       match.totalRefunds,
@@ -3384,6 +3634,50 @@ const generateReportHandler = async (req, res) => {
   }
 };
 
+// Blockchain verification endpoint
+const verifyBlockchainDataHandler = async (req, res) => {
+  try {
+    const { matchId } = req.params;
+    
+    console.log(`🔍 Verifying blockchain data for match ${matchId}...`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    // Update match with blockchain data
+    const updatedMatch = await updateMatchWithBlockchainData(match);
+    
+    if (updatedMatch) {
+      res.json({
+        success: true,
+        message: 'Match verified with blockchain data',
+        match: {
+          id: updatedMatch.id,
+          totalFeesCollected: updatedMatch.totalFeesCollected,
+          totalFeesCollectedUSD: updatedMatch.totalFeesCollectedUSD,
+          platformFee: updatedMatch.platformFee,
+          platformFeeUSD: updatedMatch.platformFeeUSD,
+          networkFees: updatedMatch.networkFees,
+          taxableIncome: updatedMatch.taxableIncome,
+          solPriceAtTransaction: updatedMatch.solPriceAtTransaction
+        }
+      });
+    } else {
+      res.status(500).json({ error: 'Failed to verify blockchain data' });
+    }
+    
+  } catch (error) {
+    console.error('❌ Error verifying blockchain data:', error);
+    res.status(500).json({ error: 'Failed to verify blockchain data' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -3410,5 +3704,6 @@ module.exports = {
   manualMatchHandler,
   runMigrationHandler,
   generateReportHandler,
+  verifyBlockchainDataHandler,
   processAutomatedRefunds
 }; 

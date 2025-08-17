@@ -228,6 +228,75 @@ export class Match {
   @Column({ nullable: true })
   transactionTimestamp?: Date; // When the transaction occurred
 
+  // Actual blockchain network fees
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  actualNetworkFees?: number; // Actual fees charged by blockchain (Phantom)
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, default: 0 })
+  actualNetworkFeesUSD?: number; // Actual fees in USD at transaction time
+
+  // Detailed blockchain verification fields
+  @Column({ nullable: true })
+  player1PaymentBlockTime?: Date; // Block time from blockchain
+
+  @Column({ nullable: true })
+  player2PaymentBlockTime?: Date; // Block time from blockchain
+
+  @Column({ nullable: true })
+  winnerPayoutBlockTime?: Date; // Block time from blockchain
+
+  @Column({ nullable: true })
+  player1RefundBlockTime?: Date; // Block time from blockchain
+
+  @Column({ nullable: true })
+  player2RefundBlockTime?: Date; // Block time from blockchain
+
+  @Column({ nullable: true })
+  player1PaymentBlockNumber?: number; // Block number from blockchain
+
+  @Column({ nullable: true })
+  player2PaymentBlockNumber?: number; // Block number from blockchain
+
+  @Column({ nullable: true })
+  winnerPayoutBlockNumber?: number; // Block number from blockchain
+
+  @Column({ nullable: true })
+  player1RefundBlockNumber?: number; // Block number from blockchain
+
+  @Column({ nullable: true })
+  player2RefundBlockNumber?: number; // Block number from blockchain
+
+  @Column({ default: false })
+  player1PaymentConfirmed?: boolean; // Transaction confirmed on blockchain
+
+  @Column({ default: false })
+  player2PaymentConfirmed?: boolean; // Transaction confirmed on blockchain
+
+  @Column({ default: false })
+  winnerPayoutConfirmed?: boolean; // Transaction confirmed on blockchain
+
+  @Column({ default: false })
+  player1RefundConfirmed?: boolean; // Transaction confirmed on blockchain
+
+  @Column({ default: false })
+  player2RefundConfirmed?: boolean; // Transaction confirmed on blockchain
+
+  // Individual transaction fees from blockchain
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  player1PaymentFee?: number; // Actual fee from blockchain
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  player2PaymentFee?: number; // Actual fee from blockchain
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  winnerPayoutFee?: number; // Actual fee from blockchain
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  player1RefundFee?: number; // Actual fee from blockchain
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  player2RefundFee?: number; // Actual fee from blockchain
+
   @Column({ default: false })
   isCompleted!: boolean;
 
