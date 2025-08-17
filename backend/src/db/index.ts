@@ -91,6 +91,13 @@ export const initializeDatabase = async () => {
   while (retryCount < maxRetries) {
     try {
       console.log(`🔌 Initializing database connection (attempt ${retryCount + 1}/${maxRetries})...`);
+      
+      // Check if already connected
+      if (AppDataSource.isInitialized) {
+        console.log('✅ Database already connected');
+        return;
+      }
+      
       await AppDataSource.initialize();
       console.log('✅ Database connected successfully');
       
@@ -112,6 +119,13 @@ export const initializeDatabase = async () => {
       return;
     } catch (error) {
       console.error(`❌ Database connection attempt ${retryCount + 1} failed:`, error);
+      
+      // If already connected, don't retry
+      if (error.message && error.message.includes('already established')) {
+        console.log('✅ Database already connected, continuing...');
+        return;
+      }
+      
       retryCount++;
       
       if (retryCount < maxRetries) {

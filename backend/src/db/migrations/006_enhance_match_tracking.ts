@@ -4,55 +4,63 @@ export class EnhanceMatchTracking1700000000000 implements MigrationInterface {
     name = 'EnhanceMatchTracking1700000000000'
 
     public async up(queryRunner: QueryRunner): Promise<void> {
-        // Add blockchain transaction tracking columns
-        await queryRunner.query(`
-            ALTER TABLE "match" 
-            ADD COLUMN "player1PaymentSignature" VARCHAR,
-            ADD COLUMN "player2PaymentSignature" VARCHAR,
-            ADD COLUMN "winnerPayoutSignature" VARCHAR,
-            ADD COLUMN "player1RefundSignature" VARCHAR,
-            ADD COLUMN "player2RefundSignature" VARCHAR,
-            ADD COLUMN "matchOutcome" VARCHAR,
-            ADD COLUMN "gameEndTime" TIMESTAMP,
-            ADD COLUMN "matchDuration" INTEGER,
-            ADD COLUMN "totalFeesCollected" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "platformFee" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "refundReason" VARCHAR,
-            ADD COLUMN "refundedAt" TIMESTAMP,
-            ADD COLUMN "player1Moves" INTEGER,
-            ADD COLUMN "player2Moves" INTEGER,
-            ADD COLUMN "player1CompletionTime" INTEGER,
-            ADD COLUMN "player2CompletionTime" INTEGER,
-            ADD COLUMN "targetWord" VARCHAR,
-            ADD COLUMN "player1Guesses" JSONB,
-            ADD COLUMN "player2Guesses" JSONB,
-            ADD COLUMN "player1PaymentTime" TIMESTAMP,
-            ADD COLUMN "player2PaymentTime" TIMESTAMP,
-            ADD COLUMN "player1LastGuessTime" TIMESTAMP,
-            ADD COLUMN "player2LastGuessTime" TIMESTAMP,
-            ADD COLUMN "refundAmount" DECIMAL(10,6),
-            ADD COLUMN "payoutAmount" DECIMAL(10,6),
-            ADD COLUMN "disputeFlagged" BOOLEAN DEFAULT FALSE,
-            ADD COLUMN "disputeNotes" TEXT,
-            ADD COLUMN "resolvedBy" VARCHAR,
-            ADD COLUMN "resolutionTime" TIMESTAMP,
-            ADD COLUMN "totalRevenue" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "totalPayouts" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "totalRefunds" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "netRevenue" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "platformRevenue" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "networkFees" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "taxableIncome" DECIMAL(10,6) DEFAULT 0,
-            ADD COLUMN "fiscalYear" INTEGER,
-            ADD COLUMN "quarter" INTEGER,
-            ADD COLUMN "entryFeeUSD" DECIMAL(10,2),
-            ADD COLUMN "refundAmountUSD" DECIMAL(10,2),
-            ADD COLUMN "payoutAmountUSD" DECIMAL(10,2),
-            ADD COLUMN "platformFeeUSD" DECIMAL(10,2),
-            ADD COLUMN "totalFeesCollectedUSD" DECIMAL(10,2),
-            ADD COLUMN "solPriceAtTransaction" DECIMAL(10,2),
-            ADD COLUMN "transactionTimestamp" TIMESTAMP
-        `);
+        // Add blockchain transaction tracking columns with IF NOT EXISTS
+        const columns = [
+            'player1PaymentSignature VARCHAR',
+            'player2PaymentSignature VARCHAR',
+            'winnerPayoutSignature VARCHAR',
+            'player1RefundSignature VARCHAR',
+            'player2RefundSignature VARCHAR',
+            'matchOutcome VARCHAR',
+            'gameEndTime TIMESTAMP',
+            'matchDuration INTEGER',
+            'totalFeesCollected DECIMAL(10,6) DEFAULT 0',
+            'platformFee DECIMAL(10,6) DEFAULT 0',
+            'refundReason VARCHAR',
+            'refundedAt TIMESTAMP',
+            'player1Moves INTEGER',
+            'player2Moves INTEGER',
+            'player1CompletionTime INTEGER',
+            'player2CompletionTime INTEGER',
+            'targetWord VARCHAR',
+            'player1Guesses JSONB',
+            'player2Guesses JSONB',
+            'player1PaymentTime TIMESTAMP',
+            'player2PaymentTime TIMESTAMP',
+            'player1LastGuessTime TIMESTAMP',
+            'player2LastGuessTime TIMESTAMP',
+            'refundAmount DECIMAL(10,6)',
+            'payoutAmount DECIMAL(10,6)',
+            'disputeFlagged BOOLEAN DEFAULT FALSE',
+            'disputeNotes TEXT',
+            'resolvedBy VARCHAR',
+            'resolutionTime TIMESTAMP',
+            'totalRevenue DECIMAL(10,6) DEFAULT 0',
+            'totalPayouts DECIMAL(10,6) DEFAULT 0',
+            'totalRefunds DECIMAL(10,6) DEFAULT 0',
+            'netRevenue DECIMAL(10,6) DEFAULT 0',
+            'platformRevenue DECIMAL(10,6) DEFAULT 0',
+            'networkFees DECIMAL(10,6) DEFAULT 0',
+            'taxableIncome DECIMAL(10,6) DEFAULT 0',
+            'fiscalYear INTEGER',
+            'quarter INTEGER',
+            'entryFeeUSD DECIMAL(10,2)',
+            'refundAmountUSD DECIMAL(10,2)',
+            'payoutAmountUSD DECIMAL(10,2)',
+            'platformFeeUSD DECIMAL(10,2)',
+            'totalFeesCollectedUSD DECIMAL(10,2)',
+            'solPriceAtTransaction DECIMAL(10,2)',
+            'transactionTimestamp TIMESTAMP'
+        ];
+
+        // Add each column individually with IF NOT EXISTS
+        for (const column of columns) {
+            try {
+                await queryRunner.query(`ALTER TABLE "match" ADD COLUMN IF NOT EXISTS ${column}`);
+            } catch (error) {
+                console.log(`⚠️ Column might already exist: ${column}`);
+            }
+        }
 
         // Add signature field to payoutResult JSON if it exists
         await queryRunner.query(`
