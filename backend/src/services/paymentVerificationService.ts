@@ -227,9 +227,15 @@ class PaymentVerificationService {
       const postBalances = transaction.meta?.postBalances || [];
       const accountKeys = transaction.transaction.message.accountKeys;
 
-      // Find account indices (use toBase58() for comparison)
-      const feeWalletIndex = accountKeys.findIndex(key => key.toString() === feeWalletPublicKey.toBase58());
-      const fromWalletIndex = accountKeys.findIndex(key => key.toString() === fromWalletPublicKey.toBase58());
+      // Find account indices (use appropriate method for comparison)
+      const feeWalletIndex = accountKeys.findIndex(key => {
+        const keyStr = (key as any).toBase58 ? (key as any).toBase58() : key.toString();
+        return keyStr === feeWalletPublicKey.toBase58();
+      });
+      const fromWalletIndex = accountKeys.findIndex(key => {
+        const keyStr = (key as any).toBase58 ? (key as any).toBase58() : key.toString();
+        return keyStr === fromWalletPublicKey.toBase58();
+      });
 
       // Debug: Log all account keys to see what's in the transaction
       console.log('🔍 Transaction account keys:', accountKeys.map(key => key.toString()));
