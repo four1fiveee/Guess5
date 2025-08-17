@@ -469,6 +469,8 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   console.log(`🧹 Cleaning up old matches for wallet: ${wallet}`);
   
   // Use raw SQL to avoid TypeORM column issues - only select existing columns
+  // Don't cleanup matches created in the last 30 seconds to avoid race conditions
+  const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
   const oldPlayerMatches = await matchRepository.query(`
     SELECT 
       id,
@@ -479,7 +481,8 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       "player2Paid"
     FROM "match" 
     WHERE (("player1" = $1 AND "status" != $2) OR ("player2" = $3 AND "status" != $4))
-  `, [wallet, 'escrow', wallet, 'escrow']);
+      AND "createdAt" < $5
+  `, [wallet, 'escrow', wallet, 'escrow', thirtySecondsAgo]);
   
   if (oldPlayerMatches.length > 0) {
     console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, processing refunds and removing them`);
@@ -495,7 +498,8 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     await matchRepository.query(`
       DELETE FROM "match" 
       WHERE (("player1" = $1 AND "status" != $2) OR ("player2" = $3 AND "status" != $4))
-    `, [wallet, 'escrow', wallet, 'escrow']);
+        AND "createdAt" < $5
+    `, [wallet, 'escrow', wallet, 'escrow', thirtySecondsAgo]);
     
     console.log(`✅ Cleaned up ${oldPlayerMatches.length} old matches for ${wallet}`);
   } else {
