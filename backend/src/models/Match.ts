@@ -74,11 +74,65 @@ export class Match {
       to: string;
       amount: number;
       description: string;
+      signature?: string;
     }>;
     paymentSuccess?: boolean;
     paymentError?: string;
     transaction?: any;
   } | null;
+
+  // Blockchain transaction tracking
+  @Column({ nullable: true })
+  player1PaymentSignature?: string;
+
+  @Column({ nullable: true })
+  player2PaymentSignature?: string;
+
+  @Column({ nullable: true })
+  winnerPayoutSignature?: string;
+
+  @Column({ nullable: true })
+  player1RefundSignature?: string;
+
+  @Column({ nullable: true })
+  player2RefundSignature?: string;
+
+  // Match outcome tracking
+  @Column({ nullable: true })
+  matchOutcome?: string; // 'player1_win', 'player2_win', 'tie', 'both_lose', 'cancelled'
+
+  @Column({ nullable: true })
+  gameEndTime?: Date;
+
+  @Column({ nullable: true })
+  matchDuration?: number; // in seconds
+
+  // Fee tracking
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  totalFeesCollected?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, default: 0 })
+  platformFee?: number;
+
+  // Refund tracking
+  @Column({ nullable: true })
+  refundReason?: string; // 'payment_timeout', 'both_players_lost', 'cleanup', etc.
+
+  @Column({ nullable: true })
+  refundedAt?: Date;
+
+  // Player performance tracking
+  @Column({ nullable: true })
+  player1Moves?: number; // Number of guesses made by player1
+
+  @Column({ nullable: true })
+  player2Moves?: number; // Number of guesses made by player2
+
+  @Column({ nullable: true })
+  player1CompletionTime?: number; // Time in seconds to complete the word
+
+  @Column({ nullable: true })
+  player2CompletionTime?: number; // Time in seconds to complete the word
 
   @Column({ default: false })
   isCompleted!: boolean;

@@ -80,6 +80,9 @@ router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHa
 // Manual match endpoint for testing
 router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHandler));
 
+// Database migration endpoint
+router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHandler));
+
 // Development-only routes
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));

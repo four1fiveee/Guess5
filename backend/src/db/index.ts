@@ -2,6 +2,10 @@ import { DataSource } from 'typeorm'
 import { Match } from '../models/Match'
 import { Guess } from '../models/Guess'
 import { Transaction } from '../models/Transaction'
+import * as dotenv from 'dotenv'
+
+// Load environment variables
+dotenv.config()
 
 // Validate required environment variables
 const validateDatabaseConfig = () => {

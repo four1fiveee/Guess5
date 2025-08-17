@@ -3076,6 +3076,73 @@ const manualMatchHandler = async (req, res) => {
   }
 };
 
+// Database migration endpoint (for adding new columns)
+const runMigrationHandler = async (req, res) => {
+  try {
+    console.log('🔄 Running database migration...');
+    
+    const { AppDataSource } = require('../db/index');
+    
+    // Run the migration SQL directly
+    const migrationQueries = [
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1PaymentSignature" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2PaymentSignature" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "winnerPayoutSignature" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1RefundSignature" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2RefundSignature" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "matchOutcome" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "gameEndTime" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "matchDuration" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "totalFeesCollected" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "platformFee" DECIMAL(10,6) DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "refundReason" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "refundedAt" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1Moves" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2Moves" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1CompletionTime" INTEGER`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2CompletionTime" INTEGER`
+    ];
+    
+    for (const query of migrationQueries) {
+      try {
+        await AppDataSource.query(query);
+        console.log(`✅ Executed: ${query}`);
+      } catch (error) {
+        console.log(`⚠️ Column might already exist: ${error.message}`);
+      }
+    }
+    
+    console.log('✅ Database migration completed successfully');
+    
+    res.json({
+      success: true,
+      message: 'Database migration completed successfully',
+      columnsAdded: [
+        'player1PaymentSignature',
+        'player2PaymentSignature', 
+        'winnerPayoutSignature',
+        'player1RefundSignature',
+        'player2RefundSignature',
+        'matchOutcome',
+        'gameEndTime',
+        'matchDuration',
+        'totalFeesCollected',
+        'platformFee',
+        'refundReason',
+        'refundedAt',
+        'player1Moves',
+        'player2Moves',
+        'player1CompletionTime',
+        'player2CompletionTime'
+      ]
+    });
+    
+  } catch (error) {
+    console.error('❌ Error running migration:', error);
+    res.status(500).json({ error: 'Failed to run migration' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -3100,5 +3167,6 @@ module.exports = {
   debugMatchmakingHandler,
   manualRefundHandler,
   manualMatchHandler,
+  runMigrationHandler,
   processAutomatedRefunds
 }; 

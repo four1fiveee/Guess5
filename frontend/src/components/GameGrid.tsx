@@ -76,7 +76,7 @@ const GameGrid: React.FC<{
           return (
             <div key={row} className="flex gap-3 justify-center">
               {[...Array(5)].map((_, col) => {
-                let cellClass = 'w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold transition-all duration-200'
+                let cellClass = 'w-14 h-14 flex items-center justify-center border-2 rounded-full text-2xl font-bold transition-all duration-200'
                 let displayLetter = ''
                 
                 if (guess) {
@@ -107,7 +107,7 @@ const GameGrid: React.FC<{
       {/* Input for current guess */}
       {remainingGuesses > 0 && (
         <div className="flex flex-col items-center gap-4 w-full max-w-md">
-          <div className="text-accent text-lg font-semibold">Guess {guesses.length + 1} of 7</div>
+          <div className="text-accent text-lg font-semibold">Guess {7 - remainingGuesses + 1} of 7</div>
           <div className="flex gap-3 justify-center w-full">
             <input
               type="text"

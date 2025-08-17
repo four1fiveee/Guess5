@@ -625,6 +625,11 @@ const Matchmaking: React.FC = () => {
             // Check if both players have paid but status hasn't updated yet
             if (data.player1Paid && data.player2Paid && data.status === 'payment_required') {
               console.log('💰 Both players have paid, waiting for status to update to active...');
+              // Clear payment timeout since both players paid
+              if (paymentTimeout) {
+                clearTimeout(paymentTimeout);
+                setPaymentTimeout(null);
+              }
               // Continue polling to wait for status to become 'active'
               setStatus('waiting_for_opponent');
             }
@@ -668,8 +673,11 @@ const Matchmaking: React.FC = () => {
               return;
             }
             
-            // Set payment timeout (1 minute) if backend status is payment_required
-            if (data.status === 'payment_required') {
+            // Set payment timeout (1 minute) if backend status is payment_required AND current player hasn't paid
+            const currentPlayerPaid = (data.player1 === publicKey?.toString() && data.player1Paid) || 
+                                    (data.player2 === publicKey?.toString() && data.player2Paid);
+            
+            if (data.status === 'payment_required' && !currentPlayerPaid) {
               const timeout = setTimeout(() => {
                 console.log('⏰ Payment timeout - redirecting to lobby');
                 setStatus('cancelled');
