@@ -10,7 +10,7 @@ export default function Home() {
       <div className="flex flex-col items-center max-w-4xl w-full">
         <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-2" />
         <Link href="/lobby">
-          <button className="bg-accent text-primary text-base font-bold px-6 py-2 rounded-lg shadow hover:bg-yellow-400 transition mb-4">Play</button>
+          <button className="bg-accent text-primary text-xl font-bold px-8 py-4 rounded-lg shadow hover:bg-yellow-400 transition mb-4">Play</button>
         </Link>
         <p className="text-sm text-white/80 mb-4 text-center">The Solana-powered word game for real rewards</p>
         <div className="bg-secondary bg-opacity-10 rounded-lg p-4 max-w-4xl w-full text-accent shadow">
@@ -65,7 +65,7 @@ export default function Home() {
               href="https://guess5.onrender.com/api/match/generate-report" 
               target="_blank" 
               rel="noopener noreferrer"
-              className="inline-flex items-center bg-accent text-primary text-base font-bold px-5 py-3 rounded-lg shadow hover:bg-yellow-400 transition-colors"
+              className="inline-flex items-center bg-accent text-primary text-sm font-bold px-4 py-2 rounded-lg shadow hover:bg-yellow-400 transition-colors"
             >
               Download Complete Match Data (CSV)
             </a>
