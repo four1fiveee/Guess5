@@ -3431,16 +3431,50 @@ const generateReportHandler = async (req, res) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get all matches with full data
-    const matches = await matchRepository
-      .createQueryBuilder('match')
-      .where(dateFilter)
-      .orderBy('match.createdAt', 'DESC')
-      .getMany();
+    // Get all matches with only basic columns that definitely exist
+    const matches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        "entryFee",
+        status,
+        word,
+        "escrowAddress",
+        "gameStartTime",
+        "player1EscrowConfirmed",
+        "player2EscrowConfirmed",
+        "player1EscrowSignature",
+        "player2EscrowSignature",
+        "player1Paid",
+        "player2Paid",
+        "player1Result",
+        "player2Result",
+        winner,
+        "payoutResult",
+        "player1PaymentSignature",
+        "player2PaymentSignature",
+        "winnerPayoutSignature",
+        "player1RefundSignature",
+        "player2RefundSignature",
+        "matchOutcome",
+        "gameEndTime",
+        "matchDuration",
+        "totalFeesCollected",
+        "platformFee",
+        "refundReason",
+        "refundedAt",
+        "isCompleted",
+        "createdAt",
+        "updatedAt"
+      FROM "match" 
+      WHERE ${dateFilter}
+      ORDER BY "createdAt" DESC
+    `);
     
     console.log(`📊 Found ${matches.length} matches for report`);
     
-    // Generate CSV headers - using only existing columns
+    // Generate CSV headers - using only columns that exist in database
     const csvHeaders = [
       'Match ID',
       'Player 1 Wallet',
@@ -3450,10 +3484,6 @@ const generateReportHandler = async (req, res) => {
       'Player 1 Paid',
       'Player 2 Paid',
       'Match Outcome',
-      'Player 1 Moves',
-      'Player 2 Moves',
-      'Player 1 Time (sec)',
-      'Player 2 Time (sec)',
       'Total Match Duration (sec)',
       'Total Fees Collected (SOL)',
       'Platform Fee (SOL)',
@@ -3474,16 +3504,14 @@ const generateReportHandler = async (req, res) => {
       'Player 2 Refund Explorer Link',
       '🔗 BASIC GAME DATA 🔗',
       'Target Word',
-      'Player 1 Guesses',
-      'Player 2 Guesses',
+      'Player 1 Result (JSON)',
+      'Player 2 Result (JSON)',
       'Refund Reason',
       'Refunded At (EST)',
-      'Refund Amount (SOL)',
-      'Payout Amount (SOL)',
       'Winner'
     ];
     
-    // Generate CSV rows
+    // Generate CSV rows - using only columns that exist in database
     const csvRows = matches.map(match => [
       match.id,
       match.player1,
@@ -3493,10 +3521,6 @@ const generateReportHandler = async (req, res) => {
       match.player1Paid || false,
       match.player2Paid || false,
       match.matchOutcome || '',
-      match.player1Moves || match.player1Result?.numGuesses || '',
-      match.player2Moves || match.player2Result?.numGuesses || '',
-      match.player1CompletionTime || match.player1Result?.totalTime || '',
-      match.player2CompletionTime || match.player2Result?.totalTime || '',
       match.matchDuration || '',
       match.totalFeesCollected || (match.entryFee * 2) || '',
       match.platformFee || '',
@@ -3516,13 +3540,11 @@ const generateReportHandler = async (req, res) => {
       match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
       match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
       '', // 🔗 BASIC GAME DATA 🔗
-      match.targetWord || match.word || '', // Use targetWord if exists, fallback to word
-      JSON.stringify(match.player1Guesses || match.player1Result?.guesses || []),
-      JSON.stringify(match.player2Guesses || match.player2Result?.guesses || []),
+      match.word || '', // Use word field which exists
+      JSON.stringify(match.player1Result || {}),
+      JSON.stringify(match.player2Result || {}),
       match.refundReason || '',
       convertToEST(match.refundedAt),
-      match.refundAmount || '',
-      match.payoutAmount || '',
       match.winner || ''
     ]);
     
