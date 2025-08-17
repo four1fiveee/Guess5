@@ -3,7 +3,9 @@ const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 const { Not, LessThan, Between } = require('typeorm');
 const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
-const { getRandomWord } = require('../wordList.ts');
+const path = require('path');
+const wordListModule = require(path.join(__dirname, '../wordList'));
+const { getRandomWord } = wordListModule;
 // Remove escrow imports - we're using direct payments now
 // const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
 
