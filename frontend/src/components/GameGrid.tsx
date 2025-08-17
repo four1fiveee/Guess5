@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react'
 import wordList from './wordList'
 
-// Props: guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses
+// Props: guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses, targetWord
 const GameGrid: React.FC<{
   guesses: string[],
   currentGuess: string,
   setCurrentGuess: (guess: string) => void,
   onGuess: (guess: string) => Promise<void>,
-  remainingGuesses: number
-}> = ({ guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses }) => {
+  remainingGuesses: number,
+  targetWord?: string
+}> = ({ guesses, currentGuess, setCurrentGuess, onGuess, remainingGuesses, targetWord }) => {
   const [hintColors, setHintColors] = useState<string[][]>([])
 
   // Calculate hint colors for each guess
@@ -39,6 +40,14 @@ const GameGrid: React.FC<{
     return colors
   }
 
+  // Update hint colors when guesses change
+  useEffect(() => {
+    if (targetWord && guesses.length > 0) {
+      const newHintColors = guesses.map(guess => calculateHintColors(guess, targetWord))
+      setHintColors(newHintColors)
+    }
+  }, [guesses, targetWord])
+
   // Handle guess submission
   const handleSubmit = async () => {
     if (currentGuess.length !== 5 || remainingGuesses <= 0) return
@@ -62,25 +71,38 @@ const GameGrid: React.FC<{
         {[...Array(7)].map((_, row) => {
           const guess = guesses[row] || ''
           const isCurrentRow = row === guesses.length
-          const displayGuess = isCurrentRow ? currentGuess : guess
+          const rowHintColors = hintColors[row] || []
           
           return (
             <div key={row} className="flex gap-3 justify-center">
-              {[...Array(5)].map((_, col) => (
-                <div
-                  key={col}
-                  className={`w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold
-                    ${isCurrentRow 
-                      ? 'bg-white/10 border-white/30 text-white' 
-                      : guess 
-                        ? 'bg-white/10 border-white/30 text-white' 
-                        : 'bg-white/5 border-white/20 text-white/50'
-                    } transition-all duration-200`}
-                  style={{ aspectRatio: '1 / 1' }}
-                >
-                  {displayGuess[col] || ''}
-                </div>
-              ))}
+              {[...Array(5)].map((_, col) => {
+                let cellClass = 'w-14 h-14 flex items-center justify-center border-2 rounded-lg text-2xl font-bold transition-all duration-200'
+                let displayLetter = ''
+                
+                if (isCurrentRow) {
+                  // Current row - show current guess
+                  cellClass += ' bg-white/10 border-white/30 text-white'
+                  displayLetter = currentGuess[col] || ''
+                } else if (guess) {
+                  // Completed guess - show with colors
+                  cellClass += ` ${rowHintColors[col] || 'bg-white/10 border-white/30 text-white'}`
+                  displayLetter = guess[col] || ''
+                } else {
+                  // Empty row
+                  cellClass += ' bg-white/5 border-white/20 text-white/50'
+                  displayLetter = ''
+                }
+                
+                return (
+                  <div
+                    key={col}
+                    className={cellClass}
+                    style={{ aspectRatio: '1 / 1' }}
+                  >
+                    {displayLetter}
+                  </div>
+                )
+              })}
             </div>
           )
         })}

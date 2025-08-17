@@ -27,6 +27,7 @@ const Game: React.FC = () => {
   const [entryFee, setEntryFee] = useState<number>(0);
   const [serverGuesses, setServerGuesses] = useState<string[]>([]);
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
+  const [targetWord, setTargetWord] = useState<string>('');
 
   useEffect(() => {
     if (!publicKey) {
@@ -99,6 +100,7 @@ const Game: React.FC = () => {
           const gameStateData = await gameStateResponse.json();
           setServerGuesses(gameStateData.playerGuesses || []);
           setRemainingGuesses(gameStateData.remainingGuesses || 7);
+          setTargetWord(gameStateData.targetWord || '');
           
           if (gameStateData.solved) {
             setGameState('solved');
@@ -404,6 +406,7 @@ const Game: React.FC = () => {
               setCurrentGuess={setCurrentGuess}
               onGuess={handleGuess}
               remainingGuesses={remainingGuesses}
+              targetWord={targetWord}
             />
           </div>
         )}

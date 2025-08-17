@@ -585,12 +585,14 @@ const Matchmaking: React.FC = () => {
             });
             
             // STOP ALL TIMERS when match is found
+            clearInterval(pollInterval);
             clearInterval(countdownInterval);
             clearTimeout(timeoutId);
             if (paymentTimeout) {
               clearTimeout(paymentTimeout);
               setPaymentTimeout(null);
             }
+            setIsPolling(false);
             setIsMatchmakingInProgress(false); // Reset matchmaking progress
             isStartMatchmakingRunning.current = false; // Reset running flag
             

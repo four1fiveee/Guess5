@@ -2164,7 +2164,8 @@ const getGameStateHandler = async (req, res) => {
             remainingGuesses: 7 - playerGuesses.length,
             solved: isPlayer1 ? reinitializedGameState.player1Solved : reinitializedGameState.player2Solved,
             opponentSolved: isPlayer1 ? reinitializedGameState.player2Solved : reinitializedGameState.player1Solved,
-            gameActive: !reinitializedGameState.player1Solved && !reinitializedGameState.player2Solved
+            gameActive: !reinitializedGameState.player1Solved && !reinitializedGameState.player2Solved,
+            targetWord: reinitializedGameState.word // Include target word for color calculation
           });
         }
       }
@@ -2185,7 +2186,8 @@ const getGameStateHandler = async (req, res) => {
       remainingGuesses: 7 - playerGuesses.length,
       solved: isPlayer1 ? serverGameState.player1Solved : serverGameState.player2Solved,
       opponentSolved: isPlayer1 ? serverGameState.player2Solved : serverGameState.player1Solved,
-      gameActive: !serverGameState.player1Solved && !serverGameState.player2Solved
+      gameActive: !serverGameState.player1Solved && !serverGameState.player2Solved,
+      targetWord: serverGameState.word // Include target word for color calculation
     });
 
   } catch (error) {
