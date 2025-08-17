@@ -3,6 +3,7 @@ const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
 const { Not, LessThan, Between } = require('typeorm');
 const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { getRandomWord } = require('../wordList.ts');
 // Remove escrow imports - we're using direct payments now
 // const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
 
@@ -710,7 +711,6 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       const actualEntryFee = Math.min(waitingEntry.entryFee, entryFee);
       
       // Generate game word
-      const { getRandomWord } = require('../wordList');
       const gameWord = getRandomWord();
       
       // Create new match record
@@ -794,7 +794,6 @@ const findAndClaimWaitingPlayer = async (matchRepository: any, wallet: string, e
       });
       
       // Generate game word
-      const { getRandomWord } = require('../wordList');
       const gameWord = getRandomWord();
       
       // Update the match atomically within transaction
@@ -2149,7 +2148,6 @@ const checkPlayerMatchHandler = async (req, res) => {
         const actualEntryFee = Math.min(availableWaitingMatch.entryFee, 0.1039); // Use the entry fee from the request
         
         // Generate game word
-        const { getRandomWord } = require('../wordList');
         const gameWord = getRandomWord();
         
         // Create new match record
@@ -2408,7 +2406,7 @@ const getGameStateHandler = async (req, res) => {
       // If match is active but no game state, try to reinitialize
       if (match?.status === 'active') {
         console.log(`🔄 Attempting to reinitialize game state for match ${matchId}`);
-        const word = require('../wordList').getRandomWord();
+        const word = getRandomWord();
         const newGameState = {
           startTime: Date.now(),
           player1StartTime: Date.now(),
@@ -3024,7 +3022,7 @@ const confirmPaymentHandler = async (req, res) => {
       }
       
       // Initialize server-side game state with the SAME word for both players
-      const word = match.word || require('../wordList').getRandomWord();
+      const word = match.word || getRandomWord();
       activeGames.set(matchId, {
         startTime: Date.now(),
         player1StartTime: Date.now(),
@@ -4078,13 +4076,15 @@ const walletBalanceSSEHandler = async (req, res) => {
     
     console.log('🔌 SSE connection requested for wallet:', wallet);
     
-    // Set SSE headers
+    // Set SSE headers with proper CORS
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
       'Connection': 'keep-alive',
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Headers': 'Cache-Control'
+      'Access-Control-Allow-Origin': process.env.FRONTEND_URL || 'https://guess5.vercel.app',
+      'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
+      'Access-Control-Allow-Methods': 'GET, OPTIONS',
+      'Access-Control-Allow-Credentials': 'true'
     });
     
     // Send initial connection message
@@ -4166,7 +4166,11 @@ const walletBalanceSSEHandler = async (req, res) => {
     console.error('❌ Error in wallet balance SSE handler:', error);
     
     if (!res.headersSent) {
-      res.status(500).json({ error: 'Internal server error' });
+      res.status(500).json({ 
+        error: 'Internal server error',
+        details: error.message,
+        wallet: req.params.wallet 
+      });
     } else {
       const errorMessage = {
         type: 'error',

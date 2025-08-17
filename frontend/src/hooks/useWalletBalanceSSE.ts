@@ -28,9 +28,10 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
     }
 
     // Create new SSE connection
-    const eventSource = new EventSource(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`
-    );
+    const sseUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`;
+    console.log('🔌 Attempting SSE connection to:', sseUrl);
+    
+    const eventSource = new EventSource(sseUrl);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
@@ -67,6 +68,7 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
 
     eventSource.onerror = (error) => {
       console.error('❌ SSE connection error:', error);
+      console.error('❌ EventSource readyState:', eventSource.readyState);
       setIsConnected(false);
       setError('Connection lost - balance updates may be delayed');
       

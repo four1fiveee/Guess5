@@ -62,6 +62,15 @@ router.get('/wallet-balance/:wallet',
   asyncHandlerWrapper(matchController.walletBalanceSSEHandler)
 );
 
+// OPTIONS handler for SSE endpoint to handle CORS preflight
+router.options('/wallet-balance/:wallet', (req, res) => {
+  res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'https://guess5.vercel.app');
+  res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
 router.get('/game-state', 
   // No rate limiting for game state polling to avoid 429 errors
   asyncHandlerWrapper(matchController.getGameStateHandler)
