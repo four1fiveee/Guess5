@@ -247,17 +247,26 @@ export const TopRightWallet: React.FC = () => {
 
   if (!connected) {
     return (
-      <div className="absolute top-4 right-4">
-        <button
-          className={`px-4 py-2 rounded-lg font-bold transition-colors shadow bg-accent text-primary hover:bg-yellow-400 ${
-            isProcessing ? 'opacity-50 cursor-not-allowed' : ''
-          }`}
-          onClick={handleConnect}
-          disabled={isProcessing}
-        >
-          {isProcessing ? 'Processing...' : 'Connect Wallet'}
-        </button>
-      </div>
+      <>
+        <div className="absolute top-4 right-4">
+          <button
+            className={`px-4 py-2 rounded-lg font-bold transition-colors shadow bg-accent text-primary hover:bg-yellow-400 ${
+              isProcessing ? 'opacity-50 cursor-not-allowed' : ''
+            }`}
+            onClick={handleConnect}
+            disabled={isProcessing}
+          >
+            {isProcessing ? 'Processing...' : 'Connect Wallet'}
+          </button>
+        </div>
+
+        {/* Legal Disclaimer Modal */}
+        <LegalDisclaimer
+          isOpen={showLegalDisclaimer}
+          onAccept={handleLegalAccept}
+          onDecline={handleLegalDecline}
+        />
+      </>
     );
   }
 
