@@ -3540,6 +3540,12 @@ const runMigrationHandler = async (req, res) => {
     
     // Run the migration SQL directly
     const migrationQueries = [
+      // Idempotency columns (missing from original migration)
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "idempotencyKey" VARCHAR`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "paymentAttempts" INTEGER DEFAULT 0`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "lastPaymentAttempt" TIMESTAMP`,
+      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "paymentVerificationSignature" VARCHAR`,
+      // Payment signature columns
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1PaymentSignature" VARCHAR`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2PaymentSignature" VARCHAR`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "winnerPayoutSignature" VARCHAR`,
@@ -3604,6 +3610,12 @@ const runMigrationHandler = async (req, res) => {
       success: true,
       message: 'Database migration completed successfully',
       columnsAdded: [
+        // Idempotency columns
+        'idempotencyKey',
+        'paymentAttempts',
+        'lastPaymentAttempt',
+        'paymentVerificationSignature',
+        // Payment signature columns
         'player1PaymentSignature',
         'player2PaymentSignature', 
         'winnerPayoutSignature',
