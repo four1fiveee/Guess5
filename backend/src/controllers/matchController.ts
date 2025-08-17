@@ -1910,6 +1910,8 @@ const getMatchStatusHandler = async (req, res) => {
     status: match.status,
       player1: match.player1,
       player2: match.player2,
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
       word: match.word,
       player1Result: match.player1Result,
       player2Result: match.player2Result,

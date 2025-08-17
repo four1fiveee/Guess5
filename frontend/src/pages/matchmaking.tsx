@@ -237,7 +237,7 @@ const Matchmaking: React.FC = () => {
         try {
           // Check if we have a match and need to update payment status
           if (matchData && matchData.matchId) {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${matchData.matchId}?wallet=${publicKey.toString()}`);
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}?wallet=${publicKey.toString()}`);
             
             if (response.ok) {
               const data = await response.json();
