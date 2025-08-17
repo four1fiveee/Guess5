@@ -241,12 +241,14 @@ const Matchmaking: React.FC = () => {
             
             if (response.ok) {
               const data = await response.json();
+              console.log('🔄 Polling update:', data);
               
               // Update match data with latest payment status
               setMatchData((prev: any) => ({
                 ...prev,
                 player1Paid: data.player1Paid,
-                player2Paid: data.player2Paid
+                player2Paid: data.player2Paid,
+                status: data.status
               }));
 
               // Check if both players have paid and game is active
@@ -263,9 +265,17 @@ const Matchmaking: React.FC = () => {
                   localStorage.setItem('entryFee', data.entryFee.toString());
                 }
                 
+                // Stop polling and redirect immediately
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                
                 setTimeout(() => {
                   router.push(`/game?matchId=${matchData.matchId}`);
                 }, 1000);
+              } else if (data.player1Paid && data.player2Paid && data.status !== 'active') {
+                // Both players paid but game not yet active - show waiting state
+                console.log('⏳ Both players paid, waiting for game to start...');
+                setStatus('waiting_for_game');
               }
             }
           } else {
@@ -359,7 +369,17 @@ const Matchmaking: React.FC = () => {
               </div>
               {matchData && (
                 <div className="text-sm text-white/60 mb-4">
-                  Payment Status: {matchData.player1Paid ? 'Player 1 Paid' : 'Player 1 Pending'} | {matchData.player2Paid ? 'Player 2 Paid' : 'Player 2 Pending'}
+                  {publicKey?.toString() === matchData.player1 ? (
+                    <>
+                      Your Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'} | 
+                      Opponent Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'}
+                    </>
+                  ) : (
+                    <>
+                      Your Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'} | 
+                      Opponent Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'}
+                    </>
+                  )}
                 </div>
               )}
               <button
@@ -390,7 +410,17 @@ const Matchmaking: React.FC = () => {
               </div>
               {matchData && (
                 <div className="text-sm text-white/60 mb-4">
-                  Payment Status: {matchData.player1Paid ? '✅ Player 1 Paid' : '⏳ Player 1 Pending'} | {matchData.player2Paid ? '✅ Player 2 Paid' : '⏳ Player 2 Pending'}
+                  {publicKey?.toString() === matchData.player1 ? (
+                    <>
+                      Your Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'} | 
+                      Opponent Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'}
+                    </>
+                  ) : (
+                    <>
+                      Your Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'} | 
+                      Opponent Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'}
+                    </>
+                  )}
                 </div>
               )}
               <div className="text-accent text-lg font-semibold">
