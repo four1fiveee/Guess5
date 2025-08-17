@@ -2856,6 +2856,15 @@ const confirmPaymentHandler = async (req, res) => {
     if (!match) {
       return res.status(404).json({ error: 'Match not found' });
     }
+    
+    // Debug: Log current payment status before processing
+    console.log(`🔍 Payment status BEFORE processing for match ${matchId}:`, {
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
+      player1: match.player1,
+      player2: match.player2,
+      currentPlayer: wallet
+    });
 
     // Validate player is part of this match
     if (wallet !== match.player1 && wallet !== match.player2) {
@@ -2904,7 +2913,7 @@ const confirmPaymentHandler = async (req, res) => {
       slot: verificationResult.slot
     });
 
-    // Mark player as paid
+    // Mark player as paid (preserve existing payment status)
     if (isPlayer1) {
       match.player1Paid = true;
       match.player1PaymentSignature = paymentSignature;
@@ -2914,6 +2923,14 @@ const confirmPaymentHandler = async (req, res) => {
       match.player2PaymentSignature = paymentSignature;
       console.log(`✅ Marked Player 2 (${wallet}) as paid for match ${matchId}`);
     }
+    
+    // Ensure we preserve both players' payment status
+    console.log(`🔍 Current payment status after marking ${isPlayer1 ? 'Player 1' : 'Player 2'} as paid:`, {
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
+      player1: match.player1,
+      player2: match.player2
+    });
 
     // Payment tracking updated
     console.log(`✅ Payment tracking updated for ${isPlayer1 ? 'Player 1' : 'Player 2'}`);
