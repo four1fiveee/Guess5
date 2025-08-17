@@ -253,8 +253,8 @@ const Matchmaking: React.FC = () => {
         try {
           // Check if we have a match and need to update payment status
           if (currentMatchData && currentMatchData.matchId) {
-            console.log('🔄 Polling for match status:', matchData.matchId);
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}?wallet=${publicKey.toString()}`);
+            console.log('🔄 Polling for match status:', currentMatchData.matchId);
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${currentMatchData.matchId}?wallet=${publicKey.toString()}`);
             
             console.log('🔄 Response status:', response.status);
             if (response.ok) {
@@ -289,7 +289,7 @@ const Matchmaking: React.FC = () => {
                 setStatus('active');
                 
                 // Store match data and redirect to game
-                localStorage.setItem('matchId', matchData.matchId);
+                localStorage.setItem('matchId', currentMatchData.matchId);
                 if (data.word) {
                   localStorage.setItem('word', data.word);
                 }
@@ -302,7 +302,7 @@ const Matchmaking: React.FC = () => {
                 setIsPolling(false);
                 
                 setTimeout(() => {
-                  router.push(`/game?matchId=${matchData.matchId}`);
+                  router.push(`/game?matchId=${currentMatchData.matchId}`);
                 }, 1000);
               } else if (data.player1Paid && data.player2Paid && data.status !== 'active') {
                 // Both players paid but game not yet active - show waiting state
