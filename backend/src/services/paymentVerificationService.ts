@@ -231,17 +231,61 @@ class PaymentVerificationService {
       const feeWalletIndex = accountKeys.findIndex(key => key.toString() === feeWalletPublicKey.toString());
       const fromWalletIndex = accountKeys.findIndex(key => key.toString() === fromWalletPublicKey.toString());
 
-      if (feeWalletIndex === -1 || fromWalletIndex === -1) {
+      if (fromWalletIndex === -1) {
         return {
           verified: false,
-          error: 'Invalid transaction - fee wallet or from wallet not found in transaction'
+          error: 'Invalid transaction - from wallet not found in transaction'
         };
       }
 
+      // For escrow payments, the fee wallet (escrow) should be the destination
+      // Check if the transaction is a transfer to the escrow address
+      if (feeWalletIndex === -1) {
+        // Try to find the escrow address in the transaction instructions
+        const instructions = transaction.transaction.message.instructions;
+        let escrowFound = false;
+        
+        for (const instruction of instructions) {
+          if (instruction.programId.toString() === '11111111111111111111111111111111') { // System Program
+            // Check if this instruction transfers to the escrow address
+            const accounts = instruction.accounts;
+            if (accounts && accounts.length >= 2) {
+              const destinationIndex = accounts[1]; // Second account is usually the destination
+              if (destinationIndex < accountKeys.length) {
+                const destination = accountKeys[destinationIndex].toString();
+                if (destination === feeWalletPublicKey.toString()) {
+                  escrowFound = true;
+                  break;
+                }
+              }
+            }
+          }
+        }
+        
+        if (!escrowFound) {
+          return {
+            verified: false,
+            error: 'Invalid transaction - escrow address not found as destination in transaction'
+          };
+        }
+      }
+
       // Calculate balance changes
-      const feeWalletPreBalance = preBalances[feeWalletIndex] || 0;
-      const feeWalletPostBalance = postBalances[feeWalletIndex] || 0;
-      const feeWalletGain = feeWalletPostBalance - feeWalletPreBalance;
+      let feeWalletGain = 0;
+      if (feeWalletIndex !== -1) {
+        const feeWalletPreBalance = preBalances[feeWalletIndex] || 0;
+        const feeWalletPostBalance = postBalances[feeWalletIndex] || 0;
+        feeWalletGain = feeWalletPostBalance - feeWalletPreBalance;
+      } else {
+        // If escrow address not in account keys, calculate from fromWallet loss
+        const fromWalletPreBalance = preBalances[fromWalletIndex] || 0;
+        const fromWalletPostBalance = postBalances[fromWalletIndex] || 0;
+        const fromWalletLoss = fromWalletPreBalance - fromWalletPostBalance;
+        const transactionFee = transaction.meta?.fee || 0;
+        
+        // The escrow gain should be the fromWallet loss minus transaction fee
+        feeWalletGain = fromWalletLoss - transactionFee;
+      }
 
       const fromWalletPreBalance = preBalances[fromWalletIndex] || 0;
       const fromWalletPostBalance = postBalances[fromWalletIndex] || 0;
