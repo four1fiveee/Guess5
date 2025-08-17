@@ -229,18 +229,49 @@ class PaymentVerificationService {
 
       // Find account indices (use appropriate method for comparison)
       const feeWalletIndex = accountKeys.findIndex(key => {
-        const keyStr = (key as any).toBase58 ? (key as any).toBase58() : key.toString();
+        let keyStr: string;
+        if (typeof key === 'string') {
+          keyStr = key;
+        } else if (key && typeof key === 'object' && 'toBase58' in key) {
+          keyStr = (key as any).toBase58();
+        } else if (key && typeof key === 'object' && 'toString' in key) {
+          keyStr = (key as any).toString();
+        } else {
+          keyStr = String(key);
+        }
         return keyStr === feeWalletPublicKey.toBase58();
       });
       const fromWalletIndex = accountKeys.findIndex(key => {
-        const keyStr = (key as any).toBase58 ? (key as any).toBase58() : key.toString();
+        let keyStr: string;
+        if (typeof key === 'string') {
+          keyStr = key;
+        } else if (key && typeof key === 'object' && 'toBase58' in key) {
+          keyStr = (key as any).toBase58();
+        } else if (key && typeof key === 'object' && 'toString' in key) {
+          keyStr = (key as any).toString();
+        } else {
+          keyStr = String(key);
+        }
         return keyStr === fromWalletPublicKey.toBase58();
       });
 
       // Debug: Log all account keys to see what's in the transaction
+      console.log('🔍 Account keys type:', typeof accountKeys);
+      console.log('🔍 Account keys length:', accountKeys.length);
+      console.log('🔍 First account key type:', typeof accountKeys[0]);
+      console.log('🔍 First account key:', accountKeys[0]);
+      console.log('🔍 First account key constructor:', accountKeys[0]?.constructor?.name);
+      
       console.log('🔍 Transaction account keys:', accountKeys.map(key => {
-        const keyStr = (key as any).toBase58 ? (key as any).toBase58() : key.toString();
-        return keyStr;
+        if (typeof key === 'string') {
+          return key;
+        } else if (key && typeof key === 'object' && 'toBase58' in key) {
+          return (key as any).toBase58();
+        } else if (key && typeof key === 'object' && 'toString' in key) {
+          return (key as any).toString();
+        } else {
+          return String(key);
+        }
       }));
       console.log('🔍 Looking for fromWallet:', fromWalletPublicKey.toBase58());
       console.log('🔍 Looking for feeWallet:', feeWalletPublicKey.toBase58());
