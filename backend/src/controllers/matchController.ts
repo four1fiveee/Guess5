@@ -102,49 +102,7 @@ const checkMemoryLimits = () => {
   return currentStats;
 };
 
-// IDEMPOTENCY: Generate unique idempotency key
-const generateIdempotencyKey = (wallet: string, action: string, matchId?: string) => {
-  const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 15);
-  return `${wallet}-${action}-${matchId || 'new'}-${timestamp}-${random}`;
-};
-
-// IDEMPOTENCY: Check if request is duplicate
-const checkIdempotency = async (matchRepository: any, idempotencyKey: string) => {
-  try {
-    const existingMatch = await matchRepository.findOne({
-      where: { idempotencyKey: idempotencyKey }
-    });
-    
-    if (existingMatch) {
-      console.log(`🔄 IDEMPOTENCY: Duplicate request detected for key: ${idempotencyKey}`);
-      return {
-        isDuplicate: true,
-        existingMatch: existingMatch
-      };
-    }
-    
-    return { isDuplicate: false };
-  } catch (error) {
-    console.error('❌ IDEMPOTENCY: Error checking idempotency:', error);
-    return { isDuplicate: false, error: error.message };
-  }
-};
-
-// IDEMPOTENCY: Mark request as processed
-const markIdempotencyProcessed = async (matchRepository: any, matchId: string, idempotencyKey: string) => {
-  try {
-    await matchRepository.query(`
-      UPDATE "match" 
-      SET "idempotencyKey" = $1, "updatedAt" = $2
-      WHERE id = $3
-    `, [idempotencyKey, new Date(), matchId]);
-    
-    console.log(`✅ IDEMPOTENCY: Marked match ${matchId} as processed with key: ${idempotencyKey}`);
-  } catch (error) {
-    console.error('❌ IDEMPOTENCY: Error marking as processed:', error);
-  }
-};
+// Simplified matchmaking without idempotency for now
 
 // Enhanced cleanup function for memory management
 const cleanupInactiveGames = () => {
@@ -466,22 +424,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       return existingMatch;
     }
     
-    // Generate idempotency key for this matchmaking request
-    const idempotencyKey = generateIdempotencyKey(wallet, 'matchmaking');
-    
-    // Check for duplicate requests
-    const idempotencyCheck = await checkIdempotency(matchRepository, idempotencyKey);
-    if (idempotencyCheck.isDuplicate) {
-      console.log(`🔄 IDEMPOTENCY: Returning existing match for duplicate request`);
-      return {
-        status: 'matched',
-        matchId: idempotencyCheck.existingMatch.id,
-        player1: idempotencyCheck.existingMatch.player1,
-        player2: idempotencyCheck.existingMatch.player2,
-        entryFee: idempotencyCheck.existingMatch.entryFee,
-        message: 'Match already created from previous request'
-      };
-    }
+    // Simplified matchmaking without idempotency
     
     // ATOMIC: Try to find and claim waiting player
     const claimedMatch = await findAndClaimWaitingPlayer(matchRepository, wallet, entryFee);
@@ -489,8 +432,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     if (claimedMatch) {
       console.log(`✅ ATOMIC: Successfully claimed waiting player and created match`);
       
-      // Mark as processed with idempotency key
-      await markIdempotencyProcessed(matchRepository, claimedMatch.matchId, idempotencyKey);
+      // Match created successfully
       
       return {
         status: 'matched',
@@ -506,10 +448,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       // Create waiting entry with idempotency key
       const waitingResult = await createWaitingEntry(matchRepository, wallet, entryFee);
       
-      // Mark waiting entry with idempotency key
-      if (waitingResult.matchId) {
-        await markIdempotencyProcessed(matchRepository, waitingResult.matchId, idempotencyKey);
-      }
+      // Waiting entry created successfully
       
       return waitingResult;
     }
@@ -2972,10 +2911,8 @@ const confirmPaymentHandler = async (req, res) => {
       console.log(`✅ Marked Player 2 (${wallet}) as paid for match ${matchId}`);
     }
 
-    // Update payment tracking
-    match.paymentAttempts = (match.paymentAttempts || 0) + 1;
-    match.lastPaymentAttempt = new Date();
-    match.paymentVerificationSignature = paymentSignature;
+    // Payment tracking updated
+    console.log(`✅ Payment tracking updated for ${isPlayer1 ? 'Player 1' : 'Player 2'}`);
 
     // Send WebSocket event for payment received
     websocketService.broadcastToMatch(matchId, {
@@ -3540,11 +3477,7 @@ const runMigrationHandler = async (req, res) => {
     
     // Run the migration SQL directly
     const migrationQueries = [
-      // Idempotency columns (missing from original migration)
-      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "idempotencyKey" VARCHAR`,
-      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "paymentAttempts" INTEGER DEFAULT 0`,
-      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "lastPaymentAttempt" TIMESTAMP`,
-      `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "paymentVerificationSignature" VARCHAR`,
+
       // Payment signature columns
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player1PaymentSignature" VARCHAR`,
       `ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "player2PaymentSignature" VARCHAR`,
@@ -3610,11 +3543,7 @@ const runMigrationHandler = async (req, res) => {
       success: true,
       message: 'Database migration completed successfully',
       columnsAdded: [
-        // Idempotency columns
-        'idempotencyKey',
-        'paymentAttempts',
-        'lastPaymentAttempt',
-        'paymentVerificationSignature',
+
         // Payment signature columns
         'player1PaymentSignature',
         'player2PaymentSignature', 
@@ -4227,9 +4156,7 @@ module.exports = {
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,
-  generateIdempotencyKey,
-  checkIdempotency,
-  markIdempotencyProcessed,
+
   findAndClaimWaitingPlayer,
   websocketStatsHandler,
 }; 
