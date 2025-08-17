@@ -235,18 +235,19 @@ const Matchmaking: React.FC = () => {
     const startPolling = () => {
       pollInterval = setInterval(async () => {
         try {
+          // Check if we have a match and need to update payment status
           if (matchData && matchData.matchId) {
             const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${matchData.matchId}?wallet=${publicKey.toString()}`);
             
             if (response.ok) {
               const data = await response.json();
               
-                             // Update match data with latest payment status
-               setMatchData((prev: any) => ({
-                 ...prev,
-                 player1Paid: data.player1Paid,
-                 player2Paid: data.player2Paid
-               }));
+              // Update match data with latest payment status
+              setMatchData((prev: any) => ({
+                ...prev,
+                player1Paid: data.player1Paid,
+                player2Paid: data.player2Paid
+              }));
 
               // Check if both players have paid and game is active
               if (data.player1Paid && data.player2Paid && data.status === 'active') {
@@ -265,6 +266,24 @@ const Matchmaking: React.FC = () => {
                 setTimeout(() => {
                   router.push(`/game?matchId=${matchData.matchId}`);
                 }, 1000);
+              }
+            }
+          } else {
+            // Check if we've been matched while waiting
+            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${publicKey.toString()}`);
+            
+            if (response.ok) {
+              const data = await response.json();
+              
+              if (data.matched) {
+                console.log('🎯 Match found!', data);
+                setMatchData(data);
+                setStatus('payment_required');
+                
+                // Stop polling since we have a match
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
               }
             }
           }
