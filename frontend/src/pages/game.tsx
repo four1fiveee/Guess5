@@ -27,14 +27,23 @@ const Game: React.FC = () => {
   const [entryFee, setEntryFee] = useState<number>(0);
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
+  const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
 
   // Memoize fetchGameState to avoid dependency issues
   const memoizedFetchGameState = useCallback(async () => {
     if (!matchId || !publicKey) return;
     
     try {
+      setNetworkStatus('reconnecting');
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey.toString()}`);
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+      
+      const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey.toString()}`, {
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
@@ -54,11 +63,22 @@ const Game: React.FC = () => {
           setOpponentSolved(true);
           // Note: handleGameEnd will be called in a separate effect when opponentSolved changes
         }
+        
+        setNetworkStatus('connected');
       } else {
         console.error('❌ Failed to fetch game state:', response.status, response.statusText);
+        setNetworkStatus('disconnected');
+        // Don't show error to user for polling failures, just log them
       }
     } catch (error) {
-      console.error('❌ Error fetching game state:', error);
+      if (error instanceof Error && error.name === 'AbortError') {
+        console.warn('⚠️ Game state fetch timed out, will retry...');
+        setNetworkStatus('reconnecting');
+      } else {
+        console.error('❌ Error fetching game state:', error);
+        setNetworkStatus('disconnected');
+      }
+      // Don't show error to user for polling failures, just log them
     }
   }, [matchId, publicKey, opponentSolved]);
 
@@ -190,9 +210,24 @@ const Game: React.FC = () => {
   useEffect(() => {
     if (gameState !== 'playing' || !matchId) return;
 
+    let retryCount = 0;
+    const maxRetries = 3;
+
     const pollInterval = setInterval(async () => {
-      await memoizedFetchGameState();
-    }, 2000); // Poll every 2 seconds
+      try {
+        await memoizedFetchGameState();
+        retryCount = 0; // Reset retry count on success
+      } catch (error) {
+        retryCount++;
+        console.warn(`⚠️ Poll attempt ${retryCount} failed, will retry...`);
+        
+        if (retryCount >= maxRetries) {
+          console.error('❌ Max retries reached for game state polling');
+          // Don't stop polling, just log the error
+          retryCount = 0; // Reset for next cycle
+        }
+      }
+    }, 5000); // Poll every 5 seconds (increased from 2 seconds to reduce rate limiting)
 
     return () => clearInterval(pollInterval);
   }, [matchId, gameState, publicKey, memoizedFetchGameState]);
@@ -225,54 +260,83 @@ const Game: React.FC = () => {
 
     setLastActivity(Date.now());
     
-    try {
-      // Submit guess to server
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/match/submit-guess`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          matchId,
-          wallet: publicKey?.toString() || '',
-          guess
-        }),
-      });
+    const submitGuessWithRetry = async (retryCount = 0): Promise<void> => {
+      try {
+        // Submit guess to server with timeout
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for guess submission
+        
+        const response = await fetch(`${apiUrl}/api/match/submit-guess`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            matchId,
+            wallet: publicKey?.toString() || '',
+            guess
+          }),
+          signal: controller.signal
+        });
 
-      if (response.status === 429) {
-        throw new Error('Rate limited - please wait a moment before trying again');
-      }
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || 'Failed to submit guess');
-      }
+        clearTimeout(timeoutId);
 
-      const data = await response.json();
-      console.log('✅ Guess submitted successfully:', data);
-      
-      // Immediately fetch updated game state
-      await memoizedFetchGameState();
-      
-      if (data.solved) {
-        setGameState('solved');
-        setTimerActive(false);
-        handleGameEnd(true);
-      } else if (data.totalGuesses >= 7) {
-        setGameState('solved');
-        setTimerActive(false);
-        handleGameEnd(false);
+        if (response.status === 429) {
+          throw new Error('Rate limited - please wait a moment before trying again');
+        }
+        
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          throw new Error(errorData.error || 'Failed to submit guess');
+        }
+
+        const data = await response.json();
+        console.log('✅ Guess submitted successfully:', data);
+        
+        // Immediately fetch updated game state
+        await memoizedFetchGameState();
+        
+        if (data.solved) {
+          setGameState('solved');
+          setTimerActive(false);
+          handleGameEnd(true);
+        } else if (data.totalGuesses >= 7) {
+          setGameState('solved');
+          setTimerActive(false);
+          handleGameEnd(false);
+        }
+        
+      } catch (error) {
+        console.error(`❌ Error submitting guess (attempt ${retryCount + 1}):`, error);
+        
+        // Retry up to 2 times for network errors
+        if (retryCount < 2 && error instanceof Error && 
+            (error.name === 'AbortError' || error.message.includes('Failed to fetch'))) {
+          console.log(`🔄 Retrying guess submission (attempt ${retryCount + 2})...`);
+          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+          return submitGuessWithRetry(retryCount + 1);
+        }
+        
+        // Show error to user after all retries failed
+        let errorMessage = 'Failed to submit guess';
+        
+        if (error instanceof Error) {
+          if (error.name === 'AbortError') {
+            errorMessage = 'Request timed out - please try again';
+          } else {
+            errorMessage = error.message;
+          }
+        }
+        
+        setError(errorMessage);
+        
+        // Clear error after 5 seconds
+        setTimeout(() => setError(null), 5000);
       }
-      
-    } catch (error) {
-      console.error('❌ Error submitting guess:', error);
-      const errorMessage = error instanceof Error ? error.message : 'Failed to submit guess';
-      setError(errorMessage);
-      
-      // Clear error after 3 seconds
-      setTimeout(() => setError(null), 3000);
-    }
+    };
+    
+    await submitGuessWithRetry();
   };
 
   const handleGameEnd = async (won: boolean, reason?: string) => {
@@ -390,6 +454,18 @@ const Game: React.FC = () => {
         {gameState === 'playing' && (
           <div className="text-accent text-lg mb-6 font-semibold">
             ⏰ Time Remaining: {formatTime(timeRemaining)}
+            {/* Network Status Indicator */}
+            <div className="text-sm mt-2">
+              {networkStatus === 'connected' && (
+                <span className="text-green-400">🟢 Connected</span>
+              )}
+              {networkStatus === 'reconnecting' && (
+                <span className="text-yellow-400">🟡 Reconnecting...</span>
+              )}
+              {networkStatus === 'disconnected' && (
+                <span className="text-red-400">🔴 Disconnected</span>
+              )}
+            </div>
           </div>
         )}
         
