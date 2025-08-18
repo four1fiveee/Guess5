@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
@@ -25,9 +25,42 @@ const Game: React.FC = () => {
   const [timerActive, setTimerActive] = useState<boolean>(false);
   const [escrowAddress, setEscrowAddress] = useState<string>('');
   const [entryFee, setEntryFee] = useState<number>(0);
-  const [serverGuesses, setServerGuesses] = useState<string[]>([]);
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
+
+  // Memoize fetchGameState to avoid dependency issues
+  const memoizedFetchGameState = useCallback(async () => {
+    if (!matchId || !publicKey) return;
+    
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey.toString()}`);
+      
+      if (response.ok) {
+        const data = await response.json();
+        console.log('🔄 Fetched game state:', data);
+        
+        // Update local state with server data
+        setGuesses(data.playerGuesses || []);
+        setRemainingGuesses(data.remainingGuesses || 7);
+        setTargetWord(data.targetWord || '');
+        
+        if (data.solved) {
+          setGameState('solved');
+          setTimerActive(false);
+        }
+        
+        if (data.opponentSolved && !opponentSolved) {
+          setOpponentSolved(true);
+          // Note: handleGameEnd will be called in a separate effect when opponentSolved changes
+        }
+      } else {
+        console.error('❌ Failed to fetch game state:', response.status, response.statusText);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching game state:', error);
+    }
+  }, [matchId, publicKey, opponentSolved]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -94,23 +127,8 @@ const Game: React.FC = () => {
         setEscrowAddress(matchData.escrowAddress || '');
         setEntryFee(matchData.entryFee || 0);
 
-        // Get server-side game state
-        const gameStateResponse = await fetch(`${apiUrl}/api/match/game-state?matchId=${gameMatchId}&wallet=${publicKey?.toString()}`);
-        if (gameStateResponse.ok) {
-          const gameStateData = await gameStateResponse.json();
-          setServerGuesses(gameStateData.playerGuesses || []);
-          setRemainingGuesses(gameStateData.remainingGuesses || 7);
-          setTargetWord(gameStateData.targetWord || '');
-          
-          if (gameStateData.solved) {
-            setGameState('solved');
-            setTimerActive(false);
-          }
-          
-          if (gameStateData.opponentSolved) {
-            setOpponentSolved(true);
-          }
-        }
+        // Fetch initial game state
+        await memoizedFetchGameState();
 
         setLastActivity(Date.now());
         setLoading(false);
@@ -123,7 +141,7 @@ const Game: React.FC = () => {
     };
 
     initializeGame();
-  }, [publicKey, router]);
+  }, [publicKey, router, memoizedFetchGameState]);
 
   // Update activity tracking
   useEffect(() => {
@@ -168,31 +186,16 @@ const Game: React.FC = () => {
     }
   }, [gameState, timerActive]);
 
-  // Poll for opponent status
+  // Poll for game state updates
   useEffect(() => {
     if (gameState !== 'playing' || !matchId) return;
 
     const pollInterval = setInterval(async () => {
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey?.toString()}`);
-        
-        if (response.ok) {
-          const data = await response.json();
-          
-          if (data.opponentSolved && !opponentSolved) {
-            console.log('🏆 Opponent solved the puzzle!');
-            setOpponentSolved(true);
-            handleGameEnd(false, 'opponent_solved');
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error polling opponent status:', error);
-      }
-    }, 5000); // Poll every 5 seconds (increased to avoid rate limits)
+      await memoizedFetchGameState();
+    }, 2000); // Poll every 2 seconds
 
     return () => clearInterval(pollInterval);
-  }, [matchId, gameState, publicKey, router, opponentSolved]);
+  }, [matchId, gameState, publicKey, memoizedFetchGameState]);
 
   // Check for inactivity timeout (5 minutes)
   useEffect(() => {
@@ -209,6 +212,13 @@ const Game: React.FC = () => {
 
     return () => clearInterval(checkTimeout);
   }, [lastActivity, gameState]);
+
+  // Handle opponent solved state change
+  useEffect(() => {
+    if (opponentSolved && gameState === 'playing') {
+      handleGameEnd(false, 'opponent_solved');
+    }
+  }, [opponentSolved, gameState]);
 
   const handleGuess = async (guess: string) => {
     if (gameState !== 'playing') return;
@@ -240,10 +250,10 @@ const Game: React.FC = () => {
       }
 
       const data = await response.json();
+      console.log('✅ Guess submitted successfully:', data);
       
-      // Update local state with server response
-      setServerGuesses(data.playerGuesses || []);
-      setRemainingGuesses(data.remainingGuesses || 7);
+      // Immediately fetch updated game state
+      await memoizedFetchGameState();
       
       if (data.solved) {
         setGameState('solved');
@@ -273,9 +283,9 @@ const Game: React.FC = () => {
 
     const result = {
       won,
-      numGuesses: serverGuesses.length,
+      numGuesses: guesses.length,
       totalTime: 0, // Server will calculate this
-      guesses: serverGuesses,
+      guesses: guesses,
       reason: reason || 'normal'
     };
 
@@ -401,7 +411,7 @@ const Game: React.FC = () => {
         {gameState === 'playing' && (
           <div className="mb-6">
             <GameGrid
-              guesses={serverGuesses}
+              guesses={guesses}
               currentGuess={currentGuess}
               setCurrentGuess={setCurrentGuess}
               onGuess={handleGuess}
