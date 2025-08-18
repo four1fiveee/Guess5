@@ -345,10 +345,13 @@ const Game: React.FC = () => {
     // Stop the timer
     setTimerActive(false);
 
+    // Calculate actual game duration (120 seconds - remaining time)
+    const gameDuration = Math.max(1, 120 - timeRemaining); // Ensure at least 1 second
+
     const result = {
       won,
       numGuesses: guesses.length,
-      totalTime: 0, // Server will calculate this
+      totalTime: gameDuration, // Use actual game duration instead of 0
       guesses: guesses,
       reason: reason || 'normal'
     };
@@ -417,6 +420,13 @@ const Game: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Error submitting result:', error);
+      
+      // If result submission fails, still navigate to result page to avoid getting stuck
+      console.log('🔄 Result submission failed, navigating to result page anyway...');
+      setGameState('completed');
+      setTimeout(() => {
+        router.push('/result');
+      }, 2000);
     }
   };
 
