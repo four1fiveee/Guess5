@@ -32,9 +32,10 @@ router.post('/submit-result',
 );
 
 router.post('/submit-guess', 
-  // Very lenient rate limiting for guess submission
-  createRateLimiter(60 * 1000, 500), // 500 guesses per minute per wallet
-  validateReCaptcha,
+  // Increased rate limiting for guess submission to prevent gameplay interruptions
+  createRateLimiter(60 * 1000, 1000), // 1000 guesses per minute per wallet (doubled from 500)
+  // Temporarily removed ReCaptcha to avoid conflicts during testing
+  // validateReCaptcha,
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
 );
 

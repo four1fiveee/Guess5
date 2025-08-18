@@ -28,6 +28,7 @@ const Game: React.FC = () => {
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
+  const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
 
   // Memoize fetchGameState to avoid dependency issues
   const memoizedFetchGameState = useCallback(async () => {
@@ -64,6 +65,12 @@ const Game: React.FC = () => {
           // Note: handleGameEnd will be called in a separate effect when opponentSolved changes
         }
         
+        // Check if game is completed on the server side
+        if (data.gameCompleted && gameState === 'waiting') {
+          console.log('🎮 Game completed on server, navigating to results');
+          router.push(`/result?matchId=${matchId}`);
+        }
+        
         setNetworkStatus('connected');
       } else {
         console.error('❌ Failed to fetch game state:', response.status, response.statusText);
@@ -80,7 +87,7 @@ const Game: React.FC = () => {
       }
       // Don't show error to user for polling failures, just log them
     }
-  }, [matchId, publicKey, opponentSolved]);
+  }, [matchId, publicKey, opponentSolved, gameState, router]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -256,8 +263,16 @@ const Game: React.FC = () => {
   }, [opponentSolved, gameState]);
 
   const handleGuess = async (guess: string) => {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'playing' || isSubmittingGuess) return;
 
+    // Prevent duplicate submissions
+    if (guesses.includes(guess)) {
+      setError('You already tried that word!');
+      setTimeout(() => setError(null), 3000);
+      return;
+    }
+
+    setIsSubmittingGuess(true);
     setLastActivity(Date.now());
     
     const submitGuessWithRetry = async (retryCount = 0): Promise<void> => {
@@ -283,7 +298,10 @@ const Game: React.FC = () => {
         clearTimeout(timeoutId);
 
         if (response.status === 429) {
-          throw new Error('Rate limited - please wait a moment before trying again');
+          console.warn('⚠️ Rate limited, will retry automatically...');
+          // Wait 3 seconds and retry automatically
+          await new Promise(resolve => setTimeout(resolve, 3000));
+          throw new Error('Rate limited - retrying automatically...');
         }
         
         if (!response.ok) {
@@ -304,7 +322,7 @@ const Game: React.FC = () => {
         } else if (data.totalGuesses >= 7) {
           setGameState('solved');
           setTimerActive(false);
-          handleGameEnd(false);
+          handleGameEnd(false, 'out_of_guesses');
         }
         
       } catch (error) {
@@ -333,6 +351,8 @@ const Game: React.FC = () => {
         
         // Clear error after 5 seconds
         setTimeout(() => setError(null), 5000);
+      } finally {
+        setIsSubmittingGuess(false);
       }
     };
     
@@ -414,9 +434,16 @@ const Game: React.FC = () => {
         // Opponent solved first - navigate to result immediately
         console.log('🏆 Opponent solved first, navigating to result');
         router.push(`/result?matchId=${matchId}`);
+      } else if (reason === 'out_of_guesses') {
+        // Player ran out of guesses - navigate to result immediately
+        console.log('⏰ Player ran out of guesses, navigating to result');
+        router.push(`/result?matchId=${matchId}`);
       } else {
         console.log('⏳ Waiting for other player...');
         setGameState('waiting');
+        
+        // No timeout needed - let the game logic handle completion naturally
+        // The existing polling will detect when the opponent finishes
       }
     } catch (error) {
       console.error('❌ Error submitting result:', error);
