@@ -97,8 +97,32 @@ router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHa
 // Manual match endpoint for testing
 router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHandler));
 
-// Database migration endpoint
+// Database migration endpoints
 router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHandler));
+router.post('/run-security-migration', asyncHandlerWrapper(async (req, res) => {
+  const { runHighImpactSecurityMigration, checkMigrationStatus } = require('../utils/migrationHelper');
+  
+  try {
+    const { action = 'check' } = req.body;
+    
+    if (action === 'run') {
+      console.log('🚀 Running high-impact security migration...');
+      const success = await runHighImpactSecurityMigration();
+      if (success) {
+        res.json({ success: true, message: 'High-impact security migration completed successfully' });
+      } else {
+        res.status(500).json({ error: 'Migration failed' });
+      }
+    } else {
+      console.log('🔍 Checking migration status...');
+      const status = await checkMigrationStatus();
+      res.json({ success: true, status });
+    }
+  } catch (error) {
+    console.error('❌ Migration error:', error);
+    res.status(500).json({ error: 'Migration operation failed' });
+  }
+}));
 
 // Match report endpoint (CSV export)
 router.get('/generate-report', asyncHandlerWrapper(matchController.generateReportHandler));

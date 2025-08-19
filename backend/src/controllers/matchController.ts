@@ -2367,6 +2367,16 @@ const getGameStateHandler = async (req, res) => {
           lastActivity: Date.now(),
           completed: false
         };
+        
+        // Use database helper for safe game start updates
+        const { updateMatchGameStart } = require('../utils/databaseHelper');
+        
+        await updateMatchGameStart(match, {
+          word: word,
+          gameStartTime: new Date(),
+          feeWalletAddress: process.env.FEE_WALLET_ADDRESS,
+          entryFee: match.entryFee
+        });
         activeGames.set(matchId as string, newGameState);
         console.log(`✅ Reinitialized game state for match ${matchId}`);
         
@@ -2926,15 +2936,19 @@ const confirmPaymentHandler = async (req, res) => {
     });
 
     // Mark player as paid (preserve existing payment status)
-    if (isPlayer1) {
-      match.player1Paid = true;
-      match.player1PaymentSignature = paymentSignature;
-      console.log(`✅ Marked Player 1 (${wallet}) as paid for match ${matchId}`);
-    } else {
-      match.player2Paid = true;
-      match.player2PaymentSignature = paymentSignature;
-      console.log(`✅ Marked Player 2 (${wallet}) as paid for match ${matchId}`);
-    }
+    // Use database helper for safe field updates
+    const { updateMatchPayment } = require('../utils/databaseHelper');
+    
+    const paymentData = {
+      paymentSignature,
+      slot: verificationResult.slot,
+      blockTime: verificationResult.timestamp,
+      finalized: true
+    };
+    
+    await updateMatchPayment(match, isPlayer1, paymentData);
+    
+    console.log(`✅ Marked ${isPlayer1 ? 'Player 1' : 'Player 2'} (${wallet}) as paid for match ${matchId}`);
     
     // Ensure we preserve both players' payment status
     console.log(`🔍 Current payment status after marking ${isPlayer1 ? 'Player 1' : 'Player 2'} as paid:`, {
@@ -3843,12 +3857,12 @@ const getFiscalInfo = (date) => {
   return { fiscalYear: year, quarter };
 };
 
-// Match report endpoint (exports to CSV)
+// Match report endpoint (exports to CSV) - Updated with high-impact security fixes
 const generateReportHandler = async (req, res) => {
   try {
-    const { startDate = '2025-08-16', endDate } = req.query;
+    const { startDate = '2025-08-16', endDate, includeWords = 'false' } = req.query;
     
-    console.log('📊 Generating match report...');
+    console.log('📊 Generating secure match report...');
     
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
@@ -3859,7 +3873,7 @@ const generateReportHandler = async (req, res) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get all matches with only columns that definitely exist in database
+    // Get all matches with updated schema fields
     const matches = await matchRepository.query(`
       SELECT 
         id,
@@ -3867,34 +3881,54 @@ const generateReportHandler = async (req, res) => {
         "player2",
         "entryFee",
         status,
-        word,
-        "escrowAddress",
+        CASE 
+          WHEN "isCompleted" = true THEN word 
+          ELSE '***PROTECTED***' 
+        END as word,
+        "feeWalletAddress",
         "gameStartTime",
-        "player1EscrowConfirmed",
-        "player2EscrowConfirmed",
-        "player1EscrowSignature",
-        "player2EscrowSignature",
+        "gameStartTimeUtc",
+        "gameEndTime",
+        "gameEndTimeUtc",
+        "player1EntryConfirmed",
+        "player2EntryConfirmed",
+        "player1EntrySignature",
+        "player2EntrySignature",
+        "player1EntrySlot",
+        "player1EntryBlockTime",
+        "player1EntryFinalized",
+        "player2EntrySlot",
+        "player2EntryBlockTime",
+        "player2EntryFinalized",
         "player1Paid",
         "player2Paid",
         "player1Result",
         "player2Result",
         winner,
         "payoutResult",
-        "player1PaymentSignature",
-        "player2PaymentSignature",
         "winnerPayoutSignature",
+        "winnerPayoutSlot",
+        "winnerPayoutBlockTime",
+        "winnerPayoutFinalized",
         "player1RefundSignature",
+        "player1RefundSlot",
+        "player1RefundBlockTime",
+        "player1RefundFinalized",
         "player2RefundSignature",
+        "player2RefundSlot",
+        "player2RefundBlockTime",
+        "player2RefundFinalized",
         "matchOutcome",
-        "gameEndTime",
-        "matchDuration",
         "totalFeesCollected",
         "platformFee",
+        "matchDuration",
         "refundReason",
         "refundedAt",
+        "refundedAtUtc",
         "isCompleted",
         "createdAt",
-        "updatedAt"
+        "updatedAt",
+        "rowHash"
       FROM "match" 
       WHERE ${dateFilter}
       ORDER BY "createdAt" DESC
@@ -3902,98 +3936,192 @@ const generateReportHandler = async (req, res) => {
     
     console.log(`📊 Found ${matches.length} matches for report`);
     
-    // Generate CSV headers - basic match data (columns that exist)
+    // Helper function to sanitize CSV values (prevent injection)
+    const sanitizeCsvValue = (value) => {
+      if (!value) return '';
+      const str = String(value);
+      // If value starts with =, +, -, or @, prefix with single quote
+      if (/^[=\-+@]/.test(str)) {
+        return `'${str}`;
+      }
+      return str;
+    };
+    
+    // Helper function to generate row hash for integrity
+    const generateRowHash = (match) => {
+      const crypto = require('crypto');
+      const data = `${match.id}${match.player1}${match.player2}${match.winner}${match.totalFeesCollected}${match.winnerPayoutSignature}${match.updatedAt}`;
+      return crypto.createHash('sha256').update(data).digest('hex');
+    };
+    
+    // Helper function to convert to EST
+    const convertToEST = (timestamp) => {
+      if (!timestamp) return '';
+      try {
+        return new Date(timestamp).toLocaleString('en-US', {
+          timeZone: 'America/New_York',
+          year: 'numeric',
+          month: '2-digit',
+          day: '2-digit',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit'
+        });
+      } catch (error) {
+        return '';
+      }
+    };
+    
+    // Generate CSV headers - Updated with security-focused columns
     const csvHeaders = [
       'Match ID',
       'Player 1 Wallet',
       'Player 2 Wallet', 
       'Entry Fee (SOL)',
       'Match Status',
-      'Player 1 Paid',
-      'Player 2 Paid',
       'Match Outcome',
-      'Total Match Duration (sec)',
+      'Player 1 Entry Confirmed',
+      'Player 2 Entry Confirmed',
       'Total Fees Collected (SOL)',
       'Platform Fee (SOL)',
-      'Game End Time (EST)',
-      'Match Created (EST)',
-      'Last Updated (EST)',
-      '🔗 BLOCKCHAIN VERIFICATION DATA 🔗',
-      'Player 1 Payment TX (Click to Verify)',
-      'Player 2 Payment TX (Click to Verify)',
-      'Winner Payout TX (Click to Verify)',
-      'Player 1 Refund TX (Click to Verify)',
-      'Player 2 Refund TX (Click to Verify)',
+      'Match Duration (sec)',
+      'Winner',
+      'Is Completed',
+      '🔗 TIMESTAMPS 🔗',
+      'Created At (UTC)',
+      'Created At (EST)',
+      'Game Start Time (UTC)',
+      'Game End Time (UTC)',
+      'Refunded At (UTC)',
+      '🔗 ENTRY PAYMENTS 🔗',
+      'Player 1 Entry TX',
+      'Player 1 Entry Slot',
+      'Player 1 Entry Block Time',
+      'Player 1 Entry Finalized',
+      'Player 2 Entry TX',
+      'Player 2 Entry Slot',
+      'Player 2 Entry Block Time',
+      'Player 2 Entry Finalized',
+      '🔗 PAYOUTS & REFUNDS 🔗',
+      'Winner Payout TX',
+      'Winner Payout Slot',
+      'Winner Payout Block Time',
+      'Winner Payout Finalized',
+      'Player 1 Refund TX',
+      'Player 1 Refund Slot',
+      'Player 1 Refund Block Time',
+      'Player 1 Refund Finalized',
+      'Player 2 Refund TX',
+      'Player 2 Refund Slot',
+      'Player 2 Refund Block Time',
+      'Player 2 Refund Finalized',
       '🔗 BLOCKCHAIN EXPLORER LINKS 🔗',
-      'Player 1 Payment Explorer Link',
-      'Player 2 Payment Explorer Link',
-      'Winner Payout Explorer Link',
-      'Player 1 Refund Explorer Link',
-      'Player 2 Refund Explorer Link',
-      '🔗 BASIC GAME DATA 🔗',
+      'Player 1 Entry Explorer',
+      'Player 2 Entry Explorer',
+      'Winner Payout Explorer',
+      'Player 1 Refund Explorer',
+      'Player 2 Refund Explorer',
+      '🔗 GAME DATA (POST-COMPLETION) 🔗',
       'Target Word',
       'Player 1 Result (JSON)',
       'Player 2 Result (JSON)',
       'Refund Reason',
-      'Refunded At (EST)',
-      'Winner'
+      '🔗 VERIFICATION 🔗',
+      'Fee Wallet Address',
+      'Row Hash (Integrity)'
     ];
     
-    // Generate CSV rows - basic match data (columns that exist)
-    const csvRows = matches.map(match => [
-      match.id,
-      match.player1,
-      match.player2,
-      match.entryFee,
-      match.status,
-      match.player1Paid || false,
-      match.player2Paid || false,
-      match.matchOutcome || '',
-      match.matchDuration || '',
-      match.totalFeesCollected || (match.entryFee * 2) || '',
-      match.platformFee || '',
-      convertToEST(match.gameEndTime),
-      convertToEST(match.createdAt),
-      convertToEST(match.updatedAt),
-      '', // 🔗 BLOCKCHAIN VERIFICATION DATA 🔗
-      match.player1PaymentSignature || '',
-      match.player2PaymentSignature || '',
-      match.winnerPayoutSignature || '',
-      match.player1RefundSignature || '',
-      match.player2RefundSignature || '',
-      '', // 🔗 BLOCKCHAIN EXPLORER LINKS 🔗
-      match.player1PaymentSignature ? `https://explorer.solana.com/tx/${match.player1PaymentSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
-      match.player2PaymentSignature ? `https://explorer.solana.com/tx/${match.player2PaymentSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
-      match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
-      match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
-      match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet'}` : '',
-      '', // 🔗 BASIC GAME DATA 🔗
-      match.word || '', // Use word field which exists
-      JSON.stringify(match.player1Result || {}),
-      JSON.stringify(match.player2Result || {}),
-      match.refundReason || '',
-      convertToEST(match.refundedAt),
-      match.winner || ''
-    ]);
+    // Generate CSV rows with security fixes
+    const csvRows = matches.map(match => {
+      // Generate row hash for integrity
+      const rowHash = generateRowHash(match);
+      
+      // Determine explorer network
+      const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet';
+      
+      return [
+        sanitizeCsvValue(match.id),
+        sanitizeCsvValue(match.player1),
+        sanitizeCsvValue(match.player2),
+        sanitizeCsvValue(match.entryFee),
+        sanitizeCsvValue(match.status),
+        sanitizeCsvValue(match.matchOutcome),
+        sanitizeCsvValue(match.player1EntryConfirmed),
+        sanitizeCsvValue(match.player2EntryConfirmed),
+        sanitizeCsvValue(match.totalFeesCollected),
+        sanitizeCsvValue(match.platformFee),
+        sanitizeCsvValue(match.matchDuration),
+        sanitizeCsvValue(match.winner),
+        sanitizeCsvValue(match.isCompleted),
+        '', // 🔗 TIMESTAMPS 🔗
+        sanitizeCsvValue(match.createdAt),
+        convertToEST(match.createdAt),
+        sanitizeCsvValue(match.gameStartTimeUtc),
+        sanitizeCsvValue(match.gameEndTimeUtc),
+        sanitizeCsvValue(match.refundedAtUtc),
+        '', // 🔗 ENTRY PAYMENTS 🔗
+        sanitizeCsvValue(match.player1EntrySignature),
+        sanitizeCsvValue(match.player1EntrySlot),
+        sanitizeCsvValue(match.player1EntryBlockTime),
+        sanitizeCsvValue(match.player1EntryFinalized),
+        sanitizeCsvValue(match.player2EntrySignature),
+        sanitizeCsvValue(match.player2EntrySlot),
+        sanitizeCsvValue(match.player2EntryBlockTime),
+        sanitizeCsvValue(match.player2EntryFinalized),
+        '', // 🔗 PAYOUTS & REFUNDS 🔗
+        sanitizeCsvValue(match.winnerPayoutSignature),
+        sanitizeCsvValue(match.winnerPayoutSlot),
+        sanitizeCsvValue(match.winnerPayoutBlockTime),
+        sanitizeCsvValue(match.winnerPayoutFinalized),
+        sanitizeCsvValue(match.player1RefundSignature),
+        sanitizeCsvValue(match.player1RefundSlot),
+        sanitizeCsvValue(match.player1RefundBlockTime),
+        sanitizeCsvValue(match.player1RefundFinalized),
+        sanitizeCsvValue(match.player2RefundSignature),
+        sanitizeCsvValue(match.player2RefundSlot),
+        sanitizeCsvValue(match.player2RefundBlockTime),
+        sanitizeCsvValue(match.player2RefundFinalized),
+        '', // 🔗 BLOCKCHAIN EXPLORER LINKS 🔗
+        match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
+        match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
+        match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${network}` : '',
+        match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
+        match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : '',
+        '', // 🔗 GAME DATA (POST-COMPLETION) 🔗
+        sanitizeCsvValue(match.word), // Protected if not completed
+        sanitizeCsvValue(JSON.stringify(match.player1Result || {})),
+        sanitizeCsvValue(JSON.stringify(match.player2Result || {})),
+        sanitizeCsvValue(match.refundReason),
+        '', // 🔗 VERIFICATION 🔗
+        sanitizeCsvValue(match.feeWalletAddress),
+        rowHash
+      ];
+    });
     
     // Combine headers and rows
     const csvContent = [csvHeaders, ...csvRows]
       .map(row => row.map(field => `"${field || ''}"`).join(','))
       .join('\n');
     
+    // Generate file hash for integrity
+    const crypto = require('crypto');
+    const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
+    
     // Set response headers for CSV download
     const filename = `guess5_matches_${startDate}${endDate ? '_to_' + endDate : ''}.csv`;
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-File-Hash', fileHash);
     
-    console.log(`✅ Report generated: ${filename} with ${matches.length} matches`);
+    console.log(`✅ Secure report generated: ${filename} with ${matches.length} matches`);
+    console.log(`🔐 File integrity hash: ${fileHash}`);
     
     res.send(csvContent);
     
   } catch (error) {
-    console.error('❌ Error generating report:', error);
-    res.status(500).json({ error: 'Failed to generate report' });
+    console.error('❌ Error generating secure report:', error);
+    res.status(500).json({ error: 'Failed to generate secure report' });
   }
 };
 

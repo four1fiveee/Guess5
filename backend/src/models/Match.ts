@@ -20,11 +20,9 @@ export class Match {
   @Column({ nullable: true })
   word?: string;
 
+  // Legacy escrow fields (for backward compatibility)
   @Column({ nullable: true })
   escrowAddress?: string;
-
-  @Column({ nullable: true })
-  gameStartTime?: Date;
 
   @Column({ nullable: true })
   player1EscrowConfirmed?: boolean;
@@ -38,12 +36,139 @@ export class Match {
   @Column({ nullable: true })
   player2EscrowSignature?: string;
 
+  // New fee wallet fields (renamed from escrow)
+  @Column({ nullable: true })
+  feeWalletAddress?: string;
+
+  @Column({ nullable: true })
+  player1EntryConfirmed?: boolean;
+
+  @Column({ nullable: true })
+  player2EntryConfirmed?: boolean;
+
+  @Column({ nullable: true })
+  player1EntrySignature?: string;
+
+  @Column({ nullable: true })
+  player2EntrySignature?: string;
+
+  // Blockchain verification fields for entry payments
+  @Column({ nullable: true })
+  player1EntrySlot?: number;
+
+  @Column({ nullable: true })
+  player1EntryBlockTime?: Date;
+
+  @Column({ default: false })
+  player1EntryFinalized?: boolean;
+
+  @Column({ nullable: true })
+  player2EntrySlot?: number;
+
+  @Column({ nullable: true })
+  player2EntryBlockTime?: Date;
+
+  @Column({ default: false })
+  player2EntryFinalized?: boolean;
+
+  // UTC timestamp fields for dual timezone support
+  @Column({ nullable: true })
+  gameStartTime?: Date;
+
+  @Column({ nullable: true })
+  gameStartTimeUtc?: Date;
+
+  @Column({ nullable: true })
+  gameEndTime?: Date;
+
+  @Column({ nullable: true })
+  gameEndTimeUtc?: Date;
+
+  @Column({ nullable: true })
+  refundedAt?: Date;
+
+  @Column({ nullable: true })
+  refundedAtUtc?: Date;
+
+  // Payment status
   @Column({ default: false })
   player1Paid?: boolean;
 
   @Column({ default: false })
   player2Paid?: boolean;
 
+  // Legacy payment signatures (for backward compatibility)
+  @Column({ nullable: true })
+  player1PaymentSignature?: string;
+
+  @Column({ nullable: true })
+  player2PaymentSignature?: string;
+
+  // New payout signature fields with blockchain verification
+  @Column({ nullable: true })
+  winnerPayoutSignature?: string;
+
+  @Column({ nullable: true })
+  winnerPayoutSlot?: number;
+
+  @Column({ nullable: true })
+  winnerPayoutBlockTime?: Date;
+
+  @Column({ default: false })
+  winnerPayoutFinalized?: boolean;
+
+  // Refund signature fields with blockchain verification
+  @Column({ nullable: true })
+  player1RefundSignature?: string;
+
+  @Column({ nullable: true })
+  player1RefundSlot?: number;
+
+  @Column({ nullable: true })
+  player1RefundBlockTime?: Date;
+
+  @Column({ default: false })
+  player1RefundFinalized?: boolean;
+
+  @Column({ nullable: true })
+  player2RefundSignature?: string;
+
+  @Column({ nullable: true })
+  player2RefundSlot?: number;
+
+  @Column({ nullable: true })
+  player2RefundBlockTime?: Date;
+
+  @Column({ default: false })
+  player2RefundFinalized?: boolean;
+
+  // Financial tracking fields
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  totalFeesCollected?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  platformFee?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  matchDuration?: number;
+
+  // Completion tracking
+  @Column({ default: false })
+  isCompleted?: boolean;
+
+  // Integrity hash field
+  @Column({ nullable: true })
+  rowHash?: string;
+
+  // Match outcome
+  @Column({ nullable: true })
+  matchOutcome?: string;
+
+  // Refund reason
+  @Column({ nullable: true })
+  refundReason?: string;
+
+  // Game results
   @Column({ type: 'simple-json', nullable: true })
   player1Result?: {
     won: boolean;
@@ -80,13 +205,6 @@ export class Match {
     paymentError?: string;
     transaction?: any;
   } | null;
-
-  // Basic payment signatures (only these exist in database)
-  @Column({ nullable: true })
-  player1PaymentSignature?: string;
-
-  @Column({ nullable: true })
-  player2PaymentSignature?: string;
 
   @CreateDateColumn()
   createdAt!: Date;

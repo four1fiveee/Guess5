@@ -23,7 +23,7 @@ const Game: React.FC = () => {
   const [opponentSolved, setOpponentSolved] = useState(false);
   const [timeRemaining, setTimeRemaining] = useState<number>(120); // 2 minutes in seconds
   const [timerActive, setTimerActive] = useState<boolean>(false);
-  const [escrowAddress, setEscrowAddress] = useState<string>('');
+  const [feeWalletAddress, setFeeWalletAddress] = useState<string>('');
   const [entryFee, setEntryFee] = useState<number>(0);
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
@@ -163,7 +163,7 @@ const Game: React.FC = () => {
           throw new Error('You are not part of this match');
         }
 
-        setEscrowAddress(matchData.escrowAddress || '');
+        setFeeWalletAddress(matchData.feeWalletAddress || matchData.escrowAddress || '');
         setEntryFee(matchData.entryFee || 0);
 
         // Fetch initial game state
