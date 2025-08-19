@@ -12,9 +12,9 @@ const {
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
 // Wallet-based rate limiters (very lenient for testing)
-const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 500); // 500 requests per 30 seconds per wallet (very lenient)
-const walletGameLimiter = createRateLimiter(60 * 1000, 1000); // 1000 requests per minute per wallet (very lenient)
-const walletResultLimiter = createRateLimiter(60 * 1000, 200); // 200 result submissions per minute per wallet (very lenient)
+const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 1000); // 1000 requests per 30 seconds per wallet (doubled)
+const walletGameLimiter = createRateLimiter(60 * 1000, 2000); // 2000 requests per minute per wallet (doubled)
+const walletResultLimiter = createRateLimiter(60 * 1000, 500); // 500 result submissions per minute per wallet (increased)
 
 // Production routes with enhanced security
 router.post('/request-match', 
@@ -32,8 +32,8 @@ router.post('/submit-result',
 );
 
 router.post('/submit-guess', 
-  // Increased rate limiting for guess submission to prevent gameplay interruptions
-  createRateLimiter(60 * 1000, 1000), // 1000 guesses per minute per wallet (doubled from 500)
+  // Much higher rate limiting for guess submission to prevent gameplay interruptions
+  createRateLimiter(60 * 1000, 2000), // 2000 guesses per minute per wallet (quadrupled from 500)
   // Temporarily removed ReCaptcha to avoid conflicts during testing
   // validateReCaptcha,
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
@@ -73,7 +73,8 @@ router.options('/wallet-balance/:wallet', (req, res) => {
 });
 
 router.get('/game-state', 
-  // No rate limiting for game state polling to avoid 429 errors
+  // Add rate limiting for game state polling to prevent abuse
+  createRateLimiter(60 * 1000, 300), // 300 requests per minute per wallet (5 per second)
   asyncHandlerWrapper(matchController.getGameStateHandler)
 );
 

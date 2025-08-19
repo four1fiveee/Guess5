@@ -234,7 +234,7 @@ const Game: React.FC = () => {
           retryCount = 0; // Reset for next cycle
         }
       }
-    }, 5000); // Poll every 5 seconds (increased from 2 seconds to reduce rate limiting)
+    }, 8000); // Poll every 8 seconds (increased from 5 seconds to reduce rate limiting)
 
     return () => clearInterval(pollInterval);
   }, [matchId, gameState, publicKey, memoizedFetchGameState]);
@@ -299,8 +299,8 @@ const Game: React.FC = () => {
 
         if (response.status === 429) {
           console.warn('⚠️ Rate limited, will retry automatically...');
-          // Wait 3 seconds and retry automatically
-          await new Promise(resolve => setTimeout(resolve, 3000));
+          // Wait 5 seconds before retry (increased from 3 seconds)
+          await new Promise(resolve => setTimeout(resolve, 5000));
           throw new Error('Rate limited - retrying automatically...');
         }
         
@@ -311,6 +311,9 @@ const Game: React.FC = () => {
 
         const data = await response.json();
         console.log('✅ Guess submitted successfully:', data);
+        
+        // Add a small delay after successful guess to prevent rapid submissions
+        await new Promise(resolve => setTimeout(resolve, 500));
         
         // Immediately fetch updated game state
         await memoizedFetchGameState();
@@ -332,7 +335,7 @@ const Game: React.FC = () => {
         if (retryCount < 2 && error instanceof Error && 
             (error.name === 'AbortError' || error.message.includes('Failed to fetch'))) {
           console.log(`🔄 Retrying guess submission (attempt ${retryCount + 2})...`);
-          await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second before retry
+          await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry (increased from 1 second)
           return submitGuessWithRetry(retryCount + 1);
         }
         
