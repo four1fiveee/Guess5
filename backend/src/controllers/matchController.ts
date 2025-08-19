@@ -1962,7 +1962,7 @@ const checkPlayerMatchHandler = async (req, res) => {
           "player1Paid",
           "player2Paid",
           word,
-          "escrowAddress",
+          "feeWalletAddress",
           "entryFee"
         FROM "match" 
         WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6))

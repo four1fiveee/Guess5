@@ -20,20 +20,12 @@ export class Match {
   @Column({ nullable: true })
   word?: string;
 
-  // Legacy escrow fields (for backward compatibility)
-  @Column({ nullable: true })
+  // Legacy escrow fields (for backward compatibility) - REMOVED @Column definitions
+  // These fields are kept for TypeScript compatibility but columns were renamed
   escrowAddress?: string;
-
-  @Column({ nullable: true })
   player1EscrowConfirmed?: boolean;
-
-  @Column({ nullable: true })
   player2EscrowConfirmed?: boolean;
-
-  @Column({ nullable: true })
   player1EscrowSignature?: string;
-
-  @Column({ nullable: true })
   player2EscrowSignature?: string;
 
   // New fee wallet fields (renamed from escrow)
