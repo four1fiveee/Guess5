@@ -1,4 +1,4 @@
-import { WebSocket, WebSocketServer } from 'ws';
+import WebSocket from 'ws';
 import { Server } from 'http';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
@@ -33,13 +33,14 @@ interface WebSocketConnection {
 }
 
 class WebSocketService {
-  private wss: WebSocketServer | null = null;
+  private wss: any | null = null;
   private connections: Map<string, WebSocketConnection> = new Map();
   private matchSubscriptions: Map<string, Set<string>> = new Map(); // matchId -> Set of wallet addresses
   private walletConnections: Map<string, Set<string>> = new Map(); // wallet -> Set of connection IDs
 
   // Initialize WebSocket server
   initialize(server: Server) {
+    const { WebSocketServer } = require('ws');
     this.wss = new WebSocketServer({ 
       server,
       path: '/ws',
@@ -53,7 +54,7 @@ class WebSocketService {
   private setupEventHandlers() {
     if (!this.wss) return;
 
-    this.wss.on('connection', (ws: WebSocket, req) => {
+         this.wss.on('connection', (ws: WebSocket, req) => {
       const connectionId = this.generateConnectionId();
       const wallet = this.extractWalletFromRequest(req);
       
@@ -202,7 +203,7 @@ class WebSocketService {
     if (!connection) return;
 
     const pingInterval = setInterval(() => {
-      if (connection.ws.readyState === WebSocket.OPEN) {
+             if (connection.ws.readyState === WebSocket.OPEN) {
         connection.ws.ping();
       } else {
         clearInterval(pingInterval);
@@ -261,10 +262,10 @@ class WebSocketService {
     });
   }
 
-  // Send event to specific connection
-  private sendToConnection(connectionId: string, event: WebSocketEvent) {
-    const connection = this.connections.get(connectionId);
-    if (!connection || connection.ws.readyState !== WebSocket.OPEN) return;
+     // Send event to specific connection
+   private sendToConnection(connectionId: string, event: WebSocketEvent) {
+     const connection = this.connections.get(connectionId);
+     if (!connection || connection.ws.readyState !== WebSocket.OPEN) return;
 
     try {
       connection.ws.send(JSON.stringify(event));
