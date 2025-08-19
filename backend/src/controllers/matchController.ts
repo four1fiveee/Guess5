@@ -2376,6 +2376,10 @@ const getGameStateHandler = async (req, res) => {
           const isPlayer1 = wallet === match.player1;
           const playerGuesses = isPlayer1 ? reinitializedGameState.player1Guesses : reinitializedGameState.player2Guesses;
           
+          // Game should remain active until BOTH players have finished
+          const bothPlayersFinished = (reinitializedGameState.player1Solved || reinitializedGameState.player1Guesses.length >= 7) && 
+                                     (reinitializedGameState.player2Solved || reinitializedGameState.player2Guesses.length >= 7);
+          
           return res.json({
             success: true,
             playerGuesses,
@@ -2383,8 +2387,9 @@ const getGameStateHandler = async (req, res) => {
             remainingGuesses: 7 - playerGuesses.length,
             solved: isPlayer1 ? reinitializedGameState.player1Solved : reinitializedGameState.player2Solved,
             opponentSolved: isPlayer1 ? reinitializedGameState.player2Solved : reinitializedGameState.player1Solved,
-            gameActive: !reinitializedGameState.player1Solved && !reinitializedGameState.player2Solved,
-            targetWord: reinitializedGameState.word // Include target word for color calculation
+            gameActive: !bothPlayersFinished, // Game active until both players finish
+            targetWord: reinitializedGameState.word, // Include target word for color calculation
+            gameCompleted: bothPlayersFinished // New field to indicate when both players are done
           });
         }
       }
@@ -2398,6 +2403,10 @@ const getGameStateHandler = async (req, res) => {
     const opponentGuesses = isPlayer1 ? serverGameState.player2Guesses : serverGameState.player1Guesses;
 
     // Return safe game state (don't reveal the word or opponent's guesses)
+    // Game should remain active until BOTH players have finished (solved or run out of guesses)
+    const bothPlayersFinished = (serverGameState.player1Solved || serverGameState.player1Guesses.length >= 7) && 
+                               (serverGameState.player2Solved || serverGameState.player2Guesses.length >= 7);
+    
     res.json({
       success: true,
       playerGuesses,
@@ -2405,8 +2414,9 @@ const getGameStateHandler = async (req, res) => {
       remainingGuesses: 7 - playerGuesses.length,
       solved: isPlayer1 ? serverGameState.player1Solved : serverGameState.player2Solved,
       opponentSolved: isPlayer1 ? serverGameState.player2Solved : serverGameState.player1Solved,
-      gameActive: !serverGameState.player1Solved && !serverGameState.player2Solved,
-      targetWord: serverGameState.word // Include target word for color calculation
+      gameActive: !bothPlayersFinished, // Game active until both players finish
+      targetWord: serverGameState.word, // Include target word for color calculation
+      gameCompleted: bothPlayersFinished // New field to indicate when both players are done
     });
 
   } catch (error) {

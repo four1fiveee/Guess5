@@ -29,6 +29,7 @@ const Game: React.FC = () => {
   const [targetWord, setTargetWord] = useState<string>('');
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
+  const [startTime, setStartTime] = useState<number>(0);
 
   // Memoize fetchGameState to avoid dependency issues
   const memoizedFetchGameState = useCallback(async () => {
@@ -55,6 +56,11 @@ const Game: React.FC = () => {
         setRemainingGuesses(data.remainingGuesses || 7);
         setTargetWord(data.targetWord || '');
         
+        // Set start time when game begins (only once)
+        if (startTime === 0 && data.gameActive) {
+          setStartTime(Date.now());
+        }
+        
         if (data.solved) {
           setGameState('solved');
           setTimerActive(false);
@@ -65,10 +71,16 @@ const Game: React.FC = () => {
           // Note: handleGameEnd will be called in a separate effect when opponentSolved changes
         }
         
-        // Check if game is completed on the server side
+        // Check if game is completed on the server side (both players finished)
         if (data.gameCompleted && gameState === 'waiting') {
-          console.log('🎮 Game completed on server, navigating to results');
+          console.log('🎮 Both players finished, navigating to results');
           router.push(`/result?matchId=${matchId}`);
+        }
+        
+        // If player has solved but hasn't submitted result yet, and they've run out of guesses, submit now
+        if (data.solved && gameState === 'solved' && data.remainingGuesses === 0 && !playerResult) {
+          console.log('🏆 Player solved but ran out of guesses, submitting result');
+          handleGameEnd(true);
         }
         
         setNetworkStatus('connected');
@@ -87,7 +99,7 @@ const Game: React.FC = () => {
       }
       // Don't show error to user for polling failures, just log them
     }
-  }, [matchId, publicKey, opponentSolved, gameState, router]);
+  }, [matchId, publicKey, opponentSolved, gameState, router, startTime]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -321,10 +333,12 @@ const Game: React.FC = () => {
         if (data.solved) {
           setGameState('solved');
           setTimerActive(false);
-          handleGameEnd(true);
+          // Don't immediately end the game - let the player continue until they run out of guesses
+          // or the other player finishes
         } else if (data.totalGuesses >= 7) {
           setGameState('solved');
           setTimerActive(false);
+          // Player ran out of guesses, submit result
           handleGameEnd(false, 'out_of_guesses');
         }
         
@@ -362,101 +376,54 @@ const Game: React.FC = () => {
     await submitGuessWithRetry();
   };
 
+  // handleGameEnd with correct totalTime and immediate navigation for specific reasons
   const handleGameEnd = async (won: boolean, reason?: string) => {
     if (!publicKey || !matchId) return;
-
-    // Stop the timer
     setTimerActive(false);
-
-    // Calculate actual game duration (120 seconds - remaining time)
-    const gameDuration = Math.max(1, 120 - timeRemaining); // Ensure at least 1 second
-
-    const result = {
-      won,
-      numGuesses: guesses.length,
-      totalTime: gameDuration, // Use actual game duration instead of 0
-      guesses: guesses,
-      reason: reason || 'normal'
+    
+    // Calculate time with millisecond precision for tie-breaking
+    const endTime = Date.now();
+    const gameDuration = Math.max(1, endTime - startTime);
+    
+    // Remove reason field from result object - backend validation doesn't allow it
+    const result = { 
+      won, 
+      numGuesses: guesses.length, 
+      totalTime: gameDuration, 
+      guesses 
     };
-
-    // Store player's result
+    
     setPlayerResult(result);
-
     console.log('🏁 Game ended:', result);
-
+    
     try {
-      // Submit result to backend for game state tracking and automated payouts
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
       const response = await fetch(`${apiUrl}/api/match/submit-result`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          matchId,
-          wallet: publicKey?.toString() || '',
-          result
-        }),
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, wallet: publicKey?.toString() || '', result }),
       });
-
+      
       const data = await response.json();
       console.log('📝 Backend result submitted:', data);
-
+      
       if (data.status === 'completed') {
-        // Store opponent's result if available
-        if (data.player1Result && data.player1Result.wallet !== publicKey?.toString()) {
-          setOpponentResult(data.player1Result);
-        } else if (data.player2Result && data.player2Result.wallet !== publicKey?.toString()) {
-          setOpponentResult(data.player2Result);
-        }
-
-        // Determine final result
-        const isWinner = data.payout?.winner === publicKey?.toString();
-        setFinalResult({
-          won: isWinner,
-          payout: data.payout
-        });
-
-        // Backend handles automated payouts
-        console.log('💰 Backend handled payout automatically');
-        data.payout.paymentSuccess = data.payout.automatedPayout || false;
-        data.payout.transactionSignature = data.payout.payoutSignature;
-
-        // Store payout data for results page
-        localStorage.setItem('payoutData', JSON.stringify(data.payout));
-        
-        // IMMEDIATE CLEANUP: Set game state to completed and stop all polling
-        setGameState('completed');
-        setTimerActive(false);
-        
-        // Navigate to result page after a short delay
-        setTimeout(() => {
-          router.push('/result');
-        }, 3000);
-      } else if (reason === 'opponent_solved') {
-        // Opponent solved first - navigate to result immediately
-        console.log('🏆 Opponent solved first, navigating to result');
-        router.push(`/result?matchId=${matchId}`);
-      } else if (reason === 'out_of_guesses') {
-        // Player ran out of guesses - navigate to result immediately
-        console.log('⏰ Player ran out of guesses, navigating to result');
-        router.push(`/result?matchId=${matchId}`);
-      } else {
-        console.log('⏳ Waiting for other player...');
+        console.log('🏆 Game completed, navigating to results');
+        router.push('/result');
+      } else if (data.status === 'waiting') {
+        console.log('⏳ Waiting for other player to finish...');
         setGameState('waiting');
         
-        // No timeout needed - let the game logic handle completion naturally
-        // The existing polling will detect when the opponent finishes
+        // Continue polling to check if other player finishes
+        // Don't navigate away - let the other player complete their puzzle
+      } else {
+        console.log('❌ Unexpected response status:', data.status);
+        setGameState('waiting');
       }
     } catch (error) {
       console.error('❌ Error submitting result:', error);
-      
-      // If result submission fails, still navigate to result page to avoid getting stuck
-      console.log('🔄 Result submission failed, navigating to result page anyway...');
-      setGameState('completed');
-      setTimeout(() => {
-        router.push('/result');
-      }, 2000);
+      console.log('🔄 Result submission failed, staying on game page...');
+      setGameState('waiting');
     }
   };
 
