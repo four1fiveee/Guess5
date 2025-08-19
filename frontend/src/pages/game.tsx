@@ -333,8 +333,8 @@ const Game: React.FC = () => {
         if (data.solved) {
           setGameState('solved');
           setTimerActive(false);
-          // Don't immediately end the game - let the player continue until they run out of guesses
-          // or the other player finishes
+          // Player solved the puzzle - submit result immediately
+          handleGameEnd(true, 'solved');
         } else if (data.totalGuesses >= 7) {
           setGameState('solved');
           setTimerActive(false);
@@ -396,34 +396,26 @@ const Game: React.FC = () => {
     setPlayerResult(result);
     console.log('🏁 Game ended:', result);
     
+    // Immediately navigate to results page when player finishes
+    console.log('🏆 Player finished, navigating to results');
+    router.push(`/result?matchId=${matchId}`);
+    
+    // Submit result to backend in background (don't wait for response)
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
+      fetch(`${apiUrl}/api/match/submit-result`, {
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId, wallet: publicKey?.toString() || '', result }),
-      });
-      
-      const data = await response.json();
-      console.log('📝 Backend result submitted:', data);
-      
-      if (data.status === 'completed') {
-        console.log('🏆 Game completed, navigating to results');
-        router.push('/result');
-      } else if (data.status === 'waiting') {
-        console.log('⏳ Waiting for other player to finish...');
-        setGameState('waiting');
-        
-        // Continue polling to check if other player finishes
-        // Don't navigate away - let the other player complete their puzzle
-      } else {
-        console.log('❌ Unexpected response status:', data.status);
-        setGameState('waiting');
-      }
+      }).then(response => response.json())
+        .then(data => {
+          console.log('📝 Backend result submitted:', data);
+        })
+        .catch(error => {
+          console.error('❌ Error submitting result:', error);
+        });
     } catch (error) {
       console.error('❌ Error submitting result:', error);
-      console.log('🔄 Result submission failed, staying on game page...');
-      setGameState('waiting');
     }
   };
 
