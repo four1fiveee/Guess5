@@ -74,7 +74,7 @@ router.options('/wallet-balance/:wallet', (req, res) => {
 
 router.get('/game-state', 
   // Add rate limiting for game state polling to prevent abuse
-  createRateLimiter(60 * 1000, 300), // 300 requests per minute per wallet (5 per second)
+  createRateLimiter(60 * 1000, 600), // 600 requests per minute per wallet (10 per second) - increased for stability
   asyncHandlerWrapper(matchController.getGameStateHandler)
 );
 

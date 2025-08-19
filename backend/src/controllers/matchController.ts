@@ -4180,11 +4180,12 @@ const walletBalanceSSEHandler = async (req, res) => {
     
     console.log('🔌 SSE connection requested for wallet:', wallet);
     
-    // Set SSE headers with proper CORS
+    // Set SSE headers with proper CORS and connection keep-alive
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache',
+      'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Connection': 'keep-alive',
+      'Keep-Alive': 'timeout=120, max=1000',
       'Access-Control-Allow-Origin': process.env.FRONTEND_URL || 'https://guess5.vercel.app',
       'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
@@ -4228,7 +4229,7 @@ const walletBalanceSSEHandler = async (req, res) => {
       res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
     }
     
-    // Set up periodic balance checks (every 10 seconds)
+    // Set up periodic balance checks (every 30 seconds) and heartbeat (every 15 seconds)
     const balanceInterval = setInterval(async () => {
       try {
         const balance = await connection.getBalance(publicKey);
@@ -4252,18 +4253,34 @@ const walletBalanceSSEHandler = async (req, res) => {
         };
         res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
       }
-    }, 10000); // Check every 10 seconds
+    }, 30000); // Check every 30 seconds (reduced frequency)
+    
+    // Heartbeat to keep connection alive
+    const heartbeatInterval = setInterval(() => {
+      try {
+        const heartbeatMessage = {
+          type: 'heartbeat',
+          wallet: wallet,
+          timestamp: new Date().toISOString()
+        };
+        res.write(`data: ${JSON.stringify(heartbeatMessage)}\n\n`);
+      } catch (error) {
+        console.error('❌ Error sending heartbeat:', error);
+      }
+    }, 15000); // Heartbeat every 15 seconds
     
     // Handle client disconnect
     req.on('close', () => {
       console.log('🔌 SSE connection closed for wallet:', wallet);
       clearInterval(balanceInterval);
+      clearInterval(heartbeatInterval);
     });
     
     // Handle server shutdown
     req.on('error', (error) => {
       console.error('❌ SSE connection error:', error);
       clearInterval(balanceInterval);
+      clearInterval(heartbeatInterval);
     });
     
   } catch (error) {

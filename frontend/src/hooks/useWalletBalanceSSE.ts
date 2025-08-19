@@ -13,6 +13,9 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
   const [isConnected, setIsConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const eventSourceRef = useRef<EventSource | null>(null);
+  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const reconnectAttemptsRef = useRef(0);
+  const maxReconnectAttempts = 5;
 
   useEffect(() => {
     if (!walletAddress) {
@@ -22,10 +25,15 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
       return;
     }
 
-    // Close existing connection
+    // Close existing connection and clear any pending reconnection
     if (eventSourceRef.current) {
       eventSourceRef.current.close();
     }
+    if (reconnectTimeoutRef.current) {
+      clearTimeout(reconnectTimeoutRef.current);
+      reconnectTimeoutRef.current = null;
+    }
+    reconnectAttemptsRef.current = 0;
 
     // Create new SSE connection
     const sseUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`;
@@ -38,6 +46,7 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
       console.log('🔌 SSE connection opened for wallet:', walletAddress);
       setIsConnected(true);
       setError(null);
+      reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
     };
 
     eventSource.onmessage = (event) => {
@@ -72,14 +81,24 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
       setIsConnected(false);
       setError('Connection lost - balance updates may be delayed');
       
-      // Attempt to reconnect after 5 seconds
-      setTimeout(() => {
-        if (walletAddress) {
-          console.log('🔄 Attempting to reconnect SSE...');
-          eventSource.close();
-          // The useEffect will handle reconnection
-        }
-      }, 5000);
+      // Implement exponential backoff for reconnection
+      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000); // Max 30 seconds
+        reconnectAttemptsRef.current++;
+        
+        console.log(`🔄 Attempting to reconnect SSE in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`);
+        
+        reconnectTimeoutRef.current = setTimeout(() => {
+          if (walletAddress) {
+            console.log('🔄 Reconnecting SSE...');
+            eventSource.close();
+            // The useEffect will handle reconnection
+          }
+        }, delay);
+      } else {
+        console.error('❌ Max SSE reconnection attempts reached');
+        setError('Unable to maintain connection - please refresh the page');
+      }
     };
 
     // Cleanup function
@@ -88,6 +107,10 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
         console.log('🔌 Closing SSE connection for wallet:', walletAddress);
         eventSource.close();
         setIsConnected(false);
+      }
+      if (reconnectTimeoutRef.current) {
+        clearTimeout(reconnectTimeoutRef.current);
+        reconnectTimeoutRef.current = null;
       }
     };
   }, [walletAddress]);

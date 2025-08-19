@@ -246,7 +246,7 @@ const Game: React.FC = () => {
           retryCount = 0; // Reset for next cycle
         }
       }
-    }, 8000); // Poll every 8 seconds (increased from 5 seconds to reduce rate limiting)
+    }, 12000); // Poll every 12 seconds (increased to reduce rate limiting and connection issues)
 
     return () => clearInterval(pollInterval);
   }, [matchId, gameState, publicKey, memoizedFetchGameState]);
