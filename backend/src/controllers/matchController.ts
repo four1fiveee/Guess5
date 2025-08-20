@@ -2756,13 +2756,16 @@ const processRefundsForFailedMatch = async (match) => {
     }
     
     const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
-    const entryFeeLamports = Math.floor(match.entryFee * LAMPORTS_PER_SOL);
+    
+    // Ensure entryFee is available, fallback to 0.1 SOL if undefined
+    const entryFee = match.entryFee || 0.1;
+    const entryFeeLamports = Math.floor(entryFee * LAMPORTS_PER_SOL);
     
     // Calculate refund amount (entry fee minus network fee)
     const networkFeeLamports = Math.floor(0.0001 * LAMPORTS_PER_SOL); // 0.0001 SOL network fee
     const refundLamports = entryFeeLamports - networkFeeLamports;
     
-    console.log(`💰 Refund calculation: ${match.entryFee} SOL - 0.0001 SOL = ${refundLamports / LAMPORTS_PER_SOL} SOL`);
+    console.log(`💰 Refund calculation: ${entryFee} SOL - 0.0001 SOL = ${refundLamports / LAMPORTS_PER_SOL} SOL`);
     
     // Check fee wallet balance
     const feeWalletBalance = await connection.getBalance(feeWalletKeypair.publicKey);
