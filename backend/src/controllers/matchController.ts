@@ -2835,11 +2835,11 @@ const processAutomatedRefunds = async (match, reason = 'unknown') => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    match.status = 'cancelled';
-    match.refundReason = reason;
-    match.refundedAt = new Date();
-    
-    await matchRepository.save(match);
+    await matchRepository.update(match.id, {
+      status: 'cancelled',
+      refundReason: reason,
+      refundedAt: new Date()
+    });
     
     console.log(`✅ Automated refunds completed for match ${match.id}`);
     
@@ -2951,6 +2951,9 @@ const confirmPaymentHandler = async (req, res) => {
     
     await updateMatchPayment(match, isPlayer1, paymentData);
     
+    // IMMEDIATELY save payment status to database so other player can see it
+    await matchRepository.save(match);
+    
     console.log(`✅ Marked ${isPlayer1 ? 'Player 1' : 'Player 2'} (${wallet}) as paid for match ${matchId}`);
     
     // Ensure we preserve both players' payment status
@@ -2986,20 +2989,26 @@ const confirmPaymentHandler = async (req, res) => {
       currentPlayer: wallet
     });
 
+    // Get fresh match data from database to ensure we have latest payment status
+    const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
+    if (!freshMatch) {
+      return res.status(404).json({ error: 'Match not found after payment' });
+    }
+    
     // Check if both players have paid
-    if (match.player1Paid && match.player2Paid) {
+    if (freshMatch.player1Paid && freshMatch.player2Paid) {
       console.log(`🎮 Both players have paid for match ${matchId}, starting game IMMEDIATELY...`);
       console.log(`💰 Payment details:`, {
         matchId,
-        player1: match.player1,
-        player2: match.player2,
-        player1Paid: match.player1Paid,
-        player2Paid: match.player2Paid,
-        entryFee: match.entryFee
+        player1: freshMatch.player1,
+        player2: freshMatch.player2,
+        player1Paid: freshMatch.player1Paid,
+        player2Paid: freshMatch.player2Paid,
+        entryFee: freshMatch.entryFee
       });
       
       // Use state machine to transition to active
-      const transitionSuccess = await matchStateMachine.transition(match, 'active' as any, {
+      const transitionSuccess = await matchStateMachine.transition(freshMatch, 'active' as any, {
         action: 'payment_complete',
         wallet,
         verificationResult
@@ -3011,7 +3020,7 @@ const confirmPaymentHandler = async (req, res) => {
       }
       
       // Initialize server-side game state with the SAME word for both players
-      const word = match.word || getRandomWord();
+      const word = freshMatch.word || getRandomWord();
       activeGames.set(matchId, {
         startTime: Date.now(),
         player1StartTime: Date.now(),
@@ -3031,13 +3040,13 @@ const confirmPaymentHandler = async (req, res) => {
       console.log(`🎮 Game state initialized:`, {
         matchId,
         word,
-        player1: match.player1,
-        player2: match.player2,
+        player1: freshMatch.player1,
+        player2: freshMatch.player2,
         startTime: Date.now()
       });
       
       // IMMEDIATELY save to database so both players can see the status change
-      await matchRepository.save(match);
+      await matchRepository.save(freshMatch);
       console.log(`✅ Match ${matchId} status saved as 'active' - both players will be redirected`);
       
       // Send WebSocket event for game started
@@ -3045,9 +3054,9 @@ const confirmPaymentHandler = async (req, res) => {
         type: WebSocketEventType.GAME_STARTED,
         matchId,
         data: {
-          player1: match.player1,
-          player2: match.player2,
-          entryFee: match.entryFee,
+          player1: freshMatch.player1,
+          player2: freshMatch.player2,
+          entryFee: freshMatch.entryFee,
           startTime: match.gameStartTime
         },
         timestamp: new Date().toISOString()
