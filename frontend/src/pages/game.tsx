@@ -13,6 +13,7 @@ const Game: React.FC = () => {
   const [guesses, setGuesses] = useState<string[]>([]);
   const [currentGuess, setCurrentGuess] = useState('');
   const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed'>('playing');
+  const [playerSolved, setPlayerSolved] = useState(false);
   const [playerResult, setPlayerResult] = useState<any>(null);
   const [opponentResult, setOpponentResult] = useState<any>(null);
   const [finalResult, setFinalResult] = useState<any>(null);
@@ -332,14 +333,19 @@ const Game: React.FC = () => {
         
         if (data.solved) {
           setGameState('solved');
+          setPlayerSolved(true);
           setTimerActive(false);
-          // Player solved the puzzle - submit result immediately
-          handleGameEnd(true, 'solved');
+          // Player solved the puzzle - continue playing until they run out of guesses
+          // Don't submit result yet - let them finish their remaining guesses
         } else if (data.totalGuesses >= 7) {
           setGameState('solved');
           setTimerActive(false);
-          // Player ran out of guesses, submit result
-          handleGameEnd(false, 'out_of_guesses');
+          // Player ran out of guesses, check if they solved earlier
+          if (playerSolved) {
+            handleGameEnd(true, 'solved');
+          } else {
+            handleGameEnd(false, 'out_of_guesses');
+          }
         }
         
       } catch (error) {
