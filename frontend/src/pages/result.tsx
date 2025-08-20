@@ -19,22 +19,72 @@ const Result: React.FC = () => {
       return;
     }
 
-    // Get payout data from localStorage
-    const storedPayoutData = localStorage.getItem('payoutData');
-    if (storedPayoutData) {
-      try {
-        const data = JSON.parse(storedPayoutData);
-        setPayoutData(data);
-        console.log('💰 Payout data loaded:', data);
-      } catch (error) {
-        console.error('❌ Error parsing payout data:', error);
-        setError('Failed to load payout data');
+    const loadPayoutData = async () => {
+      // First try to get payout data from localStorage
+      const storedPayoutData = localStorage.getItem('payoutData');
+      if (storedPayoutData) {
+        try {
+          const data = JSON.parse(storedPayoutData);
+          setPayoutData(data);
+          console.log('💰 Payout data loaded from localStorage:', data);
+          setLoading(false);
+          return;
+        } catch (error) {
+          console.error('❌ Error parsing stored payout data:', error);
+        }
       }
-    } else {
-      setError('No payout data found');
-    }
 
-    setLoading(false);
+      // If no stored payout data, try to fetch from backend using matchId
+      const matchId = router.query.matchId as string;
+      if (matchId) {
+        try {
+          console.log('🔍 No stored payout data, fetching from backend for match:', matchId);
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const response = await fetch(`${apiUrl}/api/match/status/${matchId}`);
+          
+          if (response.ok) {
+            const matchData = await response.json();
+            console.log('📋 Match data from backend:', matchData);
+            
+            if (matchData.payout && matchData.isCompleted) {
+              // Create payout data from match data
+              const payoutData = {
+                won: matchData.winner === publicKey?.toString(),
+                isTie: matchData.winner === 'tie',
+                winner: matchData.winner,
+                numGuesses: 0, // This should be populated from player results
+                entryFee: matchData.entryFee || 0.1104,
+                timeElapsed: 'N/A',
+                opponentTimeElapsed: 'N/A',
+                winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
+                feeAmount: matchData.payout.paymentInstructions?.feeAmount || 0,
+                feeWallet: matchData.payout.paymentInstructions?.feeWallet || '',
+                transactions: matchData.payout.paymentInstructions?.transactions || [],
+                automatedPayout: matchData.payout.automatedPayout || false,
+                payoutSignature: matchData.payout.payoutSignature || null
+              };
+              
+              setPayoutData(payoutData);
+              console.log('✅ Payout data created from backend data:', payoutData);
+            } else {
+              setError('Game not yet completed or no payout data available');
+            }
+          } else {
+            console.error('❌ Failed to fetch match data from backend');
+            setError('Failed to load game results');
+          }
+        } catch (error) {
+          console.error('❌ Error fetching match data:', error);
+          setError('Failed to load game results');
+        }
+      } else {
+        setError('No match ID provided');
+      }
+
+      setLoading(false);
+    };
+
+    loadPayoutData();
   }, [publicKey, router]);
 
   const handlePlayAgain = () => {

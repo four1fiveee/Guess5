@@ -74,7 +74,40 @@ const Game: React.FC = () => {
         
         // Check if game is completed on the server side (both players finished)
         if (data.gameCompleted && gameState === 'waiting') {
-          console.log('🎮 Both players finished, navigating to results');
+          console.log('🎮 Both players finished, fetching payout data and navigating to results');
+          
+          // Try to fetch the completed match data to get payout information
+          try {
+            const matchResponse = await fetch(`${apiUrl}/api/match/status/${matchId}`);
+            if (matchResponse.ok) {
+              const matchData = await matchResponse.json();
+              if (matchData.payout && matchData.isCompleted) {
+                // Create payout data from match data
+                const payoutData = {
+                  won: matchData.winner === publicKey?.toString(),
+                  isTie: matchData.winner === 'tie',
+                  winner: matchData.winner,
+                  numGuesses: playerResult?.numGuesses || 0,
+                  entryFee: matchData.entryFee || 0.1104,
+                  timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
+                  opponentTimeElapsed: 'N/A',
+                  winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
+                  feeAmount: matchData.payout.paymentInstructions?.feeAmount || 0,
+                  feeWallet: matchData.payout.paymentInstructions?.feeWallet || '',
+                  transactions: matchData.payout.paymentInstructions?.transactions || [],
+                  automatedPayout: matchData.payout.automatedPayout || false,
+                  payoutSignature: matchData.payout.payoutSignature || null
+                };
+                
+                // Store payout data in localStorage
+                localStorage.setItem('payoutData', JSON.stringify(payoutData));
+                console.log('✅ Payout data stored from completed game:', payoutData);
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error fetching payout data:', error);
+          }
+          
           router.push(`/result?matchId=${matchId}`);
         }
         
@@ -228,7 +261,7 @@ const Game: React.FC = () => {
 
   // Poll for game state updates
   useEffect(() => {
-    if (gameState !== 'playing' || !matchId) return;
+    if ((gameState !== 'playing' && gameState !== 'waiting') || !matchId) return;
 
     let retryCount = 0;
     const maxRetries = 3;
@@ -276,7 +309,7 @@ const Game: React.FC = () => {
   }, [opponentSolved, gameState]);
 
   const handleGuess = async (guess: string) => {
-    if (gameState !== 'playing' || isSubmittingGuess) return;
+    if (gameState !== 'playing' || isSubmittingGuess || playerSolved) return;
 
     // Prevent duplicate submissions
     if (guesses.includes(guess)) {
@@ -335,8 +368,11 @@ const Game: React.FC = () => {
           setGameState('solved');
           setPlayerSolved(true);
           setTimerActive(false);
-          // Player solved the puzzle - continue playing until they run out of guesses
-          // Don't submit result yet - let them finish their remaining guesses
+          // Player solved the puzzle - submit result immediately
+          // Prevent further guesses by setting a flag
+          setIsSubmittingGuess(true);
+          handleGameEnd(true, 'solved');
+          return; // Exit early to prevent further processing
         } else if (data.totalGuesses >= 7) {
           setGameState('solved');
           setTimerActive(false);
@@ -402,26 +438,60 @@ const Game: React.FC = () => {
     setPlayerResult(result);
     console.log('🏁 Game ended:', result);
     
-    // Immediately navigate to results page when player finishes
-    console.log('🏆 Player finished, navigating to results');
-    router.push(`/result?matchId=${matchId}`);
-    
-    // Submit result to backend in background (don't wait for response)
+    // Submit result to backend and wait for response to get payout data
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      fetch(`${apiUrl}/api/match/submit-result`, {
+      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
         method: 'POST', 
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ matchId, wallet: publicKey?.toString() || '', result }),
-      }).then(response => response.json())
-        .then(data => {
-          console.log('📝 Backend result submitted:', data);
-        })
-        .catch(error => {
-          console.error('❌ Error submitting result:', error);
-        });
+      });
+      
+      const data = await response.json();
+      console.log('📝 Backend result submitted:', data);
+      
+      // If the game is completed, store payout data and navigate
+      if (data.status === 'completed' && data.payout) {
+        console.log('💰 Storing payout data:', data.payout);
+        
+        // Create payout data object for localStorage
+        const payoutData = {
+          won: data.winner === publicKey?.toString(),
+          isTie: data.winner === 'tie',
+          winner: data.winner,
+          numGuesses: result.numGuesses,
+          entryFee: 0.1104, // This should come from the match data
+          timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
+          opponentTimeElapsed: 'N/A', // This should come from opponent's result
+          winnerAmount: data.payout.paymentInstructions?.winnerAmount || 0,
+          feeAmount: data.payout.paymentInstructions?.feeAmount || 0,
+          feeWallet: data.payout.paymentInstructions?.feeWallet || '',
+          transactions: data.payout.paymentInstructions?.transactions || [],
+          automatedPayout: data.payout.automatedPayout || false,
+          payoutSignature: data.payout.payoutSignature || null
+        };
+        
+        // Store payout data in localStorage
+        localStorage.setItem('payoutData', JSON.stringify(payoutData));
+        console.log('✅ Payout data stored in localStorage');
+        
+        // Navigate to results page
+        console.log('🏆 Game completed, navigating to results page');
+        router.push(`/result?matchId=${matchId}`);
+      } else if (data.status === 'waiting') {
+        // Game is still waiting for other player, show waiting state
+        console.log('⏳ Waiting for other player to finish');
+        setGameState('waiting');
+        // Don't navigate to results yet - stay on this page and show waiting message
+      } else {
+        // Fallback: show waiting state
+        console.log('⚠️ Unexpected response, showing waiting state');
+        setGameState('waiting');
+      }
     } catch (error) {
       console.error('❌ Error submitting result:', error);
+      // Fallback: show waiting state even if submission failed
+      setGameState('waiting');
     }
   };
 
@@ -483,8 +553,19 @@ const Game: React.FC = () => {
         
         {/* Waiting Message */}
         {gameState === 'waiting' && (
-          <div className="text-accent text-lg mb-6 font-semibold">
-            ⏳ Waiting for opponent to finish...
+          <div className="text-center mb-6">
+            <div className="text-2xl font-bold text-accent mb-2">
+              {playerResult?.won ? '🎉 You solved it!' : '❌ Game Over'}
+            </div>
+            <div className="text-white text-lg mb-4">
+              Your Guesses: {playerResult?.numGuesses || 0}/7
+            </div>
+            <div className="text-accent text-lg font-semibold">
+              ⏳ Waiting for opponent to finish...
+            </div>
+            <div className="text-white/60 text-sm mt-2">
+              Results will be available once both players complete the game
+            </div>
           </div>
         )}
 
