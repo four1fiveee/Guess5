@@ -5,6 +5,7 @@ import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } f
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
+import api from '../utils/api';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
@@ -24,6 +25,7 @@ const Matchmaking: React.FC = () => {
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
+  const statusRef = useRef<string>('waiting');
 
   const handlePayment = async () => {
     if (!publicKey || !matchData) {
@@ -89,24 +91,7 @@ const Matchmaking: React.FC = () => {
       console.log('✅ Payment successful:', signature);
 
       // Confirm payment with backend
-      const confirmResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/confirm-payment`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          matchId: matchData.matchId,
-          wallet: publicKey.toString(),
-          paymentSignature: signature
-        }),
-      });
-
-      if (!confirmResponse.ok) {
-        const errorData = await confirmResponse.json();
-        throw new Error(`Backend confirmation failed: ${errorData.error || 'Unknown error'}`);
-      }
-
-      const confirmData = await confirmResponse.json();
+      const confirmData = await api.confirmPayment(matchData.matchId, publicKey.toString(), signature);
       console.log('✅ Payment confirmed by backend:', confirmData);
 
       // Update match data with payment status
@@ -196,21 +181,14 @@ const Matchmaking: React.FC = () => {
       setIsRequestInProgress(true);
       
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/request-match`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            wallet: publicKey.toString(),
-            entryFee: currentEntryFee
-          }),
-        });
-
-        const data = await response.json();
+        console.log('🎮 Starting matchmaking request for wallet:', publicKey.toString());
+        console.log('🎮 Entry fee:', currentEntryFee);
+        const data = await api.requestMatch(publicKey.toString(), currentEntryFee);
         console.log('🎮 Matchmaking response:', data);
+        console.log('🎮 Response status:', data.status);
 
         if (data.status === 'waiting') {
+          console.log('⏳ Player is waiting for match');
           setWaitingCount(data.waitingCount || 0);
           setStatus('waiting');
         } else if (data.status === 'matched') {
@@ -227,6 +205,7 @@ const Matchmaking: React.FC = () => {
         }
       } catch (error) {
         console.error('❌ Matchmaking error:', error);
+        console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
         setStatus('error');
       } finally {
         setIsRequestInProgress(false);
@@ -249,14 +228,51 @@ const Matchmaking: React.FC = () => {
         console.log('🔄 Current matchData state:', currentMatchData);
         
         try {
-          // Check if we have a match and need to update payment status
-          if (currentMatchData && currentMatchData.matchId) {
+          // Always check for new matches first when in waiting status
+          if (statusRef.current === 'waiting' || !currentMatchData || !currentMatchData.matchId) {
+            // Check if we've been matched while waiting
+            console.log('🔄 Checking for new match...');
+            console.log('🔄 Checking for wallet:', publicKey.toString());
+            try {
+              const data = await api.checkPlayerMatch(publicKey.toString());
+              console.log('🔄 Check-match response:', data);
+              console.log('🔄 Response type:', typeof data);
+              console.log('🔄 Has matched property:', 'matched' in data);
+              console.log('🔄 Matched value:', data.matched);
+              
+              if (data.matched) {
+                console.log('🎯 Match found!', data);
+                console.log('🎯 Setting matchData to:', data);
+                
+                // Stop current polling
+                clearInterval(pollInterval);
+                setIsMatchmakingInProgress(false);
+                
+                // Set the match data
+                setMatchData(data);
+                matchDataRef.current = data; // Update ref to avoid closure issues
+                setStatus('payment_required');
+                
+                // Start new polling for status updates
+                console.log('🎯 Starting new polling for status updates');
+                setIsPolling(true);
+                startPolling();
+                return; // Exit early to restart polling with new match data
+              } else {
+                // No match found, continue waiting
+                console.log('⏳ Still waiting for match...');
+                console.log('⏳ Response data:', data);
+              }
+            } catch (error) {
+              console.error('❌ Error checking for match:', error);
+              console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
+            }
+          } else if (currentMatchData && currentMatchData.matchId) {
+            // Check payment status for existing match
             console.log('🔄 Polling for match status:', currentMatchData.matchId);
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${currentMatchData.matchId}?wallet=${publicKey.toString()}`);
-            
-            console.log('🔄 Response status:', response.status);
-            if (response.ok) {
-              const data = await response.json();
+            try {
+              const data = await api.getMatchStatus(currentMatchData.matchId);
+              
               console.log('🔄 Polling update:', data);
               console.log('🔄 Current matchData:', matchData);
               console.log('🔄 Checking conditions:', {
@@ -307,39 +323,8 @@ const Matchmaking: React.FC = () => {
                 console.log('⏳ Both players paid, waiting for game to start...');
                 setStatus('waiting_for_game');
               }
-            }
-          } else {
-            // Check if we've been matched while waiting
-            console.log('🔄 No matchData, checking for new match...');
-            const response = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/check-match/${publicKey.toString()}`);
-            
-            if (response.ok) {
-              const data = await response.json();
-              console.log('🔄 Check-match response:', data);
-              
-              if (data.matched) {
-                console.log('🎯 Match found!', data);
-                console.log('🎯 Setting matchData to:', data);
-                
-                // Stop current polling
-                clearInterval(pollInterval);
-                setIsMatchmakingInProgress(false);
-                
-                // Set the match data
-                setMatchData(data);
-                matchDataRef.current = data; // Update ref to avoid closure issues
-                setStatus('payment_required');
-                
-                // Start new polling for status updates
-                console.log('🎯 Starting new polling for status updates');
-                setIsPolling(true);
-                startPolling();
-              } else {
-                // No match found, continue waiting
-                console.log('⏳ Still waiting for match...');
-              }
-            } else {
-              console.error('❌ Error checking for match:', response.status, response.statusText);
+            } catch (error) {
+              console.error('❌ Error polling for match status:', error);
             }
           }
         } catch (error) {
@@ -380,6 +365,11 @@ const Matchmaking: React.FC = () => {
       setIsMatchmakingInProgress(false);
     };
   }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress, isPolling, isRequestInProgress, matchData, status]);
+
+  // Update status ref when status changes
+  useEffect(() => {
+    statusRef.current = status;
+  }, [status]);
 
   // Separate useEffect to manage countdown timer
   useEffect(() => {
