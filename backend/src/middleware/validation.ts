@@ -165,18 +165,10 @@ export const sanitizeInput = (input: string): string => {
   return input.replace(/[<>]/g, '').trim();
 };
 
-// Rate limiting helper with wallet-based limiting
+// Rate limiting helper with wallet-based limiting (commented out - using ReCaptcha instead)
 export const createRateLimiter = (windowMs: number, max: number, keyGenerator?: (req: RequestWithHeaders) => string) => {
-  const { rateLimit } = require('express-rate-limit');
-  return rateLimit({
-    windowMs,
-    max,
-    keyGenerator: keyGenerator || ((req: RequestWithHeaders) => {
-      // Use wallet address if available, otherwise fall back to IP
-      return req.body?.wallet || req.query?.wallet || (req as any).ip;
-    }),
-    message: 'Too many requests, please try again later',
-    standardHeaders: true,
-    legacyHeaders: false
-  });
+  // Rate limiting disabled - using ReCaptcha for protection
+  return (req: RequestWithHeaders, res: Response, next: any) => {
+    next();
+  };
 }; 

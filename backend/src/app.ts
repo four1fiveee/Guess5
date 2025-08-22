@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const rateLimit = require('express-rate-limit');
 const { initializeDatabase, AppDataSource } = require('./db/index');
 const { errorHandler, notFound, asyncHandler } = require('./middleware/errorHandler');
 const { validateMatchRequest, validateSubmitResult, validateSubmitGuess } = require('./middleware/validation');
