@@ -19,12 +19,19 @@ const Matchmaking: React.FC = () => {
   const [isPolling, setIsPolling] = useState<boolean>(false);
   const [isMatchmakingInProgress, setIsMatchmakingInProgress] = useState(false);
   const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
+  const [isPaymentInProgress, setIsPaymentInProgress] = useState<boolean>(false);
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
   const statusRef = useRef<string>('waiting');
 
   const handlePayment = async () => {
+    if (isPaymentInProgress) {
+      console.log('⚠️ Payment already in progress');
+      return;
+    }
+
+    setIsPaymentInProgress(true);
     if (!publicKey || !matchData) {
       console.error('❌ Missing publicKey or matchData');
       return;
@@ -113,6 +120,8 @@ const Matchmaking: React.FC = () => {
     } catch (error) {
       console.error('❌ Payment error:', error);
       alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    } finally {
+      setIsPaymentInProgress(false);
     }
   };
 
@@ -492,9 +501,14 @@ const Matchmaking: React.FC = () => {
               </div>
               <button
                 onClick={handlePayment}
-                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
+                disabled={isPaymentInProgress}
+                className={`font-bold py-2 px-4 rounded transition-colors ${
+                  isPaymentInProgress 
+                    ? 'bg-gray-500 cursor-not-allowed text-gray-300' 
+                    : 'bg-accent hover:bg-accent/80 text-white'
+                }`}
               >
-                Pay Entry Fee
+                {isPaymentInProgress ? 'Processing Payment...' : 'Pay Entry Fee'}
               </button>
             </div>
           )}

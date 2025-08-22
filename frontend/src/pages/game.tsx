@@ -48,8 +48,8 @@ const Game: React.FC = () => {
     const gameDuration = Math.max(1, endTime - startTime);
     
     // Ensure numGuesses matches the actual number of guesses made
-    // If the player solved the word, they must have made at least 1 guess
-    const actualNumGuesses = guesses.length > 0 ? guesses.length : 1;
+    // The backend validates this against server state, so it must be exact
+    const actualNumGuesses = guesses.length;
     
     // Remove reason field from result object - backend validation doesn't allow it
     const result = { 
@@ -120,8 +120,29 @@ const Game: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Error submitting result:', error);
-      // Fallback: show waiting state even if submission failed
+      
+      // If the error is due to guess count mismatch, try to fix it
+      if (error instanceof Error && error.message.includes('Guess count mismatch')) {
+        console.log('🔄 Attempting to fix guess count mismatch...');
+        // Wait a moment and try again with the correct count
+        setTimeout(() => {
+          handleGameEnd(won);
+        }, 1000);
+        return;
+      }
+      
+      // For other errors, show waiting state and try to continue
+      console.log('⚠️ Result submission failed, showing waiting state');
       setGameState('waiting');
+      
+      // Try to navigate to results page after a delay if we have payout data
+      setTimeout(() => {
+        const payoutData = localStorage.getItem('payoutData');
+        if (payoutData) {
+          console.log('📊 Found existing payout data, navigating to results');
+          router.push(`/result?matchId=${matchId}`);
+        }
+      }, 5000);
     }
   }, [publicKey, matchId, startTime, guesses, router, entryFee]);
 
@@ -440,7 +461,7 @@ const Game: React.FC = () => {
     setIsSubmittingGuess(true);
     setLastActivity(Date.now());
     
-    const submitGuessWithRetry = async (retryCount = 0): Promise<{ solved: boolean; totalGuesses: number } | null> => {
+    const submitGuessWithRetry = async (retryCount = 0): Promise<{ solved: boolean; totalGuesses: number; remainingGuesses: number } | null> => {
       try {
         // Submit guess to server with timeout
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -530,7 +551,7 @@ const Game: React.FC = () => {
         // Player solved the puzzle - submit result immediately
         handleGameEnd(true, 'solved');
         return; // Exit early to prevent further processing
-      } else if (result.totalGuesses >= 7) {
+      } else if (result.remainingGuesses === 0) {
         setGameState('solved');
         setTimerActive(false);
         // Player ran out of guesses, check if they solved earlier
@@ -608,13 +629,17 @@ const Game: React.FC = () => {
               {playerResult?.won ? '🎉 You solved it!' : '❌ Game Over'}
             </div>
             <div className="text-white text-lg mb-4">
-              Your Guesses: {playerResult?.numGuesses || 0}/7
+              Your Guesses: {playerResult?.numGuesses || guesses.length}/7
+              {playerResult?.numGuesses === 7 && ' (All guesses used)'}
             </div>
-            <div className="text-accent text-lg font-semibold">
+            <div className="text-accent text-lg font-semibold mb-4">
               ⏳ Waiting for opponent to finish...
             </div>
-            <div className="text-white/60 text-sm mt-2">
+            <div className="text-white/60 text-sm mb-4">
               Results will be available once both players complete the game
+            </div>
+            <div className="text-white/40 text-xs">
+              Processing your result... Please wait
             </div>
           </div>
         )}
