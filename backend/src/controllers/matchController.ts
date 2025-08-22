@@ -30,7 +30,7 @@ const activeGames = new Map<string, {
   matchId: string;
   lastActivity: number; // Track last activity for cleanup
   completed: boolean; // Track if game is completed
-  cleanupTimeout?: NodeJS.Timeout; // Add timeout reference
+  cleanupTimeout?: ReturnType<typeof setTimeout>; // Add timeout reference
 }>();
 
 // Matchmaking locks with improved race condition prevention

@@ -1,5 +1,6 @@
 import WebSocket from 'ws';
 import { Server } from 'http';
+import { URL } from 'url';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 // WebSocket event types

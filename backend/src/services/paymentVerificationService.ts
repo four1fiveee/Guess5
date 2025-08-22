@@ -249,7 +249,7 @@ class PaymentVerificationService {
         }
         return keyStr === feeWalletPublicKey.toBase58();
       });
-      const fromWalletIndex = accountKeys.findIndex(key => {
+      let fromWalletIndex = accountKeys.findIndex(key => {
         let keyStr: string;
         if (typeof key === 'string') {
           keyStr = key;
@@ -317,7 +317,7 @@ class PaymentVerificationService {
         }
         
         // Use the alternative index
-        const fromWalletIndex = fromWalletIndexAlt;
+        fromWalletIndex = fromWalletIndexAlt;
       }
 
       // For escrow payments, the fee wallet (escrow) should be the destination
@@ -377,20 +377,20 @@ class PaymentVerificationService {
 
       const transactionFee = transaction.meta?.fee || 0;
 
-             enhancedLogger.debug('🔍 Transaction balance analysis', {
-         feeWalletGain: feeWalletGain / 1000000000,
-         fromWalletLoss: fromWalletLoss / 1000000000,
-         transactionFee: transactionFee / 1000000000,
-         expectedAmount,
-         tolerance
-       });
+      enhancedLogger.debug('🔍 Transaction balance analysis', {
+        feeWalletGain: feeWalletGain / 1000000000,
+        fromWalletLoss: fromWalletLoss / 1000000000,
+        transactionFee: transactionFee / 1000000000,
+        expectedAmount,
+        tolerance
+      });
 
       // Verify payment amount
       const expectedAmountLamports = expectedAmount * 1000000000;
       const minExpectedGain = expectedAmountLamports - (tolerance * 1000000000);
 
-             if (feeWalletGain < minExpectedGain) {
-                return {
+      if (feeWalletGain < minExpectedGain) {
+        return {
           verified: false,
           error: 'Payment amount insufficient',
           details: {
@@ -401,7 +401,7 @@ class PaymentVerificationService {
             confirmationStatus: transaction.meta?.err ? 'failed' : 'confirmed'
           }
         };
-       }
+      }
 
       // Additional devnet-specific validations
       if (this.isDevnet) {
@@ -411,20 +411,20 @@ class PaymentVerificationService {
         }
       }
 
-                           return {
-          verified: true,
-          amount: feeWalletGain / 1000000000,
-          timestamp: transaction.blockTime || undefined,
-          slot: transaction.slot,
-          signature: signature,
-          details: {
-            feeWalletGain: feeWalletGain / 1000000000,
-            fromWalletLoss: fromWalletLoss / 1000000000,
-            transactionFee: transactionFee / 1000000000,
-            network: this.connection.rpcEndpoint,
-            confirmationStatus: transaction.meta?.err ? 'failed' : 'confirmed'
-          }
-        };
+      return {
+        verified: true,
+        amount: feeWalletGain / 1000000000,
+        timestamp: transaction.blockTime || undefined,
+        slot: transaction.slot,
+        signature: signature,
+        details: {
+          feeWalletGain: feeWalletGain / 1000000000,
+          fromWalletLoss: fromWalletLoss / 1000000000,
+          transactionFee: transactionFee / 1000000000,
+          network: this.connection.rpcEndpoint,
+          confirmationStatus: transaction.meta?.err ? 'failed' : 'confirmed'
+        }
+      };
 
     } catch (error) {
       enhancedLogger.error('❌ Transaction parsing failed', { error });
