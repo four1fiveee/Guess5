@@ -191,6 +191,12 @@ const Matchmaking: React.FC = () => {
           console.log('⏳ Player is waiting for match');
           setWaitingCount(data.waitingCount || 0);
           setStatus('waiting');
+          // Ensure polling starts after initial request returns 'waiting'
+          if (!isPolling) {
+            console.log('🔄 Starting polling after initial waiting response...');
+            setIsPolling(true);
+            startPolling();
+          }
         } else if (data.status === 'matched') {
           console.log('✅ Match found!');
           setMatchData(data);
@@ -214,6 +220,8 @@ const Matchmaking: React.FC = () => {
 
     const startPolling = () => {
       console.log('🔄 Starting polling for match updates...');
+      console.log('🔄 Current status:', status);
+      console.log('🔄 Current matchData:', matchDataRef.current);
       
       // Clear any existing interval first
       if (pollInterval) {
@@ -221,6 +229,7 @@ const Matchmaking: React.FC = () => {
       }
       
       pollInterval = setInterval(async () => {
+        console.log('🔄 Polling tick started...');
         console.log('🔄 Polling tick...');
         
         // Get the current matchData from ref to avoid closure issues
@@ -334,17 +343,22 @@ const Matchmaking: React.FC = () => {
         
         console.log('🔄 Polling tick completed, next tick in 2 seconds...');
       }, 2000);
+      
+      console.log('🔄 Polling interval set up with 2-second interval');
     };
 
     if (!matchDataRef.current || !matchDataRef.current.matchId) {
+      console.log('🎮 Starting initial matchmaking...');
       startMatchmaking();
       if (!isPolling) {
+        console.log('🔄 Starting polling for new matches...');
         setIsPolling(true);
         startPolling();
       }
     } else {
       // If we already have matchData, start polling for status updates
       if (!isPolling) {
+        console.log('🔄 Starting polling for status updates...');
         setIsPolling(true);
         startPolling();
       }
@@ -352,9 +366,12 @@ const Matchmaking: React.FC = () => {
     
     // 2-minute timeout
     timeoutId = setTimeout(() => {
+      console.log('⏰ 2-minute timeout reached, status:', status);
       if (status === 'waiting') {
+        console.log('⏰ No opponents found after 2 minutes. Returning to lobby...');
         setTimeoutMessage('No opponents found after 2 minutes. Returning to lobby...');
         clearInterval(pollInterval);
+        setIsPolling(false);
         setTimeout(() => router.push('/lobby'), 3000);
       }
     }, 120000);
@@ -365,6 +382,18 @@ const Matchmaking: React.FC = () => {
       setIsMatchmakingInProgress(false);
     };
   }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress, isPolling, isRequestInProgress, matchData, status]);
+
+  // Debug useEffect to track state changes
+  useEffect(() => {
+    console.log('🔍 State change detected:', {
+      status,
+      isPolling,
+      isMatchmakingInProgress,
+      isRequestInProgress,
+      hasMatchData: !!matchDataRef.current,
+      matchData: matchDataRef.current
+    });
+  }, [status, isPolling, isMatchmakingInProgress, isRequestInProgress]);
 
   // Update status ref when status changes
   useEffect(() => {

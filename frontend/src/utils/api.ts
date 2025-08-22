@@ -110,9 +110,17 @@ export const getMatchStatus = async (matchId: string) => {
 };
 
 export const checkPlayerMatch = async (wallet: string) => {
-  return apiRequest(`/api/match/check-match/${wallet}`, {
-    method: 'GET',
-  }, false);
+  console.log('🔍 API: checkPlayerMatch called for wallet:', wallet);
+  try {
+    const result = await apiRequest(`/api/match/check-match/${wallet}`, {
+      method: 'GET',
+    }, false);
+    console.log('🔍 API: checkPlayerMatch result:', result);
+    return result;
+  } catch (error) {
+    console.error('🔍 API: checkPlayerMatch error:', error);
+    throw error;
+  }
 };
 
 export const getGameState = async (matchId: string, wallet: string) => {
