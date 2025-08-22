@@ -386,7 +386,7 @@ const Matchmaking: React.FC = () => {
       clearInterval(countdownInterval);
       setIsMatchmakingInProgress(false);
     };
-  }, [publicKey, router, signTransaction]);
+  }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress, isPolling, isRequestInProgress, matchData]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">

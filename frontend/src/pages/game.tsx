@@ -32,6 +32,93 @@ const Game: React.FC = () => {
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
   const [startTime, setStartTime] = useState<number>(0);
 
+  // handleGameEnd with correct totalTime and immediate navigation for specific reasons
+  const handleGameEnd = useCallback(async (won: boolean, reason?: string) => {
+    console.log('🏁 handleGameEnd called with:', { won, reason, publicKey: publicKey?.toString(), matchId });
+    if (!publicKey || !matchId) {
+      console.log('❌ Missing publicKey or matchId, returning early');
+      return;
+    }
+    setTimerActive(false);
+    
+    // Calculate time with millisecond precision for tie-breaking
+    const endTime = Date.now();
+    const gameDuration = Math.max(1, endTime - startTime);
+    
+    // Remove reason field from result object - backend validation doesn't allow it
+    const result = { 
+      won, 
+      numGuesses: guesses.length, 
+      totalTime: gameDuration, 
+      guesses 
+    };
+    
+    setPlayerResult(result);
+    console.log('🏁 Game ended:', result);
+    
+    // Submit result to backend and wait for response to get payout data
+    try {
+      console.log('📤 Submitting result to backend:', { matchId, wallet: publicKey?.toString(), result });
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ matchId, wallet: publicKey?.toString() || '', result }),
+      });
+      
+      const data = await response.json();
+      console.log('📝 Backend result submitted:', data);
+      
+      if (!response.ok) {
+        console.error('❌ Backend returned error:', data);
+        throw new Error(data.error || 'Failed to submit result');
+      }
+      
+      // If the game is completed, store payout data and navigate
+      if (data.status === 'completed' && data.payout) {
+        console.log('💰 Storing payout data:', data.payout);
+        
+        // Create payout data object for localStorage
+        const payoutData = {
+          won: data.winner === publicKey?.toString(),
+          isTie: data.winner === 'tie',
+          winner: data.winner,
+          numGuesses: result.numGuesses,
+          entryFee: 0.1104, // This should come from the match data
+          timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
+          opponentTimeElapsed: 'N/A', // This should come from opponent's result
+          winnerAmount: data.payout.paymentInstructions?.winnerAmount || 0,
+          feeAmount: data.payout.paymentInstructions?.feeAmount || 0,
+          feeWallet: data.payout.paymentInstructions?.feeWallet || '',
+          transactions: data.payout.paymentInstructions?.transactions || [],
+          automatedPayout: data.payout.automatedPayout || false,
+          payoutSignature: data.payout.payoutSignature || null
+        };
+        
+        // Store payout data in localStorage
+        localStorage.setItem('payoutData', JSON.stringify(payoutData));
+        console.log('✅ Payout data stored in localStorage');
+        
+        // Navigate to results page
+        console.log('🏆 Game completed, navigating to results page');
+        router.push(`/result?matchId=${matchId}`);
+      } else if (data.status === 'waiting') {
+        // Game is still waiting for other player, show waiting state
+        console.log('⏳ Waiting for other player to finish');
+        setGameState('waiting');
+        // Don't navigate to results yet - stay on this page and show waiting message
+      } else {
+        // Fallback: show waiting state
+        console.log('⚠️ Unexpected response, showing waiting state');
+        setGameState('waiting');
+      }
+    } catch (error) {
+      console.error('❌ Error submitting result:', error);
+      // Fallback: show waiting state even if submission failed
+      setGameState('waiting');
+    }
+  }, [publicKey, matchId, startTime, guesses, router]);
+
   // Memoize fetchGameState to avoid dependency issues
   const memoizedFetchGameState = useCallback(async () => {
     if (!matchId || !publicKey) return;
@@ -133,7 +220,7 @@ const Game: React.FC = () => {
       }
       // Don't show error to user for polling failures, just log them
     }
-  }, [matchId, publicKey, opponentSolved, gameState, router, startTime]);
+  }, [matchId, publicKey, opponentSolved, gameState, router, startTime, playerResult, handleGameEnd]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -250,7 +337,7 @@ const Game: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timerActive, gameState]);
+  }, [timerActive, gameState, handleGameEnd]);
 
   // Start timer when game begins
   useEffect(() => {
@@ -299,14 +386,14 @@ const Game: React.FC = () => {
     }, 30000); // Check every 30 seconds
 
     return () => clearInterval(checkTimeout);
-  }, [lastActivity, gameState]);
+  }, [lastActivity, gameState, handleGameEnd]);
 
   // Handle opponent solved state change
   useEffect(() => {
     if (opponentSolved && gameState === 'playing') {
       handleGameEnd(false, 'opponent_solved');
     }
-  }, [opponentSolved, gameState]);
+  }, [opponentSolved, gameState, handleGameEnd]);
 
   const handleGuess = async (guess: string) => {
     if (gameState !== 'playing' || isSubmittingGuess || playerSolved) return;
@@ -321,7 +408,7 @@ const Game: React.FC = () => {
     setIsSubmittingGuess(true);
     setLastActivity(Date.now());
     
-    const submitGuessWithRetry = async (retryCount = 0): Promise<void> => {
+    const submitGuessWithRetry = async (retryCount = 0): Promise<{ solved: boolean; totalGuesses: number } | null> => {
       try {
         // Submit guess to server with timeout
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
@@ -364,25 +451,7 @@ const Game: React.FC = () => {
         // Immediately fetch updated game state
         await memoizedFetchGameState();
         
-        if (data.solved) {
-          setGameState('solved');
-          setPlayerSolved(true);
-          setTimerActive(false);
-          // Player solved the puzzle - submit result immediately
-          // Prevent further guesses by setting a flag
-          setIsSubmittingGuess(true);
-          handleGameEnd(true, 'solved');
-          return; // Exit early to prevent further processing
-        } else if (data.totalGuesses >= 7) {
-          setGameState('solved');
-          setTimerActive(false);
-          // Player ran out of guesses, check if they solved earlier
-          if (playerSolved) {
-            handleGameEnd(true, 'solved');
-          } else {
-            handleGameEnd(false, 'out_of_guesses');
-          }
-        }
+        return data;
         
       } catch (error) {
         console.error(`❌ Error submitting guess (attempt ${retryCount + 1}):`, error);
@@ -410,90 +479,39 @@ const Game: React.FC = () => {
         
         // Clear error after 5 seconds
         setTimeout(() => setError(null), 5000);
+        return null;
       } finally {
         setIsSubmittingGuess(false);
       }
     };
     
-    await submitGuessWithRetry();
-  };
-
-  // handleGameEnd with correct totalTime and immediate navigation for specific reasons
-  const handleGameEnd = async (won: boolean, reason?: string) => {
-    if (!publicKey || !matchId) return;
-    setTimerActive(false);
+    const result = await submitGuessWithRetry();
     
-    // Calculate time with millisecond precision for tie-breaking
-    const endTime = Date.now();
-    const gameDuration = Math.max(1, endTime - startTime);
-    
-    // Remove reason field from result object - backend validation doesn't allow it
-    const result = { 
-      won, 
-      numGuesses: guesses.length, 
-      totalTime: gameDuration, 
-      guesses 
-    };
-    
-    setPlayerResult(result);
-    console.log('🏁 Game ended:', result);
-    
-    // Submit result to backend and wait for response to get payout data
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId, wallet: publicKey?.toString() || '', result }),
-      });
-      
-      const data = await response.json();
-      console.log('📝 Backend result submitted:', data);
-      
-      // If the game is completed, store payout data and navigate
-      if (data.status === 'completed' && data.payout) {
-        console.log('💰 Storing payout data:', data.payout);
-        
-        // Create payout data object for localStorage
-        const payoutData = {
-          won: data.winner === publicKey?.toString(),
-          isTie: data.winner === 'tie',
-          winner: data.winner,
-          numGuesses: result.numGuesses,
-          entryFee: 0.1104, // This should come from the match data
-          timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
-          opponentTimeElapsed: 'N/A', // This should come from opponent's result
-          winnerAmount: data.payout.paymentInstructions?.winnerAmount || 0,
-          feeAmount: data.payout.paymentInstructions?.feeAmount || 0,
-          feeWallet: data.payout.paymentInstructions?.feeWallet || '',
-          transactions: data.payout.paymentInstructions?.transactions || [],
-          automatedPayout: data.payout.automatedPayout || false,
-          payoutSignature: data.payout.payoutSignature || null
-        };
-        
-        // Store payout data in localStorage
-        localStorage.setItem('payoutData', JSON.stringify(payoutData));
-        console.log('✅ Payout data stored in localStorage');
-        
-        // Navigate to results page
-        console.log('🏆 Game completed, navigating to results page');
-        router.push(`/result?matchId=${matchId}`);
-      } else if (data.status === 'waiting') {
-        // Game is still waiting for other player, show waiting state
-        console.log('⏳ Waiting for other player to finish');
-        setGameState('waiting');
-        // Don't navigate to results yet - stay on this page and show waiting message
-      } else {
-        // Fallback: show waiting state
-        console.log('⚠️ Unexpected response, showing waiting state');
-        setGameState('waiting');
+    // Handle the result after the guess submission is complete
+    if (result) {
+      console.log('🎯 Processing guess result:', result);
+      if (result.solved) {
+        console.log('🎉 Player solved the word! Submitting result immediately...');
+        setGameState('solved');
+        setPlayerSolved(true);
+        setTimerActive(false);
+        // Player solved the puzzle - submit result immediately
+        handleGameEnd(true, 'solved');
+        return; // Exit early to prevent further processing
+      } else if (result.totalGuesses >= 7) {
+        setGameState('solved');
+        setTimerActive(false);
+        // Player ran out of guesses, check if they solved earlier
+        if (playerSolved) {
+          handleGameEnd(true, 'solved');
+        } else {
+          handleGameEnd(false, 'out_of_guesses');
+        }
       }
-    } catch (error) {
-      console.error('❌ Error submitting result:', error);
-      // Fallback: show waiting state even if submission failed
-      setGameState('waiting');
     }
   };
+
+
 
   // Format time remaining as MM:SS
   const formatTime = (seconds: number) => {

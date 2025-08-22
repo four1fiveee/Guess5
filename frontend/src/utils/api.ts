@@ -121,7 +121,7 @@ export const getGameState = async (matchId: string, wallet: string) => {
   }, false);
 };
 
-export default {
+const api = {
   requestMatch,
   submitResult,
   submitGuess,
@@ -129,4 +129,6 @@ export default {
   getMatchStatus,
   checkPlayerMatch,
   getGameState,
-}; 
+};
+
+export default api; 
