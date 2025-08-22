@@ -3,7 +3,7 @@ const cors = require('cors');
 const rateLimit = require('express-rate-limit');
 const { initializeDatabase, AppDataSource } = require('./db/index');
 const { errorHandler, notFound, asyncHandler } = require('./middleware/errorHandler');
-const { validateMatchRequest, validateSubmitResult, validateSubmitGuess, validateEscrow } = require('./middleware/validation');
+const { validateMatchRequest, validateSubmitResult, validateSubmitGuess } = require('./middleware/validation');
 const { deduplicateRequests } = require('./middleware/deduplication');
 const matchRoutes = require('./routes/matchRoutes');
 const guessRoutes = require('./routes/guessRoutes');
@@ -91,13 +91,7 @@ app.options('*', (req, res) => {
 // Apply deduplication middleware
 app.use(deduplicateRequests);
 
-// Rate limiting removed - ReCaptcha provides sufficient protection
-// const { createRateLimiter: createWalletRateLimiter } = require('./middleware/validation');
 
-// Wallet-based rate limiters (commented out)
-// const appWalletMatchmakingLimiter = createWalletRateLimiter(30 * 1000, 500);
-// const appWalletGameLimiter = createWalletRateLimiter(60 * 1000, 1000);
-// const appWalletResultLimiter = createWalletRateLimiter(60 * 1000, 200);
 
 // IP-based fallback rate limiters (commented out)
 // const ipMatchmakingLimiter = rateLimit({

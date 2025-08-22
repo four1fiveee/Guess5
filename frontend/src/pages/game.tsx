@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import GameGrid from '../components/GameGrid';
@@ -15,8 +15,7 @@ const Game: React.FC = () => {
   const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed'>('playing');
   const [playerSolved, setPlayerSolved] = useState(false);
   const [playerResult, setPlayerResult] = useState<any>(null);
-  const [opponentResult, setOpponentResult] = useState<any>(null);
-  const [finalResult, setFinalResult] = useState<any>(null);
+
   const [matchId, setMatchId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -29,8 +28,11 @@ const Game: React.FC = () => {
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
+
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
   const [startTime, setStartTime] = useState<number>(0);
+  const handleGameEndRef = useRef<typeof handleGameEnd>();
+  const memoizedFetchGameStateRef = useRef<typeof memoizedFetchGameState>();
 
   // handleGameEnd with correct totalTime and immediate navigation for specific reasons
   const handleGameEnd = useCallback(async (won: boolean, reason?: string) => {
@@ -45,10 +47,14 @@ const Game: React.FC = () => {
     const endTime = Date.now();
     const gameDuration = Math.max(1, endTime - startTime);
     
+    // Ensure numGuesses matches the actual number of guesses made
+    // If the player solved the word, they must have made at least 1 guess
+    const actualNumGuesses = guesses.length > 0 ? guesses.length : 1;
+    
     // Remove reason field from result object - backend validation doesn't allow it
     const result = { 
       won, 
-      numGuesses: guesses.length, 
+      numGuesses: actualNumGuesses, 
       totalTime: gameDuration, 
       guesses 
     };
@@ -84,7 +90,7 @@ const Game: React.FC = () => {
           isTie: data.winner === 'tie',
           winner: data.winner,
           numGuesses: result.numGuesses,
-          entryFee: 0.1104, // This should come from the match data
+          entryFee: entryFee, // Use the actual entry fee from match data
           timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
           opponentTimeElapsed: 'N/A', // This should come from opponent's result
           winnerAmount: data.payout.paymentInstructions?.winnerAmount || 0,
@@ -117,7 +123,12 @@ const Game: React.FC = () => {
       // Fallback: show waiting state even if submission failed
       setGameState('waiting');
     }
-  }, [publicKey, matchId, startTime, guesses, router]);
+  }, [publicKey, matchId, startTime, guesses, router, entryFee]);
+
+  // Update the ref whenever handleGameEnd changes
+  useEffect(() => {
+    handleGameEndRef.current = handleGameEnd;
+  }, [handleGameEnd]);
 
   // Memoize fetchGameState to avoid dependency issues
   const memoizedFetchGameState = useCallback(async () => {
@@ -133,13 +144,29 @@ const Game: React.FC = () => {
         signal: controller.signal
       });
       
-      clearTimeout(timeoutId);
+            clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
         console.log('🔄 Fetched game state:', data);
         
+        if (!data.success) {
+          console.error('❌ Game state fetch failed:', data.error);
+          setNetworkStatus('disconnected');
+          return;
+        }
+        
+        setNetworkStatus('connected');
+        
         // Update local state with server data
+        console.log('🔄 Updating game state with server data:', {
+          playerGuesses: data.playerGuesses,
+          remainingGuesses: data.remainingGuesses,
+          targetWord: data.targetWord,
+          solved: data.solved,
+          gameActive: data.gameActive,
+          gameCompleted: data.gameCompleted
+        });
         setGuesses(data.playerGuesses || []);
         setRemainingGuesses(data.remainingGuesses || 7);
         setTargetWord(data.targetWord || '');
@@ -175,7 +202,7 @@ const Game: React.FC = () => {
                   isTie: matchData.winner === 'tie',
                   winner: matchData.winner,
                   numGuesses: playerResult?.numGuesses || 0,
-                  entryFee: matchData.entryFee || 0.1104,
+                  entryFee: matchData.entryFee || entryFee,
                   timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
                   opponentTimeElapsed: 'N/A',
                   winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
@@ -220,7 +247,12 @@ const Game: React.FC = () => {
       }
       // Don't show error to user for polling failures, just log them
     }
-  }, [matchId, publicKey, opponentSolved, gameState, router, startTime, playerResult, handleGameEnd]);
+  }, [matchId, publicKey, opponentSolved, gameState, router, startTime, playerResult, handleGameEnd, entryFee]);
+
+  // Update the ref whenever memoizedFetchGameState changes
+  useEffect(() => {
+    memoizedFetchGameStateRef.current = memoizedFetchGameState;
+  }, [memoizedFetchGameState]);
 
   useEffect(() => {
     if (!publicKey) {
@@ -288,7 +320,7 @@ const Game: React.FC = () => {
         setEntryFee(matchData.entryFee || 0);
 
         // Fetch initial game state
-        await memoizedFetchGameState();
+        await memoizedFetchGameStateRef.current?.();
 
         setLastActivity(Date.now());
         setLoading(false);
@@ -301,7 +333,7 @@ const Game: React.FC = () => {
     };
 
     initializeGame();
-  }, [publicKey, router, memoizedFetchGameState]);
+  }, [publicKey, router, entryFee]);
 
   // Update activity tracking
   useEffect(() => {
@@ -329,7 +361,7 @@ const Game: React.FC = () => {
       setTimeRemaining(prev => {
         if (prev <= 1) {
           clearInterval(timer);
-          handleGameEnd(false, 'timeout');
+          handleGameEndRef.current?.(false, 'timeout');
           return 0;
         }
         return prev - 1;
@@ -337,7 +369,7 @@ const Game: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timerActive, gameState, handleGameEnd]);
+  }, [timerActive, gameState]);
 
   // Start timer when game begins
   useEffect(() => {
@@ -355,7 +387,7 @@ const Game: React.FC = () => {
 
     const pollInterval = setInterval(async () => {
       try {
-        await memoizedFetchGameState();
+        await memoizedFetchGameStateRef.current?.();
         retryCount = 0; // Reset retry count on success
       } catch (error) {
         retryCount++;
@@ -367,10 +399,10 @@ const Game: React.FC = () => {
           retryCount = 0; // Reset for next cycle
         }
       }
-    }, 12000); // Poll every 12 seconds
+    }, 30000); // Poll every 30 seconds
 
     return () => clearInterval(pollInterval);
-  }, [matchId, gameState, publicKey, memoizedFetchGameState]);
+  }, [matchId, gameState, publicKey]);
 
   // Check for inactivity timeout (5 minutes)
   useEffect(() => {
@@ -381,19 +413,19 @@ const Game: React.FC = () => {
 
       if (inactiveTime > timeoutMs && gameState === 'playing') {
         console.log('⏰ Player inactive for too long, auto-losing');
-        handleGameEnd(false, 'timeout');
+        handleGameEndRef.current?.(false, 'timeout');
       }
     }, 30000); // Check every 30 seconds
 
     return () => clearInterval(checkTimeout);
-  }, [lastActivity, gameState, handleGameEnd]);
+  }, [lastActivity, gameState]);
 
   // Handle opponent solved state change
   useEffect(() => {
     if (opponentSolved && gameState === 'playing') {
-      handleGameEnd(false, 'opponent_solved');
+      handleGameEndRef.current?.(false, 'opponent_solved');
     }
-  }, [opponentSolved, gameState, handleGameEnd]);
+  }, [opponentSolved, gameState]);
 
   const handleGuess = async (guess: string) => {
     if (gameState !== 'playing' || isSubmittingGuess || playerSolved) return;
@@ -449,7 +481,7 @@ const Game: React.FC = () => {
         await new Promise(resolve => setTimeout(resolve, 500));
         
         // Immediately fetch updated game state
-        await memoizedFetchGameState();
+        await memoizedFetchGameStateRef.current?.();
         
         return data;
         
@@ -617,7 +649,7 @@ const Game: React.FC = () => {
         {gameState === 'completed' && (
           <div className="text-center mb-6">
             <div className="text-2xl font-bold text-accent mb-2">
-              {finalResult?.won ? '🏆 You won!' : '😔 You lost'}
+              {playerResult?.won ? '🏆 You won!' : '😔 You lost'}
             </div>
             <div className="text-white text-lg">
               Processing payment...

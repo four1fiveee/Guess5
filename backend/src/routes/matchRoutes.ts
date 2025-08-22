@@ -4,10 +4,8 @@ const matchController = require('../controllers/matchController');
 const { 
   validateMatchRequest: validateMatch, 
   validateSubmitResult: validateResult, 
-  validateEscrow: validateEscrowData,
   validateConfirmPayment: validateConfirmPaymentData,
-  validateReCaptcha,
-  // createRateLimiter
+  validateReCaptcha
 } = require('../middleware/validation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
@@ -76,10 +74,7 @@ router.get('/game-state',
   asyncHandlerWrapper(matchController.getGameStateHandler)
 );
 
-// Legacy endpoints (kept for compatibility)
-router.post('/confirm-escrow', validateEscrowData, asyncHandlerWrapper(matchController.confirmEscrowHandler));
-router.post('/execute-payment', asyncHandlerWrapper(matchController.executePaymentHandler));
-router.post('/create-escrow-transaction', asyncHandlerWrapper(matchController.createEscrowTransactionHandler));
+
 
 // Cleanup endpoints (admin only)
 router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanupStuckMatchesHandler));

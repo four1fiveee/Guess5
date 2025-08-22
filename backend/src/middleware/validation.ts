@@ -19,7 +19,7 @@ const submitResultSchema = Joi.object({
   wallet: Joi.string().pattern(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).required(),
   result: Joi.object({
     won: Joi.boolean().required(),
-    numGuesses: Joi.number().integer().min(1).max(7).required(),
+    numGuesses: Joi.number().integer().min(0).max(7).required(),
     totalTime: Joi.number().positive().max(300000).required(), // 5 minutes max
     guesses: Joi.array().items(Joi.string().pattern(/^[A-Z]{5}$/)).max(7).required(),
     reason: Joi.string().optional() // Allow reason field for game completion tracking

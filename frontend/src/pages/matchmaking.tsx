@@ -20,8 +20,7 @@ const Matchmaking: React.FC = () => {
   const [isMatchmakingInProgress, setIsMatchmakingInProgress] = useState(false);
   const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
   
-  const hasInitialized = useRef(false);
-  const isStartMatchmakingRunning = useRef(false);
+
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
@@ -125,11 +124,7 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
-    if (hasInitialized.current) {
-      return;
-    }
 
-    hasInitialized.current = true;
 
     if (isMatchmakingInProgress) {
       return;
