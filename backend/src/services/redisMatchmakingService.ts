@@ -20,7 +20,7 @@ export interface Match {
 }
 
 export class RedisMatchmakingService {
-  private redis: ReturnType<typeof getRedisMM>;
+  private redis: ReturnType<typeof getRedisMM> | null = null;
   
   // Key prefixes for Redis
   private readonly WAITING_PLAYERS_KEY = 'mm:waiting';
@@ -28,9 +28,23 @@ export class RedisMatchmakingService {
   private readonly PLAYER_MATCH_KEY = 'mm:player:';
   private readonly MATCH_EXPIRY = 300; // 5 minutes
   private readonly PLAYER_EXPIRY = 120; // 2 minutes
+  private initialized = false;
 
   constructor() {
-    this.redis = getRedisMM();
+    // Don't initialize immediately - wait for Redis to be ready
+  }
+
+  private async ensureInitialized() {
+    if (this.initialized && this.redis) return;
+
+    try {
+      this.redis = getRedisMM();
+      this.initialized = true;
+      enhancedLogger.info('✅ Redis matchmaking service initialized successfully');
+    } catch (error) {
+      enhancedLogger.error('❌ Error initializing Redis matchmaking service:', error);
+      throw error;
+    }
   }
 
   /**
@@ -38,6 +52,12 @@ export class RedisMatchmakingService {
    */
   async addPlayerToQueue(wallet: string, entryFee: number): Promise<{ status: 'waiting' | 'matched'; matchId?: string; waitingCount?: number }> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       const player: MatchmakingPlayer = {
         wallet,
         entryFee,
@@ -55,8 +75,8 @@ export class RedisMatchmakingService {
       await this.removePlayerFromQueue(wallet);
 
       // Add player to waiting queue
-      await this.redis.hset(this.WAITING_PLAYERS_KEY, wallet, JSON.stringify(player));
-      await this.redis.expire(this.WAITING_PLAYERS_KEY, this.PLAYER_EXPIRY);
+      await this.redis!.hset(this.WAITING_PLAYERS_KEY, wallet, JSON.stringify(player));
+      await this.redis!.expire(this.WAITING_PLAYERS_KEY, this.PLAYER_EXPIRY);
 
       // Look for a matching player
       const match = await this.findMatch(wallet, entryFee);
@@ -74,14 +94,14 @@ export class RedisMatchmakingService {
         };
 
         // Store match data
-        await this.redis.hset(this.MATCHES_KEY, matchId, JSON.stringify(matchData));
-        await this.redis.expire(`${this.MATCHES_KEY}:${matchId}`, this.MATCH_EXPIRY);
+        await this.redis!.hset(this.MATCHES_KEY, matchId, JSON.stringify(matchData));
+        await this.redis!.expire(`${this.MATCHES_KEY}:${matchId}`, this.MATCH_EXPIRY);
 
         // Update player records with match ID
-        await this.redis.hset(this.PLAYER_MATCH_KEY + match.player1, 'matchId', matchId);
-        await this.redis.hset(this.PLAYER_MATCH_KEY + wallet, 'matchId', matchId);
-        await this.redis.expire(this.PLAYER_MATCH_KEY + match.player1, this.MATCH_EXPIRY);
-        await this.redis.expire(this.PLAYER_MATCH_KEY + wallet, this.MATCH_EXPIRY);
+        await this.redis!.hset(this.PLAYER_MATCH_KEY + match.player1, 'matchId', matchId);
+        await this.redis!.hset(this.PLAYER_MATCH_KEY + wallet, 'matchId', matchId);
+        await this.redis!.expire(this.PLAYER_MATCH_KEY + match.player1, this.MATCH_EXPIRY);
+        await this.redis!.expire(this.PLAYER_MATCH_KEY + wallet, this.MATCH_EXPIRY);
 
         // Remove both players from waiting queue
         await this.removePlayerFromQueue(match.player1);
@@ -107,6 +127,12 @@ export class RedisMatchmakingService {
    */
   private async findMatch(wallet: string, entryFee: number): Promise<{ player1: string } | null> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       const waitingPlayers = await this.redis.hgetall(this.WAITING_PLAYERS_KEY);
       
       for (const [waitingWallet, playerData] of Object.entries(waitingPlayers)) {
@@ -136,6 +162,12 @@ export class RedisMatchmakingService {
    */
   async getMatch(matchId: string): Promise<Match | null> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       const matchData = await this.redis.hget(this.MATCHES_KEY, matchId);
       if (!matchData) return null;
       
@@ -151,6 +183,12 @@ export class RedisMatchmakingService {
    */
   async getPlayerMatch(wallet: string): Promise<{ matchId: string } | null> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       const matchId = await this.redis.hget(this.PLAYER_MATCH_KEY + wallet, 'matchId');
       if (!matchId) return null;
       
@@ -166,6 +204,12 @@ export class RedisMatchmakingService {
    */
   async updateMatchStatus(matchId: string, status: Match['status'], updates?: Partial<Match>): Promise<void> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       const match = await this.getMatch(matchId);
       if (!match) {
         throw new Error(`Match ${matchId} not found`);
@@ -186,6 +230,12 @@ export class RedisMatchmakingService {
    */
   async removePlayerFromQueue(wallet: string): Promise<void> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       await this.redis.hdel(this.WAITING_PLAYERS_KEY, wallet);
     } catch (error) {
       enhancedLogger.error('❌ Error removing player from queue:', error);
@@ -197,6 +247,12 @@ export class RedisMatchmakingService {
    */
   async getWaitingCount(): Promise<number> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       return await this.redis.hlen(this.WAITING_PLAYERS_KEY);
     } catch (error) {
       enhancedLogger.error('❌ Error getting waiting count:', error);
@@ -209,6 +265,12 @@ export class RedisMatchmakingService {
    */
   async cleanup(): Promise<void> {
     try {
+      await this.ensureInitialized();
+      
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
       const waitingPlayers = await this.redis.hgetall(this.WAITING_PLAYERS_KEY);
       const now = Date.now();
       
