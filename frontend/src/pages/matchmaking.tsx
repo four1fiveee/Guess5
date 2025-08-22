@@ -20,8 +20,6 @@ const Matchmaking: React.FC = () => {
   const [isMatchmakingInProgress, setIsMatchmakingInProgress] = useState(false);
   const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
   
-
-  
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
   const statusRef = useRef<string>('waiting');
@@ -124,95 +122,22 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
-
-
+    // Prevent multiple initializations
     if (isMatchmakingInProgress) {
       return;
     }
 
+    // If we already have match data, don't start matchmaking again
     if (matchData && matchData.matchId) {
       return;
     }
 
     setIsMatchmakingInProgress(true);
 
-    // Get entry fee from URL parameters
-    const urlEntryFee = router.query.entryFee as string;
-    if (urlEntryFee) {
-      const entryFeeAmount = parseFloat(urlEntryFee);
-      setEntryFee(entryFeeAmount);
-      localStorage.setItem('entryFeeSOL', entryFeeAmount.toString());
-    } else {
-      const storedEntryFee = localStorage.getItem('entryFeeSOL');
-      if (storedEntryFee) {
-        setEntryFee(parseFloat(storedEntryFee));
-      }
-    }
-
     let pollInterval: NodeJS.Timeout;
     let timeoutId: NodeJS.Timeout;
 
-    const startMatchmaking = async () => {
-      if (!publicKey || isRequestInProgress) return;
-
-      // Get entry fee from URL parameters or localStorage
-      let currentEntryFee = entryFee;
-      const urlEntryFee = router.query.entryFee as string;
-      if (urlEntryFee) {
-        currentEntryFee = parseFloat(urlEntryFee);
-      } else {
-        const storedEntryFee = localStorage.getItem('entryFeeSOL');
-        if (storedEntryFee) {
-          currentEntryFee = parseFloat(storedEntryFee);
-        }
-      }
-
-      if (!currentEntryFee || currentEntryFee <= 0) {
-        console.error('❌ No valid entry fee found');
-        setStatus('error');
-        return;
-      }
-
-      setIsRequestInProgress(true);
-      
-      try {
-        console.log('🎮 Starting matchmaking request for wallet:', publicKey.toString());
-        console.log('🎮 Entry fee:', currentEntryFee);
-        const data = await api.requestMatch(publicKey.toString(), currentEntryFee);
-        console.log('🎮 Matchmaking response:', data);
-        console.log('🎮 Response status:', data.status);
-
-        if (data.status === 'waiting') {
-          console.log('⏳ Player is waiting for match');
-          setWaitingCount(data.waitingCount || 0);
-          setStatus('waiting');
-          // Ensure polling starts after initial request returns 'waiting'
-          if (!isPolling) {
-            console.log('🔄 Starting polling after initial waiting response...');
-            setIsPolling(true);
-            startPolling();
-          }
-        } else if (data.status === 'matched') {
-          console.log('✅ Match found!');
-          setMatchData(data);
-          setStatus('payment_required');
-          clearInterval(pollInterval);
-          clearTimeout(timeoutId);
-          setIsPolling(false);
-          setIsMatchmakingInProgress(false);
-        } else if (data.error) {
-          console.log('⚠️ Matchmaking error:', data.error);
-          setStatus('error');
-        }
-      } catch (error) {
-        console.error('❌ Matchmaking error:', error);
-        console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
-        setStatus('error');
-      } finally {
-        setIsRequestInProgress(false);
-      }
-    };
-
+    // Define startPolling function FIRST to avoid declaration order issues
     const startPolling = () => {
       console.log('🔄 Starting polling for match updates...');
       console.log('🔄 Current status:', status);
@@ -225,7 +150,6 @@ const Matchmaking: React.FC = () => {
       
       pollInterval = setInterval(async () => {
         console.log('🔄 Polling tick started...');
-        console.log('🔄 Polling tick...');
         
         // Get the current matchData from ref to avoid closure issues
         const currentMatchData = matchDataRef.current;
@@ -342,6 +266,114 @@ const Matchmaking: React.FC = () => {
       console.log('🔄 Polling interval set up with 2-second interval');
     };
 
+    // Define startMatchmaking function AFTER startPolling
+    const startMatchmaking = async () => {
+      if (!publicKey || isRequestInProgress) return;
+
+      // Get entry fee from URL parameters or localStorage
+      let currentEntryFee = entryFee;
+      const urlEntryFee = router.query.entryFee as string;
+      if (urlEntryFee) {
+        currentEntryFee = parseFloat(urlEntryFee);
+      } else {
+        const storedEntryFee = localStorage.getItem('entryFeeSOL');
+        if (storedEntryFee) {
+          currentEntryFee = parseFloat(storedEntryFee);
+        }
+      }
+
+      if (!currentEntryFee || currentEntryFee <= 0) {
+        console.error('❌ No valid entry fee found');
+        setStatus('error');
+        return;
+      }
+
+      setIsRequestInProgress(true);
+      
+      try {
+        console.log('🎮 Starting matchmaking request for wallet:', publicKey.toString());
+        console.log('🎮 Entry fee:', currentEntryFee);
+        const data = await api.requestMatch(publicKey.toString(), currentEntryFee);
+        console.log('🎮 Matchmaking response:', data);
+        console.log('🎮 Response status:', data.status);
+
+        if (data.status === 'waiting') {
+          console.log('⏳ Player is waiting for match');
+          setWaitingCount(data.waitingCount || 0);
+          setStatus('waiting');
+          // Ensure polling starts after initial request returns 'waiting'
+          if (!isPolling) {
+            console.log('🔄 Starting polling after initial waiting response...');
+            setIsPolling(true);
+            startPolling();
+          }
+        } else if (data.status === 'matched') {
+          console.log('✅ Match found!');
+          setMatchData(data);
+          matchDataRef.current = data;
+          setStatus('payment_required');
+          clearInterval(pollInterval);
+          clearTimeout(timeoutId);
+          setIsPolling(false);
+          setIsMatchmakingInProgress(false);
+        } else if (data.error) {
+          console.log('⚠️ Matchmaking error:', data.error);
+          setStatus('error');
+        }
+      } catch (error) {
+        console.error('❌ Matchmaking error:', error);
+        console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
+        setStatus('error');
+      } finally {
+        setIsRequestInProgress(false);
+      }
+    };
+
+    // Check if we have a matchId in the URL (from lobby redirect)
+    const urlMatchId = router.query.matchId as string;
+    if (urlMatchId) {
+      console.log('🎯 Found matchId in URL:', urlMatchId);
+      // Initialize match data from URL
+      const urlEntryFee = router.query.entryFee as string;
+      const entryFeeAmount = urlEntryFee ? parseFloat(urlEntryFee) : 0;
+      
+      const initialMatchData = {
+        matchId: urlMatchId,
+        player1: router.query.player1 as string,
+        player2: router.query.player2 as string,
+        entryFee: entryFeeAmount,
+        status: 'payment_required'
+      };
+      
+      console.log('🎯 Setting initial match data:', initialMatchData);
+      setMatchData(initialMatchData);
+      matchDataRef.current = initialMatchData;
+      setStatus('payment_required');
+      setEntryFee(entryFeeAmount);
+      localStorage.setItem('entryFeeSOL', entryFeeAmount.toString());
+      
+      // Start polling for status updates
+      if (!isPolling) {
+        console.log('🔄 Starting polling for status updates...');
+        setIsPolling(true);
+        startPolling();
+      }
+      return;
+    }
+
+    // Get entry fee from URL parameters
+    const urlEntryFee = router.query.entryFee as string;
+    if (urlEntryFee) {
+      const entryFeeAmount = parseFloat(urlEntryFee);
+      setEntryFee(entryFeeAmount);
+      localStorage.setItem('entryFeeSOL', entryFeeAmount.toString());
+    } else {
+      const storedEntryFee = localStorage.getItem('entryFeeSOL');
+      if (storedEntryFee) {
+        setEntryFee(parseFloat(storedEntryFee));
+      }
+    }
+
     if (!matchDataRef.current || !matchDataRef.current.matchId) {
       console.log('🎮 Starting initial matchmaking...');
       startMatchmaking();
@@ -376,7 +408,7 @@ const Matchmaking: React.FC = () => {
       clearInterval(pollInterval);
       setIsMatchmakingInProgress(false);
     };
-  }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress, isPolling, isRequestInProgress, matchData, status]);
+  }, [publicKey, router, signTransaction, entryFee]);
 
   // Debug useEffect to track state changes
   useEffect(() => {
@@ -438,129 +470,86 @@ const Matchmaking: React.FC = () => {
               <div className="text-accent text-lg font-semibold">
                 {waitingCount > 0 ? `${waitingCount} players waiting` : 'Searching...'}
               </div>
+              <div className="text-white/60 text-sm mt-2">
+                Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
+              </div>
+              {timeoutMessage && (
+                <div className="text-red-400 text-sm mt-2">
+                  {timeoutMessage}
+                </div>
+              )}
             </div>
           )}
-          
-          {status === 'payment_required' && (
+
+          {status === 'payment_required' && matchData && (
             <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Match Found!</h2>
-              <div className="text-white/80 mb-4">
-                Opponent found. Please pay the entry fee to start the game.
-              </div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Payment Required</h2>
               <div className="text-white/80 mb-4">
                 Entry Fee: {entryFee} SOL
               </div>
-              {matchData && (
-                <div className="text-sm text-white/60 mb-4">
-                  {publicKey?.toString() === matchData.player1 ? (
-                    <>
-                      Your Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'} | 
-                      Opponent Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'}
-                    </>
-                  ) : (
-                    <>
-                      Your Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'} | 
-                      Opponent Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'}
-                    </>
-                  )}
-                </div>
-              )}
+              <div className="text-white/60 text-sm mb-4">
+                Match ID: {matchData.matchId}
+              </div>
               <button
                 onClick={handlePayment}
-                disabled={matchData && ((publicKey?.toString() === matchData.player1 && matchData.player1Paid) || (publicKey?.toString() === matchData.player2 && matchData.player2Paid))}
-                className={`px-6 py-3 rounded-lg font-bold transition-colors ${
-                  matchData && ((publicKey?.toString() === matchData.player1 && matchData.player1Paid) || (publicKey?.toString() === matchData.player2 && matchData.player2Paid))
-                    ? 'bg-gray-600 text-gray-400 cursor-not-allowed'
-                    : 'bg-accent text-primary hover:bg-yellow-400'
-                }`}
+                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
               >
-                {matchData && ((publicKey?.toString() === matchData.player1 && matchData.player1Paid) || (publicKey?.toString() === matchData.player2 && matchData.player2Paid))
-                  ? 'Payment Confirmed'
-                  : 'Pay Entry Fee'
-                }
+                Pay Entry Fee
               </button>
             </div>
           )}
-          
+
           {status === 'waiting_for_game' && (
             <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Game to Start</h2>
+              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Game</h2>
               <div className="text-white/80 mb-4">
-                {matchData && matchData.player1Paid && matchData.player2Paid 
-                  ? 'Both players have paid! The game is being initialized...'
-                  : 'Waiting for both players to complete payment...'
-                }
-              </div>
-              {matchData && (
-                <div className="text-sm text-white/60 mb-4">
-                  {publicKey?.toString() === matchData.player1 ? (
-                    <>
-                      Your Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'} | 
-                      Opponent Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'}
-                    </>
-                  ) : (
-                    <>
-                      Your Payment: {matchData.player2Paid ? '✅ Paid' : '⏳ Pending'} | 
-                      Opponent Payment: {matchData.player1Paid ? '✅ Paid' : '⏳ Pending'}
-                    </>
-                  )}
-                </div>
-              )}
-              <div className="text-accent text-lg font-semibold">
-                {matchData && matchData.player1Paid && matchData.player2Paid 
-                  ? 'Redirecting to game...'
-                  : 'Please wait...'
+                {matchData?.player1Paid && matchData?.player2Paid 
+                  ? 'Both players have paid! Game starting soon...'
+                  : 'Waiting for other player to pay...'
                 }
               </div>
             </div>
           )}
-          
+
           {status === 'active' && (
             <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Game Starting!</h2>
+              <h2 className="text-2xl font-bold text-accent mb-4">Game Starting...</h2>
               <div className="text-white/80 mb-4">
                 Redirecting to game...
               </div>
             </div>
           )}
-          
+
           {status === 'error' && (
             <div>
               <h2 className="text-2xl font-bold text-red-400 mb-4">Error</h2>
               <div className="text-white/80 mb-4">
-                {timeoutMessage || 'An error occurred'}
+                Something went wrong. Please try again.
               </div>
               <button
                 onClick={() => router.push('/lobby')}
-                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
               >
                 Back to Lobby
               </button>
             </div>
           )}
-          
+
           {status === 'cancelled' && (
             <div>
-              <h2 className="text-2xl font-bold text-red-400 mb-4">Match Cancelled</h2>
+              <h2 className="text-2xl font-bold text-yellow-400 mb-4">Match Cancelled</h2>
               <div className="text-white/80 mb-4">
-                The match was cancelled
+                The match was cancelled.
               </div>
               <button
                 onClick={() => router.push('/lobby')}
-                className="bg-accent text-primary px-6 py-3 rounded-lg font-bold hover:bg-yellow-400 transition-colors"
+                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
               >
                 Back to Lobby
               </button>
             </div>
           )}
         </div>
-        
-        {/* Timer */}
-        {timeLeft > 0 && status === 'waiting' && (
-          <div className="mt-4 text-accent text-lg font-semibold">
-            ⏰ Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-          </div>
-        )}
       </div>
     </div>
   );
