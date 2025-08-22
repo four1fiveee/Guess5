@@ -171,7 +171,6 @@ const Matchmaking: React.FC = () => {
 
     let pollInterval: NodeJS.Timeout;
     let timeoutId: NodeJS.Timeout;
-    let countdownInterval: NodeJS.Timeout;
 
     const startMatchmaking = async () => {
       if (!publicKey || isRequestInProgress) return;
@@ -220,7 +219,6 @@ const Matchmaking: React.FC = () => {
           setStatus('payment_required');
           clearInterval(pollInterval);
           clearTimeout(timeoutId);
-          clearInterval(countdownInterval);
           setIsPolling(false);
           setIsMatchmakingInProgress(false);
         } else if (data.error) {
@@ -317,6 +315,7 @@ const Matchmaking: React.FC = () => {
             
             if (response.ok) {
               const data = await response.json();
+              console.log('🔄 Check-match response:', data);
               
               if (data.matched) {
                 console.log('🎯 Match found!', data);
@@ -335,7 +334,12 @@ const Matchmaking: React.FC = () => {
                 console.log('🎯 Starting new polling for status updates');
                 setIsPolling(true);
                 startPolling();
+              } else {
+                // No match found, continue waiting
+                console.log('⏳ Still waiting for match...');
               }
+            } else {
+              console.error('❌ Error checking for match:', response.status, response.statusText);
             }
           }
         } catch (error) {
@@ -361,32 +365,47 @@ const Matchmaking: React.FC = () => {
       }
     }
     
-    // Countdown timer
-    countdownInterval = setInterval(() => {
-      setTimeLeft(prev => {
-        if (prev <= 1) {
-          clearInterval(countdownInterval);
-          return 0;
-        }
-        return prev - 1;
-      });
-    }, 1000);
-    
     // 2-minute timeout
     timeoutId = setTimeout(() => {
-      setTimeoutMessage('No opponents found after 2 minutes. Returning to lobby...');
-      clearInterval(pollInterval);
-      clearInterval(countdownInterval);
-      setTimeout(() => router.push('/lobby'), 3000);
+      if (status === 'waiting') {
+        setTimeoutMessage('No opponents found after 2 minutes. Returning to lobby...');
+        clearInterval(pollInterval);
+        setTimeout(() => router.push('/lobby'), 3000);
+      }
     }, 120000);
 
     return () => {
       clearTimeout(timeoutId);
       clearInterval(pollInterval);
-      clearInterval(countdownInterval);
       setIsMatchmakingInProgress(false);
     };
-  }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress, isPolling, isRequestInProgress, matchData]);
+  }, [publicKey, router, signTransaction, entryFee, isMatchmakingInProgress, isPolling, isRequestInProgress, matchData, status]);
+
+  // Separate useEffect to manage countdown timer
+  useEffect(() => {
+    let countdownInterval: NodeJS.Timeout;
+    
+    // Only start countdown if we're waiting for a match
+    if (status === 'waiting') {
+      countdownInterval = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      // Stop countdown if we're not waiting
+      setTimeLeft(120);
+    }
+
+    return () => {
+      if (countdownInterval) {
+        clearInterval(countdownInterval);
+      }
+    };
+  }, [status]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
