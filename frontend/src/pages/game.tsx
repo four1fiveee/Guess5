@@ -280,7 +280,7 @@ const Game: React.FC = () => {
           retryCount = 0; // Reset for next cycle
         }
       }
-    }, 12000); // Poll every 12 seconds (increased to reduce rate limiting and connection issues)
+    }, 12000); // Poll every 12 seconds
 
     return () => clearInterval(pollInterval);
   }, [matchId, gameState, publicKey, memoizedFetchGameState]);
@@ -344,10 +344,10 @@ const Game: React.FC = () => {
         clearTimeout(timeoutId);
 
         if (response.status === 429) {
-          console.warn('⚠️ Rate limited, will retry automatically...');
-          // Wait 5 seconds before retry (increased from 3 seconds)
-          await new Promise(resolve => setTimeout(resolve, 5000));
-          throw new Error('Rate limited - retrying automatically...');
+          console.warn('⚠️ Unexpected rate limit response, will retry automatically...');
+          // Wait 2 seconds before retry
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          throw new Error('Unexpected rate limit - retrying automatically...');
         }
         
         if (!response.ok) {

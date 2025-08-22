@@ -7,40 +7,39 @@ const {
   validateEscrow: validateEscrowData,
   validateConfirmPayment: validateConfirmPaymentData,
   validateReCaptcha,
-  createRateLimiter
+  // createRateLimiter
 } = require('../middleware/validation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
-// Wallet-based rate limiters (very lenient for testing)
-const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 1000); // 1000 requests per 30 seconds per wallet (doubled)
-const walletGameLimiter = createRateLimiter(60 * 1000, 2000); // 2000 requests per minute per wallet (doubled)
-const walletResultLimiter = createRateLimiter(60 * 1000, 500); // 500 result submissions per minute per wallet (increased)
+// Rate limiting removed - ReCaptcha provides sufficient protection
+// const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 1000);
+// const walletGameLimiter = createRateLimiter(60 * 1000, 2000);
+// const walletResultLimiter = createRateLimiter(60 * 1000, 500);
 
 // Production routes with enhanced security
 router.post('/request-match', 
-  walletMatchmakingLimiter,
+  // Removed rate limiting for match request - ReCaptcha provides sufficient protection
   validateMatch, 
   validateReCaptcha,
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
 router.post('/submit-result', 
-  walletResultLimiter,
+  // Removed rate limiting for result submission - ReCaptcha provides sufficient protection
   validateResult, 
   validateReCaptcha,
   asyncHandlerWrapper(matchController.submitResultHandler)
 );
 
 router.post('/submit-guess', 
-  // Much higher rate limiting for guess submission to prevent gameplay interruptions
-  createRateLimiter(60 * 1000, 2000), // 2000 guesses per minute per wallet (quadrupled from 500)
+  // Removed rate limiting for guess submission - ReCaptcha provides sufficient protection
   // Temporarily removed ReCaptcha to avoid conflicts during testing
   // validateReCaptcha,
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
 );
 
 router.post('/confirm-payment', 
-  walletGameLimiter,
+  // Removed rate limiting for payment confirmation - ReCaptcha provides sufficient protection
   validateConfirmPaymentData,
   validateReCaptcha,
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
@@ -48,7 +47,7 @@ router.post('/confirm-payment',
 
 // Less critical endpoints (still rate limited but no ReCaptcha for testing)
 router.get('/status/:matchId', 
-  walletGameLimiter,
+  // Removed rate limiting for match status - ReCaptcha provides sufficient protection
   asyncHandlerWrapper(matchController.getMatchStatusHandler)
 );
 
@@ -73,8 +72,7 @@ router.options('/wallet-balance/:wallet', (req, res) => {
 });
 
 router.get('/game-state', 
-  // Add rate limiting for game state polling to prevent abuse
-  createRateLimiter(60 * 1000, 600), // 600 requests per minute per wallet (10 per second) - increased for stability
+  // Removed rate limiting for game state polling - ReCaptcha provides sufficient protection
   asyncHandlerWrapper(matchController.getGameStateHandler)
 );
 

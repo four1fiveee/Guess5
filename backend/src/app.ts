@@ -91,38 +91,38 @@ app.options('*', (req, res) => {
 // Apply deduplication middleware
 app.use(deduplicateRequests);
 
-// Enhanced rate limiting configuration with wallet-based limits
-const { createRateLimiter: createWalletRateLimiter } = require('./middleware/validation');
+// Rate limiting removed - ReCaptcha provides sufficient protection
+// const { createRateLimiter: createWalletRateLimiter } = require('./middleware/validation');
 
-// Wallet-based rate limiters (very lenient for testing)
-const appWalletMatchmakingLimiter = createWalletRateLimiter(30 * 1000, 500); // 500 requests per 30 seconds per wallet (very lenient)
-const appWalletGameLimiter = createWalletRateLimiter(60 * 1000, 1000); // 1000 requests per minute per wallet (very lenient)
-const appWalletResultLimiter = createWalletRateLimiter(60 * 1000, 200); // 200 result submissions per minute per wallet (very lenient)
+// Wallet-based rate limiters (commented out)
+// const appWalletMatchmakingLimiter = createWalletRateLimiter(30 * 1000, 500);
+// const appWalletGameLimiter = createWalletRateLimiter(60 * 1000, 1000);
+// const appWalletResultLimiter = createWalletRateLimiter(60 * 1000, 200);
 
-// IP-based fallback rate limiters (for requests without wallet)
-const ipMatchmakingLimiter = rateLimit({
-  windowMs: 30 * 1000,
-  max: 50, // Reduced from 100 for better security
-  message: { error: 'Too many matchmaking requests, please try again in 30 seconds' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.path === '/health'
-});
+// IP-based fallback rate limiters (commented out)
+// const ipMatchmakingLimiter = rateLimit({
+//   windowMs: 30 * 1000,
+//   max: 50,
+//   message: { error: 'Too many matchmaking requests, please try again in 30 seconds' },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   skip: (req) => req.path === '/health'
+// });
 
-const ipApiLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 50, // Reduced from 100 for better security
-  message: { error: 'Too many requests, please try again later' },
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => req.path === '/health'
-});
+// const ipApiLimiter = rateLimit({
+//   windowMs: 15 * 60 * 1000,
+//   max: 50,
+//   message: { error: 'Too many requests, please try again later' },
+//   standardHeaders: true,
+//   legacyHeaders: false,
+//   skip: (req) => req.path === '/health'
+// });
 
-// Apply rate limiting to specific routes
-app.use('/api/match/request-match', appWalletMatchmakingLimiter, ipMatchmakingLimiter);
-app.use('/api/match/check-match', appWalletMatchmakingLimiter, ipMatchmakingLimiter);
-app.use('/api/match/status', appWalletGameLimiter, ipApiLimiter);
-app.use('/api/', ipApiLimiter);
+// Removed rate limiting - ReCaptcha provides sufficient protection
+// app.use('/api/match/request-match', appWalletMatchmakingLimiter, ipMatchmakingLimiter);
+// app.use('/api/match/check-match', appWalletMatchmakingLimiter, ipMatchmakingLimiter);
+// app.use('/api/match/status', appWalletGameLimiter, ipApiLimiter);
+// app.use('/api/', ipApiLimiter);
 
 // Debug middleware to log requests (development only)
 if (process.env.NODE_ENV === 'development') {

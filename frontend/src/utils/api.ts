@@ -55,10 +55,10 @@ const apiRequest = async (
     const response = await fetch(url, config);
     
     if (response.status === 429) {
-      console.log('⚠️ Rate limited, waiting before retry...');
-      // Wait 2 seconds before throwing error to allow retry
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      throw new Error('Too many requests, please try again later');
+      console.log('⚠️ Unexpected rate limit response, waiting before retry...');
+      // Wait 1 second before throwing error to allow retry
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      throw new Error('Unexpected rate limit, please try again later');
     }
     
     if (!response.ok) {
