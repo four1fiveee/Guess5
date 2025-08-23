@@ -1,49 +1,37 @@
-import Redis from 'ioredis';
+import { createClient } from 'redis';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
-// Redis connection configurations
+// Redis Cloud connection configurations using redis package with TLS
 const redisMMConfig = {
-  host: process.env.REDIS_MM_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_MM_PORT || '6379'),
   username: process.env.REDIS_MM_USER || 'default',
   password: process.env.REDIS_MM_PASSWORD || '',
-  db: parseInt(process.env.REDIS_MM_DB || '0'),
-  retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
-  lazyConnect: false, // Changed to false for immediate connection
-  keepAlive: 30000,
-  connectTimeout: 10000,
-  commandTimeout: 5000,
-  tls: process.env.REDIS_MM_TLS === 'true' ? {
-    rejectUnauthorized: false // Allow self-signed certificates
-  } : undefined,
+  socket: {
+    host: process.env.REDIS_MM_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_MM_PORT || '6379'),
+    tls: process.env.REDIS_MM_TLS === 'true',
+    rejectUnauthorized: false // Allow self-signed certificates for Redis Cloud
+  }
 };
 
 const redisOpsConfig = {
-  host: process.env.REDIS_OPS_HOST || 'localhost',
-  port: parseInt(process.env.REDIS_OPS_PORT || '6379'),
   username: process.env.REDIS_OPS_USER || 'default',
   password: process.env.REDIS_OPS_PASSWORD || '',
-  db: parseInt(process.env.REDIS_OPS_DB || '1'),
-  retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
-  lazyConnect: false, // Changed to false for immediate connection
-  keepAlive: 30000,
-  connectTimeout: 10000,
-  commandTimeout: 5000,
-  tls: process.env.REDIS_OPS_TLS === 'true' ? {
-    rejectUnauthorized: false // Allow self-signed certificates
-  } : undefined,
+  socket: {
+    host: process.env.REDIS_OPS_HOST || 'localhost',
+    port: parseInt(process.env.REDIS_OPS_PORT || '6379'),
+    tls: process.env.REDIS_OPS_TLS === 'true',
+    rejectUnauthorized: false // Allow self-signed certificates for Redis Cloud
+  }
 };
 
 // Redis client instances
-let redisMM: Redis | null = null;
-let redisOps: Redis | null = null;
+let redisMM: ReturnType<typeof createClient> | null = null;
+let redisOps: ReturnType<typeof createClient> | null = null;
 
 // Initialize Redis connections
 export const initializeRedis = async (): Promise<void> => {
   try {
-    enhancedLogger.info('🔧 Initializing Redis connections...', {
+    enhancedLogger.info('🔧 Initializing Redis Cloud connections...', {
       mmHost: process.env.REDIS_MM_HOST,
       mmPort: process.env.REDIS_MM_PORT,
       mmUser: process.env.REDIS_MM_USER ? '***' : undefined,
@@ -55,7 +43,7 @@ export const initializeRedis = async (): Promise<void> => {
     });
 
     // Initialize matchmaking Redis
-    redisMM = new Redis(redisMMConfig);
+    redisMM = createClient(redisMMConfig);
     
     redisMM.on('connect', () => {
       enhancedLogger.info('🔌 Connected to Redis MM (matchmaking)');
@@ -74,7 +62,7 @@ export const initializeRedis = async (): Promise<void> => {
     });
 
     // Initialize operations Redis
-    redisOps = new Redis(redisOpsConfig);
+    redisOps = createClient(redisOpsConfig);
     
     redisOps.on('connect', () => {
       enhancedLogger.info('🔌 Connected to Redis Ops (queues/jobs)');
@@ -92,6 +80,11 @@ export const initializeRedis = async (): Promise<void> => {
       enhancedLogger.warn('⚠️ Redis Ops connection closed');
     });
 
+    // Connect to both Redis instances
+    enhancedLogger.info('🔌 Connecting to Redis instances...');
+    await redisMM.connect();
+    await redisOps.connect();
+
     // Test connections
     enhancedLogger.info('🧪 Testing Redis connections...');
     await redisMM.ping();
@@ -107,14 +100,14 @@ export const initializeRedis = async (): Promise<void> => {
 };
 
 // Get Redis clients
-export const getRedisMM = (): Redis => {
+export const getRedisMM = (): ReturnType<typeof createClient> => {
   if (!redisMM) {
     throw new Error('Redis MM not initialized. Call initializeRedis() first.');
   }
   return redisMM;
 };
 
-export const getRedisOps = (): Redis => {
+export const getRedisOps = (): ReturnType<typeof createClient> => {
   if (!redisOps) {
     throw new Error('Redis Ops not initialized. Call initializeRedis() first.');
   }
