@@ -94,20 +94,12 @@ const Game: React.FC = () => {
     // Submit result to backend and wait for response to get payout data
     try {
       console.log('📤 Submitting result to backend:', { matchId, wallet: publicKey?.toString(), result });
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-      const response = await fetch(`${apiUrl}/api/match/submit-result`, {
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ matchId, wallet: publicKey?.toString() || '', result }),
-      });
       
-      const data = await response.json();
+      // Use the API utility with ReCaptcha integration
+      const { submitResult } = await import('../utils/api');
+      const data = await submitResult(matchId, publicKey?.toString() || '', result);
+      
       console.log('📝 Backend result submitted:', data);
-      
-      if (!response.ok) {
-        console.error('❌ Backend returned error:', data);
-        throw new Error(data.error || 'Failed to submit result');
-      }
       
       // If the game is completed, store payout data and navigate
       if (data.status === 'completed' && data.payout) {
@@ -141,7 +133,9 @@ const Game: React.FC = () => {
         // Game is still waiting for other player, show waiting state
         console.log('⏳ Waiting for other player to finish');
         setGameState('waiting');
+        setPlayerSolved(true); // Mark this player as solved
         // Don't navigate to results yet - stay on this page and show waiting message
+        // Continue polling for game updates
       } else {
         // Fallback: show waiting state
         console.log('⚠️ Unexpected response, showing waiting state');
