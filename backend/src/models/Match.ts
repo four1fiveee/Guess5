@@ -161,27 +161,72 @@ export class Match {
   refundReason?: string;
 
   // Game results
-  @Column({ type: 'simple-json', nullable: true })
-  player1Result?: {
-    won: boolean;
-    numGuesses: number;
-    totalTime: number;
-    guesses: string[];
-  } | null;
+  @Column({ type: 'text', nullable: true })
+  player1Result?: string | null;
 
-  @Column({ type: 'simple-json', nullable: true })
-  player2Result?: {
-    won: boolean;
-    numGuesses: number;
-    totalTime: number;
-    guesses: string[];
-  } | null;
+  @Column({ type: 'text', nullable: true })
+  player2Result?: string | null;
 
   @Column({ nullable: true })
   winner?: string | null;
 
-  @Column({ type: 'simple-json', nullable: true })
-  payoutResult?: {
+  @Column({ type: 'text', nullable: true })
+  payoutResult?: string | null;
+
+  @CreateDateColumn()
+  createdAt!: Date;
+
+  @UpdateDateColumn()
+  updatedAt!: Date;
+
+  // Helper methods for JSON serialization/deserialization
+  getPlayer1Result(): {
+    won: boolean;
+    numGuesses: number;
+    totalTime: number;
+    guesses: string[];
+  } | null {
+    if (!this.player1Result) return null;
+    try {
+      return JSON.parse(this.player1Result);
+    } catch {
+      return null;
+    }
+  }
+
+  setPlayer1Result(result: {
+    won: boolean;
+    numGuesses: number;
+    totalTime: number;
+    guesses: string[];
+  } | null): void {
+    this.player1Result = result ? JSON.stringify(result) : null;
+  }
+
+  getPlayer2Result(): {
+    won: boolean;
+    numGuesses: number;
+    totalTime: number;
+    guesses: string[];
+  } | null {
+    if (!this.player2Result) return null;
+    try {
+      return JSON.parse(this.player2Result);
+    } catch {
+      return null;
+    }
+  }
+
+  setPlayer2Result(result: {
+    won: boolean;
+    numGuesses: number;
+    totalTime: number;
+    guesses: string[];
+  } | null): void {
+    this.player2Result = result ? JSON.stringify(result) : null;
+  }
+
+  getPayoutResult(): {
     winner: string;
     winnerAmount: number;
     feeAmount: number;
@@ -196,11 +241,31 @@ export class Match {
     paymentSuccess?: boolean;
     paymentError?: string;
     transaction?: any;
-  } | null;
+  } | null {
+    if (!this.payoutResult) return null;
+    try {
+      return JSON.parse(this.payoutResult);
+    } catch {
+      return null;
+    }
+  }
 
-  @CreateDateColumn()
-  createdAt!: Date;
-
-  @UpdateDateColumn()
-  updatedAt!: Date;
+  setPayoutResult(result: {
+    winner: string;
+    winnerAmount: number;
+    feeAmount: number;
+    feeWallet: string;
+    transactions: Array<{
+      from: string;
+      to: string;
+      amount: number;
+      description: string;
+      signature?: string;
+    }>;
+    paymentSuccess?: boolean;
+    paymentError?: string;
+    transaction?: any;
+  } | null): void {
+    this.payoutResult = result ? JSON.stringify(result) : null;
+  }
 } 

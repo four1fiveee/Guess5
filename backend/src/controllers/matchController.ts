@@ -1303,7 +1303,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
 
   // Update match with winner and payout
   match.winner = winner;
-  match.payoutResult = payoutResult;
+  match.setPayoutResult(payoutResult);
   match.isCompleted = true;
   await matchRepository.save(match);
 
@@ -1353,10 +1353,10 @@ const submitResultHandler = async (req: any, res: any) => {
     const opponentKey = isPlayer1 ? 'player2' : 'player1';
 
     // SERVER-SIDE VALIDATION: Check if player already submitted
-    if (isPlayer1 && match.player1Result) {
+    if (isPlayer1 && match.getPlayer1Result()) {
       return res.status(400).json({ error: 'Player 1 already submitted result' });
     }
-    if (!isPlayer1 && match.player2Result) {
+    if (!isPlayer1 && match.getPlayer2Result()) {
       return res.status(400).json({ error: 'Player 2 already submitted result' });
     }
 
@@ -1421,9 +1421,9 @@ const submitResultHandler = async (req: any, res: any) => {
 
     // Save result to database
     if (isPlayer1) {
-      match.player1Result = serverValidatedResult;
+      match.setPlayer1Result(serverValidatedResult);
     } else {
-      match.player2Result = serverValidatedResult;
+      match.setPlayer2Result(serverValidatedResult);
     }
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
@@ -1433,7 +1433,7 @@ const submitResultHandler = async (req: any, res: any) => {
       console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
       
       // If the other player already submitted a result, determine winner immediately
-      if ((isPlayer1 && match.player2Result) || (!isPlayer1 && match.player1Result)) {
+      if ((isPlayer1 && match.getPlayer2Result()) || (!isPlayer1 && match.getPlayer1Result())) {
         console.log('🏁 Both players have results, determining winner immediately...');
         
         // Save this player's result first
@@ -1442,7 +1442,7 @@ const submitResultHandler = async (req: any, res: any) => {
         // Get the latest match data with both results
         const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
         
-        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
+        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
         
         // Execute automated payment if there's a clear winner
         // Calculate direct payment instructions
@@ -1543,8 +1543,8 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
-          if (updatedMatch.player1Result && updatedMatch.player2Result && 
-              updatedMatch.player1Result.won && updatedMatch.player2Result.won) {
+          if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
+              updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
             // Winning tie - each player gets their entry fee back
             console.log('🤝 Winning tie - each player gets refund...');
             
@@ -1627,7 +1627,7 @@ const submitResultHandler = async (req: any, res: any) => {
         
         // Mark match as completed
         updatedMatch.isCompleted = true;
-        updatedMatch.payoutResult = payoutResult;
+        updatedMatch.setPayoutResult(payoutResult);
         await matchRepository.save(updatedMatch);
         
         // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
@@ -1650,8 +1650,8 @@ const submitResultHandler = async (req: any, res: any) => {
       }
     } else {
       // Player didn't solve - check if other player solved
-      if ((isPlayer1 && match.player2Result && match.player2Result.won) || 
-          (!isPlayer1 && match.player1Result && match.player1Result.won)) {
+      if ((isPlayer1 && match.getPlayer2Result() && match.getPlayer2Result().won) || 
+          (!isPlayer1 && match.getPlayer1Result() && match.getPlayer1Result().won)) {
         console.log('🏁 Other player already solved, determining winner...');
         
         // Save this player's result first
@@ -1660,7 +1660,7 @@ const submitResultHandler = async (req: any, res: any) => {
         // Get the latest match data with both results
         const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
         
-        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.player1Result, updatedMatch.player2Result);
+        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
         
         // Execute automated payment
         // Calculate direct payment instructions
@@ -1761,8 +1761,8 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
-          if (updatedMatch.player1Result && updatedMatch.player2Result && 
-              updatedMatch.player1Result.won && updatedMatch.player2Result.won) {
+          if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
+              updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
             // Winning tie - each player gets their entry fee back
             console.log('🤝 Winning tie - each player gets refund...');
             
@@ -1845,7 +1845,7 @@ const submitResultHandler = async (req: any, res: any) => {
         
         // Mark match as completed
         updatedMatch.isCompleted = true;
-        updatedMatch.payoutResult = payoutResult;
+        updatedMatch.setPayoutResult(payoutResult);
         await matchRepository.save(updatedMatch);
         
         // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
@@ -1909,7 +1909,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     // Check if this match already has results for the requesting player
     const requestingWallet = req.query.wallet || req.headers['x-wallet'];
     const isPlayer1 = match.player1 === requestingWallet;
-    const existingResult = isPlayer1 ? match.player1Result : match.player2Result;
+    const existingResult = isPlayer1 ? match.getPlayer1Result() : match.getPlayer2Result();
     
     console.log('✅ Returning match data:', {
       status: match.status,
@@ -1933,10 +1933,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player1Paid: match.player1Paid,
       player2Paid: match.player2Paid,
       word: match.word,
-      player1Result: match.player1Result,
-      player2Result: match.player2Result,
+      player1Result: match.getPlayer1Result(),
+      player2Result: match.getPlayer2Result(),
       winner: match.winner,
-      payout: match.payoutResult,
+      payout: match.getPayoutResult(),
       isCompleted: match.isCompleted || !!existingResult
     });
 
@@ -2494,7 +2494,7 @@ const executePaymentHandler = async (req: any, res: any) => {
     }
 
     // Validate payout result exists
-    if (!match.payoutResult) {
+    if (!match.getPayoutResult()) {
       return res.status(400).json({ error: 'No payout result available' });
     }
 
@@ -2502,7 +2502,7 @@ const executePaymentHandler = async (req: any, res: any) => {
       matchId,
       wallet,
       paymentType,
-      payoutResult: match.payoutResult
+      payoutResult: match.getPayoutResult()
     });
 
     let paymentResult;
@@ -2512,7 +2512,7 @@ const executePaymentHandler = async (req: any, res: any) => {
     res.json({
       success: true,
       message: 'Direct payment approach - use frontend to send payments',
-      paymentInstructions: match.payoutResult?.paymentInstructions || null
+      paymentInstructions: match.getPayoutResult()?.paymentInstructions || null
     });
 
   } catch (error: unknown) {
@@ -4141,8 +4141,8 @@ const generateReportHandler = async (req: any, res: any) => {
         match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : '',
         '', // 🔗 GAME DATA (POST-COMPLETION) 🔗
         sanitizeCsvValue(match.word), // Protected if not completed
-        sanitizeCsvValue(JSON.stringify(match.player1Result || {})),
-        sanitizeCsvValue(JSON.stringify(match.player2Result || {})),
+        sanitizeCsvValue(JSON.stringify(match.getPlayer1Result() || {})),
+        sanitizeCsvValue(JSON.stringify(match.getPlayer2Result() || {})),
         sanitizeCsvValue(match.refundReason),
         '', // 🔗 VERIFICATION 🔗
         sanitizeCsvValue(match.feeWalletAddress),
