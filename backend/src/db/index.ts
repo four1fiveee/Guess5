@@ -60,9 +60,10 @@ export const checkDatabaseHealth = async () => {
     // Test query to verify connection
     await AppDataSource.query('SELECT 1');
     return { healthy: true };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Database health check failed:', error);
-    return { healthy: false, error: error.message };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { healthy: false, error: errorMessage };
   }
 };
 
@@ -77,7 +78,7 @@ export const reconnectDatabase = async () => {
     await AppDataSource.initialize();
     console.log('✅ Database reconnected successfully');
     return true;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Database reconnection failed:', error);
     return false;
   }
@@ -117,11 +118,12 @@ export const initializeDatabase = async () => {
       }
       
       return;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`❌ Database connection attempt ${retryCount + 1} failed:`, error);
       
       // If already connected, don't retry
-      if (error.message && error.message.includes('already established')) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage && errorMessage.includes('already established')) {
         console.log('✅ Database already connected, continuing...');
         return;
       }

@@ -37,6 +37,9 @@ export const deduplicateRequests = (req: any, res: any, next: any) => {
   // Check if this is a duplicate request
   if (recentRequests.has(requestKey)) {
     const lastRequestTime = recentRequests.get(requestKey);
+    if (lastRequestTime === undefined) {
+      return next();
+    }
     const timeSinceLastRequest = now - lastRequestTime;
     
     console.log(`🔍 Deduplication check for ${wallet}: ${timeSinceLastRequest}ms since last request`);

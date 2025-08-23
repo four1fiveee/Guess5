@@ -90,7 +90,7 @@ class QueueService {
       this.initializeWorkers();
       this.initialized = true;
       enhancedLogger.info('✅ Queue service initialized successfully');
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error initializing queue service:', error);
       throw error;
     }
@@ -114,7 +114,7 @@ class QueueService {
         });
 
         return { success: true, amount: job.data.amount };
-      } catch (error) {
+      } catch (error: unknown) {
         enhancedLogger.error(`❌ Payment job failed for match ${job.data.matchId}:`, error);
         throw error;
       }
@@ -138,7 +138,7 @@ class QueueService {
         });
 
         return { success: true, transactionId: 'placeholder' };
-      } catch (error) {
+      } catch (error: unknown) {
         enhancedLogger.error(`❌ Payout job failed for match ${job.data.matchId}:`, error);
         throw error;
       }
@@ -159,7 +159,7 @@ class QueueService {
         });
 
         return { success: true };
-      } catch (error) {
+      } catch (error: unknown) {
         enhancedLogger.error(`❌ Cleanup job failed for match ${job.data.matchId}:`, error);
         throw error;
       }
@@ -189,7 +189,7 @@ class QueueService {
       });
       
       enhancedLogger.info(`📝 Added payment job for match ${data.matchId}`);
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error adding payment job:', error);
       throw error;
     }
@@ -212,7 +212,7 @@ class QueueService {
       });
       
       enhancedLogger.info(`📝 Added payout job for match ${data.matchId}`);
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error adding payout job:', error);
       throw error;
     }
@@ -235,7 +235,7 @@ class QueueService {
       });
       
       enhancedLogger.info(`📝 Added cleanup job for match ${data.matchId}`);
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error adding cleanup job:', error);
       throw error;
     }
@@ -282,7 +282,7 @@ class QueueService {
           failed: cleanupStats.failed || 0
         }
       };
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error getting queue stats:', error);
       return {
         payments: { waiting: 0, active: 0, completed: 0, failed: 0 },
@@ -321,7 +321,7 @@ class QueueService {
       
       this.initialized = false;
       enhancedLogger.info('🔌 All queues and workers closed');
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error closing queues:', error);
     }
   }

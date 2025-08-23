@@ -31,8 +31,11 @@ export class HealthChecker {
       await queryRunner.release();
       
       return true;
-    } catch (error) {
-      logger.error('Database health check failed', { error: error.message });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+      logger.error('Database health check failed', { error: errorMessage });
       return false;
     }
   }
@@ -50,7 +53,7 @@ export class HealthChecker {
       const { checkRedisHealth } = require('../config/redis');
       const health = await checkRedisHealth();
       return health.mm && health.ops;
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Redis health check failed:', error);
       return false;
     }
@@ -137,8 +140,11 @@ export const healthCheckHandler = async (req: any, res: any) => {
                       health.status === 'degraded' ? 200 : 503;
     
     res.status(statusCode).json(health);
-  } catch (error) {
-    logger.error('Health check failed', { error: error.message });
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+    logger.error('Health check failed', { error: errorMessage });
     res.status(503).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),

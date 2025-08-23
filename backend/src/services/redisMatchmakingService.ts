@@ -32,7 +32,7 @@ export class RedisMatchmakingService {
       this.redis = getRedisMM();
       this.initialized = true;
       enhancedLogger.info('✅ Redis matchmaking service initialized successfully');
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error initializing Redis matchmaking service:', error);
       throw error;
     }
@@ -70,7 +70,7 @@ export class RedisMatchmakingService {
             return { status: 'waiting', waitingCount: Object.keys(waitingPlayers).length };
           }
 
-          const waitingPlayer: WaitingPlayer = JSON.parse(playerJson);
+          const waitingPlayer: WaitingPlayer = JSON.parse(playerJson as string);
           
           // Check if players are compatible (same entry fee, different wallets)
           if (waitingPlayer.entryFee === entryFee && waitingPlayer.wallet !== wallet) {
@@ -112,7 +112,7 @@ export class RedisMatchmakingService {
         enhancedLogger.info(`👤 Player ${wallet} added to waiting queue for ${entryFee} SOL (${waitingCount} waiting)`);
         return { status: 'waiting', waitingCount };
       }
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error adding player to queue:', error);
       throw error;
     }
@@ -136,7 +136,7 @@ export class RedisMatchmakingService {
       }
 
       return JSON.parse(matchDataJson) as MatchData;
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error finding match:', error);
       return null;
     }
@@ -155,7 +155,7 @@ export class RedisMatchmakingService {
       }
 
       return JSON.parse(matchDataJson as string) as MatchData;
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error getting match:', error);
       return null;
     }
@@ -182,7 +182,7 @@ export class RedisMatchmakingService {
 
       await this.redis.hSet(`match:${matchId}`, 'data', JSON.stringify(matchData));
       enhancedLogger.info(`🔄 Match ${matchId} status updated to: ${status}`);
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error updating match status:', error);
       throw error;
     }
@@ -198,7 +198,7 @@ export class RedisMatchmakingService {
       const waitingKey = `waiting:${entryFee}`;
       await this.redis.hDel(waitingKey, wallet);
       enhancedLogger.info(`👤 Player ${wallet} removed from waiting queue`);
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error removing player from queue:', error);
       throw error;
     }
@@ -214,7 +214,7 @@ export class RedisMatchmakingService {
       const waitingKey = `waiting:${entryFee}`;
       const waitingCount = await this.redis.hLen(waitingKey);
       return waitingCount;
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error getting waiting count:', error);
       return 0;
     }
@@ -234,7 +234,7 @@ export class RedisMatchmakingService {
         const waitingPlayers = await this.redis.hGetAll(waitingKey);
         
         for (const [wallet, playerJson] of Object.entries(waitingPlayers)) {
-          const player: WaitingPlayer = JSON.parse(playerJson);
+          const player: WaitingPlayer = JSON.parse(playerJson as string);
           
           // Remove players who have been waiting for more than 5 minutes
           if (now - player.timestamp > 300000) {
@@ -259,7 +259,7 @@ export class RedisMatchmakingService {
           }
         }
       }
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Error during cleanup:', error);
     }
   }

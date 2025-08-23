@@ -30,7 +30,7 @@ if (allowedOrigin && !allowedOrigins.includes(allowedOrigin)) {
 }
 
 // Security headers middleware
-app.use((req, res, next) => {
+app.use((req: any, res: any, next: any) => {
   // Security headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -58,7 +58,7 @@ app.use(express.urlencoded({ extended: true, limit: '1mb' })); // Reduced from 1
 
 // Apply CORS with restricted origins
 app.use(cors({
-  origin: function (origin, callback) {
+  origin: function (origin: any, callback: any) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     
@@ -76,7 +76,7 @@ app.use(cors({
 }));
 
 // Handle preflight requests with explicit CORS headers
-app.options('*', (req, res) => {
+app.options('*', (req: any, res: any) => {
   const origin = req.headers.origin;
   if (origin && allowedOrigins.includes(origin)) {
     res.header('Access-Control-Allow-Origin', origin);
@@ -119,7 +119,7 @@ app.use(deduplicateRequests);
 
 // Debug middleware to log requests (development only)
 if (process.env.NODE_ENV === 'development') {
-  app.use((req, res, next) => {
+  app.use((req: any, res: any, next: any) => {
     console.log('🌐 Request Debug:', {
       method: req.method,
       origin: req.headers.origin,
@@ -131,13 +131,13 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // Health check endpoint
-app.get('/health', asyncHandler(async (req, res) => {
+app.get('/health', asyncHandler(async (req: any, res: any) => {
   const { healthCheckHandler } = require('./utils/healthCheck');
   await healthCheckHandler(req, res);
 }));
 
 // Root endpoint - redirect to frontend
-app.get('/', (req, res) => {
+app.get('/', (req: any, res: any) => {
   res.redirect(process.env.FRONTEND_URL || 'https://guess5.vercel.app');
 });
 
@@ -148,7 +148,7 @@ app.use('/api/guess', guessRoutes);
 // Debug endpoints only in development
 if (process.env.NODE_ENV === 'development') {
   // Debug routes only in development
-  app.get('/api/debug/status', (req, res) => {
+  app.get('/api/debug/status', (req: any, res: any) => {
     res.json({
       activeGames: require('./controllers/matchController').activeGames?.size || 0,
       matchmakingLocks: require('./controllers/matchController').matchmakingLocks?.size || 0,

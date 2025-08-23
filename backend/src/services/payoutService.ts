@@ -48,9 +48,10 @@ export const createEscrowAccount = async (matchId: string, player1: string, play
       totalAmount: totalEscrowAmount,
       entryFee: entryFee * LAMPORTS_PER_SOL
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating escrow account:', error);
-    return { success: false, error: error.message };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
   }
 };
 
@@ -90,9 +91,10 @@ export const transferToEscrow = async (fromWallet: string, escrowAddress: string
       transaction: transaction,
       message: 'Transaction created - requires player signature'
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating escrow transaction:', error);
-    return { success: false, error: error.message };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
   }
 };
 
@@ -150,9 +152,10 @@ export const payout = async (matchData: {
       message: 'Automated payout transaction created'
     };
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating payout transaction:', error);
-    return { success: false, error: error.message };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
   }
 };
 
@@ -197,9 +200,10 @@ export const refundEscrow = async (matchData: {
       message: 'Escrow refund transaction created'
     };
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating refund transaction:', error);
-    return { success: false, error: error.message };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
   }
 };
 
@@ -266,8 +270,9 @@ export const refundFromFeeWallet = async (matchData: {
       message: `Created ${refundTransactions.length} refund transactions`
     };
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating fee wallet refund transactions:', error);
-    return { success: false, error: error.message };
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return { success: false, error: errorMessage };
   }
 }; 

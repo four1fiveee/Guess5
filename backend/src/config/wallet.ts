@@ -22,7 +22,7 @@ export const getFeeWalletKeypair = (): Keypair => {
     // Try to decode as base58 string (most common format)
     const privateKeyBytes = bs58.decode(privateKeyString);
     return Keypair.fromSecretKey(privateKeyBytes);
-  } catch (error) {
+  } catch (error: unknown) {
     throw new Error('Invalid FEE_WALLET_PRIVATE_KEY format. Should be base58-encoded string.');
   }
 };

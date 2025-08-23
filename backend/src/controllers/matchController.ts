@@ -66,7 +66,7 @@ const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> =
     });
     
     return hasEnough;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error checking fee wallet balance:', error);
     return false;
   }
@@ -212,12 +212,12 @@ const markGameCompleted = (matchId: string) => {
           try {
             await matchRepository.remove(match);
             console.log(`🧹 Removed completed match ${matchId} from database`);
-          } catch (error) {
+          } catch (error: unknown) {
             console.error(`❌ Error removing completed match ${matchId}:`, error);
           }
         }, 60000); // 1 minute delay
       }
-    } catch (error) {
+    } catch (error: unknown) {
       console.error(`❌ Error marking match ${matchId} as completed:`, error);
     }
   })();
@@ -294,7 +294,7 @@ const periodicCleanup = async () => {
     
     console.log('✅ Periodic cleanup completed');
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in periodic cleanup:', error);
   }
 };
@@ -312,7 +312,7 @@ const wordList = [
   'PRIDE', 'QUIET', 'RADAR', 'SPACE', 'TRUTH', 'UNITY', 'VALUE', 'WORLD'
 ];
 
-const requestMatchHandler = async (req, res) => {
+const requestMatchHandler = async (req: any, res: any) => {
   try {
     console.log('📥 Received match request:', {
       body: req.body,
@@ -386,12 +386,15 @@ const requestMatchHandler = async (req, res) => {
     console.log(`✅ Matchmaking completed for ${wallet}:`, result);
     res.json(result);
     
-  } catch (error) {
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ Error in requestMatchHandler:', error);
     console.error('❌ Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
+      message: errorMessage,
+      stack: errorStack,
+      name: errorName
     });
     
     // Clean up any locks that might have been created
@@ -453,7 +456,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       return waitingResult;
     }
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in performMatchmaking:', error);
     // Clean up any locks that might have been created
     const lockKey = `matchmaking_${wallet}`;
@@ -691,7 +694,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     console.log(`❌ No waiting players found for ${wallet} with entry fee ${entryFee}`);
     return null;
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in findWaitingPlayer:', error);
     throw error;
   }
@@ -707,7 +710,7 @@ const findAndClaimWaitingPlayer = async (matchRepository: any, wallet: string, e
     console.log(`🔒 ATOMIC: Looking for waiting players for ${wallet} with entry fee: ${entryFee} SOL`);
     
     // Use database transaction to ensure atomicity
-    const result = await matchRepository.manager.transaction(async (manager) => {
+    const result = await matchRepository.manager.transaction(async (manager: any) => {
       // Find waiting player with row-level lock (FIFO order)
       const waitingMatch = await manager.query(`
         SELECT 
@@ -780,7 +783,7 @@ const findAndClaimWaitingPlayer = async (matchRepository: any, wallet: string, e
     
     return result;
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ ATOMIC: Error in findAndClaimWaitingPlayer:', error);
     throw error;
   }
@@ -804,7 +807,7 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
       entryFee: waitingPlayer.entryFee,
       message: 'Match created - both players must pay entry fee to start game'
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in createMatch:', error);
     throw error;
   }
@@ -850,14 +853,14 @@ const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee
       waitingCount: 0,
       matchId: savedMatch.id
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating waiting entry:', error);
     throw error;
   }
 };
 
 // Debug endpoint to check waiting players
-const debugWaitingPlayersHandler = async (req, res) => {
+const debugWaitingPlayersHandler = async (req: any, res: any) => {
   try {
     console.log('🔍 Debug: Checking waiting players...');
     
@@ -882,8 +885,9 @@ const debugWaitingPlayersHandler = async (req, res) => {
       });
       
       console.log('✅ Database queries successful');
-    } catch (dbError) {
-      console.warn('⚠️ Database queries failed:', dbError.message);
+    } catch (dbError: unknown) {
+      const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      console.warn('⚠️ Database queries failed:', errorMessage);
     }
     
     // Get in-memory matches
@@ -914,14 +918,14 @@ const debugWaitingPlayersHandler = async (req, res) => {
       database: {
         waitingCount: dbWaitingMatches.length,
         activeCount: dbActiveMatches.length,
-        waitingPlayers: dbWaitingMatches.map(m => ({
+        waitingPlayers: dbWaitingMatches.map((m: any) => ({
           id: m.id,
           player1: m.player1,
           entryFee: m.entryFee,
           createdAt: m.createdAt,
           source: 'database'
         })),
-        activeMatches: dbActiveMatches.map(m => ({
+        activeMatches: dbActiveMatches.map((m: any) => ({
           id: m.id,
           player1: m.player1,
           player2: m.player2,
@@ -941,14 +945,14 @@ const debugWaitingPlayersHandler = async (req, res) => {
         active: totalActive
       }
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in debugWaitingPlayersHandler:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Simple test endpoint
-const matchTestHandler = async (req, res) => {
+const matchTestHandler = async (req: any, res: any) => {
   try {
     console.log('🧪 Test endpoint called');
     res.json({ 
@@ -956,14 +960,14 @@ const matchTestHandler = async (req, res) => {
       message: 'Test endpoint working',
       timestamp: new Date().toISOString()
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Test endpoint error:', error);
     res.status(500).json({ error: 'Test endpoint failed' });
   }
 };
 
 // Simple test endpoint for repository debugging
-const testRepositoryHandler = async (req, res) => {
+const testRepositoryHandler = async (req: any, res: any) => {
   try {
     console.log('🧪 Testing repository creation...');
     
@@ -987,25 +991,28 @@ const testRepositoryHandler = async (req, res) => {
         appDataSourceInitialized: AppDataSource.isInitialized,
         repository: !!testRepo
       });
-    } catch (repoError) {
+    } catch (repoError: unknown) {
+      const errorMessage = repoError instanceof Error ? repoError.message : String(repoError);
+      const errorName = repoError instanceof Error ? repoError.name : undefined;
+      const errorStack = repoError instanceof Error ? repoError.stack : undefined;
       console.error('❌ Repository creation failed:', repoError);
       res.status(500).json({ 
         error: 'Repository creation failed',
         details: {
-          message: repoError.message,
-          name: repoError.name,
-          stack: repoError.stack
+          message: errorMessage,
+          name: errorName,
+          stack: errorStack
         }
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Test endpoint error:', error);
     res.status(500).json({ error: 'Test endpoint failed' });
   }
 };
 
 // Simple database test endpoint
-const testDatabaseHandler = async (req, res) => {
+const testDatabaseHandler = async (req: any, res: any) => {
   try {
     console.log('🧪 Testing basic database operations...');
     
@@ -1039,21 +1046,24 @@ const testDatabaseHandler = async (req, res) => {
       entryFeeMatches: matchesWithFee.length
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ Database test failed:', error);
     res.status(500).json({ 
       error: 'Database test failed',
       details: {
-        message: error.message,
-        name: error.name,
-        stack: error.stack
+        message: error instanceof Error ? error.message : String(error),
+        name: error instanceof Error ? error.name : undefined,
+        stack: error instanceof Error ? error.stack : undefined
       }
     });
   }
 };
 
 // Cleanup self-matches endpoint
-const cleanupSelfMatchesHandler = async (req, res) => {
+const cleanupSelfMatchesHandler = async (req: any, res: any) => {
   try {
     console.log('🧹 Cleaning up self-matches...');
     const { AppDataSource } = require('../db/index');
@@ -1069,10 +1079,10 @@ const cleanupSelfMatchesHandler = async (req, res) => {
     });
     
     // Filter self-matches
-    const selfMatches = activeMatches.filter(match => match.player1 === match.player2);
+    const selfMatches = activeMatches.filter((match: any) => match.player1 === match.player2);
     
     if (selfMatches.length > 0) {
-      console.log(`🧹 Found ${selfMatches.length} self-matches to clean up:`, selfMatches.map(m => m.id));
+      console.log(`🧹 Found ${selfMatches.length} self-matches to clean up:`, selfMatches.map((m: any) => m.id));
       await matchRepository.remove(selfMatches);
       console.log('✅ Self-matches cleaned up successfully');
     } else {
@@ -1083,19 +1093,22 @@ const cleanupSelfMatchesHandler = async (req, res) => {
       success: true,
       message: 'Self-matches cleaned up',
       removedCount: selfMatches.length,
-      removedMatches: selfMatches.map(m => ({ id: m.id, player1: m.player1, player2: m.player2 }))
+      removedMatches: selfMatches.map((m: any) => ({ id: m.id, player1: m.player1, player2: m.player2 }))
     });
-  } catch (error) {
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ Cleanup failed:', error);
     res.status(500).json({
       success: false,
-      error: error.message
+      error: error instanceof Error ? error.message : String(error)
     });
   }
 };
 
 // Helper function to determine winner and calculate payout instructions
-const determineWinnerAndPayout = async (matchId, player1Result, player2Result) => {
+const determineWinnerAndPayout = async (matchId: any, player1Result: any, player2Result: any) => {
   const { AppDataSource } = require('../db/index');
   const matchRepository = AppDataSource.getRepository(Match);
   const match = await matchRepository.findOne({ where: { id: matchId } });
@@ -1297,7 +1310,7 @@ const determineWinnerAndPayout = async (matchId, player1Result, player2Result) =
   return payoutResult;
 };
 
-const submitResultHandler = async (req, res) => {
+const submitResultHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, result } = req.body;
     
@@ -1492,14 +1505,17 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = true;
-            payoutResult.automatedPayout = true;
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
+            (payoutResult as any).automatedPayout = true;
             
             console.log('✅ Automated payout completed');
             
-          } catch (error) {
-            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', error.message);
+          } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', errorMessage);
             
             // Fallback to manual payment instructions
             const paymentInstructions = {
@@ -1519,9 +1535,9 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = false;
-            payoutResult.paymentError = 'Automated payout failed - contact support';
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = false;
+            (payoutResult as any).paymentError = 'Automated payout failed - contact support';
             
             console.log('⚠️ Manual payment instructions created');
           }
@@ -1569,8 +1585,8 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = true;
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
             
             console.log('✅ Tie payment instructions created');
           } else {
@@ -1602,8 +1618,8 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = true;
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
             
             console.log('✅ Losing tie payment instructions created');
           }
@@ -1619,7 +1635,7 @@ const submitResultHandler = async (req, res) => {
         
         res.json({
           status: 'completed',
-          winner: payoutResult.winner,
+          winner: (payoutResult as any).winner,
           payout: payoutResult,
           message: 'Game completed - winner determined'
         });
@@ -1707,14 +1723,17 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = true;
-            payoutResult.automatedPayout = true;
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
+            (payoutResult as any).automatedPayout = true;
             
             console.log('✅ Automated payout completed');
             
-          } catch (error) {
-            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', error.message);
+          } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', errorMessage);
             
             // Fallback to manual payment instructions
             const paymentInstructions = {
@@ -1734,9 +1753,9 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = false;
-            payoutResult.paymentError = 'Automated payout failed - contact support';
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = false;
+            (payoutResult as any).paymentError = 'Automated payout failed - contact support';
             
             console.log('⚠️ Manual payment instructions created');
           }
@@ -1784,8 +1803,8 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = true;
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
             
             console.log('✅ Tie payment instructions created');
           } else {
@@ -1817,8 +1836,8 @@ const submitResultHandler = async (req, res) => {
               ]
             };
             
-            payoutResult.paymentInstructions = paymentInstructions;
-            payoutResult.paymentSuccess = true;
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
             
             console.log('✅ Losing tie payment instructions created');
           }
@@ -1834,7 +1853,7 @@ const submitResultHandler = async (req, res) => {
         
         res.json({
           status: 'completed',
-          winner: payoutResult.winner,
+          winner: (payoutResult as any).winner,
           payout: payoutResult,
           message: 'Game completed - winner determined'
         });
@@ -1849,13 +1868,13 @@ const submitResultHandler = async (req, res) => {
       }
     }
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error submitting result:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-const getMatchStatusHandler = async (req, res) => {
+const getMatchStatusHandler = async (req: any, res: any) => {
   try {
     const { matchId } = req.params;
     
@@ -1870,8 +1889,9 @@ const getMatchStatusHandler = async (req, res) => {
       if (match) {
         console.log('✅ Match found in database');
       }
-    } catch (dbError) {
-      console.warn('⚠️ Database lookup failed:', dbError.message);
+    } catch (dbError: unknown) {
+      const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      console.warn('⚠️ Database lookup failed:', dbErrorMessage);
     }
     
     // If not found in database, check in-memory matches
@@ -1920,14 +1940,14 @@ const getMatchStatusHandler = async (req, res) => {
       isCompleted: match.isCompleted || !!existingResult
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Check if a player has been matched (for polling)
-const checkPlayerMatchHandler = async (req, res) => {
+const checkPlayerMatchHandler = async (req: any, res: any) => {
   try {
     const { wallet } = req.params;
     
@@ -1982,12 +2002,15 @@ const checkPlayerMatchHandler = async (req, res) => {
       `, [wallet, wallet, 'cancelled']);
       
       console.log('✅ Database queries completed successfully');
-    } catch (dbError) {
+    } catch (dbError: unknown) {
       console.error('❌ Database query error:', dbError);
+      const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      const dbErrorStack = dbError instanceof Error ? dbError.stack : undefined;
+      const dbErrorName = dbError instanceof Error ? dbError.name : undefined;
       console.error('❌ Error details:', {
-        message: dbError.message,
-        stack: dbError.stack,
-        code: dbError.code
+        message: dbErrorMessage,
+        stack: dbErrorStack,
+        code: dbErrorName
       });
       return res.status(500).json({ error: 'Database query failed' });
     }
@@ -2019,7 +2042,7 @@ const checkPlayerMatchHandler = async (req, res) => {
         // Don't fail the request for debug data
       }
       
-      console.log('🔍 All matches for player:', allPlayerMatches.map(m => ({
+      console.log('🔍 All matches for player:', allPlayerMatches.map((m: any) => ({
         id: m.id,
         status: m.status,
         player1: m.player1,
@@ -2174,14 +2197,14 @@ const checkPlayerMatchHandler = async (req, res) => {
       res.json({ matched: false });
     }
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error checking player match:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Confirm escrow payment and activate game
-const confirmEscrowHandler = async (req, res) => {
+const confirmEscrowHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, escrowSignature } = req.body;
     
@@ -2229,14 +2252,14 @@ const confirmEscrowHandler = async (req, res) => {
       message: match.status === 'active' ? 'Game activated!' : 'Escrow confirmed, waiting for opponent'
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error confirming escrow:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Server-side game guess tracking endpoint
-const submitGameGuessHandler = async (req, res) => {
+const submitGameGuessHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, guess } = req.body;
     
@@ -2315,14 +2338,14 @@ const submitGameGuessHandler = async (req, res) => {
       remainingGuesses: 7 - playerGuesses.length
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error submitting guess:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Add server-side game state endpoint
-const getGameStateHandler = async (req, res) => {
+const getGameStateHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet } = req.query;
     
@@ -2431,14 +2454,14 @@ const getGameStateHandler = async (req, res) => {
       gameCompleted: bothPlayersFinished // New field to indicate when both players are done
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error getting game state:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Server-side payment execution endpoint
-const executePaymentHandler = async (req, res) => {
+const executePaymentHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, paymentType } = req.body;
     
@@ -2492,14 +2515,14 @@ const executePaymentHandler = async (req, res) => {
       paymentInstructions: match.payoutResult?.paymentInstructions || null
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error executing payment:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
 // Create escrow transaction endpoint
-const createEscrowTransactionHandler = async (req, res) => {
+const createEscrowTransactionHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, escrowAddress, entryFee } = req.body;
     
@@ -2545,13 +2568,13 @@ const createEscrowTransactionHandler = async (req, res) => {
       message: 'Escrow transaction created - please sign and submit'
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error creating escrow transaction:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
 
-const cleanupStuckMatchesHandler = async (req, res) => {
+const cleanupStuckMatchesHandler = async (req: any, res: any) => {
   try {
     const { wallet } = req.body;
     
@@ -2591,14 +2614,14 @@ const cleanupStuckMatchesHandler = async (req, res) => {
         cleanedMatches: 0
       });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error cleaning up stuck matches:', error);
     res.status(500).json({ error: 'Failed to cleanup matches' });
   }
 };
 
 // Simple cleanup endpoint for production
-const simpleCleanupHandler = async (req, res) => {
+const simpleCleanupHandler = async (req: any, res: any) => {
   try {
     console.log('🧹 Running simple cleanup...');
     
@@ -2675,18 +2698,21 @@ const simpleCleanupHandler = async (req, res) => {
       cleanedMemory: activeGamesSize
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ Simple cleanup failed:', error);
     res.status(500).json({ 
       success: false, 
       error: 'Failed to cleanup matches',
-      details: error.message 
+      details: errorMessage 
     });
   }
 };
 
 // New endpoint to force cleanup for a specific wallet (for testing)
-const forceCleanupForWallet = async (req, res) => {
+const forceCleanupForWallet = async (req: any, res: any) => {
   try {
     const { wallet } = req.body;
     
@@ -2734,7 +2760,7 @@ const forceCleanupForWallet = async (req, res) => {
       cleanedStaleMatches: staleWaitingMatches.length,
       message: `Force cleaned up ${walletMatches.length} wallet matches and ${staleWaitingMatches.length} stale matches`
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in force cleanup:', error);
     res.status(500).json({
       success: false,
@@ -2744,7 +2770,7 @@ const forceCleanupForWallet = async (req, res) => {
 };
 
 // Process refunds for failed matches
-const processRefundsForFailedMatch = async (match) => {
+const processRefundsForFailedMatch = async (match: any) => {
   try {
     console.log(`💰 Processing refunds for failed match ${match.id}`);
     
@@ -2788,8 +2814,11 @@ const processRefundsForFailedMatch = async (match) => {
         const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
         await connection.confirmTransaction(signature);
         console.log(`✅ Refund sent to Player 1: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
-      } catch (error) {
-        console.error(`❌ Failed to refund Player 1: ${error.message}`);
+      } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+        console.error(`❌ Failed to refund Player 1: ${errorMessage}`);
       }
     }
     
@@ -2807,20 +2836,23 @@ const processRefundsForFailedMatch = async (match) => {
         const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
         await connection.confirmTransaction(signature);
         console.log(`✅ Refund sent to Player 2: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
-      } catch (error) {
-        console.error(`❌ Failed to refund Player 2: ${error.message}`);
+      } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+        console.error(`❌ Failed to refund Player 2: ${errorMessage}`);
       }
     }
     
     console.log(`✅ All refunds processed for match ${match.id} (0.0001 SOL fee deducted per refund)`);
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error processing refunds:', error);
   }
 };
 
 // Automated refund system - handles all refund scenarios
-const processAutomatedRefunds = async (match, reason = 'unknown') => {
+const processAutomatedRefunds = async (match: any, reason: any = 'unknown') => {
   try {
     console.log(`💰 Processing automated refunds for match ${match.id} - Reason: ${reason}`);
     
@@ -2845,13 +2877,13 @@ const processAutomatedRefunds = async (match, reason = 'unknown') => {
     
     console.log(`✅ Automated refunds completed for match ${match.id}`);
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`❌ Error in automated refunds for match ${match.id}:`, error);
   }
 };
 
 // Payment confirmation endpoint
-const confirmPaymentHandler = async (req, res) => {
+const confirmPaymentHandler = async (req: any, res: any) => {
   try {
     console.log('📥 Received confirm payment request:', {
       body: req.body,
@@ -3101,7 +3133,7 @@ const confirmPaymentHandler = async (req, res) => {
             
             console.log(`✅ Match ${matchId} cancelled due to payment timeout`);
           }
-        } catch (error) {
+        } catch (error: unknown) {
           console.error('❌ Error handling payment timeout:', error);
         }
       }, 60000); // 1 minute timeout
@@ -3140,7 +3172,7 @@ const confirmPaymentHandler = async (req, res) => {
       message: match.status === 'active' ? 'Game started!' : 'Waiting for other player to pay'
     });
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error confirming payment:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
@@ -3154,7 +3186,7 @@ const { WebSocketEventType } = require('../services/websocketService');
 const { enhancedLogger } = require('../utils/enhancedLogger');
 
 // WebSocket stats endpoint
-const websocketStatsHandler = async (req, res) => {
+const websocketStatsHandler = async (req: any, res: any) => {
   try {
     const stats = websocketService.getStats();
     res.json({
@@ -3165,7 +3197,7 @@ const websocketStatsHandler = async (req, res) => {
         paymentVerification: paymentVerificationService.getStats()
       }
     });
-  } catch (error) {
+  } catch (error: unknown) {
     enhancedLogger.error('❌ WebSocket stats failed:', error);
     res.status(500).json({ error: 'Failed to get WebSocket stats' });
   }
@@ -3212,8 +3244,8 @@ const verifyPaymentTransaction = async (signature: string, fromWallet: string, e
     const accountKeys = transaction.transaction.message.accountKeys;
     
     // Find the fee wallet account index
-    const feeWalletIndex = accountKeys.findIndex(key => key.equals(feeWalletPublicKey));
-    const fromWalletIndex = accountKeys.findIndex(key => key.equals(fromWalletPublicKey));
+    const feeWalletIndex = accountKeys.findIndex((key: any) => key.equals(feeWalletPublicKey));
+    const fromWalletIndex = accountKeys.findIndex((key: any) => key.equals(fromWalletPublicKey));
     
     if (feeWalletIndex === -1 || fromWalletIndex === -1) {
       return {
@@ -3270,17 +3302,20 @@ const verifyPaymentTransaction = async (signature: string, fromWallet: string, e
       }
     };
     
-  } catch (error) {
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ ENHANCED: Payment verification error:', error);
     return {
       verified: false,
-      error: `Verification failed: ${error.message}`
+      error: `Verification failed: ${errorMessage}`
     };
   }
 };
 
 // Debug matches endpoint
-const debugMatchesHandler = async (req, res) => {
+const debugMatchesHandler = async (req: any, res: any) => {
   try {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
@@ -3304,7 +3339,7 @@ const debugMatchesHandler = async (req, res) => {
       timestamp: new Date().toISOString(),
       totalMatches: allMatches.length,
       activeGames: activeGamesList,
-      matches: allMatches.map(match => ({
+      matches: allMatches.map((match: any) => ({
         id: match.id,
         status: match.status,
         player1: match.player1,
@@ -3317,14 +3352,14 @@ const debugMatchesHandler = async (req, res) => {
       }))
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in debug matches:', error);
     res.status(500).json({ error: 'Debug failed' });
   }
 };
 
 // Memory monitoring endpoint
-const memoryStatsHandler = async (req, res) => {
+const memoryStatsHandler = async (req: any, res: any) => {
   try {
     const { AppDataSource } = require('../db/index');
     
@@ -3347,14 +3382,14 @@ const memoryStatsHandler = async (req, res) => {
       warnings: []
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Memory stats failed:', error);
     res.status(500).json({ error: 'Failed to get memory stats' });
   }
 };
 
 // Debug endpoint to check matchmaking state
-const debugMatchmakingHandler = async (req, res) => {
+const debugMatchmakingHandler = async (req: any, res: any) => {
   try {
     const { wallet } = req.query;
     
@@ -3390,7 +3425,7 @@ const debugMatchmakingHandler = async (req, res) => {
     res.json({
       wallet,
       timestamp: new Date().toISOString(),
-      allMatches: allMatches.map(m => ({
+      allMatches: allMatches.map((m: any) => ({
         id: m.id,
         status: m.status,
         player1: m.player1,
@@ -3400,7 +3435,7 @@ const debugMatchmakingHandler = async (req, res) => {
         player1Paid: m.player1Paid,
         player2Paid: m.player2Paid
       })),
-      waitingMatches: waitingMatches.map(m => ({
+      waitingMatches: waitingMatches.map((m: any) => ({
         id: m.id,
         player1: m.player1,
         entryFee: m.entryFee,
@@ -3408,7 +3443,7 @@ const debugMatchmakingHandler = async (req, res) => {
       })),
       matchmakingLock: {
         hasLock,
-        lockData: hasLock ? {
+        lockData: hasLock && lockData ? {
           timestamp: lockData.timestamp,
           wallet: lockData.wallet,
           entryFee: lockData.entryFee,
@@ -3418,14 +3453,14 @@ const debugMatchmakingHandler = async (req, res) => {
       memoryStats
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Debug matchmaking failed:', error);
     res.status(500).json({ error: 'Failed to get debug info' });
   }
 };
 
 // Manual refund endpoint for testing
-const manualRefundHandler = async (req, res) => {
+const manualRefundHandler = async (req: any, res: any) => {
   try {
     const { matchId } = req.body;
     
@@ -3464,14 +3499,14 @@ const manualRefundHandler = async (req, res) => {
       matchId: matchId
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in manual refund:', error);
     res.status(500).json({ error: 'Failed to process manual refund' });
   }
 };
 
 // Manual match endpoint to fix stuck matchmaking
-const manualMatchHandler = async (req, res) => {
+const manualMatchHandler = async (req: any, res: any) => {
   try {
     const { player1, player2, entryFee } = req.body;
     
@@ -3523,14 +3558,14 @@ const manualMatchHandler = async (req, res) => {
       status: 'matched'
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error in manual match:', error);
     res.status(500).json({ error: 'Failed to create manual match' });
   }
 };
 
 // Database migration endpoint (for adding new columns)
-const runMigrationHandler = async (req, res) => {
+const runMigrationHandler = async (req: any, res: any) => {
   try {
     console.log('🔄 Running database migration...');
     
@@ -3593,8 +3628,11 @@ const runMigrationHandler = async (req, res) => {
       try {
         await AppDataSource.query(query);
         console.log(`✅ Executed: ${query}`);
-      } catch (error) {
-        console.log(`⚠️ Column might already exist: ${error.message}`);
+      } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
+        console.log(`⚠️ Column might already exist: ${errorMessage}`);
       }
     }
     
@@ -3656,14 +3694,14 @@ const runMigrationHandler = async (req, res) => {
       ]
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error running migration:', error);
     res.status(500).json({ error: 'Failed to run migration' });
   }
 };
 
 // Helper function to convert UTC to EST
-const convertToEST = (date) => {
+const convertToEST = (date: any) => {
   if (!date) return '';
   const utcDate = new Date(date);
   const estDate = new Date(utcDate.toLocaleString("en-US", {timeZone: "America/New_York"}));
@@ -3677,14 +3715,14 @@ const getSolPriceUSD = async () => {
     const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
     const data = await response.json();
     return data.solana.usd;
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error fetching SOL price:', error);
     return null;
   }
 };
 
 // Helper function to get transaction details from blockchain
-const getTransactionDetails = async (signature) => {
+const getTransactionDetails = async (signature: any) => {
   try {
     const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
     const transaction = await connection.getTransaction(signature, {
@@ -3725,14 +3763,14 @@ const getTransactionDetails = async (signature) => {
       explorerLink,
       solscanLink
     };
-  } catch (error) {
+  } catch (error: unknown) {
     console.error(`❌ Error fetching transaction ${signature}:`, error);
     return null;
   }
 };
 
 // Helper function to verify and update match with blockchain data
-const updateMatchWithBlockchainData = async (match) => {
+const updateMatchWithBlockchainData = async (match: any) => {
   try {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
@@ -3857,14 +3895,14 @@ const updateMatchWithBlockchainData = async (match) => {
     
     return match;
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error updating match with blockchain data:', error);
     return null;
   }
 };
 
 // Helper function to calculate fiscal year and quarter
-const getFiscalInfo = (date) => {
+const getFiscalInfo = (date: any) => {
   const year = date.getFullYear();
   const month = date.getMonth() + 1;
   const quarter = Math.ceil(month / 3);
@@ -3872,7 +3910,7 @@ const getFiscalInfo = (date) => {
 };
 
 // Match report endpoint (exports to CSV) - Updated with high-impact security fixes
-const generateReportHandler = async (req, res) => {
+const generateReportHandler = async (req: any, res: any) => {
   try {
     const { startDate = '2025-08-16', endDate, includeWords = 'false' } = req.query;
     
@@ -3951,7 +3989,7 @@ const generateReportHandler = async (req, res) => {
     console.log(`📊 Found ${matches.length} matches for report`);
     
     // Helper function to sanitize CSV values (prevent injection)
-    const sanitizeCsvValue = (value) => {
+    const sanitizeCsvValue = (value: any) => {
       if (!value) return '';
       const str = String(value);
       // If value starts with =, +, -, or @, prefix with single quote
@@ -3962,14 +4000,14 @@ const generateReportHandler = async (req, res) => {
     };
     
     // Helper function to generate row hash for integrity
-    const generateRowHash = (match) => {
+    const generateRowHash = (match: any) => {
       const crypto = require('crypto');
       const data = `${match.id}${match.player1}${match.player2}${match.winner}${match.totalFeesCollected}${match.winnerPayoutSignature}${match.updatedAt}`;
       return crypto.createHash('sha256').update(data).digest('hex');
     };
     
     // Helper function to convert to EST
-    const convertToEST = (timestamp) => {
+    const convertToEST = (timestamp: any) => {
       if (!timestamp) return '';
       try {
         return new Date(timestamp).toLocaleString('en-US', {
@@ -3981,7 +4019,7 @@ const generateReportHandler = async (req, res) => {
           minute: '2-digit',
           second: '2-digit'
         });
-      } catch (error) {
+      } catch (error: unknown) {
         return '';
       }
     };
@@ -4046,7 +4084,7 @@ const generateReportHandler = async (req, res) => {
     ];
     
     // Generate CSV rows with security fixes
-    const csvRows = matches.map(match => {
+    const csvRows = matches.map((match: any) => {
       // Generate row hash for integrity
       const rowHash = generateRowHash(match);
       
@@ -4114,7 +4152,7 @@ const generateReportHandler = async (req, res) => {
     
     // Combine headers and rows
     const csvContent = [csvHeaders, ...csvRows]
-      .map(row => row.map(field => `"${field || ''}"`).join(','))
+      .map((row: any) => row.map((field: any) => `"${field || ''}"`).join(','))
       .join('\n');
     
     // Generate file hash for integrity
@@ -4133,14 +4171,14 @@ const generateReportHandler = async (req, res) => {
     
     res.send(csvContent);
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error generating secure report:', error);
     res.status(500).json({ error: 'Failed to generate secure report' });
   }
 };
 
 // Blockchain verification endpoint
-const verifyBlockchainDataHandler = async (req, res) => {
+const verifyBlockchainDataHandler = async (req: any, res: any) => {
   try {
     const { matchId } = req.params;
     
@@ -4177,14 +4215,14 @@ const verifyBlockchainDataHandler = async (req, res) => {
       res.status(500).json({ error: 'Failed to verify blockchain data' });
     }
     
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Error verifying blockchain data:', error);
     res.status(500).json({ error: 'Failed to verify blockchain data' });
   }
 };
 
 // Server-Sent Events endpoint for real-time wallet balance updates
-const walletBalanceSSEHandler = async (req, res) => {
+const walletBalanceSSEHandler = async (req: any, res: any) => {
   try {
     const { wallet } = req.params;
     
@@ -4232,7 +4270,7 @@ const walletBalanceSSEHandler = async (req, res) => {
       };
       
       res.write(`data: ${JSON.stringify(balanceMessage)}\n\n`);
-    } catch (error) {
+    } catch (error: unknown) {
       console.error('❌ Error fetching initial balance:', error);
       const errorMessage = {
         type: 'error',
@@ -4257,7 +4295,7 @@ const walletBalanceSSEHandler = async (req, res) => {
         };
         
         res.write(`data: ${JSON.stringify(balanceMessage)}\n\n`);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('❌ Error fetching balance update:', error);
         const errorMessage = {
           type: 'error',
@@ -4278,7 +4316,7 @@ const walletBalanceSSEHandler = async (req, res) => {
           timestamp: new Date().toISOString()
         };
         res.write(`data: ${JSON.stringify(heartbeatMessage)}\n\n`);
-      } catch (error) {
+      } catch (error: unknown) {
         console.error('❌ Error sending heartbeat:', error);
       }
     }, 15000); // Heartbeat every 15 seconds
@@ -4291,19 +4329,22 @@ const walletBalanceSSEHandler = async (req, res) => {
     });
     
     // Handle server shutdown
-    req.on('error', (error) => {
+    req.on('error', (error: any) => {
       console.error('❌ SSE connection error:', error);
       clearInterval(balanceInterval);
       clearInterval(heartbeatInterval);
     });
     
-  } catch (error) {
+  } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ Error in wallet balance SSE handler:', error);
     
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
-        details: error.message,
+        details: errorMessage,
         wallet: req.params.wallet 
       });
     } else {

@@ -150,9 +150,10 @@ class PaymentVerificationService {
         error
       });
 
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         verified: false,
-        error: `Verification failed: ${error.message}`,
+        error: `Verification failed: ${errorMessage}`,
         devnetInfo: {
           isDevnet: this.isDevnet,
           rpcUrl: this.connection.rpcEndpoint,
@@ -192,11 +193,12 @@ class PaymentVerificationService {
           return transaction;
         }
 
-      } catch (error) {
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
         enhancedLogger.warn(`⚠️ Transaction fetch attempt ${attempt} failed`, { 
           signature, 
           attempt, 
-          error: error.message 
+          error: errorMessage 
         });
         
         if (attempt === maxRetries) {
@@ -426,11 +428,12 @@ class PaymentVerificationService {
         }
       };
 
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Transaction parsing failed', { error });
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         verified: false,
-        error: `Transaction parsing failed: ${error.message}`
+        error: `Transaction parsing failed: ${errorMessage}`
       };
     }
   }
@@ -523,11 +526,12 @@ class PaymentVerificationService {
         }
       };
 
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('❌ Blockchain connection test failed', { error });
+      const errorMessage = error instanceof Error ? error.message : String(error);
       return {
         success: false,
-        error: error.message
+        error: errorMessage
       };
     }
   }

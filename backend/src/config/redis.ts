@@ -91,7 +91,7 @@ export const initializeRedis = async (): Promise<void> => {
       enhancedLogger.info('✅ Redis MM ready');
     });
     
-    redisMM.on('error', (error) => {
+    redisMM.on('error', (error: any) => {
       enhancedLogger.error('❌ Redis MM connection error:', error);
     });
     
@@ -110,7 +110,7 @@ export const initializeRedis = async (): Promise<void> => {
       enhancedLogger.info('✅ Redis Ops ready');
     });
     
-    redisOps.on('error', (error) => {
+    redisOps.on('error', (error: any) => {
       enhancedLogger.error('❌ Redis Ops connection error:', error);
     });
     
@@ -135,7 +135,7 @@ export const initializeRedis = async (): Promise<void> => {
     enhancedLogger.info('✅ Redis Ops ping successful');
     
     enhancedLogger.info('✅ Redis connections initialized successfully');
-  } catch (error) {
+  } catch (error: unknown) {
     enhancedLogger.error('❌ Failed to initialize Redis connections:', error);
     throw error;
   }
@@ -190,7 +190,7 @@ export const closeRedis = async (): Promise<void> => {
       await ioredisOps.quit();
       enhancedLogger.info('🔌 ioredis Ops connection closed');
     }
-  } catch (error) {
+  } catch (error: unknown) {
     enhancedLogger.error('❌ Error closing Redis connections:', error);
   }
 };
@@ -204,7 +204,7 @@ export const checkRedisHealth = async (): Promise<{ mm: boolean; ops: boolean }>
       await redisMM.ping();
       health.mm = true;
     }
-  } catch (error) {
+  } catch (error: unknown) {
     enhancedLogger.error('❌ Redis MM health check failed:', error);
   }
   
@@ -213,7 +213,7 @@ export const checkRedisHealth = async (): Promise<{ mm: boolean; ops: boolean }>
       await redisOps.ping();
       health.ops = true;
     }
-  } catch (error) {
+  } catch (error: unknown) {
     enhancedLogger.error('❌ Redis Ops health check failed:', error);
   }
   

@@ -61,7 +61,7 @@ router.get('/wallet-balance/:wallet',
 );
 
 // OPTIONS handler for SSE endpoint to handle CORS preflight
-router.options('/wallet-balance/:wallet', (req, res) => {
+router.options('/wallet-balance/:wallet', (req: any, res: any) => {
   res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'https://guess5.vercel.app');
   res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -92,7 +92,7 @@ router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHand
 
 // Database migration endpoints
 router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHandler));
-router.post('/run-security-migration', asyncHandlerWrapper(async (req, res) => {
+router.post('/run-security-migration', asyncHandlerWrapper(async (req: any, res: any) => {
   const { runHighImpactSecurityMigration, checkMigrationStatus } = require('../utils/migrationHelper');
   
   try {
@@ -111,7 +111,7 @@ router.post('/run-security-migration', asyncHandlerWrapper(async (req, res) => {
       const status = await checkMigrationStatus();
       res.json({ success: true, status });
     }
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('❌ Migration error:', error);
     res.status(500).json({ error: 'Migration operation failed' });
   }
@@ -127,7 +127,7 @@ router.post('/verify-blockchain/:matchId', asyncHandlerWrapper(matchController.v
 router.get('/websocket-stats', asyncHandlerWrapper(matchController.websocketStatsHandler));
 
 // Payment verification test endpoint
-router.post('/test-payment-verification', asyncHandlerWrapper(async (req, res) => {
+router.post('/test-payment-verification', asyncHandlerWrapper(async (req: any, res: any) => {
   const { signature, wallet, amount } = req.body;
   
   if (!signature || !wallet || !amount) {

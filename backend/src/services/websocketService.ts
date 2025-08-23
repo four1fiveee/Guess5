@@ -55,7 +55,7 @@ class WebSocketService {
   private setupEventHandlers() {
     if (!this.wss) return;
 
-         this.wss.on('connection', (ws: WebSocket, req) => {
+         this.wss.on('connection', (ws: WebSocket, req: any) => {
       const connectionId = this.generateConnectionId();
       const wallet = this.extractWalletFromRequest(req);
       
@@ -96,7 +96,7 @@ class WebSocketService {
       // Setup connection event handlers
       ws.on('message', (data) => this.handleMessage(connectionId, data));
       ws.on('close', () => this.handleDisconnect(connectionId));
-      ws.on('error', (error) => this.handleError(connectionId, error));
+      ws.on('error', (error: any) => this.handleError(connectionId, error));
       ws.on('pong', () => this.handlePong(connectionId));
 
       // Start ping interval
@@ -115,7 +115,7 @@ class WebSocketService {
     try {
       const url = new URL(req.url, 'http://localhost');
       return url.searchParams.get('wallet');
-    } catch (error) {
+    } catch (error: unknown) {
       return null;
     }
   }
@@ -154,7 +154,7 @@ class WebSocketService {
             type: message.type 
           });
       }
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('Error handling WebSocket message', { connectionId, error });
     }
   }
@@ -270,7 +270,7 @@ class WebSocketService {
 
     try {
       connection.ws.send(JSON.stringify(event));
-    } catch (error) {
+    } catch (error: unknown) {
       enhancedLogger.error('Error sending WebSocket event', { connectionId, error });
       this.handleDisconnect(connectionId);
     }

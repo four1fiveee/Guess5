@@ -32,10 +32,11 @@ export class ErrorHandler {
   handleApiError(error: unknown, context?: string): AppError {
     console.error('API Error:', { error, context });
 
-    if (error.response) {
-      // Server responded with error status
-      const status = error.response.status;
-      const data = error.response.data;
+    // Type guard to check if error is an object with response property
+    if (error && typeof error === 'object' && 'response' in error) {
+      const apiError = error as { response: { status: number; data: any } };
+      const status = apiError.response.status;
+      const data = apiError.response.data;
 
       if (status === 429) {
         return {
@@ -70,20 +71,24 @@ export class ErrorHandler {
       };
     }
 
-    if (error.request) {
+    // Type guard to check if error is an object with request property
+    if (error && typeof error === 'object' && 'request' in error) {
       // Network error
+      const networkError = error as { message?: string };
       return {
         type: ErrorType.NETWORK,
         message: 'Network error. Please check your connection and try again.',
-        details: error.message,
+        details: networkError.message,
         retryable: true
       };
     }
 
+    // Handle other error types
+    const errorMessage = error instanceof Error ? error.message : String(error);
     return {
       type: ErrorType.UNKNOWN,
       message: 'An unexpected error occurred.',
-      details: error.message
+      details: errorMessage
     };
   }
 
@@ -91,28 +96,37 @@ export class ErrorHandler {
   handleWalletError(error: unknown): AppError {
     console.error('Wallet Error:', error);
 
-    if (error.code === 4001) {
-      return {
-        type: ErrorType.WALLET,
-        message: 'Transaction was rejected by user.',
-        details: error
-      };
+    // Type guard to check if error is an object with code property
+    if (error && typeof error === 'object' && 'code' in error) {
+      const walletError = error as { code: number; message?: string };
+      if (walletError.code === 4001) {
+        return {
+          type: ErrorType.WALLET,
+          message: 'Transaction was rejected by user.',
+          details: error
+        };
+      }
     }
 
-    if (error.message?.includes('insufficient funds')) {
-      return {
-        type: ErrorType.WALLET,
-        message: 'Insufficient SOL balance. Please add more SOL to your wallet.',
-        details: error
-      };
-    }
+    // Type guard to check if error is an object with message property
+    if (error && typeof error === 'object' && 'message' in error) {
+      const walletError = error as { message: string };
+      
+      if (walletError.message?.includes('insufficient funds')) {
+        return {
+          type: ErrorType.WALLET,
+          message: 'Insufficient SOL balance. Please add more SOL to your wallet.',
+          details: error
+        };
+      }
 
-    if (error.message?.includes('User rejected')) {
-      return {
-        type: ErrorType.WALLET,
-        message: 'Transaction was cancelled.',
-        details: error
-      };
+      if (walletError.message?.includes('User rejected')) {
+        return {
+          type: ErrorType.WALLET,
+          message: 'Transaction was cancelled.',
+          details: error
+        };
+      }
     }
 
     return {
@@ -127,7 +141,9 @@ export class ErrorHandler {
   handleGameError(error: unknown): AppError {
     console.error('Game Error:', error);
 
-    if (error.message?.includes('match not found')) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    if (errorMessage.includes('match not found')) {
       return {
         type: ErrorType.GAME,
         message: 'Game not found. Please start a new match.',
@@ -135,7 +151,7 @@ export class ErrorHandler {
       };
     }
 
-    if (error.message?.includes('already in progress')) {
+    if (errorMessage.includes('already in progress')) {
       return {
         type: ErrorType.GAME,
         message: 'Game is already in progress.',
