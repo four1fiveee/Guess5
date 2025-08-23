@@ -162,16 +162,16 @@ export class Match {
 
   // Game results
   @Column({ type: 'text', nullable: true })
-  player1Result?: string | null;
+  player1Result?: string;
 
   @Column({ type: 'text', nullable: true })
-  player2Result?: string | null;
+  player2Result?: string;
 
-  @Column({ nullable: true })
-  winner?: string | null;
+  @Column({ nullable: true, type: 'varchar' })
+  winner?: string;
 
   @Column({ type: 'text', nullable: true })
-  payoutResult?: string | null;
+  payoutResult?: string;
 
   @CreateDateColumn()
   createdAt!: Date;
@@ -200,7 +200,7 @@ export class Match {
     totalTime: number;
     guesses: string[];
   } | null): void {
-    this.player1Result = result ? JSON.stringify(result) : null;
+    this.player1Result = result ? JSON.stringify(result) : undefined;
   }
 
   getPlayer2Result(): {
@@ -223,7 +223,7 @@ export class Match {
     totalTime: number;
     guesses: string[];
   } | null): void {
-    this.player2Result = result ? JSON.stringify(result) : null;
+    this.player2Result = result ? JSON.stringify(result) : undefined;
   }
 
   getPayoutResult(): {
@@ -266,6 +266,6 @@ export class Match {
     paymentError?: string;
     transaction?: any;
   } | null): void {
-    this.payoutResult = result ? JSON.stringify(result) : null;
+    this.payoutResult = result ? JSON.stringify(result) : undefined;
   }
 } 
