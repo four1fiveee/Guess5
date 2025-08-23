@@ -1,5 +1,5 @@
 import { Queue, Worker, Job } from 'bullmq';
-import { getRedisOps } from '../config/redis';
+import { getIoredisOps } from '../config/redis';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 // Job types
@@ -45,7 +45,7 @@ class QueueService {
     if (this.initialized) return;
 
     try {
-      const connection = getRedisOps();
+      const connection = getIoredisOps();
 
       // Initialize queues
       this.paymentQueue = new Queue(QUEUE_NAMES.PAYMENTS, {
@@ -119,7 +119,7 @@ class QueueService {
         throw error;
       }
     }, {
-      connection: getRedisOps(),
+      connection: getIoredisOps(),
       concurrency: 5
     });
 
@@ -143,7 +143,7 @@ class QueueService {
         throw error;
       }
     }, {
-      connection: getRedisOps(),
+      connection: getIoredisOps(),
       concurrency: 3
     });
 
@@ -164,7 +164,7 @@ class QueueService {
         throw error;
       }
     }, {
-      connection: getRedisOps(),
+      connection: getIoredisOps(),
       concurrency: 10
     });
 

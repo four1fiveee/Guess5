@@ -1,33 +1,24 @@
 import { getRedisMM } from '../config/redis';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
-export interface MatchmakingPlayer {
+interface WaitingPlayer {
   wallet: string;
   entryFee: number;
   timestamp: number;
-  matchId?: string;
 }
 
-export interface Match {
+interface MatchData {
   matchId: string;
   player1: string;
   player2: string;
   entryFee: number;
-  status: 'waiting_payment' | 'active' | 'completed' | 'cancelled';
+  status: 'waiting' | 'payment_required' | 'active' | 'completed' | 'expired';
   createdAt: number;
-  player1Paid?: boolean;
-  player2Paid?: boolean;
+  expiresAt: number;
 }
 
 export class RedisMatchmakingService {
   private redis: ReturnType<typeof getRedisMM> | null = null;
-  
-  // Key prefixes for Redis
-  private readonly WAITING_PLAYERS_KEY = 'mm:waiting';
-  private readonly MATCHES_KEY = 'mm:matches';
-  private readonly PLAYER_MATCH_KEY = 'mm:player:';
-  private readonly MATCH_EXPIRY = 300; // 5 minutes
-  private readonly PLAYER_EXPIRY = 120; // 2 minutes
   private initialized = false;
 
   constructor() {
@@ -47,252 +38,230 @@ export class RedisMatchmakingService {
     }
   }
 
-  /**
-   * Add a player to the waiting queue
-   */
   async addPlayerToQueue(wallet: string, entryFee: number): Promise<{ status: 'waiting' | 'matched'; matchId?: string; waitingCount?: number }> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      const player: MatchmakingPlayer = {
+      const waitingKey = `waiting:${entryFee}`;
+      const playerData: WaitingPlayer = {
         wallet,
         entryFee,
         timestamp: Date.now()
       };
 
-      // Check if player is already in a match
-      const existingMatch = await this.getPlayerMatch(wallet);
-      if (existingMatch) {
-        enhancedLogger.info(`🎯 Player ${wallet} already in match ${existingMatch.matchId}`);
-        return { status: 'matched', matchId: existingMatch.matchId };
-      }
-
-      // Remove player from waiting queue if they exist
-      await this.removePlayerFromQueue(wallet);
-
-      // Add player to waiting queue
-      await this.redis!.hset(this.WAITING_PLAYERS_KEY, wallet, JSON.stringify(player));
-      await this.redis!.expire(this.WAITING_PLAYERS_KEY, this.PLAYER_EXPIRY);
-
-      // Look for a matching player
-      const match = await this.findMatch(wallet, entryFee);
+      // Check if there's already a waiting player with the same entry fee
+      const waitingPlayers = await this.redis.hGetAll(waitingKey);
       
-      if (match) {
-        // Create match
-        const matchId = this.generateMatchId();
-        const matchData: Match = {
-          matchId,
-          player1: match.player1,
-          player2: wallet,
-          entryFee,
-          status: 'waiting_payment',
-          createdAt: Date.now()
-        };
+      if (Object.keys(waitingPlayers).length === 0) {
+        // No waiting players, add this player to the queue
+        await this.redis.hSet(waitingKey, wallet, JSON.stringify(playerData));
+        await this.redis.expire(waitingKey, 300); // 5 minutes timeout
+        
+        enhancedLogger.info(`👤 Player ${wallet} added to waiting queue for ${entryFee} SOL`);
+        return { status: 'waiting', waitingCount: 1 };
+      } else {
+        // Find a compatible player
+        for (const [waitingWallet, playerJson] of Object.entries(waitingPlayers)) {
+          if (waitingWallet === wallet) {
+            // Player is already in queue
+            return { status: 'waiting', waitingCount: Object.keys(waitingPlayers).length };
+          }
 
-        // Store match data
-        await this.redis!.hset(this.MATCHES_KEY, matchId, JSON.stringify(matchData));
-        await this.redis!.expire(`${this.MATCHES_KEY}:${matchId}`, this.MATCH_EXPIRY);
+          const waitingPlayer: WaitingPlayer = JSON.parse(playerJson);
+          
+          // Check if players are compatible (same entry fee, different wallets)
+          if (waitingPlayer.entryFee === entryFee && waitingPlayer.wallet !== wallet) {
+            // Create a match
+            const matchId = `match:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+            const matchData: MatchData = {
+              matchId,
+              player1: waitingPlayer.wallet,
+              player2: wallet,
+              entryFee,
+              status: 'payment_required',
+              createdAt: Date.now(),
+              expiresAt: Date.now() + 300000 // 5 minutes
+            };
 
-        // Update player records with match ID
-        await this.redis!.hset(this.PLAYER_MATCH_KEY + match.player1, 'matchId', matchId);
-        await this.redis!.hset(this.PLAYER_MATCH_KEY + wallet, 'matchId', matchId);
-        await this.redis!.expire(this.PLAYER_MATCH_KEY + match.player1, this.MATCH_EXPIRY);
-        await this.redis!.expire(this.PLAYER_MATCH_KEY + wallet, this.MATCH_EXPIRY);
+            // Store match data
+            await this.redis.hSet(`match:${matchId}`, 'data', JSON.stringify(matchData));
+            await this.redis.expire(`match:${matchId}`, 600); // 10 minutes
 
-        // Remove both players from waiting queue
-        await this.removePlayerFromQueue(match.player1);
-        await this.removePlayerFromQueue(wallet);
+            // Store player associations
+            await this.redis.hSet(`player:${waitingPlayer.wallet}`, 'matchId', matchId);
+            await this.redis.hSet(`player:${wallet}`, 'matchId', matchId);
+            await this.redis.expire(`player:${waitingPlayer.wallet}`, 600);
+            await this.redis.expire(`player:${wallet}`, 600);
 
-        enhancedLogger.info(`🎯 Match created: ${matchId} between ${match.player1} and ${wallet}`);
-        return { status: 'matched', matchId };
+            // Remove waiting player from queue
+            await this.redis.hDel(waitingKey, waitingPlayer.wallet);
+
+            enhancedLogger.info(`🎯 Match created: ${matchId} between ${waitingPlayer.wallet} and ${wallet}`);
+            return { status: 'matched', matchId };
+          }
+        }
+
+        // No compatible player found, add to queue
+        await this.redis.hSet(waitingKey, wallet, JSON.stringify(playerData));
+        await this.redis.expire(waitingKey, 300);
+        
+        const waitingCount = Object.keys(waitingPlayers).length + 1;
+        enhancedLogger.info(`👤 Player ${wallet} added to waiting queue for ${entryFee} SOL (${waitingCount} waiting)`);
+        return { status: 'waiting', waitingCount };
       }
-
-      // Get waiting count
-      const waitingCount = await this.getWaitingCount();
-      enhancedLogger.info(`⏳ Player ${wallet} added to waiting queue. Total waiting: ${waitingCount}`);
-      
-      return { status: 'waiting', waitingCount };
     } catch (error) {
       enhancedLogger.error('❌ Error adding player to queue:', error);
       throw error;
     }
   }
 
-  /**
-   * Find a matching player for the given wallet and entry fee
-   */
-  private async findMatch(wallet: string, entryFee: number): Promise<{ player1: string } | null> {
+  async findMatch(wallet: string): Promise<MatchData | null> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      const waitingPlayers = await this.redis.hgetall(this.WAITING_PLAYERS_KEY);
-      
-      for (const [waitingWallet, playerData] of Object.entries(waitingPlayers)) {
-        if (waitingWallet === wallet) continue;
-        
-        const player: MatchmakingPlayer = JSON.parse(playerData);
-        
-        // Check if entry fees match
-        if (player.entryFee === entryFee) {
-          // Check if player is still valid (not expired)
-          const age = Date.now() - player.timestamp;
-          if (age < this.PLAYER_EXPIRY * 1000) {
-            return { player1: waitingWallet };
-          }
-        }
+             const playerMatchId = await this.redis.hGet(`player:${wallet}`, 'matchId');
+       if (!playerMatchId) {
+         return null;
+       }
+
+       const matchDataJson = await this.redis.hGet(`match:${playerMatchId as string}`, 'data');
+      if (!matchDataJson) {
+        return null;
       }
-      
-      return null;
+
+      return JSON.parse(matchDataJson) as MatchData;
     } catch (error) {
       enhancedLogger.error('❌ Error finding match:', error);
       return null;
     }
   }
 
-  /**
-   * Get match data by match ID
-   */
-  async getMatch(matchId: string): Promise<Match | null> {
+  async getMatch(matchId: string): Promise<MatchData | null> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      const matchData = await this.redis.hget(this.MATCHES_KEY, matchId);
-      if (!matchData) return null;
-      
-      return JSON.parse(matchData);
+      const matchDataJson = await this.redis.hGet(`match:${matchId}`, 'data');
+      if (!matchDataJson) {
+        return null;
+      }
+
+      return JSON.parse(matchDataJson as string) as MatchData;
     } catch (error) {
       enhancedLogger.error('❌ Error getting match:', error);
       return null;
     }
   }
 
-  /**
-   * Get player's current match
-   */
-  async getPlayerMatch(wallet: string): Promise<{ matchId: string } | null> {
-    try {
-      await this.ensureInitialized();
-      
-      if (!this.redis) {
-        throw new Error('Redis client not initialized');
-      }
-
-      const matchId = await this.redis.hget(this.PLAYER_MATCH_KEY + wallet, 'matchId');
-      if (!matchId) return null;
-      
-      return { matchId };
-    } catch (error) {
-      enhancedLogger.error('❌ Error getting player match:', error);
-      return null;
-    }
+  async getPlayerMatch(wallet: string): Promise<MatchData | null> {
+    return this.findMatch(wallet);
   }
 
-  /**
-   * Update match status
-   */
-  async updateMatchStatus(matchId: string, status: Match['status'], updates?: Partial<Match>): Promise<void> {
+  async updateMatchStatus(matchId: string, status: MatchData['status']): Promise<void> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      const match = await this.getMatch(matchId);
-      if (!match) {
+      const matchDataJson = await this.redis.hGet(`match:${matchId}`, 'data');
+      if (!matchDataJson) {
         throw new Error(`Match ${matchId} not found`);
       }
 
-      const updatedMatch = { ...match, status, ...updates };
-      await this.redis.hset(this.MATCHES_KEY, matchId, JSON.stringify(updatedMatch));
-      
-      enhancedLogger.info(`🔄 Updated match ${matchId} status to ${status}`);
+      const matchData: MatchData = JSON.parse(matchDataJson);
+      matchData.status = status;
+
+      await this.redis.hSet(`match:${matchId}`, 'data', JSON.stringify(matchData));
+      enhancedLogger.info(`🔄 Match ${matchId} status updated to: ${status}`);
     } catch (error) {
       enhancedLogger.error('❌ Error updating match status:', error);
       throw error;
     }
   }
 
-  /**
-   * Remove player from waiting queue
-   */
-  async removePlayerFromQueue(wallet: string): Promise<void> {
+  async removePlayerFromQueue(wallet: string, entryFee: number): Promise<void> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      await this.redis.hdel(this.WAITING_PLAYERS_KEY, wallet);
+      const waitingKey = `waiting:${entryFee}`;
+      await this.redis.hDel(waitingKey, wallet);
+      enhancedLogger.info(`👤 Player ${wallet} removed from waiting queue`);
     } catch (error) {
       enhancedLogger.error('❌ Error removing player from queue:', error);
+      throw error;
     }
   }
 
-  /**
-   * Get waiting count
-   */
-  async getWaitingCount(): Promise<number> {
+  async getWaitingCount(entryFee: number): Promise<number> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      return await this.redis.hlen(this.WAITING_PLAYERS_KEY);
+      const waitingKey = `waiting:${entryFee}`;
+      const waitingCount = await this.redis.hLen(waitingKey);
+      return waitingCount;
     } catch (error) {
       enhancedLogger.error('❌ Error getting waiting count:', error);
       return 0;
     }
   }
 
-  /**
-   * Clean up expired data
-   */
   async cleanup(): Promise<void> {
     try {
       await this.ensureInitialized();
-      
       if (!this.redis) {
         throw new Error('Redis client not initialized');
       }
 
-      const waitingPlayers = await this.redis.hgetall(this.WAITING_PLAYERS_KEY);
       const now = Date.now();
+      const waitingKeys = await this.redis.keys('waiting:*');
       
-      for (const [wallet, playerData] of Object.entries(waitingPlayers)) {
-        const player: MatchmakingPlayer = JSON.parse(playerData);
-        const age = now - player.timestamp;
+      for (const waitingKey of waitingKeys) {
+        const waitingPlayers = await this.redis.hGetAll(waitingKey);
         
-        if (age > this.PLAYER_EXPIRY * 1000) {
-          await this.removePlayerFromQueue(wallet);
-          enhancedLogger.info(`🧹 Cleaned up expired player: ${wallet}`);
+        for (const [wallet, playerJson] of Object.entries(waitingPlayers)) {
+          const player: WaitingPlayer = JSON.parse(playerJson);
+          
+          // Remove players who have been waiting for more than 5 minutes
+          if (now - player.timestamp > 300000) {
+            await this.redis.hDel(waitingKey, wallet);
+            enhancedLogger.info(`🧹 Cleaned up expired waiting player: ${wallet}`);
+          }
+        }
+      }
+
+      // Clean up expired matches
+      const matchKeys = await this.redis.keys('match:*');
+      for (const matchKey of matchKeys) {
+                 const matchDataJson = await this.redis.hGet(matchKey, 'data');
+         if (matchDataJson) {
+           const matchData: MatchData = JSON.parse(matchDataJson as string);
+          
+          if (now > matchData.expiresAt) {
+            await this.redis.del(matchKey);
+            await this.redis.del(`player:${matchData.player1}`);
+            await this.redis.del(`player:${matchData.player2}`);
+            enhancedLogger.info(`🧹 Cleaned up expired match: ${matchData.matchId}`);
+          }
         }
       }
     } catch (error) {
       enhancedLogger.error('❌ Error during cleanup:', error);
     }
-  }
-
-  /**
-   * Generate unique match ID
-   */
-  private generateMatchId(): string {
-    return `match_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 }
 

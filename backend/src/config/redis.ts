@@ -1,4 +1,5 @@
 import { createClient } from 'redis';
+import Redis from 'ioredis';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 // Redis Cloud connection configurations using redis package with TLS
@@ -24,9 +25,46 @@ const redisOpsConfig = {
   }
 };
 
+// ioredis config for BullMQ compatibility
+const ioredisMMConfig = {
+  host: process.env.REDIS_MM_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_MM_PORT || '6379'),
+  username: process.env.REDIS_MM_USER || 'default',
+  password: process.env.REDIS_MM_PASSWORD || '',
+  db: 0,
+  retryDelayOnFailover: 100,
+  maxRetriesPerRequest: 3,
+  lazyConnect: false,
+  keepAlive: 30000,
+  connectTimeout: 10000,
+  commandTimeout: 5000,
+  tls: process.env.REDIS_MM_TLS === 'true' ? {
+    rejectUnauthorized: false
+  } : undefined,
+};
+
+const ioredisOpsConfig = {
+  host: process.env.REDIS_OPS_HOST || 'localhost',
+  port: parseInt(process.env.REDIS_OPS_PORT || '6379'),
+  username: process.env.REDIS_OPS_USER || 'default',
+  password: process.env.REDIS_OPS_PASSWORD || '',
+  db: 1,
+  retryDelayOnFailover: 100,
+  maxRetriesPerRequest: 3,
+  lazyConnect: false,
+  keepAlive: 30000,
+  connectTimeout: 10000,
+  commandTimeout: 5000,
+  tls: process.env.REDIS_OPS_TLS === 'true' ? {
+    rejectUnauthorized: false
+  } : undefined,
+};
+
 // Redis client instances
 let redisMM: ReturnType<typeof createClient> | null = null;
 let redisOps: ReturnType<typeof createClient> | null = null;
+let ioredisMM: Redis | null = null;
+let ioredisOps: Redis | null = null;
 
 // Initialize Redis connections
 export const initializeRedis = async (): Promise<void> => {
@@ -42,7 +80,7 @@ export const initializeRedis = async (): Promise<void> => {
       opsTls: process.env.REDIS_OPS_TLS
     });
 
-    // Initialize matchmaking Redis
+    // Initialize matchmaking Redis (redis package)
     redisMM = createClient(redisMMConfig);
     
     redisMM.on('connect', () => {
@@ -61,7 +99,7 @@ export const initializeRedis = async (): Promise<void> => {
       enhancedLogger.warn('⚠️ Redis MM connection closed');
     });
 
-    // Initialize operations Redis
+    // Initialize operations Redis (redis package)
     redisOps = createClient(redisOpsConfig);
     
     redisOps.on('connect', () => {
@@ -79,6 +117,10 @@ export const initializeRedis = async (): Promise<void> => {
     redisOps.on('close', () => {
       enhancedLogger.warn('⚠️ Redis Ops connection closed');
     });
+
+    // Initialize ioredis instances for BullMQ compatibility
+    ioredisMM = new Redis(ioredisMMConfig);
+    ioredisOps = new Redis(ioredisOpsConfig);
 
     // Connect to both Redis instances
     enhancedLogger.info('🔌 Connecting to Redis instances...');
@@ -99,7 +141,7 @@ export const initializeRedis = async (): Promise<void> => {
   }
 };
 
-// Get Redis clients
+// Get Redis clients (redis package)
 export const getRedisMM = (): ReturnType<typeof createClient> => {
   if (!redisMM) {
     throw new Error('Redis MM not initialized. Call initializeRedis() first.');
@@ -114,6 +156,21 @@ export const getRedisOps = (): ReturnType<typeof createClient> => {
   return redisOps;
 };
 
+// Get ioredis clients for BullMQ
+export const getIoredisMM = (): Redis => {
+  if (!ioredisMM) {
+    throw new Error('ioredis MM not initialized. Call initializeRedis() first.');
+  }
+  return ioredisMM;
+};
+
+export const getIoredisOps = (): Redis => {
+  if (!ioredisOps) {
+    throw new Error('ioredis Ops not initialized. Call initializeRedis() first.');
+  }
+  return ioredisOps;
+};
+
 // Close Redis connections
 export const closeRedis = async (): Promise<void> => {
   try {
@@ -124,6 +181,14 @@ export const closeRedis = async (): Promise<void> => {
     if (redisOps) {
       await redisOps.quit();
       enhancedLogger.info('🔌 Redis Ops connection closed');
+    }
+    if (ioredisMM) {
+      await ioredisMM.quit();
+      enhancedLogger.info('🔌 ioredis MM connection closed');
+    }
+    if (ioredisOps) {
+      await ioredisOps.quit();
+      enhancedLogger.info('🔌 ioredis Ops connection closed');
     }
   } catch (error) {
     enhancedLogger.error('❌ Error closing Redis connections:', error);
