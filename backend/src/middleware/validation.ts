@@ -51,39 +51,7 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
   return next();
 
   // TODO: Re-enable ReCaptcha validation once testing is complete
-  /*
-  // Skip ReCaptcha in development for easier testing
-  if (process.env.NODE_ENV === 'development') {
-    console.log('🔓 Skipping ReCaptcha validation in development mode');
-    return next();
-  }
-
-  const token = req.headers['x-recaptcha-token'] as string;
-  if (!token) {
-    return res.status(400).json({ error: 'ReCaptcha token required' });
-  }
-
-  try {
-    // Verify token with Google (only in production)
-    const verification = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `secret=${process.env.RECAPTCHA_SECRET}&response=${token}`
-    });
-
-    const result = await verification.json();
-    if (!result.success) {
-      console.log('❌ ReCaptcha verification failed:', result);
-      return res.status(400).json({ error: 'ReCaptcha verification failed' });
-    }
-
-    console.log('✅ ReCaptcha verification successful');
-    next();
-  } catch (error) {
-    console.error('❌ ReCaptcha verification error:', error);
-    return res.status(500).json({ error: 'ReCaptcha verification error' });
-  }
-  */
+  // Implementation will be added back when needed
 };
 
 // Validation middleware

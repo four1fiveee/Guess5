@@ -10,11 +10,13 @@ const redisMMConfig = {
   db: parseInt(process.env.REDIS_MM_DB || '0'),
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
-  lazyConnect: true,
+  lazyConnect: false, // Changed to false for immediate connection
   keepAlive: 30000,
   connectTimeout: 10000,
   commandTimeout: 5000,
-  tls: process.env.REDIS_MM_TLS === 'true' ? {} : undefined,
+  tls: process.env.REDIS_MM_TLS === 'true' ? {
+    rejectUnauthorized: false // Allow self-signed certificates
+  } : undefined,
 };
 
 const redisOpsConfig = {
@@ -25,11 +27,13 @@ const redisOpsConfig = {
   db: parseInt(process.env.REDIS_OPS_DB || '1'),
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
-  lazyConnect: true,
+  lazyConnect: false, // Changed to false for immediate connection
   keepAlive: 30000,
   connectTimeout: 10000,
   commandTimeout: 5000,
-  tls: process.env.REDIS_OPS_TLS === 'true' ? {} : undefined,
+  tls: process.env.REDIS_OPS_TLS === 'true' ? {
+    rejectUnauthorized: false // Allow self-signed certificates
+  } : undefined,
 };
 
 // Redis client instances
@@ -39,11 +43,26 @@ let redisOps: Redis | null = null;
 // Initialize Redis connections
 export const initializeRedis = async (): Promise<void> => {
   try {
+    enhancedLogger.info('🔧 Initializing Redis connections...', {
+      mmHost: process.env.REDIS_MM_HOST,
+      mmPort: process.env.REDIS_MM_PORT,
+      mmUser: process.env.REDIS_MM_USER ? '***' : undefined,
+      mmTls: process.env.REDIS_MM_TLS,
+      opsHost: process.env.REDIS_OPS_HOST,
+      opsPort: process.env.REDIS_OPS_PORT,
+      opsUser: process.env.REDIS_OPS_USER ? '***' : undefined,
+      opsTls: process.env.REDIS_OPS_TLS
+    });
+
     // Initialize matchmaking Redis
     redisMM = new Redis(redisMMConfig);
     
     redisMM.on('connect', () => {
       enhancedLogger.info('🔌 Connected to Redis MM (matchmaking)');
+    });
+    
+    redisMM.on('ready', () => {
+      enhancedLogger.info('✅ Redis MM ready');
     });
     
     redisMM.on('error', (error) => {
@@ -61,6 +80,10 @@ export const initializeRedis = async (): Promise<void> => {
       enhancedLogger.info('🔌 Connected to Redis Ops (queues/jobs)');
     });
     
+    redisOps.on('ready', () => {
+      enhancedLogger.info('✅ Redis Ops ready');
+    });
+    
     redisOps.on('error', (error) => {
       enhancedLogger.error('❌ Redis Ops connection error:', error);
     });
@@ -70,8 +93,11 @@ export const initializeRedis = async (): Promise<void> => {
     });
 
     // Test connections
+    enhancedLogger.info('🧪 Testing Redis connections...');
     await redisMM.ping();
+    enhancedLogger.info('✅ Redis MM ping successful');
     await redisOps.ping();
+    enhancedLogger.info('✅ Redis Ops ping successful');
     
     enhancedLogger.info('✅ Redis connections initialized successfully');
   } catch (error) {
