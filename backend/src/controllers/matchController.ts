@@ -2387,6 +2387,7 @@ const getGameStateHandler = async (req, res) => {
           const playerGuesses = isPlayer1 ? reinitializedGameState.player1Guesses : reinitializedGameState.player2Guesses;
           
           // Game should remain active until BOTH players have finished
+          // Don't check database results - game should remain active until both players finish guessing
           const bothPlayersFinished = (reinitializedGameState.player1Solved || reinitializedGameState.player1Guesses.length >= 7) && 
                                      (reinitializedGameState.player2Solved || reinitializedGameState.player2Guesses.length >= 7);
           
@@ -2414,10 +2415,9 @@ const getGameStateHandler = async (req, res) => {
 
     // Return safe game state (don't reveal the word or opponent's guesses)
     // Game should remain active until BOTH players have finished (solved or run out of guesses)
-    // Also check if both players have submitted their results to the database
+    // Don't check database results - game should remain active until both players finish guessing
     const bothPlayersFinished = (serverGameState.player1Solved || serverGameState.player1Guesses.length >= 7) && 
-                               (serverGameState.player2Solved || serverGameState.player2Guesses.length >= 7) &&
-                               match.player1Result && match.player2Result;
+                               (serverGameState.player2Solved || serverGameState.player2Guesses.length >= 7);
     
     res.json({
       success: true,

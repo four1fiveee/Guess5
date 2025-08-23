@@ -45,9 +45,15 @@ export class HealthChecker {
     return used.heapUsed < maxHeap;
   }
 
-  checkRedis(): boolean {
-    // Temporarily return true since Redis is disabled
-    return true;
+  async checkRedis(): Promise<boolean> {
+    try {
+      const { checkRedisHealth } = require('../config/redis');
+      const health = await checkRedisHealth();
+      return health.mm && health.ops;
+    } catch (error) {
+      console.error('❌ Redis health check failed:', error);
+      return false;
+    }
   }
 
   getUptime(): number {
@@ -57,7 +63,7 @@ export class HealthChecker {
   async getHealthStatus(): Promise<HealthStatus> {
     const database = await this.checkDatabase();
     const memory = this.checkMemory();
-    const redis = this.checkRedis();
+    const redis = await this.checkRedis();
     const uptime = this.getUptime();
 
     // Get game state metrics

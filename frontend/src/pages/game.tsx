@@ -35,7 +35,7 @@ const Game: React.FC = () => {
   const memoizedFetchGameStateRef = useRef<typeof memoizedFetchGameState>();
 
   // handleGameEnd with correct totalTime and immediate navigation for specific reasons
-  const handleGameEnd = useCallback(async (won: boolean, reason?: string) => {
+  const handleGameEnd = useCallback(async (won: boolean, reason?: string, customGuesses?: string[]) => {
     console.log('🏁 handleGameEnd called with:', { won, reason, publicKey: publicKey?.toString(), matchId });
     if (!publicKey || !matchId) {
       console.log('❌ Missing publicKey or matchId, returning early');
@@ -47,16 +47,40 @@ const Game: React.FC = () => {
     const endTime = Date.now();
     const gameDuration = Math.max(1, endTime - startTime);
     
+    // Wait for the game state to be updated to ensure we have the latest guesses
+    // This prevents the race condition where handleGameEnd is called before guesses are updated
+    await new Promise(resolve => setTimeout(resolve, 1000));
+    
+    // Fetch the latest game state to ensure we have the correct guesses
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+      const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey.toString()}`);
+      if (response.ok) {
+        const data = await response.json();
+        if (data.success) {
+          // Update local state with the latest server data
+          setGuesses(data.playerGuesses || []);
+          setRemainingGuesses(data.remainingGuesses || 7);
+          console.log('🔄 Updated guesses from server before submitting result:', data.playerGuesses);
+        }
+      }
+    } catch (error) {
+      console.error('❌ Error fetching latest game state:', error);
+    }
+    
+    // Use custom guesses if provided, otherwise use current guesses state
+    const finalGuesses = customGuesses || guesses;
+    
     // Ensure numGuesses matches the actual number of guesses made
     // The backend validates this against server state, so it must be exact
-    const actualNumGuesses = guesses.length;
+    const actualNumGuesses = finalGuesses.length;
     
     // Remove reason field from result object - backend validation doesn't allow it
     const result = { 
       won, 
       numGuesses: actualNumGuesses, 
       totalTime: gameDuration, 
-      guesses 
+      guesses: finalGuesses
     };
     
     setPlayerResult(result);
@@ -126,7 +150,7 @@ const Game: React.FC = () => {
         console.log('🔄 Attempting to fix guess count mismatch...');
         // Wait a moment and try again with the correct count
         setTimeout(() => {
-          handleGameEnd(won);
+          handleGameEnd(won, undefined, guesses);
         }, 1000);
         return;
       }
@@ -249,7 +273,7 @@ const Game: React.FC = () => {
         // If player has solved but hasn't submitted result yet, and they've run out of guesses, submit now
         if (data.solved && gameState === 'solved' && data.remainingGuesses === 0 && !playerResult) {
           console.log('🏆 Player solved but ran out of guesses, submitting result');
-          handleGameEnd(true);
+          handleGameEnd(true, undefined, data.playerGuesses);
         }
         
         setNetworkStatus('connected');
@@ -549,16 +573,20 @@ const Game: React.FC = () => {
         setPlayerSolved(true);
         setTimerActive(false);
         // Player solved the puzzle - submit result immediately
-        handleGameEnd(true, 'solved');
+        // Include the current guess in the guesses array for the result
+        const guessesWithCurrentGuess = [...guesses, currentGuess];
+        handleGameEnd(true, 'solved', guessesWithCurrentGuess);
         return; // Exit early to prevent further processing
       } else if (result.remainingGuesses === 0) {
         setGameState('solved');
         setTimerActive(false);
         // Player ran out of guesses, check if they solved earlier
         if (playerSolved) {
-          handleGameEnd(true, 'solved');
+          const guessesWithCurrentGuess = [...guesses, currentGuess];
+          handleGameEnd(true, 'solved', guessesWithCurrentGuess);
         } else {
-          handleGameEnd(false, 'out_of_guesses');
+          const guessesWithCurrentGuess = [...guesses, currentGuess];
+          handleGameEnd(false, 'out_of_guesses', guessesWithCurrentGuess);
         }
       }
     }

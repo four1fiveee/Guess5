@@ -27,9 +27,6 @@ async function startServer() {
     await initializeDatabase();
     enhancedLogger.info('✅ Database connected successfully');
 
-    // Temporarily disable Redis to get the app running
-    enhancedLogger.info('⚠️ Redis initialization temporarily disabled for troubleshooting');
-    /*
     enhancedLogger.info('🔌 Initializing Redis connections...');
     await initializeRedis();
     enhancedLogger.info('✅ Redis initialized successfully');
@@ -42,7 +39,6 @@ async function startServer() {
         enhancedLogger.error('❌ Error during Redis cleanup:', error);
       }
     }, 60000); // Run cleanup every minute
-    */
 
     // Create HTTP server for WebSocket support
     const server = createServer(app);
@@ -64,18 +60,17 @@ async function startServer() {
       enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
       enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
       enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
-      enhancedLogger.info(`   - Redis: Temporarily disabled for troubleshooting`);
+      enhancedLogger.info(`   - Redis: Enabled (MM: ${process.env.REDIS_MM_HOST}, Ops: ${process.env.REDIS_OPS_HOST})`);
     });
 
     // Graceful shutdown
     const gracefulShutdown = async (signal: string) => {
       enhancedLogger.info(`🛑 Received ${signal}. Starting graceful shutdown...`);
       try {
-        // Temporarily disabled Redis cleanup
-        // await closeRedis();
-        // enhancedLogger.info('🔌 Redis connections closed');
-        // await queueService.close();
-        // enhancedLogger.info('🔌 Queue service closed');
+        await closeRedis();
+        enhancedLogger.info('🔌 Redis connections closed');
+        await queueService.close();
+        enhancedLogger.info('🔌 Queue service closed');
         server.close(() => {
           enhancedLogger.info('🔌 HTTP server closed');
           process.exit(0);
