@@ -2372,6 +2372,18 @@ const getGameStateHandler = async (req: any, res: any) => {
       console.log(`❌ Game state not found for match ${matchId}`);
       console.log(`🔍 Active games:`, Array.from(activeGames.keys()));
       console.log(`🔍 Match status:`, match?.status);
+      console.log(`🔍 Match completed:`, match?.isCompleted);
+      
+      // If match is completed, return completion status
+      if (match?.isCompleted) {
+        console.log(`✅ Match ${matchId} is completed, returning completion status`);
+        return res.json({
+          success: true,
+          gameCompleted: true,
+          matchCompleted: true,
+          message: 'Game completed - results available'
+        });
+      }
       
       // If match is active but no game state, try to reinitialize
       if (match?.status === 'active') {

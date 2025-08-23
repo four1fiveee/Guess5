@@ -47,15 +47,21 @@ const Result: React.FC = () => {
             console.log('📋 Match data from backend:', matchData);
             
             if (matchData.payout && matchData.isCompleted) {
+              // Get player results from match data
+              const isPlayer1 = publicKey?.toString() === matchData.player1;
+              const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+              const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+              
               // Create payout data from match data
               const payoutData = {
                 won: matchData.winner === publicKey?.toString(),
                 isTie: matchData.winner === 'tie',
                 winner: matchData.winner,
-                numGuesses: 0, // This should be populated from player results
+                numGuesses: playerResult?.numGuesses || 0,
                 entryFee: matchData.entryFee || 0.1104,
-                timeElapsed: 'N/A',
-                opponentTimeElapsed: 'N/A',
+                timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
+                opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+                opponentGuesses: opponentResult?.numGuesses || 0,
                 winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
                 feeAmount: matchData.payout.paymentInstructions?.feeAmount || 0,
                 feeWallet: matchData.payout.paymentInstructions?.feeWallet || '',
@@ -178,8 +184,8 @@ const Result: React.FC = () => {
                     <div className="text-white font-semibold">{payoutData.numGuesses || 0}/7</div>
                   </div>
                   <div>
-                    <span className="text-white/60">Entry Fee:</span>
-                    <div className="text-white font-semibold">{payoutData.entryFee} SOL</div>
+                    <span className="text-white/60">Opponent Guesses:</span>
+                    <div className="text-white font-semibold">{payoutData.opponentGuesses || 0}/7</div>
                   </div>
                   <div>
                     <span className="text-white/60">Your Time:</span>
@@ -195,16 +201,63 @@ const Result: React.FC = () => {
               {/* Payout Information */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
-                <PayoutInstructions 
-                  winner={payoutData.winner}
-                  winnerAmount={payoutData.winnerAmount || 0}
-                  feeAmount={payoutData.feeAmount || 0}
-                  feeWallet={payoutData.feeWallet || ''}
-                  transactions={payoutData.transactions || []}
-                  playerWallet={playerWallet}
-                  automatedPayout={payoutData.automatedPayout}
-                  payoutSignature={payoutData.payoutSignature}
-                />
+                
+                {payoutData.automatedPayout ? (
+                  // Automated payout - show simple status
+                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                    <div className="text-center">
+                      <div className="text-green-600 text-lg font-semibold mb-2">
+                        ✅ Automated Payout Completed
+                      </div>
+                      {payoutData.won ? (
+                        <div className="text-green-700">
+                          <p>You won {payoutData.winnerAmount?.toFixed(4)} SOL!</p>
+                          <p className="text-sm text-green-600 mt-1">
+                            Payment has been sent to your wallet automatically.
+                          </p>
+                        </div>
+                      ) : payoutData.isTie ? (
+                        <div className="text-yellow-700">
+                          <p>It's a tie! Each player gets their entry fee back.</p>
+                          <p className="text-sm text-yellow-600 mt-1">
+                            Refund has been processed automatically.
+                          </p>
+                        </div>
+                      ) : (
+                        <div className="text-gray-700">
+                          <p>Better luck next time!</p>
+                          <p className="text-sm text-gray-600 mt-1">
+                            The winner has been paid automatically.
+                          </p>
+                        </div>
+                      )}
+                      {payoutData.payoutSignature && (
+                        <div className="mt-3">
+                          <a 
+                            href={`https://explorer.solana.com/tx/${payoutData.payoutSignature}?cluster=devnet`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-blue-600 hover:text-blue-800 text-sm underline"
+                          >
+                            View Transaction on Explorer
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ) : (
+                  // Manual payout - show PayoutInstructions
+                  <PayoutInstructions 
+                    winner={payoutData.winner}
+                    winnerAmount={payoutData.winnerAmount || 0}
+                    feeAmount={payoutData.feeAmount || 0}
+                    feeWallet={payoutData.feeWallet || ''}
+                    transactions={payoutData.transactions || []}
+                    playerWallet={playerWallet}
+                    automatedPayout={payoutData.automatedPayout}
+                    payoutSignature={payoutData.payoutSignature}
+                  />
+                )}
               </div>
               
               {/* Action Buttons */}

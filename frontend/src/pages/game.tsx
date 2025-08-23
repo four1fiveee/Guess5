@@ -63,6 +63,13 @@ const Game: React.FC = () => {
       if (response.ok) {
         const data = await response.json();
         if (data.success) {
+          // Check if game is completed
+          if (data.gameCompleted || data.matchCompleted) {
+            console.log('✅ Game is completed, navigating to results');
+            router.push(`/result?matchId=${matchId}`);
+            return;
+          }
+          
           // Update local state with the latest server data
           setGuesses(data.playerGuesses || []);
           setRemainingGuesses(data.remainingGuesses || 7);
@@ -231,7 +238,7 @@ const Game: React.FC = () => {
         }
         
         // Check if game is completed on the server side (both players finished)
-        if (data.gameCompleted && gameState === 'waiting') {
+        if (data.gameCompleted && (gameState === 'waiting' || gameState === 'solved')) {
           console.log('🎮 Both players finished, fetching payout data and navigating to results');
           
           // Try to fetch the completed match data to get payout information
