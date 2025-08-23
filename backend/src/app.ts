@@ -145,8 +145,8 @@ app.get('/', (req, res) => {
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
 
-// Remove debug endpoints in production
-if (process.env.NODE_ENV !== 'production') {
+// Debug endpoints only in development
+if (process.env.NODE_ENV === 'development') {
   // Debug routes only in development
   app.get('/api/debug/status', (req, res) => {
     res.json({

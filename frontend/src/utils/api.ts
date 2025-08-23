@@ -81,7 +81,12 @@ export const requestMatch = async (wallet: string, entryFee: number) => {
   }, true, 'request_match');
 };
 
-export const submitResult = async (matchId: string, wallet: string, result: any) => {
+export const submitResult = async (matchId: string, wallet: string, result: {
+  won: boolean;
+  numGuesses: number;
+  totalTime: number;
+  guesses: string[];
+}) => {
   return apiRequest('/api/match/submit-result', {
     method: 'POST',
     body: JSON.stringify({ matchId, wallet, result }),

@@ -29,7 +29,7 @@ export class ErrorHandler {
   }
 
   // Handle API errors
-  handleApiError(error: any, context?: string): AppError {
+  handleApiError(error: unknown, context?: string): AppError {
     console.error('API Error:', { error, context });
 
     if (error.response) {
@@ -88,7 +88,7 @@ export class ErrorHandler {
   }
 
   // Handle wallet errors
-  handleWalletError(error: any): AppError {
+  handleWalletError(error: unknown): AppError {
     console.error('Wallet Error:', error);
 
     if (error.code === 4001) {
@@ -124,7 +124,7 @@ export class ErrorHandler {
   }
 
   // Handle game errors
-  handleGameError(error: any): AppError {
+  handleGameError(error: unknown): AppError {
     console.error('Game Error:', error);
 
     if (error.message?.includes('match not found')) {

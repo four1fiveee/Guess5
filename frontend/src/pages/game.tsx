@@ -14,7 +14,12 @@ const Game: React.FC = () => {
   const [currentGuess, setCurrentGuess] = useState('');
   const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed'>('playing');
   const [playerSolved, setPlayerSolved] = useState(false);
-  const [playerResult, setPlayerResult] = useState<any>(null);
+  const [playerResult, setPlayerResult] = useState<{
+  won: boolean;
+  numGuesses: number;
+  totalTime: number;
+  guesses: string[];
+} | null>(null);
 
   const [matchId, setMatchId] = useState('');
   const [loading, setLoading] = useState(true);

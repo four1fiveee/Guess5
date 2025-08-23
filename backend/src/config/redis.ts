@@ -48,7 +48,7 @@ const ioredisOpsConfig = {
   port: parseInt(process.env.REDIS_OPS_PORT || '6379'),
   username: process.env.REDIS_OPS_USER || 'default',
   password: process.env.REDIS_OPS_PASSWORD || '',
-  db: 1,
+  db: parseInt(process.env.REDIS_OPS_DB || '0'),
   retryDelayOnFailover: 100,
   maxRetriesPerRequest: 3,
   lazyConnect: false,

@@ -46,12 +46,37 @@ const confirmPaymentSchema = Joi.object({
 
 // ReCaptcha3 validation middleware
 export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, next: any) => {
-  // Temporarily skip ReCaptcha validation for testing
-  console.log('🔓 Temporarily skipping ReCaptcha validation for testing');
-  return next();
+  const recaptchaToken = req.headers['x-recaptcha-token'] as string;
+  
+  if (!recaptchaToken) {
+    return res.status(400).json({ error: 'ReCaptcha token required' });
+  }
 
-  // TODO: Re-enable ReCaptcha validation once testing is complete
-  // Implementation will be added back when needed
+  try {
+    const recaptchaSecret = process.env.RECAPTCHA_SECRET;
+    if (!recaptchaSecret) {
+      console.warn('⚠️ RECAPTCHA_SECRET not configured, skipping validation');
+      return next();
+    }
+
+    // Verify ReCaptcha token with Google
+    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: `secret=${recaptchaSecret}&response=${recaptchaToken}`
+    });
+
+    const data = await response.json();
+    
+    if (!data.success) {
+      return res.status(400).json({ error: 'Invalid ReCaptcha token' });
+    }
+
+    next();
+  } catch (error) {
+    console.error('❌ ReCaptcha validation error:', error);
+    return res.status(500).json({ error: 'ReCaptcha validation failed' });
+  }
 };
 
 // Validation middleware
