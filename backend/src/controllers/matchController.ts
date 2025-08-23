@@ -2934,12 +2934,28 @@ const confirmPaymentHandler = async (req: any, res: any) => {
     const isPlayer1 = wallet === match.player1;
     const playerKey = isPlayer1 ? 'player1' : 'player2';
 
-    // Check if already paid
+    // Check if already paid - but allow retries for better reliability
     if (isPlayer1 && match.player1Paid) {
-      return res.status(400).json({ error: 'Player 1 already paid' });
+      console.log(`⚠️ Player 1 already marked as paid for match ${matchId}`);
+      // Return success instead of error to prevent frontend issues
+      return res.json({
+        success: true,
+        status: match.status,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        message: 'Payment already confirmed'
+      });
     }
     if (!isPlayer1 && match.player2Paid) {
-      return res.status(400).json({ error: 'Player 2 already paid' });
+      console.log(`⚠️ Player 2 already marked as paid for match ${matchId}`);
+      // Return success instead of error to prevent frontend issues
+      return res.json({
+        success: true,
+        status: match.status,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        message: 'Payment already confirmed'
+      });
     }
 
     // Enhanced transaction verification using Phase 2 service
@@ -3028,6 +3044,15 @@ const confirmPaymentHandler = async (req: any, res: any) => {
     if (!freshMatch) {
       return res.status(404).json({ error: 'Match not found after payment' });
     }
+    
+    console.log(`🔍 Fresh match data after payment for match ${matchId}:`, {
+      player1Paid: freshMatch.player1Paid,
+      player2Paid: freshMatch.player2Paid,
+      player1: freshMatch.player1,
+      player2: freshMatch.player2,
+      status: freshMatch.status,
+      currentPlayer: wallet
+    });
     
     // Check if both players have paid
     if (freshMatch.player1Paid && freshMatch.player2Paid) {

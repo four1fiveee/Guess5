@@ -20,6 +20,7 @@ const Matchmaking: React.FC = () => {
   const [isMatchmakingInProgress, setIsMatchmakingInProgress] = useState(false);
   const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
   const [isPaymentInProgress, setIsPaymentInProgress] = useState<boolean>(false);
+  const [paymentTimeout, setPaymentTimeout] = useState<NodeJS.Timeout | null>(null);
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
@@ -94,9 +95,28 @@ const Matchmaking: React.FC = () => {
 
       console.log('✅ Payment successful:', signature);
 
-      // Confirm payment with backend
-      const confirmData = await api.confirmPayment(matchData.matchId, publicKey.toString(), signature);
-      console.log('✅ Payment confirmed by backend:', confirmData);
+      // Confirm payment with backend with retry mechanism
+      let confirmData;
+      let retryCount = 0;
+      const maxRetries = 3;
+      
+      while (retryCount < maxRetries) {
+        try {
+          confirmData = await api.confirmPayment(matchData.matchId, publicKey.toString(), signature);
+          console.log('✅ Payment confirmed by backend:', confirmData);
+          break; // Success, exit retry loop
+        } catch (error) {
+          retryCount++;
+          console.warn(`⚠️ Payment confirmation attempt ${retryCount} failed:`, error);
+          
+          if (retryCount >= maxRetries) {
+            throw new Error(`Payment confirmation failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`);
+          }
+          
+          // Wait before retrying
+          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
+        }
+      }
 
       // Update match data with payment status
       setMatchData((prev: any) => ({
@@ -105,16 +125,22 @@ const Matchmaking: React.FC = () => {
         player2Paid: isPlayer1 ? prev.player2Paid : true
       }));
 
-      // Check if both players have paid
-      const updatedPlayer1Paid = isPlayer1 ? true : matchData.player1Paid;
-      const updatedPlayer2Paid = isPlayer1 ? matchData.player2Paid : true;
-
-      if (updatedPlayer1Paid && updatedPlayer2Paid) {
+      // Check if both players have paid based on backend response
+      if (confirmData.player1Paid && confirmData.player2Paid) {
         console.log('🎮 Both players have paid! Waiting for game to start...');
         setStatus('waiting_for_game');
       } else {
         console.log('⏳ Waiting for other player to pay...');
         setStatus('waiting_for_game');
+        
+        // Set a timeout to redirect back to lobby if game doesn't start within 2 minutes
+        const timeout = setTimeout(() => {
+          console.log('⏰ Payment timeout - redirecting to lobby');
+          alert('Game failed to start within 2 minutes. Please try again.');
+          router.push('/lobby');
+        }, 120000); // 2 minutes
+        
+        setPaymentTimeout(timeout);
       }
       
     } catch (error) {
@@ -124,6 +150,15 @@ const Matchmaking: React.FC = () => {
       setIsPaymentInProgress(false);
     }
   };
+
+  // Cleanup timeout on unmount
+  useEffect(() => {
+    return () => {
+      if (paymentTimeout) {
+        clearTimeout(paymentTimeout);
+      }
+    };
+  }, [paymentTimeout]);
 
   useEffect(() => {
     if (!publicKey) {
