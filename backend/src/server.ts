@@ -17,21 +17,23 @@ async function startServer() {
     enhancedLogger.info('🔍 Validating environment configuration...');
     validateConfig();
     enhancedLogger.info('✅ Environment configuration validated');
-    
+
     // Validate Solana configuration
     enhancedLogger.info('🔍 Validating Solana configuration...');
     validateSolanaConfig();
     enhancedLogger.info('✅ Solana configuration validated');
-    
+
     enhancedLogger.info('🔌 Initializing database connection...');
     await initializeDatabase();
     enhancedLogger.info('✅ Database connected successfully');
-    
-    // Initialize Redis
+
+    // Temporarily disable Redis to get the app running
+    enhancedLogger.info('⚠️ Redis initialization temporarily disabled for troubleshooting');
+    /*
     enhancedLogger.info('🔌 Initializing Redis connections...');
     await initializeRedis();
     enhancedLogger.info('✅ Redis initialized successfully');
-    
+
     // Start cleanup scheduler for Redis matchmaking
     setInterval(async () => {
       try {
@@ -40,15 +42,16 @@ async function startServer() {
         enhancedLogger.error('❌ Error during Redis cleanup:', error);
       }
     }, 60000); // Run cleanup every minute
-    
+    */
+
     // Create HTTP server for WebSocket support
     const server = createServer(app);
-    
+
     // Initialize WebSocket service
     enhancedLogger.info('🔌 Initializing WebSocket service...');
     websocketService.initialize(server);
     enhancedLogger.info('✅ WebSocket service initialized');
-    
+
     // Start server after database and Redis are ready
     const port = config.server.port;
     server.listen(port, () => {
@@ -61,29 +64,22 @@ async function startServer() {
       enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
       enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
       enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
-      enhancedLogger.info(`   - Redis: Enabled for matchmaking and queues`);
+      enhancedLogger.info(`   - Redis: Temporarily disabled for troubleshooting`);
     });
-    
+
     // Graceful shutdown
     const gracefulShutdown = async (signal: string) => {
       enhancedLogger.info(`🛑 Received ${signal}. Starting graceful shutdown...`);
-      
       try {
-        // Close Redis connections
-        await closeRedis();
-        enhancedLogger.info('🔌 Redis connections closed');
-        
-        // Close queue service
-        await queueService.close();
-        enhancedLogger.info('🔌 Queue service closed');
-        
-        // Close server
+        // Temporarily disabled Redis cleanup
+        // await closeRedis();
+        // enhancedLogger.info('🔌 Redis connections closed');
+        // await queueService.close();
+        // enhancedLogger.info('🔌 Queue service closed');
         server.close(() => {
           enhancedLogger.info('🔌 HTTP server closed');
           process.exit(0);
         });
-        
-        // Force exit after 10 seconds
         setTimeout(() => {
           enhancedLogger.error('❌ Forced shutdown after timeout');
           process.exit(1);
@@ -93,39 +89,11 @@ async function startServer() {
         process.exit(1);
       }
     };
-    
-    // Handle shutdown signals
     process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
-    
   } catch (error) {
-    enhancedLogger.error('❌ Server startup failed:', error);
-    enhancedLogger.error('❌ Error details:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name
-    });
-    
-    // Try to start server anyway for debugging
-    try {
-      const port = config.server.port || 40000;
-      const server = createServer(app);
-      
-      // Initialize WebSocket service even with errors
-      enhancedLogger.info('🔌 Initializing WebSocket service (with errors)...');
-      websocketService.initialize(server);
-      
-      server.listen(port, () => {
-        enhancedLogger.info(`🚀 Server running on port ${port} (with errors)`);
-        enhancedLogger.info(`🌐 Health check: http://localhost:${port}/health`);
-        enhancedLogger.info(`🔌 WebSocket endpoint: ws://localhost:${port}/ws`);
-        enhancedLogger.info('⚠️ Some features may not work due to startup errors');
-      });
-    } catch (listenError) {
-      enhancedLogger.error('❌ Failed to start server completely:', listenError);
-      process.exit(1);
-    }
+    enhancedLogger.error('❌ Failed to start server:', error);
+    process.exit(1);
   }
 }
-
 startServer(); 

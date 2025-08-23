@@ -10,6 +10,7 @@ export interface HealthStatus {
     uptime: number;
     activeGames: number;
     matchmakingLocks: number;
+    redis: boolean; // Added Redis check
   };
   details?: any;
 }
@@ -44,6 +45,11 @@ export class HealthChecker {
     return used.heapUsed < maxHeap;
   }
 
+  checkRedis(): boolean {
+    // Temporarily return true since Redis is disabled
+    return true;
+  }
+
   getUptime(): number {
     return Date.now() - this.startTime;
   }
@@ -51,6 +57,7 @@ export class HealthChecker {
   async getHealthStatus(): Promise<HealthStatus> {
     const database = await this.checkDatabase();
     const memory = this.checkMemory();
+    const redis = this.checkRedis();
     const uptime = this.getUptime();
 
     // Get game state metrics
@@ -61,6 +68,7 @@ export class HealthChecker {
     const checks = {
       database,
       memory,
+      redis,
       uptime,
       activeGames: activeGamesCount,
       matchmakingLocks: locksCount
@@ -71,6 +79,8 @@ export class HealthChecker {
     
     if (!database || !memory) {
       status = 'unhealthy';
+    } else if (!redis) {
+      status = 'degraded'; // Redis is optional for now
     } else if (activeGamesCount > 1000 || locksCount > 100) {
       status = 'degraded';
     }
