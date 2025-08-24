@@ -20,25 +20,11 @@ const Result: React.FC = () => {
     }
 
     const loadPayoutData = async () => {
-      // First try to get payout data from localStorage
-      const storedPayoutData = localStorage.getItem('payoutData');
-      if (storedPayoutData) {
-        try {
-          const data = JSON.parse(storedPayoutData);
-          setPayoutData(data);
-          console.log('💰 Payout data loaded from localStorage:', data);
-          setLoading(false);
-          return;
-        } catch (error) {
-          console.error('❌ Error parsing stored payout data:', error);
-        }
-      }
-
-      // If no stored payout data, try to fetch from backend using matchId
+      // Always try to fetch fresh data from backend first if we have a matchId
       const matchId = router.query.matchId as string;
       if (matchId) {
         try {
-          console.log('🔍 No stored payout data, fetching from backend for match:', matchId);
+          console.log('🔍 Fetching fresh data from backend for match:', matchId);
           const apiUrl = process.env.NEXT_PUBLIC_API_URL;
           const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
           
@@ -71,12 +57,12 @@ const Result: React.FC = () => {
                 timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
                 opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
                 opponentGuesses: opponentResult?.numGuesses || 0,
-                winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
-                feeAmount: matchData.payout.paymentInstructions?.feeAmount || 0,
-                feeWallet: matchData.payout.paymentInstructions?.feeWallet || '',
-                transactions: matchData.payout.paymentInstructions?.transactions || [],
-                automatedPayout: matchData.payout.automatedPayout || false,
-                payoutSignature: matchData.payout.payoutSignature || null
+                winnerAmount: matchData.payout?.paymentInstructions?.winnerAmount || 0,
+                feeAmount: matchData.payout?.paymentInstructions?.feeAmount || 0,
+                feeWallet: matchData.payout?.paymentInstructions?.feeWallet || '',
+                transactions: matchData.payout?.paymentInstructions?.transactions || [],
+                automatedPayout: matchData.payout?.automatedPayout || false,
+                payoutSignature: matchData.payout?.payoutSignature || null
               };
               
               console.log('🔍 Debug payout data creation:', {
@@ -89,21 +75,41 @@ const Result: React.FC = () => {
               
               setPayoutData(payoutData);
               console.log('✅ Payout data created from backend data:', payoutData);
+              setLoading(false);
+              return;
             } else {
-              setError('Game not yet completed or no payout data available');
+              console.log('⚠️ Game not yet completed, falling back to localStorage');
             }
           } else {
-            console.error('❌ Failed to fetch match data from backend');
-            setError('Failed to load game results');
+            console.error('❌ Failed to fetch match data from backend, falling back to localStorage');
           }
         } catch (error) {
-          console.error('❌ Error fetching match data:', error);
-          setError('Failed to load game results');
+          console.error('❌ Error fetching match data, falling back to localStorage:', error);
         }
-      } else {
-        setError('No match ID provided');
       }
 
+      // Fallback to localStorage if no matchId or backend fetch failed
+      const storedPayoutData = localStorage.getItem('payoutData');
+      if (storedPayoutData) {
+        try {
+          const data = JSON.parse(storedPayoutData);
+          setPayoutData(data);
+          console.log('💰 Payout data loaded from localStorage (fallback):', data);
+          setLoading(false);
+          return;
+        } catch (error) {
+          console.error('❌ Error parsing stored payout data:', error);
+        }
+      }
+
+      // If no matchId and no localStorage data, show error
+      if (!matchId) {
+        setError('No match ID provided');
+        setLoading(false);
+        return;
+      }
+
+      setError('Failed to load game results');
       setLoading(false);
     };
 

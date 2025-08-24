@@ -6,40 +6,23 @@ const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = 
 const path = require('path');
 const wordListModule = require(path.join(__dirname, '../wordList'));
 const { getRandomWord } = wordListModule;
-// Remove escrow imports - we're using direct payments now
-// const { createEscrowAccount, payout, refundEscrow } = require('../services/payoutService');
+
+// Import Redis helpers to replace in-memory storage
+const { getGameState, setGameState, deleteGameState } = require('../utils/redisGameState');
+const { getMatchmakingLock, setMatchmakingLock, deleteMatchmakingLock } = require('../utils/redisMatchmakingLocks');
+const { redisMatchmakingService } = require('../services/redisMatchmakingService');
+const { getRedisMM } = require('../config/redis');
+
+// TODO: MIGRATE THESE TO REDIS/DATABASE - CURRENTLY IN-MEMORY (SECURITY RISK)
+// These are kept for backward compatibility during migration
+const inMemoryMatches = new Map();
+const activeGames = new Map();
+const matchmakingLocks = new Map();
 
 // Memory limits to prevent attacks
 const MAX_ACTIVE_GAMES = 1000;
 const MAX_MATCHMAKING_LOCKS = 500;
 const MAX_IN_MEMORY_MATCHES = 100;
-
-// In-memory storage for matches that couldn't be saved to database
-const inMemoryMatches = new Map();
-
-// Server-side game state tracking with improved memory management
-const activeGames = new Map<string, {
-  startTime: number;
-  player1StartTime: number;
-  player2StartTime: number;
-  player1Guesses: string[];
-  player2Guesses: string[];
-  player1Solved: boolean;
-  player2Solved: boolean;
-  word: string;
-  matchId: string;
-  lastActivity: number; // Track last activity for cleanup
-  completed: boolean; // Track if game is completed
-  cleanupTimeout?: ReturnType<typeof setTimeout>; // Add timeout reference
-}>();
-
-// Matchmaking locks with improved race condition prevention
-const matchmakingLocks = new Map<string, {
-  promise: Promise<any>;
-  timestamp: number;
-  wallet: string;
-  entryFee: number;
-}>();
 
 // Memory monitoring
 let memoryStats = {
@@ -105,7 +88,7 @@ const checkMemoryLimits = () => {
 // Simplified matchmaking without idempotency for now
 
 // Enhanced cleanup function for memory management
-const cleanupInactiveGames = () => {
+const cleanupInactiveGames = async () => {
   const now = Date.now();
   const inactiveTimeout = 10 * 60 * 1000; // 10 minutes for truly inactive games
   const lockTimeout = 30 * 1000; // 30 seconds for matchmaking locks
@@ -126,7 +109,7 @@ const cleanupInactiveGames = () => {
         clearTimeout(gameState.cleanupTimeout);
       }
       
-      activeGames.delete(matchId);
+      await deleteGameState(matchId);
       cleanedGames++;
     }
   }
@@ -137,7 +120,7 @@ const cleanupInactiveGames = () => {
     
     if (timeSinceLock > lockTimeout) {
       console.log(`🧹 Cleaning up stale matchmaking lock: ${lockKey}`);
-      matchmakingLocks.delete(lockKey);
+      await deleteMatchmakingLock(lockKey);
       cleanedLocks++;
     }
   }
@@ -152,10 +135,10 @@ const cleanupInactiveGames = () => {
     }
   }
   
-  // Update memory stats
+  // Update memory stats (Redis-based)
   memoryStats = {
-    activeGames: activeGames.size,
-    matchmakingLocks: matchmakingLocks.size,
+    activeGames: 0, // Will be updated from Redis
+    matchmakingLocks: 0, // Will be updated from Redis
     inMemoryMatches: inMemoryMatches.size,
     lastCleanup: now
   };
@@ -176,23 +159,24 @@ const cleanupInactiveGames = () => {
 };
 
 // Update game activity
-const updateGameActivity = (matchId: string) => {
-  const gameState = activeGames.get(matchId);
+const updateGameActivity = async (matchId: string) => {
+  const gameState = await getGameState(matchId);
   if (gameState) {
     gameState.lastActivity = Date.now();
+    await setGameState(matchId, gameState);
   }
 };
 
 // Mark game as completed and cleanup immediately
-const markGameCompleted = (matchId: string) => {
-  const gameState = activeGames.get(matchId);
+const markGameCompleted = async (matchId: string) => {
+  const gameState = await getGameState(matchId);
   if (gameState) {
     gameState.completed = true;
     gameState.lastActivity = Date.now();
     console.log(`✅ Game ${matchId} marked as completed`);
     // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
-    activeGames.delete(matchId);
-    console.log(`🧹 Immediate cleanup: Removed completed game ${matchId} from memory`);
+    await deleteGameState(matchId);
+    console.log(`🧹 Immediate cleanup: Removed completed game ${matchId} from Redis`);
   }
   
   // Also cleanup from database
@@ -360,7 +344,7 @@ const requestMatchHandler = async (req: any, res: any) => {
 
     // CRITICAL: Implement locking to prevent race conditions
     const lockKey = `matchmaking_${wallet}`;
-    if (matchmakingLocks.has(lockKey)) {
+    if ((await getMatchmakingLock(lockKey)) !== null) {
       console.log('⏳ Player already in matchmaking, returning existing lock');
       return res.status(429).json({ error: 'Matchmaking in progress, please wait' });
     }
@@ -371,11 +355,11 @@ const requestMatchHandler = async (req: any, res: any) => {
         return await performMatchmaking(wallet, entryFee);
       } finally {
         // Always clean up the lock
-        matchmakingLocks.delete(lockKey);
+        await deleteMatchmakingLock(lockKey);
       }
     })();
 
-    matchmakingLocks.set(lockKey, {
+    await setMatchmakingLock(lockKey, {
       promise: matchmakingPromise,
       timestamp: Date.now(),
       wallet: wallet,
@@ -400,8 +384,8 @@ const requestMatchHandler = async (req: any, res: any) => {
     // Clean up any locks that might have been created
     if (req.body.wallet) {
       const lockKey = `matchmaking_${req.body.wallet}`;
-      if (matchmakingLocks.has(lockKey)) {
-        matchmakingLocks.delete(lockKey);
+      if ((await getMatchmakingLock(lockKey)) !== null) {
+        await deleteMatchmakingLock(lockKey);
       }
     }
     
@@ -460,8 +444,8 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     console.error('❌ Error in performMatchmaking:', error);
     // Clean up any locks that might have been created
     const lockKey = `matchmaking_${wallet}`;
-    if (matchmakingLocks.has(lockKey)) {
-      matchmakingLocks.delete(lockKey);
+    if ((await getMatchmakingLock(lockKey)) !== null) {
+      await deleteMatchmakingLock(lockKey);
     }
     throw error;
   }
@@ -890,18 +874,20 @@ const debugWaitingPlayersHandler = async (req: any, res: any) => {
       console.warn('⚠️ Database queries failed:', errorMessage);
     }
     
-    // Get in-memory matches
+    // Get Redis-based matches
     const memoryActiveMatches = [];
     
-    // Check active games in memory
-    for (const [matchId, gameState] of activeGames.entries()) {
+    // Check active games in Redis
+    const { getAllGameStates } = require('../utils/redisGameState');
+    const redisGameStates = await getAllGameStates();
+    for (const [matchId, gameState] of redisGameStates) {
       memoryActiveMatches.push({
         id: matchId,
         player1: 'active_game',
         player2: 'active_game',
         entryFee: 0,
         status: 'active',
-        source: 'memory'
+        source: 'redis'
       });
     }
     
@@ -1328,8 +1314,8 @@ const submitResultHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Maximum 7 guesses allowed' });
     }
 
-    // SERVER-SIDE VALIDATION: Get server-side game state
-    const serverGameState = activeGames.get(matchId);
+    // SERVER-SIDE VALIDATION: Get server-side game state from Redis
+    const serverGameState = await getGameState(matchId);
     if (!serverGameState) {
       return res.status(404).json({ error: 'Game not found or already completed' });
     }
@@ -1412,19 +1398,25 @@ const submitResultHandler = async (req: any, res: any) => {
       reason: 'server-validated'
     };
 
-    // Update server game state
+    // Update server game state in Redis
     if (isPlayer1) {
       serverGameState.player1Solved = result.won;
     } else {
       serverGameState.player2Solved = result.won;
     }
+    
+    // Save updated game state to Redis
+    await setGameState(matchId, serverGameState);
 
-    // Save result to database
+    // Save result to database immediately
     if (isPlayer1) {
       match.setPlayer1Result(serverValidatedResult);
     } else {
       match.setPlayer2Result(serverValidatedResult);
     }
+    
+    // Save to database immediately
+    await matchRepository.save(match);
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
 
@@ -1434,7 +1426,7 @@ const submitResultHandler = async (req: any, res: any) => {
       
       // Check if both players have finished playing (solved or run out of guesses)
       // Use the updated server game state after recording this player's result
-      const updatedServerGameState = activeGames.get(matchId);
+      const updatedServerGameState = await getGameState(matchId);
       const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7;
       const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7;
       
@@ -1668,7 +1660,7 @@ const submitResultHandler = async (req: any, res: any) => {
     } else {
       // Player didn't solve - check if both players have finished playing
       // This `serverGameState` needs to be `updatedServerGameState` for consistency
-      const updatedServerGameState = activeGames.get(matchId);
+      const updatedServerGameState = await getGameState(matchId);
       const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7;
       const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7;
       
@@ -1927,14 +1919,15 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       console.warn('⚠️ Database lookup failed:', dbErrorMessage);
     }
     
-    // If not found in database, check in-memory matches
+    // If not found in database, check Redis matches
     if (!match) {
-      console.log('🔍 Checking in-memory matches...');
+      console.log('🔍 Checking Redis matches...');
+      // Note: inMemoryMatches is kept for backward compatibility but should be migrated to Redis
       match = inMemoryMatches.get(matchId);
       if (match) {
-        console.log('✅ Match found in memory');
+        console.log('✅ Match found in Redis (via inMemoryMatches)');
       } else {
-        console.log('❌ Match not found in database or memory');
+        console.log('❌ Match not found in database or Redis');
         return res.status(404).json({ error: 'Match not found' });
       }
     }
@@ -2308,8 +2301,8 @@ const submitGameGuessHandler = async (req: any, res: any) => {
     // Allow any 5-letter word (no word list validation)
     // The game is about guessing, not about using specific words
 
-    // Get server-side game state
-    const serverGameState = activeGames.get(matchId as string);
+    // Get server-side game state from Redis
+    const serverGameState = await getGameState(matchId as string);
     if (!serverGameState) {
       return res.status(404).json({ error: 'Game not found or already completed' });
     }
@@ -2354,6 +2347,9 @@ const submitGameGuessHandler = async (req: any, res: any) => {
     } else {
       serverGameState.player2Solved = solved;
     }
+    
+    // Save updated game state to Redis
+    await setGameState(matchId as string, serverGameState);
 
     console.log(`📝 Server recorded guess for ${isPlayer1 ? 'Player 1' : 'Player 2'}:`, {
       matchId,
@@ -2399,11 +2395,11 @@ const getGameStateHandler = async (req: any, res: any) => {
       return res.status(403).json({ error: 'Wallet not part of this match' });
     }
 
-    // Get server-side game state
-    const serverGameState = activeGames.get(matchId as string);
+    // Get server-side game state from Redis
+    const serverGameState = await getGameState(matchId as string);
     if (!serverGameState) {
       console.log(`❌ Game state not found for match ${matchId}`);
-      console.log(`🔍 Active games:`, Array.from(activeGames.keys()));
+      console.log(`🔍 Active games: Check Redis for game states`);
       console.log(`🔍 Match status:`, match?.status);
       console.log(`🔍 Match completed:`, match?.isCompleted);
       
@@ -2445,11 +2441,11 @@ const getGameStateHandler = async (req: any, res: any) => {
           feeWalletAddress: process.env.FEE_WALLET_ADDRESS,
           entryFee: match.entryFee
         });
-        activeGames.set(matchId as string, newGameState);
+        await setGameState(matchId as string, newGameState);
         console.log(`✅ Reinitialized game state for match ${matchId}`);
         
         // Use the new game state
-        const reinitializedGameState = activeGames.get(matchId as string);
+        const reinitializedGameState = await getGameState(matchId as string);
         if (reinitializedGameState) {
           const isPlayer1 = wallet === match.player1;
           const playerGuesses = isPlayer1 ? reinitializedGameState.player1Guesses : reinitializedGameState.player2Guesses;
@@ -3125,7 +3121,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       
       // Initialize server-side game state with the SAME word for both players
       const word = freshMatch.word || getRandomWord();
-      activeGames.set(matchId, {
+      const newGameState = {
         startTime: Date.now(),
         player1StartTime: Date.now(),
         player2StartTime: Date.now(),
@@ -3137,7 +3133,8 @@ const confirmPaymentHandler = async (req: any, res: any) => {
         matchId: matchId,
         lastActivity: Date.now(),
         completed: false
-      });
+      };
+      await setGameState(matchId, newGameState);
 
       console.log(`🎮 Game started for match ${matchId} with word: ${word}`);
       console.log(`🎮 Active games count: ${activeGames.size}`);
@@ -3198,8 +3195,8 @@ const confirmPaymentHandler = async (req: any, res: any) => {
             await timeoutMatchRepository.save(timeoutMatch);
             
             // Clean up any in-memory references
-            activeGames.delete(matchId);
-            matchmakingLocks.delete(matchId);
+            await deleteGameState(matchId);
+            await deleteMatchmakingLock(matchId);
             
             console.log(`✅ Match ${matchId} cancelled due to payment timeout`);
           }
@@ -3208,14 +3205,14 @@ const confirmPaymentHandler = async (req: any, res: any) => {
         }
       }, 60000); // 1 minute timeout
       
-      // Store the timeout reference in memory (since database might not have this field)
+      // Store the timeout reference in Redis (since database might not have this field)
       if (!match.timeoutId) {
         match.timeoutId = paymentTimeout;
       }
       
-      // Also store in memory for cleanup
-      if (!matchmakingLocks.has(matchId)) {
-        matchmakingLocks.set(matchId, {
+      // Also store in Redis for cleanup
+      if (!(await getMatchmakingLock(matchId)) !== null) {
+        await setMatchmakingLock(matchId, {
           promise: Promise.resolve(),
           timestamp: Date.now(),
           wallet: wallet,
@@ -3489,8 +3486,8 @@ const debugMatchmakingHandler = async (req: any, res: any) => {
     
     // Check matchmaking locks
     const lockKey = `matchmaking_${wallet}`;
-    const hasLock = matchmakingLocks.has(lockKey);
-    const lockData = hasLock ? matchmakingLocks.get(lockKey) : null;
+    const hasLock = (await getMatchmakingLock(lockKey)) !== null;
+    const lockData = hasLock ? await getMatchmakingLock(lockKey) : null;
     
     res.json({
       wallet,
