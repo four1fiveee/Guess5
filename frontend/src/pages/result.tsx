@@ -70,6 +70,14 @@ const Result: React.FC = () => {
                 payoutSignature: matchData.payout.payoutSignature || null
               };
               
+              console.log('🔍 Debug payout data creation:', {
+                playerResult,
+                opponentResult,
+                matchDataWinner: matchData.winner,
+                playerWallet: publicKey?.toString(),
+                won: matchData.winner === publicKey?.toString()
+              });
+              
               setPayoutData(payoutData);
               console.log('✅ Payout data created from backend data:', payoutData);
             } else {
@@ -174,6 +182,9 @@ const Result: React.FC = () => {
                 ) : (
                   <div className="text-red-400 text-2xl font-bold mb-2">😔 You Lost</div>
                 )}
+                <div className="text-white/60 text-sm">
+                  Debug: won={String(payoutData.won)}, winner={payoutData.winner}, playerWallet={publicKey?.toString()}
+                </div>
               </div>
               
               {/* Game Details */}

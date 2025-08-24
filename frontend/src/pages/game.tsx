@@ -120,7 +120,8 @@ const Game: React.FC = () => {
           numGuesses: result.numGuesses,
           entryFee: entryFee, // Use the actual entry fee from match data
           timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
-          opponentTimeElapsed: 'N/A', // This should come from opponent's result
+          opponentTimeElapsed: 'N/A', // This will be updated when opponent finishes
+          opponentGuesses: 0, // This will be updated when opponent finishes
           winnerAmount: data.payout.paymentInstructions?.winnerAmount || 0,
           feeAmount: data.payout.paymentInstructions?.feeAmount || 0,
           feeWallet: data.payout.paymentInstructions?.feeWallet || '',
@@ -230,6 +231,11 @@ const Game: React.FC = () => {
         if (data.solved) {
           setGameState('solved');
           setTimerActive(false);
+          // Don't show solved state - immediately submit result and go to waiting
+          if (!playerResult) {
+            console.log('🏆 Player solved, immediately submitting result');
+            handleGameEnd(true, undefined, data.playerGuesses);
+          }
         }
         
         if (data.opponentSolved && !opponentSolved) {
@@ -248,6 +254,10 @@ const Game: React.FC = () => {
               const matchData = await matchResponse.json();
               if (matchData.payout && matchData.isCompleted) {
                 // Create payout data from match data
+                const isPlayer1 = publicKey?.toString() === matchData.player1;
+                const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+                const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+                
                 const payoutData = {
                   won: matchData.winner === publicKey?.toString(),
                   isTie: matchData.winner === 'tie',
@@ -255,7 +265,8 @@ const Game: React.FC = () => {
                   numGuesses: playerResult?.numGuesses || 0,
                   entryFee: matchData.entryFee || entryFee,
                   timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
-                  opponentTimeElapsed: 'N/A',
+                  opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+                  opponentGuesses: opponentResult?.numGuesses || 0,
                   winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
                   feeAmount: matchData.payout.paymentInstructions?.feeAmount || 0,
                   feeWallet: matchData.payout.paymentInstructions?.feeWallet || '',
