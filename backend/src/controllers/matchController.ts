@@ -1667,9 +1667,21 @@ const submitResultHandler = async (req: any, res: any) => {
       }
     } else {
       // Player didn't solve - check if both players have finished playing
-      const serverGameState = activeGames.get(matchId);
-      const player1Finished = serverGameState?.player1Solved || (serverGameState?.player1Guesses?.length || 0) >= 7;
-      const player2Finished = serverGameState?.player2Solved || (serverGameState?.player2Guesses?.length || 0) >= 7;
+      // This `serverGameState` needs to be `updatedServerGameState` for consistency
+      const updatedServerGameState = activeGames.get(matchId);
+      const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7;
+      const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7;
+      
+      console.log('🔍 Game end check (non-solved case):', {
+        matchId,
+        player1Solved: updatedServerGameState?.player1Solved,
+        player2Solved: updatedServerGameState?.player2Solved,
+        player1Guesses: updatedServerGameState?.player1Guesses?.length || 0,
+        player2Guesses: updatedServerGameState?.player2Guesses?.length || 0,
+        player1Finished,
+        player2Finished,
+        bothFinished: player1Finished && player2Finished
+      });
       
       if (player1Finished && player2Finished) {
         console.log('🏁 Both players have finished playing, determining winner...');
