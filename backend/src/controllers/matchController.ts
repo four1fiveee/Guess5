@@ -1291,7 +1291,18 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   match.winner = winner;
   match.setPayoutResult(payoutResult);
   match.isCompleted = true;
+  
+  console.log('💾 Saving match with winner:', {
+    matchId: match.id,
+    winner: match.winner,
+    isCompleted: match.isCompleted,
+    player1Result: match.getPlayer1Result(),
+    player2Result: match.getPlayer2Result()
+  });
+  
   await matchRepository.save(match);
+  
+  console.log('✅ Match saved successfully with winner:', match.winner);
 
   return payoutResult;
 };
@@ -1382,11 +1393,18 @@ const submitResultHandler = async (req: any, res: any) => {
 
     console.log('📝 Submitting SERVER-VALIDATED result for match:', matchId);
     console.log('Wallet:', wallet);
+    console.log('Is Player 1:', isPlayer1);
     console.log('Server-validated result:', {
       won: result.won,
       numGuesses: result.numGuesses,
       totalTime: serverTotalTime,
       guesses: result.guesses
+    });
+    console.log('Current match state before save:', {
+      player1Result: match.getPlayer1Result(),
+      player2Result: match.getPlayer2Result(),
+      winner: match.winner,
+      isCompleted: match.isCompleted
     });
 
     // Create server-validated result object
@@ -1411,12 +1429,15 @@ const submitResultHandler = async (req: any, res: any) => {
     // Save result to database immediately
     if (isPlayer1) {
       match.setPlayer1Result(serverValidatedResult);
+      console.log('💾 Setting Player 1 result:', serverValidatedResult);
     } else {
       match.setPlayer2Result(serverValidatedResult);
+      console.log('💾 Setting Player 2 result:', serverValidatedResult);
     }
     
     // Save to database immediately
     await matchRepository.save(match);
+    console.log('✅ Match saved with result for', isPlayer1 ? 'Player 1' : 'Player 2');
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
 
@@ -1451,6 +1472,13 @@ const submitResultHandler = async (req: any, res: any) => {
         const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
         
         const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
+        
+        console.log('🏆 Winner determination completed:', {
+          matchId,
+          winner: payoutResult?.winner,
+          player1Result: updatedMatch.getPlayer1Result(),
+          player2Result: updatedMatch.getPlayer2Result()
+        });
         
         // Execute automated payment if there's a clear winner
         // Calculate direct payment instructions
@@ -1685,6 +1713,13 @@ const submitResultHandler = async (req: any, res: any) => {
         const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
         
         const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
+        
+        console.log('🏆 Winner determination completed (non-solved case):', {
+          matchId,
+          winner: payoutResult?.winner,
+          player1Result: updatedMatch.getPlayer1Result(),
+          player2Result: updatedMatch.getPlayer2Result()
+        });
         
         // Execute automated payment
         // Calculate direct payment instructions
@@ -1943,7 +1978,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player2: match.player2,
       hasWord: !!match.word,
       requestingWallet,
-      hasExistingResult: !!existingResult
+      hasExistingResult: !!existingResult,
+      player1Result: match.getPlayer1Result(),
+      player2Result: match.getPlayer2Result(),
+      winner: match.winner,
+      isCompleted: match.isCompleted
     });
 
     // If match has existing results, mark it as completed
