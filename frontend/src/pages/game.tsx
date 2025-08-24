@@ -240,7 +240,7 @@ const Game: React.FC = () => {
         
         if (data.opponentSolved && !opponentSolved) {
           setOpponentSolved(true);
-          // Note: handleGameEnd will be called in a separate effect when opponentSolved changes
+          // Note: opponent solved, but current player continues playing until they finish
         }
         
         // Check if game is completed on the server side (both players finished)
@@ -483,10 +483,13 @@ const Game: React.FC = () => {
     return () => clearInterval(checkTimeout);
   }, [lastActivity, gameState]);
 
-  // Handle opponent solved state change
+  // Handle opponent solved state change - but don't end current player's game
+  // Players should continue until they either solve or reach 7 guesses
   useEffect(() => {
     if (opponentSolved && gameState === 'playing') {
-      handleGameEndRef.current?.(false, 'opponent_solved');
+      console.log('🏆 Opponent solved, but continuing to play until I finish');
+      // Don't call handleGameEnd - let the player continue making guesses
+      // The game will end naturally when both players have finished
     }
   }, [opponentSolved, gameState]);
 
