@@ -1644,7 +1644,7 @@ const submitResultHandler = async (req: any, res: any) => {
           message: 'Game completed - winner determined'
         });
       } else {
-        // Save partial result and wait for other player
+        // Both players haven't finished yet - save partial result and wait
         await matchRepository.save(match);
         
         res.json({
@@ -1653,10 +1653,13 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       }
     } else {
-      // Player didn't solve - check if other player solved
-      if ((isPlayer1 && match.getPlayer2Result() && match.getPlayer2Result().won) || 
-          (!isPlayer1 && match.getPlayer1Result() && match.getPlayer1Result().won)) {
-        console.log('🏁 Other player already solved, determining winner...');
+      // Player didn't solve - check if both players have finished playing
+      const serverGameState = activeGames.get(matchId);
+      const player1Finished = serverGameState?.player1Solved || (serverGameState?.player1Guesses?.length || 0) >= 7;
+      const player2Finished = serverGameState?.player2Solved || (serverGameState?.player2Guesses?.length || 0) >= 7;
+      
+      if (player1Finished && player2Finished) {
+        console.log('🏁 Both players have finished playing, determining winner...');
         
         // Save this player's result first
         await matchRepository.save(match);
@@ -1862,7 +1865,7 @@ const submitResultHandler = async (req: any, res: any) => {
           message: 'Game completed - winner determined'
         });
       } else {
-        // Save partial result and wait for other player
+        // Both players haven't finished yet - save partial result and wait
         await matchRepository.save(match);
         
         res.json({
