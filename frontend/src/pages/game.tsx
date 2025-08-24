@@ -244,7 +244,8 @@ const Game: React.FC = () => {
         }
         
         // Check if game is completed on the server side (both players finished)
-        if (data.gameCompleted && (gameState === 'waiting' || gameState === 'solved')) {
+        // Only redirect if we're in waiting state AND both players have finished
+        if (data.gameCompleted && gameState === 'waiting') {
           console.log('🎮 Both players finished, fetching payout data and navigating to results');
           
           // Try to fetch the completed match data to get payout information
@@ -671,7 +672,7 @@ const Game: React.FC = () => {
         {gameState === 'waiting' && (
           <div className="text-center mb-6">
             <div className="text-2xl font-bold text-accent mb-2">
-              {playerResult?.won ? '🎉 You solved it!' : '❌ Game Over'}
+              {playerResult?.won ? '🎉 You solved it!' : '🏁 You finished!'}
             </div>
             <div className="text-white text-lg mb-4">
               Your Guesses: {playerResult?.numGuesses || guesses.length}/7

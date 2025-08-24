@@ -1433,9 +1433,21 @@ const submitResultHandler = async (req: any, res: any) => {
       console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
       
       // Check if both players have finished playing (solved or run out of guesses)
-      const serverGameState = activeGames.get(matchId);
-      const player1Finished = serverGameState?.player1Solved || (serverGameState?.player1Guesses?.length || 0) >= 7;
-      const player2Finished = serverGameState?.player2Solved || (serverGameState?.player2Guesses?.length || 0) >= 7;
+      // Use the updated server game state after recording this player's result
+      const updatedServerGameState = activeGames.get(matchId);
+      const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7;
+      const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7;
+      
+      console.log('🔍 Game end check:', {
+        matchId,
+        player1Solved: updatedServerGameState?.player1Solved,
+        player2Solved: updatedServerGameState?.player2Solved,
+        player1Guesses: updatedServerGameState?.player1Guesses?.length || 0,
+        player2Guesses: updatedServerGameState?.player2Guesses?.length || 0,
+        player1Finished,
+        player2Finished,
+        bothFinished: player1Finished && player2Finished
+      });
       
       if (player1Finished && player2Finished) {
         console.log('🏁 Both players have finished playing, determining winner...');
@@ -1645,6 +1657,7 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       } else {
         // Both players haven't finished yet - save partial result and wait
+        console.log('⏳ Not all players finished yet, waiting for other player');
         await matchRepository.save(match);
         
         res.json({
@@ -1866,6 +1879,7 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       } else {
         // Both players haven't finished yet - save partial result and wait
+        console.log('⏳ Not all players finished yet (non-solved case), waiting for other player');
         await matchRepository.save(match);
         
         res.json({
