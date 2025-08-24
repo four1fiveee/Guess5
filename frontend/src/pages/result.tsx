@@ -40,13 +40,22 @@ const Result: React.FC = () => {
         try {
           console.log('🔍 No stored payout data, fetching from backend for match:', matchId);
           const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/api/match/status/${matchId}`);
+          const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
           
           if (response.ok) {
             const matchData = await response.json();
             console.log('📋 Match data from backend:', matchData);
+            console.log('🔍 Debug match data fields:', {
+              isCompleted: matchData.isCompleted,
+              hasPayout: !!matchData.payout,
+              player1Result: matchData.player1Result,
+              player2Result: matchData.player2Result,
+              winner: matchData.winner,
+              player1: matchData.player1,
+              player2: matchData.player2
+            });
             
-            if (matchData.payout && matchData.isCompleted) {
+            if (matchData.isCompleted) {
               // Get player results from match data
               const isPlayer1 = publicKey?.toString() === matchData.player1;
               const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
