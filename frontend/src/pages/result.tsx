@@ -261,18 +261,12 @@ const Result: React.FC = () => {
               </div>
               
               {/* Action Buttons */}
-              <div className="flex flex-col sm:flex-row gap-4 justify-center">
+              <div className="flex justify-center">
                 <button
                   onClick={handlePlayAgain}
                   className="bg-accent hover:bg-accent/80 text-white px-8 py-3 rounded-lg font-bold transition-colors"
                 >
                   Play Again
-                </button>
-                <button
-                  onClick={() => router.push('/')}
-                  className="bg-white/10 hover:bg-white/20 text-white px-8 py-3 rounded-lg font-bold transition-colors"
-                >
-                  Back to Home
                 </button>
               </div>
             </div>

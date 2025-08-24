@@ -1432,9 +1432,13 @@ const submitResultHandler = async (req: any, res: any) => {
     if (result.won) {
       console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
       
-      // If the other player already submitted a result, determine winner immediately
-      if ((isPlayer1 && match.getPlayer2Result()) || (!isPlayer1 && match.getPlayer1Result())) {
-        console.log('🏁 Both players have results, determining winner immediately...');
+      // Check if both players have finished playing (solved or run out of guesses)
+      const serverGameState = activeGames.get(matchId);
+      const player1Finished = serverGameState?.player1Solved || (serverGameState?.player1Guesses?.length || 0) >= 7;
+      const player2Finished = serverGameState?.player2Solved || (serverGameState?.player2Guesses?.length || 0) >= 7;
+      
+      if (player1Finished && player2Finished) {
+        console.log('🏁 Both players have finished playing, determining winner...');
         
         // Save this player's result first
         await matchRepository.save(match);
