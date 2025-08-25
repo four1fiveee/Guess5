@@ -100,14 +100,40 @@ const Game: React.FC = () => {
     console.log('🏁 Game ended:', result);
     
     // Submit result to backend and wait for response to get payout data
+    const submitResultWithRetry = async (retryCount = 0): Promise<any> => {
+      try {
+        console.log(`📤 Submitting result to backend (attempt ${retryCount + 1}):`, { matchId, wallet: publicKey?.toString(), result });
+        
+        // Use the API utility with ReCaptcha integration
+        const { submitResult } = await import('../utils/api');
+        
+        console.log('🔍 About to call submitResult API...');
+        const data = await submitResult(matchId, publicKey?.toString() || '', result);
+        console.log('📝 Backend result submitted:', data);
+        return data;
+      } catch (error) {
+        console.error(`❌ Error submitting result (attempt ${retryCount + 1}):`, error);
+        
+        // Retry up to 3 times for network errors or timeouts
+        if (retryCount < 3 && (
+          error instanceof Error && (
+            error.message.includes('timeout') ||
+            error.message.includes('network') ||
+            error.message.includes('fetch') ||
+            error.name === 'AbortError'
+          )
+        )) {
+          console.log(`🔄 Retrying submitResult in 2 seconds... (attempt ${retryCount + 2})`);
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          return submitResultWithRetry(retryCount + 1);
+        }
+        
+        throw error;
+      }
+    };
+
     try {
-      console.log('📤 Submitting result to backend:', { matchId, wallet: publicKey?.toString(), result });
-      
-      // Use the API utility with ReCaptcha integration
-      const { submitResult } = await import('../utils/api');
-      const data = await submitResult(matchId, publicKey?.toString() || '', result);
-      
-      console.log('📝 Backend result submitted:', data);
+      const data = await submitResultWithRetry();
       
       // If the game is completed, store payout data and navigate
       if (data.status === 'completed' && data.payout) {
@@ -152,6 +178,11 @@ const Game: React.FC = () => {
       }
     } catch (error) {
       console.error('❌ Error submitting result:', error);
+      console.error('❌ Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        name: error instanceof Error ? error.name : undefined
+      });
       
       // If the error is due to guess count mismatch, try to fix it
       if (error instanceof Error && error.message.includes('Guess count mismatch')) {

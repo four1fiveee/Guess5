@@ -46,11 +46,18 @@ const confirmPaymentSchema = Joi.object({
 
 // ReCaptcha3 validation middleware
 export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, next: any) => {
+  console.log('🔄 ReCaptcha validation started');
+  console.log('🔍 Request headers:', Object.keys(req.headers));
+  
   const recaptchaToken = req.headers['x-recaptcha-token'] as string;
   
   if (!recaptchaToken) {
+    console.error('❌ ReCaptcha validation failed: No token provided');
+    console.error('❌ Available headers:', req.headers);
     return res.status(400).json({ error: 'ReCaptcha token required' });
   }
+
+  console.log('✅ ReCaptcha token found in headers');
 
   try {
     const recaptchaSecret = process.env.RECAPTCHA_SECRET;
@@ -59,6 +66,8 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
       return next();
     }
 
+    console.log('🔄 Verifying ReCaptcha token with Google...');
+    
     // Verify ReCaptcha token with Google
     const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
       method: 'POST',
@@ -67,14 +76,23 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
     });
 
     const data = await response.json();
+    console.log('📥 ReCaptcha verification response:', data);
     
     if (!data.success) {
+      console.error('❌ ReCaptcha validation failed: Invalid token');
+      console.error('❌ ReCaptcha error codes:', data['error-codes']);
       return res.status(400).json({ error: 'Invalid ReCaptcha token' });
     }
 
+    console.log('✅ ReCaptcha validation successful');
     next();
   } catch (error) {
     console.error('❌ ReCaptcha validation error:', error);
+    console.error('❌ ReCaptcha error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined
+    });
     return res.status(500).json({ error: 'ReCaptcha validation failed' });
   }
 };
@@ -101,13 +119,23 @@ export const validateMatchRequest = (req: Request, res: Response, next: any) => 
 };
 
 export const validateSubmitResult = (req: Request, res: Response, next: any) => {
+  console.log('🔍 Validating submit result request:', {
+    body: req.body,
+    bodyType: typeof req.body,
+    bodyKeys: Object.keys(req.body || {})
+  });
+  
   const { error } = submitResultSchema.validate(req.body);
   if (error) {
+    console.error('❌ Submit result validation error:', error.details[0].message);
+    console.error('❌ Validation error details:', error.details);
     return res.status(400).json({ 
       error: 'Invalid result data', 
       details: error.details[0].message 
     });
   }
+  
+  console.log('✅ Submit result validation passed');
   next();
 };
 

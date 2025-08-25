@@ -6,20 +6,38 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender
 // Get ReCaptcha token for API requests
 const getReCaptchaToken = async (action: string): Promise<string | null> => {
   try {
-    if (typeof window === 'undefined' || !window.grecaptcha?.enterprise) {
-      console.warn('ReCaptcha not available, skipping token generation');
+    console.log('🔄 Attempting to generate ReCaptcha token for action:', action);
+    
+    if (typeof window === 'undefined') {
+      console.warn('⚠️ Window is undefined (server-side), skipping ReCaptcha');
+      return null;
+    }
+    
+    if (!window.grecaptcha) {
+      console.warn('⚠️ ReCaptcha not loaded, skipping token generation');
+      return null;
+    }
+    
+    if (!window.grecaptcha.enterprise) {
+      console.warn('⚠️ ReCaptcha Enterprise not available, skipping token generation');
       return null;
     }
 
+    console.log('🔄 Calling grecaptcha.enterprise.execute...');
     const token = await window.grecaptcha.enterprise.execute(
       '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', 
       { action }
     );
     
-    console.log(`✅ ReCaptcha token generated for action: ${action}`);
+    console.log(`✅ ReCaptcha token generated successfully for action: ${action}`);
     return token;
   } catch (error) {
     console.error('❌ ReCaptcha token generation failed:', error);
+    console.error('❌ ReCaptcha error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined
+    });
     return null;
   }
 };
@@ -33,6 +51,9 @@ const apiRequest = async (
 ) => {
   const url = `${API_BASE_URL}${endpoint}`;
   
+  console.log(`🌐 Making API request to: ${url}`);
+  console.log(`🔍 Request details:`, { requireReCaptcha, reCaptchaAction, method: options.method });
+  
   // Add ReCaptcha token if required
   let headers: Record<string, string> = {
     'Content-Type': 'application/json',
@@ -40,9 +61,13 @@ const apiRequest = async (
   };
 
   if (requireReCaptcha) {
+    console.log('🔄 Generating ReCaptcha token...');
     const token = await getReCaptchaToken(reCaptchaAction);
     if (token) {
       headers['x-recaptcha-token'] = token;
+      console.log('✅ ReCaptcha token added to headers');
+    } else {
+      console.warn('⚠️ ReCaptcha token generation failed, proceeding without token');
     }
   }
 
@@ -51,8 +76,29 @@ const apiRequest = async (
     headers,
   };
 
+  console.log('📤 Sending request with config:', {
+    url,
+    method: config.method,
+    headers: Object.keys(config.headers || {}),
+    bodySize: config.body ? JSON.stringify(config.body).length : 0
+  });
+
   try {
-    const response = await fetch(url, config);
+    console.log('🔄 Fetching response...');
+    
+    // Add timeout to prevent hanging requests
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 30000); // 30 second timeout
+    
+    const response = await fetch(url, {
+      ...config,
+      signal: controller.signal
+    });
+    
+    clearTimeout(timeoutId);
+    console.log(`📥 Response received: ${response.status} ${response.statusText}`);
     
     if (response.status === 429) {
       console.log('⚠️ Unexpected rate limit response, waiting before retry...');
@@ -62,13 +108,29 @@ const apiRequest = async (
     }
     
     if (!response.ok) {
+      console.error(`❌ HTTP error: ${response.status} ${response.statusText}`);
       const errorData = await response.json().catch(() => ({}));
+      console.error('❌ Error response body:', errorData);
       throw new Error(errorData.error || `HTTP ${response.status}`);
     }
     
-    return await response.json();
+    const responseData = await response.json();
+    console.log('✅ API request successful, response data:', responseData);
+    return responseData;
   } catch (error) {
     console.error(`❌ API request failed for ${endpoint}:`, error);
+    console.error('❌ Error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      stack: error instanceof Error ? error.stack : undefined,
+      name: error instanceof Error ? error.name : undefined
+    });
+    
+    // Check if it's an abort error (timeout)
+    if (error instanceof Error && error.name === 'AbortError') {
+      console.error('⏰ Request timed out after 30 seconds');
+      throw new Error('Request timed out - please try again');
+    }
+    
     throw error;
   }
 };
