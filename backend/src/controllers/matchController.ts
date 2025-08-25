@@ -1426,18 +1426,41 @@ const submitResultHandler = async (req: any, res: any) => {
     // Save updated game state to Redis
     await setGameState(matchId, serverGameState);
 
-    // Save result to database immediately
-    if (isPlayer1) {
-      match.setPlayer1Result(serverValidatedResult);
-      console.log('💾 Setting Player 1 result:', serverValidatedResult);
-    } else {
-      match.setPlayer2Result(serverValidatedResult);
-      console.log('💾 Setting Player 2 result:', serverValidatedResult);
-    }
-    
-    // Save to database immediately
-    await matchRepository.save(match);
-    console.log('✅ Match saved with result for', isPlayer1 ? 'Player 1' : 'Player 2');
+    // Use database transaction to prevent race conditions
+    await AppDataSource.transaction(async (manager: any) => {
+      // Reload the match within the transaction to get the latest state
+      const freshMatch = await manager.findOne(Match, { where: { id: matchId } });
+      if (!freshMatch) {
+        throw new Error('Match not found in transaction');
+      }
+      
+      console.log('🔄 Transaction - Current match state:', {
+        player1Result: freshMatch.getPlayer1Result(),
+        player2Result: freshMatch.getPlayer2Result(),
+        winner: freshMatch.winner,
+        isCompleted: freshMatch.isCompleted
+      });
+      
+      // Set the result for this player
+      if (isPlayer1) {
+        freshMatch.setPlayer1Result(serverValidatedResult);
+        console.log('💾 Setting Player 1 result in transaction:', serverValidatedResult);
+      } else {
+        freshMatch.setPlayer2Result(serverValidatedResult);
+        console.log('💾 Setting Player 2 result in transaction:', serverValidatedResult);
+      }
+      
+      // Save within the transaction
+      await manager.save(freshMatch);
+      console.log('✅ Match saved in transaction for', isPlayer1 ? 'Player 1' : 'Player 2');
+      
+      // Update the local match object for consistency
+      if (isPlayer1) {
+        match.setPlayer1Result(serverValidatedResult);
+      } else {
+        match.setPlayer2Result(serverValidatedResult);
+      }
+    });
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
 
@@ -1465,19 +1488,32 @@ const submitResultHandler = async (req: any, res: any) => {
       if (player1Finished && player2Finished) {
         console.log('🏁 Both players have finished playing, determining winner...');
         
-        // Save this player's result first
-        await matchRepository.save(match);
-        
-        // Get the latest match data with both results
-        const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
-        
-        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
-        
-        console.log('🏆 Winner determination completed:', {
-          matchId,
-          winner: payoutResult?.winner,
-          player1Result: updatedMatch.getPlayer1Result(),
-          player2Result: updatedMatch.getPlayer2Result()
+        // Use transaction to ensure atomic winner determination
+        let updatedMatch: any = null;
+        const payoutResult = await AppDataSource.transaction(async (manager: any) => {
+          // Get the latest match data with both results within the transaction
+          updatedMatch = await manager.findOne(Match, { where: { id: matchId } });
+          if (!updatedMatch) {
+            throw new Error('Match not found during winner determination');
+          }
+          
+          console.log('🏆 Winner determination - Match state:', {
+            player1Result: updatedMatch.getPlayer1Result(),
+            player2Result: updatedMatch.getPlayer2Result(),
+            winner: updatedMatch.winner,
+            isCompleted: updatedMatch.isCompleted
+          });
+          
+          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
+          
+          console.log('🏆 Winner determination completed:', {
+            matchId,
+            winner: result?.winner,
+            player1Result: updatedMatch.getPlayer1Result(),
+            player2Result: updatedMatch.getPlayer2Result()
+          });
+          
+          return result;
         });
         
         // Execute automated payment if there's a clear winner
@@ -1706,19 +1742,32 @@ const submitResultHandler = async (req: any, res: any) => {
       if (player1Finished && player2Finished) {
         console.log('🏁 Both players have finished playing, determining winner...');
         
-        // Save this player's result first
-        await matchRepository.save(match);
-        
-        // Get the latest match data with both results
-        const updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
-        
-        const payoutResult = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
-        
-        console.log('🏆 Winner determination completed (non-solved case):', {
-          matchId,
-          winner: payoutResult?.winner,
-          player1Result: updatedMatch.getPlayer1Result(),
-          player2Result: updatedMatch.getPlayer2Result()
+        // Use transaction to ensure atomic winner determination
+        let updatedMatch: any = null;
+        const payoutResult = await AppDataSource.transaction(async (manager: any) => {
+          // Get the latest match data with both results within the transaction
+          updatedMatch = await manager.findOne(Match, { where: { id: matchId } });
+          if (!updatedMatch) {
+            throw new Error('Match not found during winner determination');
+          }
+          
+          console.log('🏆 Winner determination (non-solved) - Match state:', {
+            player1Result: updatedMatch.getPlayer1Result(),
+            player2Result: updatedMatch.getPlayer2Result(),
+            winner: updatedMatch.winner,
+            isCompleted: updatedMatch.isCompleted
+          });
+          
+          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
+          
+          console.log('🏆 Winner determination completed (non-solved case):', {
+            matchId,
+            winner: result?.winner,
+            player1Result: updatedMatch.getPlayer1Result(),
+            player2Result: updatedMatch.getPlayer2Result()
+          });
+          
+          return result;
         });
         
         // Execute automated payment
