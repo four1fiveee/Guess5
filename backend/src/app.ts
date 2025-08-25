@@ -130,6 +130,24 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
+// Enhanced request logging for all environments to debug Player 2 issue
+app.use((req: any, res: any, next: any) => {
+  // Log all POST requests to /api/match/submit-result
+  if (req.method === 'POST' && req.url.includes('/api/match/submit-result')) {
+    console.log('📤 SUBMIT-RESULT REQUEST RECEIVED:', {
+      timestamp: new Date().toISOString(),
+      method: req.method,
+      url: req.url,
+      origin: req.headers.origin,
+      userAgent: req.headers['user-agent'],
+      contentType: req.headers['content-type'],
+      hasReCaptchaToken: !!req.headers['x-recaptcha-token'],
+      bodySize: req.body ? JSON.stringify(req.body).length : 0
+    });
+  }
+  next();
+});
+
 // Health check endpoint
 app.get('/health', asyncHandler(async (req: any, res: any) => {
   const { healthCheckHandler } = require('./utils/healthCheck');

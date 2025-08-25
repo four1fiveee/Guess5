@@ -100,6 +100,14 @@ const apiRequest = async (
     clearTimeout(timeoutId);
     console.log(`📥 Response received: ${response.status} ${response.statusText}`);
     
+    // Log additional response details for debugging
+    console.log('📋 Response details:', {
+      status: response.status,
+      statusText: response.statusText,
+      headers: Object.fromEntries(response.headers.entries()),
+      url: response.url
+    });
+    
     if (response.status === 429) {
       console.log('⚠️ Unexpected rate limit response, waiting before retry...');
       // Wait 1 second before throwing error to allow retry
@@ -124,6 +132,18 @@ const apiRequest = async (
       stack: error instanceof Error ? error.stack : undefined,
       name: error instanceof Error ? error.name : undefined
     });
+    
+    // Additional network diagnostics
+    if (error instanceof Error) {
+      console.error('🌐 Network diagnostics:', {
+        errorName: error.name,
+        errorMessage: error.message,
+        isNetworkError: error.message.includes('network') || error.message.includes('fetch'),
+        isTimeoutError: error.name === 'AbortError',
+        isCorsError: error.message.includes('CORS') || error.message.includes('cors'),
+        isReCaptchaError: error.message.includes('ReCaptcha') || error.message.includes('recaptcha')
+      });
+    }
     
     // Check if it's an abort error (timeout)
     if (error instanceof Error && error.name === 'AbortError') {
