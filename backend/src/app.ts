@@ -38,16 +38,24 @@ app.use((req: any, res: any, next: any) => {
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('Permissions-Policy', 'geolocation=(), microphone=(), camera=()');
   
-  // Content Security Policy (CSP)
-  res.setHeader('Content-Security-Policy', 
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com; " +
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
-    "font-src 'self' https://fonts.gstatic.com; " +
-    "img-src 'self' data: https:; " +
-    "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com https://guess5.vercel.app; " +
-    "frame-src 'self' https://www.google.com;"
-  );
+  // Content Security Policy (CSP) - More permissive for debugging
+  const cspDirective = process.env.NODE_ENV === 'development' 
+    ? "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "font-src 'self' https://fonts.gstatic.com; " +
+      "img-src 'self' data: https:; " +
+      "connect-src 'self' https: http: ws: wss:; " +
+      "frame-src 'self' https://www.google.com;"
+    : "default-src 'self'; " +
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://www.google.com https://www.gstatic.com; " +
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+      "font-src 'self' https://fonts.gstatic.com; " +
+      "img-src 'self' data: https:; " +
+      "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com https://guess5.vercel.app https://guess5.onrender.com https://guess5-backend.onrender.com https://*.onrender.com; " +
+      "frame-src 'self' https://www.google.com;";
+  
+  res.setHeader('Content-Security-Policy', cspDirective);
   
   next();
 });
@@ -160,6 +168,20 @@ app.get('/health', asyncHandler(async (req: any, res: any) => {
   const { healthCheckHandler } = require('./utils/healthCheck');
   await healthCheckHandler(req, res);
 }));
+
+// Test endpoint for CSP debugging
+app.get('/api/test-csp', (req: any, res: any) => {
+  console.log('🧪 CSP test endpoint called');
+  res.json({ 
+    success: true, 
+    message: 'CSP test successful',
+    timestamp: new Date().toISOString(),
+    headers: {
+      origin: req.headers.origin,
+      userAgent: req.headers['user-agent']
+    }
+  });
+});
 
 // Root endpoint - redirect to frontend
 app.get('/', (req: any, res: any) => {

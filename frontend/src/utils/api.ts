@@ -149,8 +149,21 @@ const apiRequest = async (
         isNetworkError: error.message.includes('network') || error.message.includes('fetch'),
         isTimeoutError: error.name === 'AbortError',
         isCorsError: error.message.includes('CORS') || error.message.includes('cors'),
-        isReCaptchaError: error.message.includes('ReCaptcha') || error.message.includes('recaptcha')
+        isReCaptchaError: error.message.includes('ReCaptcha') || error.message.includes('recaptcha'),
+        isCspError: error.message.includes('CSP') || error.message.includes('Content Security Policy'),
+        isBlockedError: error.message.includes('blocked') || error.message.includes('forbidden')
       });
+      
+      // Log CSP-specific errors
+      if (error.message.includes('CSP') || error.message.includes('Content Security Policy') || error.message.includes('blocked')) {
+        console.error('🚫 CSP/Blocking Error detected - this might be the root cause of silent failures');
+        console.error('🚫 Error details:', {
+          url,
+          method: config.method,
+          headers: Object.keys(config.headers || {}),
+          error: error.message
+        });
+      }
     }
     
     // Check if it's an abort error (timeout)
