@@ -144,6 +144,13 @@ app.use((req: any, res: any, next: any) => {
       hasReCaptchaToken: !!req.headers['x-recaptcha-token'],
       bodySize: req.body ? JSON.stringify(req.body).length : 0
     });
+    
+    // Additional logging for Player 2 requests
+    if (req.body && req.body.wallet) {
+      console.log('🔍 SUBMIT-RESULT WALLET:', req.body.wallet);
+      console.log('🔍 SUBMIT-RESULT MATCH ID:', req.body.matchId);
+      console.log('🔍 SUBMIT-RESULT BODY:', JSON.stringify(req.body, null, 2));
+    }
   }
   next();
 });

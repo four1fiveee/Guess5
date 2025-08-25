@@ -92,6 +92,14 @@ const apiRequest = async (
       controller.abort();
     }, 30000); // 30 second timeout
     
+    console.log('🌐 About to call fetch with URL:', url);
+    console.log('🌐 Fetch config:', {
+      method: config.method,
+      headers: Object.keys(config.headers || {}),
+      bodySize: config.body ? JSON.stringify(config.body).length : 0,
+      hasSignal: !!controller.signal
+    });
+    
     const response = await fetch(url, {
       ...config,
       signal: controller.signal
