@@ -190,10 +190,27 @@ export const submitResult = async (matchId: string, wallet: string, result: {
   totalTime: number;
   guesses: string[];
 }) => {
-  return apiRequest('/api/match/submit-result', {
-    method: 'POST',
-    body: JSON.stringify({ matchId, wallet, result }),
-  }, true, 'submit_result');
+  console.log('🎯 submitResult called with:', { matchId, wallet, result });
+  console.log('🎯 API_BASE_URL:', API_BASE_URL);
+  console.log('🎯 Full URL will be:', `${API_BASE_URL}/api/match/submit-result`);
+  
+  try {
+    const response = await apiRequest('/api/match/submit-result', {
+      method: 'POST',
+      body: JSON.stringify({ matchId, wallet, result }),
+    }, true, 'submit_result');
+    
+    console.log('✅ submitResult successful:', response);
+    return response;
+  } catch (error) {
+    console.error('❌ submitResult failed:', error);
+    console.error('❌ submitResult error details:', {
+      message: error instanceof Error ? error.message : String(error),
+      name: error instanceof Error ? error.name : String(error),
+      stack: error instanceof Error ? error.stack : undefined
+    });
+    throw error;
+  }
 };
 
 export const submitGuess = async (matchId: string, wallet: string, guess: string) => {

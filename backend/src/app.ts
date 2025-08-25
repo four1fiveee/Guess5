@@ -183,6 +183,18 @@ app.get('/api/test-csp', (req: any, res: any) => {
   });
 });
 
+// Simple API test endpoint
+app.get('/api/test', (req: any, res: any) => {
+  console.log('🧪 API test endpoint called');
+  res.json({ 
+    success: true, 
+    message: 'API connection successful',
+    timestamp: new Date().toISOString(),
+    apiUrl: process.env.NEXT_PUBLIC_API_URL || 'not set',
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
 // Root endpoint - redirect to frontend
 app.get('/', (req: any, res: any) => {
   res.redirect(process.env.FRONTEND_URL || 'https://guess5.vercel.app');

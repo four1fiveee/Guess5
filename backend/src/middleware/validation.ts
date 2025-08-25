@@ -57,7 +57,7 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
     return res.status(400).json({ error: 'ReCaptcha token required' });
   }
 
-  console.log('✅ ReCaptcha token found in headers');
+  console.log('✅ ReCaptcha token found in headers:', recaptchaToken);
 
   try {
     const recaptchaSecret = process.env.RECAPTCHA_SECRET;

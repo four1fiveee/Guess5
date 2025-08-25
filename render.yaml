@@ -32,6 +32,6 @@ services:
     staticPublishPath: frontend/.next
     envVars:
       - key: NEXT_PUBLIC_API_URL
-        value: https://guess5-backend.onrender.com
+        value: https://guess5.onrender.com
       - key: NEXT_PUBLIC_SOLANA_NETWORK
         value: https://api.devnet.solana.com 

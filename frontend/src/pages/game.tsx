@@ -64,9 +64,9 @@ const Game: React.FC = () => {
       const endTime = Date.now();
       const gameDuration = Math.max(1, endTime - startTime);
       
-      // Wait for the game state to be updated to ensure we have the latest guesses
-      // This prevents the race condition where handleGameEnd is called before guesses are updated
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      // FIXED: Remove the arbitrary 1-second delay that was causing race conditions
+      // Instead, fetch the latest game state immediately to ensure accuracy
+      console.log('🔄 Fetching latest game state before submitting result...');
       
       // Fetch the latest game state to ensure we have the correct guesses
       try {
@@ -195,16 +195,11 @@ const Game: React.FC = () => {
           name: error instanceof Error ? error.name : undefined
         });
         
-                 // If the error is due to guess count mismatch, try to fix it
+                 // FIXED: Remove the retry logic that was causing infinite loops
+         // The backend validation is now less strict, so this shouldn't be needed
          if (error instanceof Error && error.message.includes('Guess count mismatch')) {
-           console.log('🔄 Attempting to fix guess count mismatch...');
-           // Wait a moment and try again with the correct count
-           setTimeout(() => {
-             if (!isSubmittingResult) {
-               handleGameEnd(won, undefined, guesses);
-             }
-           }, 1000);
-           return;
+           console.log('⚠️ Guess count mismatch error - this should not happen with new validation');
+           // Don't retry - just show the error
          }
         
         // For other errors, show waiting state and try to continue
@@ -642,23 +637,21 @@ const Game: React.FC = () => {
         setGameState('solved');
         setPlayerSolved(true);
         setTimerActive(false);
-        // Player solved the puzzle - submit result immediately
-        // Include the current guess in the guesses array for the result
-        const guessesWithCurrentGuess = [...guesses, currentGuess];
+        // FIXED: Use the current guesses array since the server response doesn't include guesses
+        const currentGuesses = [...guesses, currentGuess];
         if (!isSubmittingResult) {
-          handleGameEnd(true, 'solved', guessesWithCurrentGuess);
+          handleGameEnd(true, 'solved', currentGuesses);
         }
         return; // Exit early to prevent further processing
       } else if (result.remainingGuesses === 0) {
         setGameState('solved');
         setTimerActive(false);
-        // Player ran out of guesses, check if they solved earlier
+        // FIXED: Use current guesses array for consistency
+        const currentGuesses = [...guesses, currentGuess];
         if (playerSolved && !isSubmittingResult) {
-          const guessesWithCurrentGuess = [...guesses, currentGuess];
-          handleGameEnd(true, 'solved', guessesWithCurrentGuess);
+          handleGameEnd(true, 'solved', currentGuesses);
         } else if (!isSubmittingResult) {
-          const guessesWithCurrentGuess = [...guesses, currentGuess];
-          handleGameEnd(false, 'out_of_guesses', guessesWithCurrentGuess);
+          handleGameEnd(false, 'out_of_guesses', currentGuesses);
         }
       }
     }
