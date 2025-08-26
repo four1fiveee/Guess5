@@ -1051,12 +1051,12 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
         });
         
         const timeDiff = Math.abs(player1Result.totalTime - player2Result.totalTime);
-        const tolerance = 0.001; // 1 millisecond tolerance for "exact" ties
+        const tolerance = 0.001; // 1 millisecond tolerance for "exact" ties (smallest reasonable unit for web app)
         
         if (timeDiff < tolerance) {
-          // Times are effectively identical - both pay fee
+          // Winning tie: Both solved with same moves AND same time (within 1ms tolerance)
           winner = 'tie';
-          console.log('⚖️ Exact time tie detected - both pay fee');
+          console.log('🤝 Winning tie: Both solved with same moves AND same time (within 1ms tolerance)');
         } else if (player1Result.totalTime < player2Result.totalTime) {
           winner = match.player1;
           console.log('🏆 Player 1 wins by time');
@@ -1126,16 +1126,21 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
 
     console.log('💰 Payout calculated:', payoutResult);
   } else if (winner === 'tie') {
-    // Determine if this is a winning tie (both solved) or losing tie (both failed)
-    const isWinningTie = player1Result && player2Result && player1Result.won && player2Result.won;
+    // Determine if this is a winning tie (both solved with same moves AND same time) or losing tie (both failed)
+    const isWinningTie = player1Result && player2Result && 
+                        player1Result.won && player2Result.won && 
+                        player1Result.numGuesses === player2Result.numGuesses &&
+                        Math.abs(player1Result.totalTime - player2Result.totalTime) < 0.001;
     
     if (isWinningTie) {
-      // Winning tie: Both solved same moves + same time - FULL REFUND to both players
-      console.log('🤝 Winning tie: Both solved same moves + same time - FULL REFUND to both players');
+      // Winning tie: Both solved with same moves AND same time (within 1ms tolerance) - FULL REFUND to both players
+      console.log('🤝 Winning tie: Both solved with same moves AND same time (within 1ms tolerance) - FULL REFUND to both players');
       payoutResult = {
         winner: 'tie',
         winnerAmount: 0,
         feeAmount: 0,
+        refundAmount: match.entryFee, // Full refund for winning tie
+        isWinningTie: true, // Flag to indicate this is a winning tie
         feeWallet: FEE_WALLET_ADDRESS,
         transactions: [
           {
@@ -1162,6 +1167,8 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
         winner: 'tie',
         winnerAmount: 0,
         feeAmount: feeAmount * 2, // Total fees from both players
+        refundAmount: refundAmount, // 95% refund amount for each player
+        isWinningTie: false, // Flag to indicate this is a losing tie
         feeWallet: FEE_WALLET_ADDRESS,
         transactions: [
           {

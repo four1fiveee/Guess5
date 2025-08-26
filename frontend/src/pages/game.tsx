@@ -136,6 +136,8 @@ const Game: React.FC = () => {
           opponentGuesses: 0, // This will be updated when opponent finishes
           winnerAmount: data.payout?.winnerAmount || 0,
           feeAmount: data.payout?.feeAmount || 0,
+          refundAmount: data.payout?.refundAmount || 0,
+          isWinningTie: data.payout?.isWinningTie || false,
           feeWallet: data.payout?.feeWallet || '',
           transactions: data.payout?.transactions || [],
           automatedPayout: data.payout?.paymentSuccess || false,
@@ -182,6 +184,8 @@ const Game: React.FC = () => {
                   opponentGuesses: opponentResult?.numGuesses || 0,
                   winnerAmount: matchData.payout?.winnerAmount || 0,
                   feeAmount: matchData.payout?.feeAmount || 0,
+                  refundAmount: matchData.payout?.refundAmount || 0,
+                  isWinningTie: matchData.payout?.isWinningTie || false,
                   feeWallet: matchData.payout?.feeWallet || '',
                   transactions: matchData.payout?.transactions || [],
                   automatedPayout: matchData.payout?.paymentSuccess || false,

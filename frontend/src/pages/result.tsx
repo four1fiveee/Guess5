@@ -58,6 +58,8 @@ const Result: React.FC = () => {
                 opponentGuesses: opponentResult?.numGuesses || 0,
                 winnerAmount: matchData.payout?.winnerAmount || 0,
                 feeAmount: matchData.payout?.feeAmount || 0,
+                refundAmount: matchData.payout?.refundAmount || 0,
+                isWinningTie: matchData.payout?.isWinningTie || false,
                 feeWallet: matchData.payout?.feeWallet || '',
                 transactions: matchData.payout?.transactions || [],
                 automatedPayout: matchData.payout?.paymentSuccess || false,
@@ -197,7 +199,7 @@ const Result: React.FC = () => {
                   <div className="text-red-400 text-2xl font-bold mb-2">😔 You Lost</div>
                 )}
                 <div className="text-white/60 text-sm">
-                  Debug: won={String(payoutData.won)}, winner={payoutData.winner}, playerWallet={publicKey?.toString()}
+                  Debug: won={String(payoutData.won)}, winner={payoutData.winner}, isWinningTie={String(payoutData.isWinningTie)}, playerWallet={publicKey?.toString()}
                 </div>
               </div>
               
@@ -241,17 +243,52 @@ const Result: React.FC = () => {
                       </div>
                     ) : payoutData.isTie ? (
                       <div className="text-yellow-700">
-                        <p>It's a tie! Each player gets their entry fee back.</p>
-                        <p className="text-sm text-yellow-600 mt-1">
-                          Refund has been processed automatically by the fee wallet.
-                        </p>
+                        {payoutData.isWinningTie ? (
+                          // Winning tie: Both solved with same moves AND same time (within 1ms tolerance)
+                          <>
+                            <p className="font-semibold text-green-600">Winning Tie - Perfect Match!</p>
+                            <p className="text-sm text-yellow-600 mt-1">
+                              Both players solved the puzzle with the same moves and time! You get a full refund of {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
+                            </p>
+                            <p className="text-sm text-yellow-500 mt-1">
+                              Full refund processed automatically by the fee wallet.
+                            </p>
+                          </>
+                        ) : (
+                          // Losing tie: Both failed to solve
+                          <>
+                            <p className="font-semibold text-yellow-600">Losing Tie - Both Players Failed</p>
+                            <p className="text-sm text-yellow-600 mt-1">
+                              Neither player solved the puzzle. You get a 95% refund of {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
+                            </p>
+                            <p className="text-sm text-yellow-500 mt-1">
+                              Refund processed automatically by the fee wallet.
+                            </p>
+                          </>
+                        )}
                       </div>
                     ) : (
                       <div className="text-gray-700">
-                        <p>Better luck next time!</p>
-                        <p className="text-sm text-gray-600 mt-1">
-                          The winner has been paid automatically by the fee wallet.
-                        </p>
+                        {payoutData.numGuesses === 7 && payoutData.opponentGuesses === 7 ? (
+                          // Both players failed to solve - losing tie
+                          <>
+                            <p className="font-semibold text-yellow-600">Losing Tie - Both Players Failed</p>
+                            <p className="text-sm text-gray-600 mt-1">
+                              Neither player solved the puzzle. You get a 95% refund of {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
+                            </p>
+                            <p className="text-sm text-gray-500 mt-1">
+                              Refund processed automatically by the fee wallet.
+                            </p>
+                          </>
+                        ) : (
+                          // Regular loss
+                          <>
+                            <p>Better luck next time!</p>
+                            <p className="text-sm text-gray-600 mt-1">
+                              The winner has been paid automatically by the fee wallet.
+                            </p>
+                          </>
+                        )}
                       </div>
                     )}
                     {payoutData.payoutSignature && (
