@@ -12,7 +12,7 @@ const Game: React.FC = () => {
   const { publicKey, signTransaction, signAllTransactions } = useWallet();
   const [guesses, setGuesses] = useState<string[]>([]);
   const [currentGuess, setCurrentGuess] = useState('');
-  const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed'>('playing');
+  const [gameState, setGameState] = useState<'playing' | 'solved' | 'waiting' | 'completed' | 'error'>('playing');
   const [playerSolved, setPlayerSolved] = useState(false);
   const [playerResult, setPlayerResult] = useState<{
   won: boolean;
@@ -42,174 +42,178 @@ const Game: React.FC = () => {
 
   // handleGameEnd with correct totalTime and immediate navigation for specific reasons
   const handleGameEnd = useCallback(async (won: boolean, reason?: string, customGuesses?: string[]) => {
-    console.log('🏁 handleGameEnd called with:', { won, reason, publicKey: publicKey?.toString(), matchId });
-    console.log('🔍 handleGameEnd debug - called from:', new Error().stack?.split('\n')[2] || 'unknown location');
-    
-    // Prevent duplicate submissions
     if (isSubmittingResult) {
-      console.log('⚠️ Already submitting result, ignoring duplicate call');
+      console.log('⏳ Already submitting result, ignoring duplicate call');
       return;
     }
-    
-    if (!publicKey || !matchId) {
-      console.log('❌ Missing publicKey or matchId, returning early');
-      return;
-    }
-    
-    setIsSubmittingResult(true);
-    setTimerActive(false);
-    
-    try {
-      // Calculate time with millisecond precision for tie-breaking
-      const endTime = Date.now();
-      const gameDuration = Math.max(1, endTime - startTime);
-      
-      // FIXED: Remove the arbitrary 1-second delay that was causing race conditions
-      // Instead, fetch the latest game state immediately to ensure accuracy
-      console.log('🔄 Fetching latest game state before submitting result...');
-      
-      // Fetch the latest game state to ensure we have the correct guesses
-      try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/game-state?matchId=${matchId}&wallet=${publicKey.toString()}`);
-        if (response.ok) {
-          const data = await response.json();
-          if (data.success) {
-            // Check if game is completed
-            if (data.gameCompleted || data.matchCompleted) {
-              console.log('✅ Game is completed, navigating to results');
-              router.push(`/result?matchId=${matchId}`);
-              return;
-            }
-            
-            // Update local state with the latest server data
-            setGuesses(data.playerGuesses || []);
-            setRemainingGuesses(data.remainingGuesses || 7);
-            console.log('🔄 Updated guesses from server before submitting result:', data.playerGuesses);
-          }
-        }
-      } catch (error) {
-        console.error('❌ Error fetching latest game state:', error);
-      }
-      
-      // Use custom guesses if provided, otherwise use current guesses state
-      const finalGuesses = customGuesses || guesses;
-      
-      // Ensure numGuesses matches the actual number of guesses made
-      // The backend validates this against server state, so it must be exact
-      const actualNumGuesses = finalGuesses.length;
-      
-      // Remove reason field from result object - backend validation doesn't allow it
-      const result = { 
-        won, 
-        numGuesses: actualNumGuesses, 
-        totalTime: gameDuration, 
-        guesses: finalGuesses
-      };
-      
-      setPlayerResult(result);
-      console.log('🏁 Game ended:', result);
-      
-      // Submit result to backend and wait for response to get payout data
-      const submitResultWithRetry = async (retryCount = 0): Promise<any> => {
-        try {
-          console.log(`📤 Submitting result to backend (attempt ${retryCount + 1}):`, { matchId, wallet: publicKey?.toString(), result });
-          
-          // Use the API utility with ReCaptcha integration
-          const { submitResult } = await import('../utils/api');
-          
-          console.log('🔍 About to call submitResult API...');
-          const data = await submitResult(matchId, publicKey?.toString() || '', result);
-          console.log('📝 Backend result submitted:', data);
-          return data;
-        } catch (error) {
-          console.error(`❌ Error submitting result (attempt ${retryCount + 1}):`, error);
-          
-          // Retry up to 3 times for network errors or timeouts
-          if (retryCount < 3 && (
-            error instanceof Error && (
-              error.message.includes('timeout') ||
-              error.message.includes('network') ||
-              error.message.includes('fetch') ||
-              error.name === 'AbortError'
-            )
-          )) {
-            console.log(`🔄 Retrying submitResult in 2 seconds... (attempt ${retryCount + 2})`);
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            return submitResultWithRetry(retryCount + 1);
-          }
-          
-          throw error;
-        }
-      };
 
-      try {
-        const data = await submitResultWithRetry();
-        
-        // If the game is completed, store payout data and navigate
-        if (data.status === 'completed' && data.payout) {
-          console.log('💰 Storing payout data:', data.payout);
+    setIsSubmittingResult(true);
+    setGameState('waiting');
+
+    console.log('🏁 Game ended:', { won, reason, customGuesses });
+
+    // Use custom guesses if provided (for testing), otherwise use current guesses
+    const finalGuesses = customGuesses || guesses;
+    const endTime = Date.now();
+    const totalTime = endTime - startTime;
+
+    const result = {
+      won,
+      numGuesses: finalGuesses.length,
+      totalTime,
+      guesses: finalGuesses,
+      reason: reason || 'game_completed'
+    };
+
+    console.log('📊 Final game result:', result);
+
+    // Store result locally for potential retry
+    setPlayerResult(result);
+
+    const submitResultWithRetry = async () => {
+      const maxRetries = 3;
+      let lastError: any = null;
+
+      for (let attempt = 1; attempt <= maxRetries; attempt++) {
+        try {
+          console.log(`📤 Submitting result (attempt ${attempt}/${maxRetries})...`);
           
-          // Create payout data object for localStorage
-          const payoutData = {
-            won: data.winner === publicKey?.toString(),
-            isTie: data.winner === 'tie',
-            winner: data.winner,
-            numGuesses: result.numGuesses,
-            entryFee: entryFee, // Use the actual entry fee from match data
-            timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
-            opponentTimeElapsed: 'N/A', // This will be updated when opponent finishes
-            opponentGuesses: 0, // This will be updated when opponent finishes
-            winnerAmount: data.payout.paymentInstructions?.winnerAmount || 0,
-            feeAmount: data.payout.paymentInstructions?.feeAmount || 0,
-            feeWallet: data.payout.paymentInstructions?.feeWallet || '',
-            transactions: data.payout.paymentInstructions?.transactions || [],
-            automatedPayout: data.payout.automatedPayout || false,
-            payoutSignature: data.payout.payoutSignature || null
-          };
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const response = await fetch(`${apiUrl}/api/match/submit-result`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              matchId,
+              wallet: publicKey?.toString(),
+              result
+            })
+          });
+
+          if (!response.ok) {
+            const errorData = await response.json();
+            throw new Error(errorData.error || `HTTP ${response.status}`);
+          }
+
+          const data = await response.json();
+          console.log('✅ Result submission successful:', data);
           
-          // Store payout data in localStorage
-          localStorage.setItem('payoutData', JSON.stringify(payoutData));
-          console.log('✅ Payout data stored in localStorage');
+          return data;
+        } catch (error: any) {
+          lastError = error;
+          console.error(`❌ Result submission failed (attempt ${attempt}):`, error);
           
-          // Navigate to results page
-          console.log('🏆 Game completed, navigating to results page');
-          router.push(`/result?matchId=${matchId}`);
-        } else if (data.status === 'waiting') {
-          // Game is still waiting for other player, show waiting state
-          console.log('⏳ Waiting for other player to finish');
-          setGameState('waiting');
-          setPlayerSolved(true); // Mark this player as solved
-          // Don't navigate to results yet - stay on this page and show waiting message
-          // Continue polling for game updates
-        } else {
-          // Fallback: show waiting state
-          console.log('⚠️ Unexpected response, showing waiting state');
-          setGameState('waiting');
+          if (attempt < maxRetries) {
+            console.log(`⏳ Retrying in ${attempt * 1000}ms...`);
+            await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+          } else {
+            console.error('❌ All retry attempts failed');
+            throw error;
+          }
         }
-      } catch (error) {
-        console.error('❌ Error submitting result:', error);
-        console.error('❌ Error details:', {
-          message: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-          name: error instanceof Error ? error.name : undefined
-        });
-        
-                 // FIXED: Remove the retry logic that was causing infinite loops
-         // The backend validation is now less strict, so this shouldn't be needed
-         if (error instanceof Error && error.message.includes('Guess count mismatch')) {
-           console.log('⚠️ Guess count mismatch error - this should not happen with new validation');
-           // Don't retry - just show the error
-         }
-        
-        // For other errors, show waiting state and try to continue
-        console.log('⚠️ Result submission failed, showing waiting state');
-        setGameState('waiting');
       }
+      
+      throw lastError;
+    };
+
+    try {
+      const data = await submitResultWithRetry();
+      
+      // If the game is completed, store payout data and navigate
+      if (data.status === 'completed' && data.payout) {
+        console.log('💰 Storing payout data:', data.payout);
+        
+        // Create payout data object for localStorage
+        const payoutData = {
+          won: data.winner === publicKey?.toString(),
+          isTie: data.winner === 'tie',
+          winner: data.winner,
+          numGuesses: result.numGuesses,
+          entryFee: entryFee, // Use the actual entry fee from match data
+          timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
+          opponentTimeElapsed: 'N/A', // This will be updated when opponent finishes
+          opponentGuesses: 0, // This will be updated when opponent finishes
+          winnerAmount: data.payout.winnerAmount || 0,
+          feeAmount: data.payout.feeAmount || 0,
+          feeWallet: data.payout.feeWallet || '',
+          transactions: data.payout.transactions || [],
+          automatedPayout: data.payout.automatedPayout || false,
+          payoutSignature: data.payout.payoutSignature || null
+        };
+        
+        // Store payout data in localStorage
+        localStorage.setItem('payoutData', JSON.stringify(payoutData));
+        console.log('✅ Payout data stored in localStorage');
+        
+        // Navigate to results page
+        console.log('🏆 Game completed, navigating to results page');
+        router.push(`/result?matchId=${matchId}`);
+      } else if (data.status === 'waiting') {
+        // Game is still waiting for other player, show waiting state
+        console.log('⏳ Waiting for other player to finish...');
+        setGameState('waiting');
+        
+        // Start polling for game completion
+        const pollForCompletion = async () => {
+          try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+            const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
+            
+            if (response.ok) {
+              const matchData = await response.json();
+              
+              if (matchData.isCompleted && matchData.payout) {
+                console.log('🏆 Game completed via polling:', matchData);
+                
+                // Create payout data from match data
+                const isPlayer1 = publicKey?.toString() === matchData.player1;
+                const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+                const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+                
+                const payoutData = {
+                  won: matchData.winner === publicKey?.toString(),
+                  isTie: matchData.winner === 'tie',
+                  winner: matchData.winner,
+                  numGuesses: playerResult?.numGuesses || result.numGuesses,
+                  entryFee: matchData.entryFee || entryFee,
+                  timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
+                  opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+                  opponentGuesses: opponentResult?.numGuesses || 0,
+                  winnerAmount: matchData.payout.winnerAmount || 0,
+                  feeAmount: matchData.payout.feeAmount || 0,
+                  feeWallet: matchData.payout.feeWallet || '',
+                  transactions: matchData.payout.transactions || [],
+                  automatedPayout: matchData.payout.automatedPayout || false,
+                  payoutSignature: matchData.payout.payoutSignature || null
+                };
+                
+                localStorage.setItem('payoutData', JSON.stringify(payoutData));
+                console.log('✅ Payout data stored from polling');
+                
+                router.push(`/result?matchId=${matchId}`);
+                return;
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error polling for completion:', error);
+          }
+          
+          // Continue polling if not completed
+          setTimeout(pollForCompletion, 2000);
+        };
+        
+        // Start polling after a short delay
+        setTimeout(pollForCompletion, 2000);
+      }
+    } catch (error: any) {
+      console.error('❌ Failed to submit result:', error);
+      setError(`Failed to submit result: ${error.message}`);
+      setGameState('error');
     } finally {
       setIsSubmittingResult(false);
     }
-  }, [publicKey, matchId, guesses, startTime, entryFee, router, isSubmittingResult]);
+  }, [matchId, publicKey, guesses, startTime, entryFee, router, isSubmittingResult]);
 
   // Update the ref whenever handleGameEnd changes
   useEffect(() => {

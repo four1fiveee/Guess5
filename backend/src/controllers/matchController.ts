@@ -396,9 +396,9 @@ const requestMatchHandler = async (req: any, res: any) => {
 // Separate function for the actual matchmaking logic
 const performMatchmaking = async (wallet: string, entryFee: number) => {
   try {
-    console.log(`🔒 ATOMIC: Starting matchmaking for wallet: ${wallet} with entry fee: ${entryFee}`);
+    console.log(`🔒 REDIS ATOMIC: Starting matchmaking for wallet: ${wallet} with entry fee: ${entryFee}`);
     
-    // Get database repository
+    // Get database repository for cleanup and validation
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
@@ -411,33 +411,63 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       return existingMatch;
     }
     
-    // Simplified matchmaking without idempotency
+    // REDIS ATOMIC MATCHMAKING: Use Redis service for high-scale operations
+    console.log(`🎯 REDIS: Attempting to add player to queue: ${wallet}`);
+    const redisResult = await redisMatchmakingService.addPlayerToQueue(wallet, entryFee);
     
-    // ATOMIC: Try to find and claim waiting player
-    const claimedMatch = await findAndClaimWaitingPlayer(matchRepository, wallet, entryFee);
-    
-    if (claimedMatch) {
-      console.log(`✅ ATOMIC: Successfully claimed waiting player and created match`);
+    if (redisResult.status === 'matched' && redisResult.matchId) {
+      console.log(`✅ REDIS ATOMIC: Match created via Redis: ${redisResult.matchId}`);
       
-      // Match created successfully
+      // Get match data from Redis
+      const matchData = await redisMatchmakingService.getMatch(redisResult.matchId);
+      if (!matchData) {
+        throw new Error('Match data not found in Redis after creation');
+      }
+      
+      // Create database record for the match
+      const newMatch = new Match();
+      newMatch.id = matchData.matchId;
+      newMatch.player1 = matchData.player1;
+      newMatch.player2 = matchData.player2;
+      newMatch.entryFee = matchData.entryFee;
+      newMatch.status = 'payment_required';
+      newMatch.word = getRandomWord();
+      newMatch.createdAt = new Date(matchData.createdAt);
+      newMatch.updatedAt = new Date();
+      
+      await matchRepository.save(newMatch);
+      console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
       
       return {
         status: 'matched',
-        matchId: claimedMatch.matchId,
-        player1: claimedMatch.player1,
-        player2: claimedMatch.player2,
-        entryFee: claimedMatch.entryFee,
+        matchId: matchData.matchId,
+        player1: matchData.player1,
+        player2: matchData.player2,
+        entryFee: matchData.entryFee,
         message: 'Match created - both players must pay entry fee to start game'
       };
+    } else if (redisResult.status === 'waiting') {
+      console.log(`⏳ REDIS: Player added to waiting queue: ${wallet}`);
+      
+      // Create database record for waiting player
+      const newMatch = new Match();
+      newMatch.player1 = wallet;
+      newMatch.player2 = null;
+      newMatch.entryFee = entryFee;
+      newMatch.status = 'waiting';
+      newMatch.createdAt = new Date();
+      newMatch.updatedAt = new Date();
+      
+      await matchRepository.save(newMatch);
+      console.log(`✅ Database record created for waiting player: ${wallet}`);
+      
+      return {
+        status: 'waiting',
+        waitingCount: redisResult.waitingCount || 1,
+        message: 'Waiting for opponent to join'
+      };
     } else {
-      console.log(`⏳ ATOMIC: No waiting players, creating waiting entry...`);
-      
-      // Create waiting entry with idempotency key
-      const waitingResult = await createWaitingEntry(matchRepository, wallet, entryFee);
-      
-      // Waiting entry created successfully
-      
-      return waitingResult;
+      throw new Error(`Unexpected Redis matchmaking result: ${redisResult.status}`);
     }
     
   } catch (error: unknown) {
@@ -684,94 +714,8 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   }
 };
 
-// ATOMIC MATCHMAKING: Find and claim waiting player in single transaction
-const findAndClaimWaitingPlayer = async (matchRepository: any, wallet: string, entryFee: number) => {
-  const tolerance = 0.01; // Increased tolerance to 0.01 SOL for better matching
-  const minEntryFee = entryFee - tolerance;
-  const maxEntryFee = entryFee + tolerance;
-  
-  try {
-    console.log(`🔒 ATOMIC: Looking for waiting players for ${wallet} with entry fee: ${entryFee} SOL`);
-    
-    // Use database transaction to ensure atomicity
-    const result = await matchRepository.manager.transaction(async (manager: any) => {
-      // Find waiting player with row-level lock (FIFO order)
-      const waitingMatch = await manager.query(`
-        SELECT 
-          id,
-          "player1",
-          "entryFee",
-          "createdAt"
-        FROM "match" 
-        WHERE "status" = $1 
-          AND "entryFee" BETWEEN $2 AND $3 
-          AND "player2" IS NULL 
-          AND "player1" != $4
-        ORDER BY "createdAt" ASC 
-        LIMIT 1
-        FOR UPDATE SKIP LOCKED
-      `, ['waiting', minEntryFee, maxEntryFee, wallet]);
-      
-      if (waitingMatch.length === 0) {
-        console.log(`❌ ATOMIC: No waiting players found for ${wallet}`);
-        return null;
-      }
-      
-      const waitingPlayer = waitingMatch[0];
-      console.log(`🔒 ATOMIC: Found waiting player:`, {
-        matchId: waitingPlayer.id,
-        player: waitingPlayer.player1,
-        entryFee: waitingPlayer.entryFee,
-        createdAt: waitingPlayer.createdAt
-      });
-      
-      // Generate game word
-      const gameWord = getRandomWord();
-      
-      // Update the match atomically within transaction
-      const actualEntryFee = Math.min(waitingPlayer.entryFee, entryFee);
-      
-      await manager.query(`
-        UPDATE "match" 
-        SET 
-          "player2" = $1,
-          "entryFee" = $2,
-          "status" = $3,
-          "word" = $4,
-          "player1Paid" = $5,
-          "player2Paid" = $6,
-          "updatedAt" = $7
-        WHERE id = $8
-      `, [
-        wallet, 
-        actualEntryFee, 
-        'payment_required', 
-        gameWord,
-        false, 
-        false, 
-        new Date(),
-        waitingPlayer.id
-      ]);
-      
-      console.log(`✅ ATOMIC: Successfully claimed waiting player and created match`);
-      
-      return {
-        matchId: waitingPlayer.id,
-        player1: waitingPlayer.player1,
-        player2: wallet,
-        entryFee: actualEntryFee,
-        status: 'payment_required',
-        word: gameWord
-      };
-    });
-    
-    return result;
-    
-  } catch (error: unknown) {
-    console.error('❌ ATOMIC: Error in findAndClaimWaitingPlayer:', error);
-    throw error;
-  }
-};
+// REDIS ATOMIC MATCHMAKING: This function has been replaced with Redis-based matchmaking
+// The findAndClaimWaitingPlayer function is no longer needed as we use redisMatchmakingService
 
 // Helper function to create a match (now handled in findWaitingPlayer)
 const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: string, entryFee: number) => {
@@ -797,51 +741,8 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
   }
 };
 
-// Helper function to create a waiting entry
-const createWaitingEntry = async (matchRepository: any, wallet: string, entryFee: number) => {
-  try {
-    // Clean up any old waiting entries for this player first using raw SQL
-    const oldWaitingEntries = await matchRepository.query(`
-      SELECT id FROM "match" 
-      WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
-    `, [wallet, 'waiting']);
-    
-    if (oldWaitingEntries.length > 0) {
-      console.log(`🧹 Cleaning up ${oldWaitingEntries.length} old waiting entries for ${wallet}`);
-      await matchRepository.query(`
-        DELETE FROM "match" 
-        WHERE "player1" = $1 AND "status" = $2 AND "player2" IS NULL
-      `, [wallet, 'waiting']);
-    }
-    
-    // Create new waiting entry using raw SQL
-    const result = await matchRepository.query(`
-      INSERT INTO "match" ("player1", "player2", "entryFee", "status", "word", "player1Paid", "player2Paid", "createdAt", "updatedAt")
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-      RETURNING id, "player1", "entryFee", "status", "createdAt"
-    `, [wallet, null, entryFee, 'waiting', null, false, false, new Date(), new Date()]);
-    
-    const savedMatch = result[0];
-    console.log(`✅ New waiting entry created with ID: ${savedMatch.id} for wallet: ${wallet}`);
-    console.log(`📊 Waiting entry details:`, {
-      id: savedMatch.id,
-      player1: savedMatch.player1,
-      entryFee: savedMatch.entryFee,
-      status: savedMatch.status,
-      createdAt: savedMatch.createdAt
-    });
-    
-    return {
-      status: 'waiting',
-      message: 'Waiting for opponent',
-      waitingCount: 0,
-      matchId: savedMatch.id
-    };
-  } catch (error: unknown) {
-    console.error('❌ Error creating waiting entry:', error);
-    throw error;
-  }
-};
+// REDIS ATOMIC MATCHMAKING: This function has been replaced with Redis-based matchmaking
+// The createWaitingEntry function is no longer needed as we use redisMatchmakingService
 
 // Debug endpoint to check waiting players
 const debugWaitingPlayersHandler = async (req: any, res: any) => {
@@ -4547,6 +4448,6 @@ module.exports = {
   walletBalanceSSEHandler,
   verifyPaymentTransaction,
 
-  findAndClaimWaitingPlayer,
+  // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,
 }; 
