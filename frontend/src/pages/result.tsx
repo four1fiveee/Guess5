@@ -74,11 +74,17 @@ const Result: React.FC = () => {
                 won: matchData.winner === publicKey?.toString(),
                 isTie: matchData.winner === 'tie',
                 isWinningTie: matchData.payout?.isWinningTie,
-                refundAmount: matchData.payout?.refundAmount
+                refundAmount: matchData.payout?.refundAmount,
+                calculatedIsTie: matchData.winner === 'tie'
               });
               
               setPayoutData(payoutData);
-              console.log('✅ Payout data created from backend data:', payoutData);
+              console.log('✅ Payout data created from backend data:', {
+                ...payoutData,
+                isTie: payoutData.isTie,
+                isWinningTie: payoutData.isWinningTie,
+                refundAmount: payoutData.refundAmount
+              });
               setLoading(false);
               return;
             } else {
@@ -132,6 +138,18 @@ const Result: React.FC = () => {
 
     loadPayoutData();
   }, [publicKey, router]);
+
+  // Debug logging for payout data
+  useEffect(() => {
+    if (payoutData) {
+      console.log('🎯 Payout data in render:', {
+        won: payoutData.won,
+        isTie: payoutData.isTie,
+        isWinningTie: payoutData.isWinningTie,
+        refundAmount: payoutData.refundAmount
+      });
+    }
+  }, [payoutData]);
 
   const handlePlayAgain = () => {
     // Clear stored data
@@ -250,16 +268,16 @@ const Result: React.FC = () => {
                     <div className="text-green-600 text-lg font-semibold mb-2">
                       ✅ Automated Payout Completed
                     </div>
-                    {payoutData.won ? (
-                      <div className="text-green-700">
-                        <p>You won {payoutData.winnerAmount?.toFixed(4)} SOL!</p>
-                        <p className="text-sm text-green-600 mt-1">
-                          Payment has been sent to your wallet automatically by the fee wallet.
-                        </p>
-                      </div>
-                    ) : payoutData.isTie ? (
-                      <div className="text-yellow-700">
-                        {payoutData.isWinningTie ? (
+                                         {payoutData.won ? (
+                       <div className="text-green-700">
+                         <p>You won {payoutData.winnerAmount?.toFixed(4)} SOL!</p>
+                         <p className="text-sm text-green-600 mt-1">
+                           Payment has been sent to your wallet automatically by the fee wallet.
+                         </p>
+                       </div>
+                     ) : payoutData.isTie ? (
+                       <div className="text-yellow-700">
+                         {payoutData.isWinningTie ? (
                           // Winning tie: Both solved with same moves AND same time (within 1ms tolerance)
                           <>
                             <p className="font-semibold text-green-600">Winning Tie - Perfect Match!</p>
