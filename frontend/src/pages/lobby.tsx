@@ -168,6 +168,15 @@ export default function Lobby() {
       <TopRightWallet />
       <div className="flex flex-col items-center">
         <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-8" />
+        
+        {/* Back to Home Button */}
+        <button
+          onClick={() => router.push('/')}
+          className="mb-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors text-sm"
+        >
+          ← Back to Home
+        </button>
+        
         <WalletConnectButton />
         
         {!publicKey ? (

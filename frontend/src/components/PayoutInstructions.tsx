@@ -278,6 +278,35 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
             </div>
           )}
 
+                {/* Show automated payout message if enabled */}
+      {automatedPayout && (
+        <div className="bg-green-50 border border-green-200 rounded-lg p-4 mb-4">
+          <div className="text-center">
+            <div className="text-green-600 text-lg font-semibold mb-2">
+              ✅ Automated Payout Completed
+            </div>
+            <p className="text-green-700 text-sm">
+              All payments have been processed automatically by the fee wallet.
+            </p>
+            {payoutSignature && (
+              <div className="mt-3">
+                <a 
+                  href={`https://explorer.solana.com/tx/${payoutSignature}?cluster=devnet`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-600 hover:text-blue-800 text-sm underline"
+                >
+                  View Transaction on Explorer
+                </a>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Only show manual instructions if automated payout is disabled */}
+      {!automatedPayout && (
+        <>
           {/* Instructions */}
           <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-4">
             <h3 className="font-semibold text-gray-700 mb-2">📝 How to Complete Payments</h3>
@@ -298,6 +327,8 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
               The game results are final once both players have submitted their results.
             </p>
           </div>
+        </>
+      )}
         </>
       )}
     </div>

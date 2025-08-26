@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
-import PayoutInstructions from '../components/PayoutInstructions';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
@@ -224,66 +223,51 @@ const Result: React.FC = () => {
                 </div>
               </div>
               
-              {/* Payout Information */}
+              {/* Payout Information - Always Automated */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
                 
-                {payoutData.automatedPayout ? (
-                  // Automated payout - show simple status
-                  <div className="bg-green-50 border border-green-200 rounded-lg p-4">
-                    <div className="text-center">
-                      <div className="text-green-600 text-lg font-semibold mb-2">
-                        ✅ Automated Payout Completed
-                      </div>
-                      {payoutData.won ? (
-                        <div className="text-green-700">
-                          <p>You won {payoutData.winnerAmount?.toFixed(4)} SOL!</p>
-                          <p className="text-sm text-green-600 mt-1">
-                            Payment has been sent to your wallet automatically.
-                          </p>
-                        </div>
-                      ) : payoutData.isTie ? (
-                        <div className="text-yellow-700">
-                          <p>It's a tie! Each player gets their entry fee back.</p>
-                          <p className="text-sm text-yellow-600 mt-1">
-                            Refund has been processed automatically.
-                          </p>
-                        </div>
-                      ) : (
-                        <div className="text-gray-700">
-                          <p>Better luck next time!</p>
-                          <p className="text-sm text-gray-600 mt-1">
-                            The winner has been paid automatically.
-                          </p>
-                        </div>
-                      )}
-                      {payoutData.payoutSignature && (
-                        <div className="mt-3">
-                          <a 
-                            href={`https://explorer.solana.com/tx/${payoutData.payoutSignature}?cluster=devnet`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-blue-600 hover:text-blue-800 text-sm underline"
-                          >
-                            View Transaction on Explorer
-                          </a>
-                        </div>
-                      )}
+                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                  <div className="text-center">
+                    <div className="text-green-600 text-lg font-semibold mb-2">
+                      ✅ Automated Payout Completed
                     </div>
+                    {payoutData.won ? (
+                      <div className="text-green-700">
+                        <p>You won {payoutData.winnerAmount?.toFixed(4)} SOL!</p>
+                        <p className="text-sm text-green-600 mt-1">
+                          Payment has been sent to your wallet automatically by the fee wallet.
+                        </p>
+                      </div>
+                    ) : payoutData.isTie ? (
+                      <div className="text-yellow-700">
+                        <p>It's a tie! Each player gets their entry fee back.</p>
+                        <p className="text-sm text-yellow-600 mt-1">
+                          Refund has been processed automatically by the fee wallet.
+                        </p>
+                      </div>
+                    ) : (
+                      <div className="text-gray-700">
+                        <p>Better luck next time!</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          The winner has been paid automatically by the fee wallet.
+                        </p>
+                      </div>
+                    )}
+                    {payoutData.payoutSignature && (
+                      <div className="mt-3">
+                        <a 
+                          href={`https://explorer.solana.com/tx/${payoutData.payoutSignature}?cluster=devnet`}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:text-blue-800 text-sm underline"
+                        >
+                          View Transaction on Explorer
+                        </a>
+                      </div>
+                    )}
                   </div>
-                ) : (
-                  // Manual payout - show PayoutInstructions
-                  <PayoutInstructions 
-                    winner={payoutData.winner}
-                    winnerAmount={payoutData.winnerAmount || 0}
-                    feeAmount={payoutData.feeAmount || 0}
-                    feeWallet={payoutData.feeWallet || ''}
-                    transactions={payoutData.transactions || []}
-                    playerWallet={playerWallet}
-                    automatedPayout={payoutData.automatedPayout}
-                    payoutSignature={payoutData.payoutSignature}
-                  />
-                )}
+                </div>
               </div>
               
               {/* Action Buttons */}
