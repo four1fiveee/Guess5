@@ -248,7 +248,7 @@ const Result: React.FC = () => {
                           <>
                             <p className="font-semibold text-green-600">Winning Tie - Perfect Match!</p>
                             <p className="text-sm text-yellow-600 mt-1">
-                              Both players solved the puzzle with the same moves and time! You get a full refund of {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
+                              Both players solved the puzzle with the same moves and time! You get a full refund of your entry fee: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
                             </p>
                             <p className="text-sm text-yellow-500 mt-1">
                               Full refund processed automatically by the fee wallet.
@@ -259,7 +259,7 @@ const Result: React.FC = () => {
                           <>
                             <p className="font-semibold text-yellow-600">Losing Tie - Both Players Failed</p>
                             <p className="text-sm text-yellow-600 mt-1">
-                              Neither player solved the puzzle. You get a 95% refund of {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
+                              Neither player solved the puzzle. You get a 95% refund of your entry fee: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
                             </p>
                             <p className="text-sm text-yellow-500 mt-1">
                               Refund processed automatically by the fee wallet.
@@ -274,7 +274,7 @@ const Result: React.FC = () => {
                           <>
                             <p className="font-semibold text-yellow-600">Losing Tie - Both Players Failed</p>
                             <p className="text-sm text-gray-600 mt-1">
-                              Neither player solved the puzzle. You get a 95% refund of {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
+                              Neither player solved the puzzle. You get a 95% refund of your entry fee: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
                             </p>
                             <p className="text-sm text-gray-500 mt-1">
                               Refund processed automatically by the fee wallet.
