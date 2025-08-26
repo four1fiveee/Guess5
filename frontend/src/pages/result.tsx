@@ -57,12 +57,12 @@ const Result: React.FC = () => {
                 timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
                 opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
                 opponentGuesses: opponentResult?.numGuesses || 0,
-                winnerAmount: matchData.payout?.paymentInstructions?.winnerAmount || 0,
-                feeAmount: matchData.payout?.paymentInstructions?.feeAmount || 0,
-                feeWallet: matchData.payout?.paymentInstructions?.feeWallet || '',
-                transactions: matchData.payout?.paymentInstructions?.transactions || [],
-                automatedPayout: matchData.payout?.automatedPayout || false,
-                payoutSignature: matchData.payout?.payoutSignature || null
+                winnerAmount: matchData.payout?.winnerAmount || 0,
+                feeAmount: matchData.payout?.feeAmount || 0,
+                feeWallet: matchData.payout?.feeWallet || '',
+                transactions: matchData.payout?.transactions || [],
+                automatedPayout: matchData.payout?.paymentSuccess || false,
+                payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
               };
               
               console.log('🔍 Debug payout data creation:', {

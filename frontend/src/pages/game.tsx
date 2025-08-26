@@ -134,12 +134,12 @@ const Game: React.FC = () => {
           timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
           opponentTimeElapsed: 'N/A', // This will be updated when opponent finishes
           opponentGuesses: 0, // This will be updated when opponent finishes
-          winnerAmount: data.payout.winnerAmount || 0,
-          feeAmount: data.payout.feeAmount || 0,
-          feeWallet: data.payout.feeWallet || '',
-          transactions: data.payout.transactions || [],
-          automatedPayout: data.payout.automatedPayout || false,
-          payoutSignature: data.payout.payoutSignature || null
+          winnerAmount: data.payout?.winnerAmount || 0,
+          feeAmount: data.payout?.feeAmount || 0,
+          feeWallet: data.payout?.feeWallet || '',
+          transactions: data.payout?.transactions || [],
+          automatedPayout: data.payout?.paymentSuccess || false,
+          payoutSignature: data.payout?.transactions?.[0]?.signature || null
         };
         
         // Store payout data in localStorage
@@ -180,12 +180,12 @@ const Game: React.FC = () => {
                   timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
                   opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
                   opponentGuesses: opponentResult?.numGuesses || 0,
-                  winnerAmount: matchData.payout.winnerAmount || 0,
-                  feeAmount: matchData.payout.feeAmount || 0,
-                  feeWallet: matchData.payout.feeWallet || '',
-                  transactions: matchData.payout.transactions || [],
-                  automatedPayout: matchData.payout.automatedPayout || false,
-                  payoutSignature: matchData.payout.payoutSignature || null
+                  winnerAmount: matchData.payout?.winnerAmount || 0,
+                  feeAmount: matchData.payout?.feeAmount || 0,
+                  feeWallet: matchData.payout?.feeWallet || '',
+                  transactions: matchData.payout?.transactions || [],
+                  automatedPayout: matchData.payout?.paymentSuccess || false,
+                  payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
                 };
                 
                 localStorage.setItem('payoutData', JSON.stringify(payoutData));
@@ -306,12 +306,12 @@ const Game: React.FC = () => {
                   timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
                   opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
                   opponentGuesses: opponentResult?.numGuesses || 0,
-                  winnerAmount: matchData.payout.paymentInstructions?.winnerAmount || 0,
-                  feeAmount: matchData.payout.paymentInstructions?.feeAmount || 0,
-                  feeWallet: matchData.payout.paymentInstructions?.feeWallet || '',
-                  transactions: matchData.payout.paymentInstructions?.transactions || [],
-                  automatedPayout: matchData.payout.automatedPayout || false,
-                  payoutSignature: matchData.payout.payoutSignature || null
+                                      winnerAmount: matchData.payout?.winnerAmount || 0,
+                  feeAmount: matchData.payout?.feeAmount || 0,
+                  feeWallet: matchData.payout?.feeWallet || '',
+                  transactions: matchData.payout?.transactions || [],
+                  automatedPayout: matchData.payout?.paymentSuccess || false,
+                  payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
                 };
                 
                 // Store payout data in localStorage

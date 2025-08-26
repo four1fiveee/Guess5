@@ -111,9 +111,9 @@ export const payout = async (matchData: {
     console.log('Loser:', matchData.loser);
     console.log('Entry fee:', matchData.entryFee, 'SOL');
 
-    const entryFeeLamports = matchData.entryFee * LAMPORTS_PER_SOL;
-    const winnerAmount = entryFeeLamports * 0.95; // 95% to winner
-    const feeAmount = entryFeeLamports * 0.05; // 5% fee
+    const totalPotLamports = matchData.entryFee * 2 * LAMPORTS_PER_SOL; // Total pot is both players' entry fees
+    const winnerAmount = totalPotLamports * 0.95; // 95% of total pot to winner
+    const feeAmount = totalPotLamports * 0.05; // 5% fee from total pot
 
     console.log('💰 Payout breakdown:');
     console.log('  - Winner gets:', winnerAmount / LAMPORTS_PER_SOL, 'SOL');

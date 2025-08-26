@@ -1105,8 +1105,9 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     const winnerWallet = winner;
     const loserWallet = winner === match.player1 ? match.player2 : match.player1;
     const entryFee = match.entryFee;
-    const winnerAmount = entryFee * 0.95; // 95% of pot
-    const feeAmount = entryFee * 0.05; // 5% fee
+    const totalPot = entryFee * 2; // Total pot is both players' entry fees
+    const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
+    const feeAmount = totalPot * 0.05; // 5% fee from total pot
 
     payoutResult = {
       winner: winnerWallet,
@@ -1115,16 +1116,10 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       feeWallet: FEE_WALLET_ADDRESS,
       transactions: [
         {
-          from: loserWallet,
+          from: FEE_WALLET_ADDRESS,
           to: winnerWallet,
           amount: winnerAmount,
-          description: 'Winner payout'
-        },
-        {
-          from: loserWallet,
-          to: FEE_WALLET_ADDRESS,
-          amount: feeAmount,
-          description: 'Platform fee'
+          description: 'Winner payout (95% of total pot)'
         }
       ]
     };
@@ -1135,8 +1130,8 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     const isWinningTie = player1Result && player2Result && player1Result.won && player2Result.won;
     
     if (isWinningTie) {
-      // Winning tie: Both solved same moves + same time - no payments
-      console.log('🤝 Winning tie: Both solved same moves + same time - no payments');
+      // Winning tie: Both solved same moves + same time - FULL REFUND to both players
+      console.log('🤝 Winning tie: Both solved same moves + same time - FULL REFUND to both players');
       payoutResult = {
         winner: 'tie',
         winnerAmount: 0,
@@ -1144,22 +1139,22 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
         feeWallet: FEE_WALLET_ADDRESS,
         transactions: [
           {
-            from: match.player1,
+            from: FEE_WALLET_ADDRESS,
             to: match.player1,
             amount: match.entryFee,
-            description: 'Winning tie refund'
+            description: 'Winning tie refund (player 1)'
           },
           {
-            from: match.player2,
+            from: FEE_WALLET_ADDRESS,
             to: match.player2,
             amount: match.entryFee,
-            description: 'Winning tie refund'
+            description: 'Winning tie refund (player 2)'
           }
         ]
       };
     } else {
-      // Losing tie: Both failed to solve - fee wallet keeps 5% from each player
-      console.log('🤝 Losing tie: Both failed to solve - fee wallet keeps 5% from each player');
+      // Losing tie: Both failed to solve - 5% fee kept, 95% refunded to both players
+      console.log('🤝 Losing tie: Both failed to solve - 5% fee kept, 95% refunded to both players');
       const feeAmount = match.entryFee * 0.05;
       const refundAmount = match.entryFee * 0.95; // 95% refund to each player
       
@@ -1429,8 +1424,9 @@ const submitResultHandler = async (req: any, res: any) => {
           const entryFee = updatedMatch.entryFee;
           
           // Calculate payment amounts
-          const winnerAmount = entryFee * 0.95; // 95% to winner
-          const feeAmount = entryFee * 0.05; // 5% fee
+          const totalPot = entryFee * 2; // Total pot is both players' entry fees
+          const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
+          const feeAmount = totalPot * 0.05; // 5% fee from total pot
           
           // Try to execute automated payout if private key is available
           try {
@@ -1683,8 +1679,9 @@ const submitResultHandler = async (req: any, res: any) => {
           const entryFee = updatedMatch.entryFee;
           
           // Calculate payment amounts
-          const winnerAmount = entryFee * 0.95; // 95% to winner
-          const feeAmount = entryFee * 0.05; // 5% fee
+          const totalPot = entryFee * 2; // Total pot is both players' entry fees
+          const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
+          const feeAmount = totalPot * 0.05; // 5% fee from total pot
           
           // Try to execute automated payout if private key is available
           try {
