@@ -71,7 +71,10 @@ const Result: React.FC = () => {
                 opponentResult,
                 matchDataWinner: matchData.winner,
                 playerWallet: publicKey?.toString(),
-                won: matchData.winner === publicKey?.toString()
+                won: matchData.winner === publicKey?.toString(),
+                isTie: matchData.winner === 'tie',
+                isWinningTie: matchData.payout?.isWinningTie,
+                refundAmount: matchData.payout?.refundAmount
               });
               
               setPayoutData(payoutData);
@@ -94,8 +97,21 @@ const Result: React.FC = () => {
       if (storedPayoutData) {
         try {
           const data = JSON.parse(storedPayoutData);
+          
+          // Ensure isWinningTie flag exists (fallback for old localStorage data)
+          if (data.isTie && data.isWinningTie === undefined) {
+            // If it's a tie but isWinningTie is missing, assume losing tie (more common)
+            data.isWinningTie = false;
+            console.log('🔧 Fixed missing isWinningTie flag in localStorage data - assuming losing tie');
+          }
+          
           setPayoutData(data);
-          console.log('💰 Payout data loaded from localStorage (fallback):', data);
+          console.log('💰 Payout data loaded from localStorage (fallback):', {
+            ...data,
+            isTie: data.isTie,
+            isWinningTie: data.isWinningTie,
+            refundAmount: data.refundAmount
+          });
           setLoading(false);
           return;
         } catch (error) {
@@ -269,26 +285,11 @@ const Result: React.FC = () => {
                       </div>
                     ) : (
                       <div className="text-gray-700">
-                        {payoutData.numGuesses === 7 && payoutData.opponentGuesses === 7 ? (
-                          // Both players failed to solve - losing tie
-                          <>
-                            <p className="font-semibold text-yellow-600">Losing Tie - Both Players Failed</p>
-                            <p className="text-sm text-gray-600 mt-1">
-                              Neither player solved the puzzle. You get a 95% refund of your entry fee: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
-                            </p>
-                            <p className="text-sm text-gray-500 mt-1">
-                              Refund processed automatically by the fee wallet.
-                            </p>
-                          </>
-                        ) : (
-                          // Regular loss
-                          <>
-                            <p>Better luck next time!</p>
-                            <p className="text-sm text-gray-600 mt-1">
-                              The winner has been paid automatically by the fee wallet.
-                            </p>
-                          </>
-                        )}
+                        {/* Regular loss */}
+                        <p>Better luck next time!</p>
+                        <p className="text-sm text-gray-600 mt-1">
+                          The winner has been paid automatically by the fee wallet.
+                        </p>
                       </div>
                     )}
                     {payoutData.payoutSignature && (
