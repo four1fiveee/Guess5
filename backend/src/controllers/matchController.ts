@@ -412,10 +412,13 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     }
     
     // Check if this player is already waiting and has been matched
+    console.log(`🔍 Checking if player ${wallet} is already waiting and matched...`);
     const waitingMatch = await checkWaitingPlayerMatch(wallet);
     if (waitingMatch) {
+      console.log(`✅ Player ${wallet} was already waiting and matched:`, waitingMatch);
       return waitingMatch;
     }
+    console.log(`⏳ Player ${wallet} is not already matched, proceeding with new matchmaking...`);
     
     // REDIS ATOMIC MATCHMAKING: Use Redis service for high-scale operations
     console.log(`🎯 REDIS: Attempting to add player to queue: ${wallet}`);
@@ -486,6 +489,8 @@ const checkWaitingPlayerMatch = async (wallet: string) => {
     
     // Check Redis for match
     const matchData = await redisMatchmakingService.getPlayerMatch(wallet);
+    console.log(`🔍 Redis match data for ${wallet}:`, matchData);
+    
     if (matchData) {
       console.log(`✅ Waiting player ${wallet} has been matched: ${matchData.matchId}`);
       
