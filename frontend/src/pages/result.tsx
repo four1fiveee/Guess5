@@ -48,9 +48,9 @@ const Result: React.FC = () => {
               
               // Create payout data from match data
               const payoutData = {
-                won: matchData.winner === publicKey?.toString() || matchData.payout?.winner === publicKey?.toString(),
-                isTie: matchData.winner === 'tie' || matchData.payout?.winner === 'tie',
-                winner: matchData.winner || matchData.payout?.winner,
+                won: matchData.payout?.winner === publicKey?.toString(),
+                isTie: matchData.payout?.winner === 'tie',
+                winner: matchData.payout?.winner || matchData.winner,
                 numGuesses: playerResult?.numGuesses || 0,
                 entryFee: matchData.entryFee || 0.1104,
                 timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
@@ -70,12 +70,13 @@ const Result: React.FC = () => {
                 playerResult,
                 opponentResult,
                 matchDataWinner: matchData.winner,
+                payoutWinner: matchData.payout?.winner,
                 playerWallet: publicKey?.toString(),
-                won: matchData.winner === publicKey?.toString(),
-                isTie: matchData.winner === 'tie',
+                won: matchData.payout?.winner === publicKey?.toString(),
+                isTie: matchData.payout?.winner === 'tie',
                 isWinningTie: matchData.payout?.isWinningTie,
                 refundAmount: matchData.payout?.refundAmount,
-                calculatedIsTie: matchData.winner === 'tie'
+                calculatedIsTie: matchData.payout?.winner === 'tie'
               });
               
               setPayoutData(payoutData);

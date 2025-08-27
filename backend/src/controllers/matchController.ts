@@ -411,15 +411,6 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       return existingMatch;
     }
     
-    // Check if this player is already waiting and has been matched
-    console.log(`🔍 Checking if player ${wallet} is already waiting and matched...`);
-    const waitingMatch = await checkWaitingPlayerMatch(wallet);
-    if (waitingMatch) {
-      console.log(`✅ Player ${wallet} was already waiting and matched:`, waitingMatch);
-      return waitingMatch;
-    }
-    console.log(`⏳ Player ${wallet} is not already matched, proceeding with new matchmaking...`);
-    
     // REDIS ATOMIC MATCHMAKING: Use Redis service for high-scale operations
     console.log(`🎯 REDIS: Attempting to add player to queue: ${wallet}`);
     const redisResult = await redisMatchmakingService.addPlayerToQueue(wallet, entryFee);
@@ -458,9 +449,17 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     } else if (redisResult.status === 'waiting') {
       console.log(`⏳ REDIS: Player added to waiting queue: ${wallet}`);
       
-      // For waiting players, we don't create a database record yet
-      // The database record will be created when the match is actually formed
-      console.log(`⏳ Waiting player ${wallet} - no database record created yet`);
+      // Create database record for waiting player
+      const newMatch = new Match();
+      newMatch.player1 = wallet;
+      newMatch.player2 = null;
+      newMatch.entryFee = entryFee;
+      newMatch.status = 'waiting';
+      newMatch.createdAt = new Date();
+      newMatch.updatedAt = new Date();
+      
+      await matchRepository.save(newMatch);
+      console.log(`✅ Database record created for waiting player: ${wallet}`);
       
       return {
         status: 'waiting',
@@ -479,57 +478,6 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       await deleteMatchmakingLock(lockKey);
     }
     throw error;
-  }
-};
-
-// Helper function to check if a waiting player has been matched
-const checkWaitingPlayerMatch = async (wallet: string) => {
-  try {
-    console.log(`🔍 Checking if waiting player ${wallet} has been matched`);
-    
-    // Check Redis for match
-    const matchData = await redisMatchmakingService.getPlayerMatch(wallet);
-    console.log(`🔍 Redis match data for ${wallet}:`, matchData);
-    
-    if (matchData) {
-      console.log(`✅ Waiting player ${wallet} has been matched: ${matchData.matchId}`);
-      
-      // Get database repository
-      const { AppDataSource } = require('../db/index');
-      const matchRepository = AppDataSource.getRepository(Match);
-      
-      // Check if match already exists in database
-      let existingMatch = await matchRepository.findOne({ where: { id: matchData.matchId } });
-      if (!existingMatch) {
-        // Create database record for the match
-        const newMatch = new Match();
-        newMatch.id = matchData.matchId;
-        newMatch.player1 = matchData.player1;
-        newMatch.player2 = matchData.player2;
-        newMatch.entryFee = matchData.entryFee;
-        newMatch.status = 'payment_required';
-        newMatch.word = getRandomWord();
-        newMatch.createdAt = new Date(matchData.createdAt);
-        newMatch.updatedAt = new Date();
-        
-        await matchRepository.save(newMatch);
-        console.log(`✅ Database record created for matched waiting player: ${matchData.matchId}`);
-      }
-      
-      return {
-        status: 'matched',
-        matchId: matchData.matchId,
-        player1: matchData.player1,
-        player2: matchData.player2,
-        entryFee: matchData.entryFee,
-        message: 'Match created - both players must pay entry fee to start game'
-      };
-    }
-    
-    return null;
-  } catch (error: unknown) {
-    console.error('❌ Error checking waiting player match:', error);
-    return null;
   }
 };
 
@@ -4473,32 +4421,6 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
   }
 };
 
-// Handler to check if a waiting player has been matched
-const checkWaitingPlayerMatchHandler = async (req: any, res: any) => {
-  try {
-    const { wallet } = req.params;
-    
-    if (!wallet) {
-      return res.status(400).json({ error: 'Wallet address required' });
-    }
-    
-    console.log(`🔍 Checking if waiting player ${wallet} has been matched`);
-    
-    const matchResult = await checkWaitingPlayerMatch(wallet);
-    if (matchResult) {
-      console.log(`✅ Waiting player ${wallet} has been matched:`, matchResult);
-      res.json(matchResult);
-    } else {
-      console.log(`⏳ Waiting player ${wallet} still waiting`);
-      res.json({ status: 'waiting', message: 'Still waiting for opponent' });
-    }
-    
-  } catch (error: unknown) {
-    console.error('❌ Error checking waiting player match:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -4529,7 +4451,6 @@ module.exports = {
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,
-  checkWaitingPlayerMatchHandler,
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,

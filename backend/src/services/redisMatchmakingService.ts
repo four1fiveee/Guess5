@@ -45,8 +45,6 @@ export class RedisMatchmakingService {
         throw new Error('Redis client not initialized');
       }
 
-      enhancedLogger.info(`🎯 REDIS: Adding player ${wallet} to queue with entry fee ${entryFee}`);
-
       const waitingKey = `waiting:${entryFee}`;
       const playerData: WaitingPlayer = {
         wallet,
@@ -56,7 +54,6 @@ export class RedisMatchmakingService {
 
       // Check if there's already a waiting player with the same entry fee
       const waitingPlayers = await this.redis.hGetAll(waitingKey);
-      enhancedLogger.info(`🔍 REDIS: Found ${Object.keys(waitingPlayers).length} waiting players for entry fee ${entryFee}`);
       
       if (Object.keys(waitingPlayers).length === 0) {
         // No waiting players, add this player to the queue
@@ -67,23 +64,16 @@ export class RedisMatchmakingService {
         return { status: 'waiting', waitingCount: 1 };
       } else {
         // Find a compatible player
-        enhancedLogger.info(`🔍 REDIS: Checking ${Object.keys(waitingPlayers).length} waiting players for compatibility`);
-        
         for (const [waitingWallet, playerJson] of Object.entries(waitingPlayers)) {
-          enhancedLogger.info(`🔍 REDIS: Checking waiting player ${waitingWallet} against new player ${wallet}`);
-          
           if (waitingWallet === wallet) {
             // Player is already in queue
-            enhancedLogger.info(`⚠️ REDIS: Player ${wallet} is already in queue`);
             return { status: 'waiting', waitingCount: Object.keys(waitingPlayers).length };
           }
 
           const waitingPlayer: WaitingPlayer = JSON.parse(playerJson as string);
-          enhancedLogger.info(`🔍 REDIS: Waiting player data:`, waitingPlayer);
           
           // Check if players are compatible (same entry fee, different wallets)
           if (waitingPlayer.entryFee === entryFee && waitingPlayer.wallet !== wallet) {
-            enhancedLogger.info(`✅ REDIS: Found compatible player! Creating match between ${waitingPlayer.wallet} and ${wallet}`);
             // Create a match
             const matchId = `match:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
             const matchData: MatchData = {
@@ -135,27 +125,17 @@ export class RedisMatchmakingService {
         throw new Error('Redis client not initialized');
       }
 
-      enhancedLogger.info(`🔍 REDIS: Finding match for player ${wallet}`);
-      
-      const playerMatchId = await this.redis.hGet(`player:${wallet}`, 'matchId');
-      enhancedLogger.info(`🔍 REDIS: Player ${wallet} match ID:`, playerMatchId);
-      
-      if (!playerMatchId) {
-        enhancedLogger.info(`❌ REDIS: No match ID found for player ${wallet}`);
-        return null;
-      }
+             const playerMatchId = await this.redis.hGet(`player:${wallet}`, 'matchId');
+       if (!playerMatchId) {
+         return null;
+       }
 
-      const matchDataJson = await this.redis.hGet(`match:${playerMatchId as string}`, 'data');
-      enhancedLogger.info(`🔍 REDIS: Match data JSON for ${playerMatchId}:`, matchDataJson ? 'found' : 'not found');
-      
+       const matchDataJson = await this.redis.hGet(`match:${playerMatchId as string}`, 'data');
       if (!matchDataJson) {
-        enhancedLogger.info(`❌ REDIS: No match data found for match ID ${playerMatchId}`);
         return null;
       }
 
-      const matchData = JSON.parse(matchDataJson) as MatchData;
-      enhancedLogger.info(`✅ REDIS: Found match data for player ${wallet}:`, matchData);
-      return matchData;
+      return JSON.parse(matchDataJson) as MatchData;
     } catch (error: unknown) {
       enhancedLogger.error('❌ Error finding match:', error);
       return null;
