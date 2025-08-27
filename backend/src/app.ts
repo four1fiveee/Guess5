@@ -18,6 +18,8 @@ console.log('CORS allowed origin:', allowedOrigin);
 
 // Define allowed origins based on environment
 const allowedOrigins = [
+  'https://guess5.io',
+  'https://www.guess5.io',
   'https://guess5.vercel.app',
   'https://guess5.onrender.com',
   'http://localhost:3000',
@@ -52,7 +54,7 @@ app.use((req: any, res: any, next: any) => {
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "font-src 'self' https://fonts.gstatic.com; " +
       "img-src 'self' data: https:; " +
-      "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com https://guess5.vercel.app https://guess5.onrender.com https://guess5-backend.onrender.com https://*.onrender.com; " +
+      "connect-src 'self' https://api.devnet.solana.com https://api.mainnet-beta.solana.com https://guess5.io https://www.guess5.io https://guess5.vercel.app https://guess5.onrender.com https://guess5-backend.onrender.com https://*.onrender.com; " +
       "frame-src 'self' https://www.google.com;";
   
   res.setHeader('Content-Security-Policy', cspDirective);
