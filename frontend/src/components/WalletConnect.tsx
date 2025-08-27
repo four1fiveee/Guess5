@@ -59,7 +59,7 @@ export const WalletConnectButton: React.FC = () => {
 
       try {
         console.log('Executing reCAPTCHA...');
-        const token = await window.grecaptcha.enterprise.execute('6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', { action: 'connect_wallet' });
+        const token = await window.grecaptcha.enterprise.execute(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', { action: 'connect_wallet' });
         console.log('reCAPTCHA token received:', token ? 'Success' : 'Failed');
         
         if (token) {
@@ -168,7 +168,7 @@ export const TopRightWallet: React.FC = () => {
       }
 
       try {
-        const token = await window.grecaptcha.enterprise.execute('6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', { action: 'connect_wallet' });
+        const token = await window.grecaptcha.enterprise.execute(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', { action: 'connect_wallet' });
         
         if (token) {
           setVisible(true);

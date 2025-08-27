@@ -25,7 +25,7 @@ const getReCaptchaToken = async (action: string): Promise<string | null> => {
 
     console.log('🔄 Calling grecaptcha.enterprise.execute...');
     const token = await window.grecaptcha.enterprise.execute(
-      '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', 
+      process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', 
       { action }
     );
     

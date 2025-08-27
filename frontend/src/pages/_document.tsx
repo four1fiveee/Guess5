@@ -5,7 +5,7 @@ export default function Document() {
     <Html lang="en">
       <Head>
         <script 
-          src="https://www.google.com/recaptcha/enterprise.js?render=6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI"
+          src={`https://www.google.com/recaptcha/enterprise.js?render=${process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI'}`}
           async
           defer
         />

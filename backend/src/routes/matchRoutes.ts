@@ -25,8 +25,7 @@ router.post('/request-match',
 router.post('/submit-result', 
   // Removed rate limiting for result submission - ReCaptcha provides sufficient protection
   validateResult, 
-  // Temporarily disabled ReCaptcha to allow game completion
-  // validateReCaptcha,
+  validateReCaptcha,
   asyncHandlerWrapper(matchController.submitResultHandler)
 );
 
