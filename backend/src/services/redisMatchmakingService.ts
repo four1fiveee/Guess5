@@ -1,5 +1,6 @@
 import { getRedisMM } from '../config/redis';
 import { enhancedLogger } from '../utils/enhancedLogger';
+import { v4 as uuidv4 } from 'uuid';
 
 interface WaitingPlayer {
   wallet: string;
@@ -105,8 +106,8 @@ export class RedisMatchmakingService {
           
           // Check if players are compatible (same entry fee, different wallets)
           if (waitingPlayer.entryFee === entryFee && waitingPlayer.wallet !== wallet) {
-            // Create a match
-            const matchId = `match:${Date.now()}:${Math.random().toString(36).substr(2, 9)}`;
+            // Create a match with proper UUID
+            const matchId = uuidv4();
             const matchData: MatchData = {
               matchId,
               player1: waitingPlayer.wallet,
