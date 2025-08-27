@@ -3999,7 +3999,7 @@ const generateReportHandler = async (req: any, res: any) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get all matches with updated schema fields
+    // Get all matches with available schema fields
     const matches = await matchRepository.query(`
       SELECT 
         id,
@@ -4053,8 +4053,7 @@ const generateReportHandler = async (req: any, res: any) => {
         "refundedAtUtc",
         "isCompleted",
         "createdAt",
-        "updatedAt",
-        "rowHash"
+        "updatedAt"
       FROM "match" 
       WHERE ${dateFilter}
       ORDER BY "createdAt" DESC
@@ -4098,21 +4097,17 @@ const generateReportHandler = async (req: any, res: any) => {
       }
     };
     
-    // Generate CSV headers - Updated with security-focused columns
+    // Generate CSV headers - Only available columns
     const csvHeaders = [
       'Match ID',
       'Player 1 Wallet',
       'Player 2 Wallet', 
       'Entry Fee (SOL)',
       'Match Status',
-      'Match Outcome',
-      'Player 1 Entry Confirmed',
-      'Player 2 Entry Confirmed',
-      'Total Fees Collected (SOL)',
-      'Platform Fee (SOL)',
-      'Match Duration (sec)',
+      'Target Word',
       'Winner',
       'Is Completed',
+      'Match Outcome',
       '🔗 TIMESTAMPS 🔗',
       'Created At (UTC)',
       'Created At (EST)',
@@ -4120,14 +4115,18 @@ const generateReportHandler = async (req: any, res: any) => {
       'Game End Time (UTC)',
       'Refunded At (UTC)',
       '🔗 ENTRY PAYMENTS 🔗',
+      'Player 1 Entry Confirmed',
       'Player 1 Entry TX',
       'Player 1 Entry Slot',
       'Player 1 Entry Block Time',
       'Player 1 Entry Finalized',
+      'Player 2 Entry Confirmed',
       'Player 2 Entry TX',
       'Player 2 Entry Slot',
       'Player 2 Entry Block Time',
       'Player 2 Entry Finalized',
+      'Player 1 Paid',
+      'Player 2 Paid',
       '🔗 PAYOUTS & REFUNDS 🔗',
       'Winner Payout TX',
       'Winner Payout Slot',
@@ -4148,20 +4147,20 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 1 Refund Explorer',
       'Player 2 Refund Explorer',
       '🔗 GAME DATA (POST-COMPLETION) 🔗',
-      'Target Word',
       'Player 1 Result (JSON)',
       'Player 2 Result (JSON)',
+      'Payout Result (JSON)',
       'Refund Reason',
+      '🔗 FINANCIAL DATA 🔗',
+      'Total Fees Collected (SOL)',
+      'Platform Fee (SOL)',
+      'Match Duration (sec)',
       '🔗 VERIFICATION 🔗',
-      'Fee Wallet Address',
-      'Row Hash (Integrity)'
+      'Fee Wallet Address'
     ];
     
-    // Generate CSV rows with security fixes
+    // Generate CSV rows with available data
     const csvRows = matches.map((match: any) => {
-      // Generate row hash for integrity
-      const rowHash = generateRowHash(match);
-      
       // Determine explorer network
       const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet';
       
@@ -4171,14 +4170,10 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.player2),
         sanitizeCsvValue(match.entryFee),
         sanitizeCsvValue(match.status),
-        sanitizeCsvValue(match.matchOutcome),
-        sanitizeCsvValue(match.player1EntryConfirmed),
-        sanitizeCsvValue(match.player2EntryConfirmed),
-        sanitizeCsvValue(match.totalFeesCollected),
-        sanitizeCsvValue(match.platformFee),
-        sanitizeCsvValue(match.matchDuration),
+        sanitizeCsvValue(match.word), // Protected if not completed
         sanitizeCsvValue(match.winner),
         sanitizeCsvValue(match.isCompleted),
+        sanitizeCsvValue(match.matchOutcome),
         '', // 🔗 TIMESTAMPS 🔗
         sanitizeCsvValue(match.createdAt),
         convertToEST(match.createdAt),
@@ -4186,14 +4181,18 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.gameEndTimeUtc),
         sanitizeCsvValue(match.refundedAtUtc),
         '', // 🔗 ENTRY PAYMENTS 🔗
+        sanitizeCsvValue(match.player1EntryConfirmed),
         sanitizeCsvValue(match.player1EntrySignature),
         sanitizeCsvValue(match.player1EntrySlot),
         sanitizeCsvValue(match.player1EntryBlockTime),
         sanitizeCsvValue(match.player1EntryFinalized),
+        sanitizeCsvValue(match.player2EntryConfirmed),
         sanitizeCsvValue(match.player2EntrySignature),
         sanitizeCsvValue(match.player2EntrySlot),
         sanitizeCsvValue(match.player2EntryBlockTime),
         sanitizeCsvValue(match.player2EntryFinalized),
+        sanitizeCsvValue(match.player1Paid),
+        sanitizeCsvValue(match.player2Paid),
         '', // 🔗 PAYOUTS & REFUNDS 🔗
         sanitizeCsvValue(match.winnerPayoutSignature),
         sanitizeCsvValue(match.winnerPayoutSlot),
@@ -4214,13 +4213,16 @@ const generateReportHandler = async (req: any, res: any) => {
         match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
         match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : '',
         '', // 🔗 GAME DATA (POST-COMPLETION) 🔗
-        sanitizeCsvValue(match.word), // Protected if not completed
-        sanitizeCsvValue(JSON.stringify(match.getPlayer1Result() || {})),
-        sanitizeCsvValue(JSON.stringify(match.getPlayer2Result() || {})),
+        sanitizeCsvValue(match.player1Result),
+        sanitizeCsvValue(match.player2Result),
+        sanitizeCsvValue(match.payoutResult),
         sanitizeCsvValue(match.refundReason),
+        '', // 🔗 FINANCIAL DATA 🔗
+        sanitizeCsvValue(match.totalFeesCollected),
+        sanitizeCsvValue(match.platformFee),
+        sanitizeCsvValue(match.matchDuration),
         '', // 🔗 VERIFICATION 🔗
-        sanitizeCsvValue(match.feeWalletAddress),
-        rowHash
+        sanitizeCsvValue(match.feeWalletAddress)
       ];
     });
     

@@ -70,7 +70,7 @@ export default function Home() {
               Download Complete Match Data (CSV)
             </a>
             <p className="text-sm text-white/70 mt-3">
-              Includes all matches from 8/16/2025 with blockchain verification links, actual fees, and complete audit trail
+              Includes all matches with blockchain verification links, game results, and complete transaction history
             </p>
           </div>
         </div>
