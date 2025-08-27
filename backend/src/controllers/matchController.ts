@@ -4097,66 +4097,42 @@ const generateReportHandler = async (req: any, res: any) => {
       }
     };
     
-    // Generate CSV headers - Only available columns
+    // Generate CSV headers - Focused on player verification
     const csvHeaders = [
       'Match ID',
       'Player 1 Wallet',
       'Player 2 Wallet', 
       'Entry Fee (SOL)',
+      'Total Pot (SOL)',
       'Match Status',
-      'Target Word',
       'Winner',
-      'Is Completed',
-      'Match Outcome',
-      '🔗 TIMESTAMPS 🔗',
-      'Created At (UTC)',
-      'Created At (EST)',
-      'Game Start Time (UTC)',
-      'Game End Time (UTC)',
-      'Refunded At (UTC)',
-      '🔗 ENTRY PAYMENTS 🔗',
-      'Player 1 Entry Confirmed',
-      'Player 1 Entry TX',
-      'Player 1 Entry Slot',
-      'Player 1 Entry Block Time',
-      'Player 1 Entry Finalized',
-      'Player 2 Entry Confirmed',
-      'Player 2 Entry TX',
-      'Player 2 Entry Slot',
-      'Player 2 Entry Block Time',
-      'Player 2 Entry Finalized',
-      'Player 1 Paid',
-      'Player 2 Paid',
-      '🔗 PAYOUTS & REFUNDS 🔗',
-      'Winner Payout TX',
-      'Winner Payout Slot',
-      'Winner Payout Block Time',
-      'Winner Payout Finalized',
-      'Player 1 Refund TX',
-      'Player 1 Refund Slot',
-      'Player 1 Refund Block Time',
-      'Player 1 Refund Finalized',
-      'Player 2 Refund TX',
-      'Player 2 Refund Slot',
-      'Player 2 Refund Block Time',
-      'Player 2 Refund Finalized',
-      '🔗 BLOCKCHAIN EXPLORER LINKS 🔗',
-      'Player 1 Entry Explorer',
-      'Player 2 Entry Explorer',
-      'Winner Payout Explorer',
-      'Player 1 Refund Explorer',
-      'Player 2 Refund Explorer',
-      '🔗 GAME DATA (POST-COMPLETION) 🔗',
-      'Player 1 Result (JSON)',
-      'Player 2 Result (JSON)',
-      'Payout Result (JSON)',
-      'Refund Reason',
-      '🔗 FINANCIAL DATA 🔗',
-      'Total Fees Collected (SOL)',
+      'Winner Amount (SOL)',
       'Platform Fee (SOL)',
-      'Match Duration (sec)',
-      '🔗 VERIFICATION 🔗',
-      'Fee Wallet Address'
+      'Game Completed',
+      'Target Word',
+      '🔗 GAME RESULTS 🔗',
+      'Player 1 Solved',
+      'Player 1 Guesses',
+      'Player 1 Time (sec)',
+      'Player 2 Solved',
+      'Player 2 Guesses',
+      'Player 2 Time (sec)',
+      '🔗 TIMESTAMPS 🔗',
+      'Match Created (EST)',
+      'Game Started (EST)',
+      'Game Ended (EST)',
+      '🔗 BLOCKCHAIN TRANSACTIONS 🔗',
+      'Player 1 Entry TX',
+      'Player 2 Entry TX',
+      'Winner Payout TX',
+      'Player 1 Refund TX',
+      'Player 2 Refund TX',
+      '🔗 EXPLORER LINKS 🔗',
+      'Player 1 Entry Link',
+      'Player 2 Entry Link',
+      'Winner Payout Link',
+      'Player 1 Refund Link',
+      'Player 2 Refund Link'
     ];
     
     // Generate CSV rows with available data
@@ -4164,65 +4140,51 @@ const generateReportHandler = async (req: any, res: any) => {
       // Determine explorer network
       const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet';
       
+      // Parse player results for meaningful data
+      const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
+      const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
+      const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
+      
+      // Calculate total pot and winner amount
+      const totalPot = match.entryFee * 2;
+      const winnerAmount = payoutResult?.winnerAmount || 0;
+      const platformFee = payoutResult?.feeAmount || 0;
+      
       return [
         sanitizeCsvValue(match.id),
         sanitizeCsvValue(match.player1),
         sanitizeCsvValue(match.player2),
         sanitizeCsvValue(match.entryFee),
+        sanitizeCsvValue(totalPot),
         sanitizeCsvValue(match.status),
-        sanitizeCsvValue(match.word), // Protected if not completed
         sanitizeCsvValue(match.winner),
-        sanitizeCsvValue(match.isCompleted),
-        sanitizeCsvValue(match.matchOutcome),
+        sanitizeCsvValue(winnerAmount),
+        sanitizeCsvValue(platformFee),
+        sanitizeCsvValue(match.isCompleted ? 'Yes' : 'No'),
+        sanitizeCsvValue(match.isCompleted ? match.word : '***PROTECTED***'),
+        '', // 🔗 GAME RESULTS 🔗
+        sanitizeCsvValue(player1Result?.won ? 'Yes' : 'No'),
+        sanitizeCsvValue(player1Result?.numGuesses || ''),
+        sanitizeCsvValue(player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
+        sanitizeCsvValue(player2Result?.won ? 'Yes' : 'No'),
+        sanitizeCsvValue(player2Result?.numGuesses || ''),
+        sanitizeCsvValue(player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
         '', // 🔗 TIMESTAMPS 🔗
-        sanitizeCsvValue(match.createdAt),
         convertToEST(match.createdAt),
-        sanitizeCsvValue(match.gameStartTimeUtc),
-        sanitizeCsvValue(match.gameEndTimeUtc),
-        sanitizeCsvValue(match.refundedAtUtc),
-        '', // 🔗 ENTRY PAYMENTS 🔗
-        sanitizeCsvValue(match.player1EntryConfirmed),
+        convertToEST(match.gameStartTimeUtc),
+        convertToEST(match.gameEndTimeUtc),
+        '', // 🔗 BLOCKCHAIN TRANSACTIONS 🔗
         sanitizeCsvValue(match.player1EntrySignature),
-        sanitizeCsvValue(match.player1EntrySlot),
-        sanitizeCsvValue(match.player1EntryBlockTime),
-        sanitizeCsvValue(match.player1EntryFinalized),
-        sanitizeCsvValue(match.player2EntryConfirmed),
         sanitizeCsvValue(match.player2EntrySignature),
-        sanitizeCsvValue(match.player2EntrySlot),
-        sanitizeCsvValue(match.player2EntryBlockTime),
-        sanitizeCsvValue(match.player2EntryFinalized),
-        sanitizeCsvValue(match.player1Paid),
-        sanitizeCsvValue(match.player2Paid),
-        '', // 🔗 PAYOUTS & REFUNDS 🔗
         sanitizeCsvValue(match.winnerPayoutSignature),
-        sanitizeCsvValue(match.winnerPayoutSlot),
-        sanitizeCsvValue(match.winnerPayoutBlockTime),
-        sanitizeCsvValue(match.winnerPayoutFinalized),
         sanitizeCsvValue(match.player1RefundSignature),
-        sanitizeCsvValue(match.player1RefundSlot),
-        sanitizeCsvValue(match.player1RefundBlockTime),
-        sanitizeCsvValue(match.player1RefundFinalized),
         sanitizeCsvValue(match.player2RefundSignature),
-        sanitizeCsvValue(match.player2RefundSlot),
-        sanitizeCsvValue(match.player2RefundBlockTime),
-        sanitizeCsvValue(match.player2RefundFinalized),
-        '', // 🔗 BLOCKCHAIN EXPLORER LINKS 🔗
+        '', // 🔗 EXPLORER LINKS 🔗
         match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
         match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
         match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${network}` : '',
         match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
-        match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : '',
-        '', // 🔗 GAME DATA (POST-COMPLETION) 🔗
-        sanitizeCsvValue(match.player1Result),
-        sanitizeCsvValue(match.player2Result),
-        sanitizeCsvValue(match.payoutResult),
-        sanitizeCsvValue(match.refundReason),
-        '', // 🔗 FINANCIAL DATA 🔗
-        sanitizeCsvValue(match.totalFeesCollected),
-        sanitizeCsvValue(match.platformFee),
-        sanitizeCsvValue(match.matchDuration),
-        '', // 🔗 VERIFICATION 🔗
-        sanitizeCsvValue(match.feeWalletAddress)
+        match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
       ];
     });
     

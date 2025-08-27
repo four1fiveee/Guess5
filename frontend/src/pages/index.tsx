@@ -70,7 +70,7 @@ export default function Home() {
               Download Complete Match Data (CSV)
             </a>
             <p className="text-sm text-white/70 mt-3">
-              Includes all matches with blockchain verification links, game results, and complete transaction history
+              Complete match data with game results, winner amounts (95% of total pot), and blockchain verification links
             </p>
           </div>
         </div>
