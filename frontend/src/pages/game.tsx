@@ -5,6 +5,7 @@ import GameGrid from '../components/GameGrid';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
+import { submitResult, getMatchStatus, getGameState, submitGuess } from '../utils/api';
 
 
 const Game: React.FC = () => {
@@ -78,25 +79,8 @@ const Game: React.FC = () => {
         try {
           console.log(`📤 Submitting result (attempt ${attempt}/${maxRetries})...`);
           
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/api/match/submit-result`, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-              matchId,
-              wallet: publicKey?.toString(),
-              result
-            })
-          });
-
-          if (!response.ok) {
-            const errorData = await response.json();
-            throw new Error(errorData.error || `HTTP ${response.status}`);
-          }
-
-          const data = await response.json();
+          // Use the proper submitResult function that handles ReCaptcha
+          const data = await submitResult(matchId, publicKey?.toString() || '', result);
           console.log('✅ Result submission successful:', data);
           
           return data;
@@ -238,7 +222,7 @@ const Game: React.FC = () => {
         signal: controller.signal
       });
       
-            clearTimeout(timeoutId);
+      clearTimeout(timeoutId);
       
       if (response.ok) {
         const data = await response.json();
@@ -559,35 +543,11 @@ const Game: React.FC = () => {
         const controller = new AbortController();
         const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout for guess submission
         
-        const response = await fetch(`${apiUrl}/api/match/submit-guess`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            matchId,
-            wallet: publicKey?.toString() || '',
-            guess
-          }),
-          signal: controller.signal
-        });
+        // Use the proper submitGuess function that handles ReCaptcha
+        const guessData = await submitGuess(matchId, publicKey?.toString() || '', guess);
 
         clearTimeout(timeoutId);
-
-        if (response.status === 429) {
-          console.warn('⚠️ Unexpected rate limit response, will retry automatically...');
-          // Wait 2 seconds before retry
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          throw new Error('Unexpected rate limit - retrying automatically...');
-        }
-        
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}));
-          throw new Error(errorData.error || 'Failed to submit guess');
-        }
-
-        const data = await response.json();
-        console.log('✅ Guess submitted successfully:', data);
+        console.log('✅ Guess submitted successfully:', guessData);
         
         // Add a small delay after successful guess to prevent rapid submissions
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -595,7 +555,7 @@ const Game: React.FC = () => {
         // Immediately fetch updated game state
         await memoizedFetchGameStateRef.current?.();
         
-        return data;
+        return guessData;
         
       } catch (error) {
         console.error(`❌ Error submitting guess (attempt ${retryCount + 1}):`, error);
