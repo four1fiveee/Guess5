@@ -4120,7 +4120,7 @@ const generateReportHandler = async (req: any, res: any) => {
     // Generate CSV rows with available data
     const csvRows = matches.map((match: any) => {
       // Determine explorer network
-      const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet';
+      const network = (process.env.SOLANA_NETWORK && process.env.SOLANA_NETWORK.includes('devnet')) ? 'devnet' : 'mainnet';
       
       // Parse player results for meaningful data
       const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
@@ -4157,12 +4157,12 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
         sanitizeCsvValue(match.status === 'completed' ? match.word : 'GAME_CANCELLED'),
         '', // 🔗 GAME RESULTS 🔗
-        sanitizeCsvValue(match.status === 'completed' ? (player1Result?.won ? 'Yes' : 'No') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player1Result?.numGuesses || '') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : '') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player2Result?.won ? 'Yes' : 'No') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player2Result?.numGuesses || '') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? ((player1Result && player1Result.won) ? 'Yes' : 'No') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player1Result && player1Result.numGuesses ? player1Result.numGuesses : '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player1Result && player1Result.totalTime ? Math.round(player1Result.totalTime / 1000) : '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? ((player2Result && player2Result.won) ? 'Yes' : 'No') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player2Result && player2Result.numGuesses ? player2Result.numGuesses : '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player2Result && player2Result.totalTime ? Math.round(player2Result.totalTime / 1000) : '') : 'N/A'),
         '', // 🔗 TIMESTAMPS 🔗
         convertToEST(match.createdAt),
         convertToEST(match.gameStartTimeUtc),
@@ -4170,13 +4170,13 @@ const generateReportHandler = async (req: any, res: any) => {
         '', // 🔗 BLOCKCHAIN TRANSACTIONS 🔗
         sanitizeCsvValue(match.player1EntrySignature),
         sanitizeCsvValue(match.player2EntrySignature),
-        sanitizeCsvValue(payoutResult?.transactions?.[0]?.signature || match.winnerPayoutSignature || ''),
+        sanitizeCsvValue((payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) || match.winnerPayoutSignature || ''),
         sanitizeCsvValue(match.player1RefundSignature),
         sanitizeCsvValue(match.player2RefundSignature),
         '', // 🔗 EXPLORER LINKS 🔗
         match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
         match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
-        (payoutResult?.transactions?.[0]?.signature || match.winnerPayoutSignature) ? `https://explorer.solana.com/tx/${payoutResult?.transactions?.[0]?.signature || match.winnerPayoutSignature}?cluster=${network}` : '',
+        ((payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) || match.winnerPayoutSignature) ? `https://explorer.solana.com/tx/${(payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) || match.winnerPayoutSignature}?cluster=${network}` : '',
         match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
         match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
       ];
