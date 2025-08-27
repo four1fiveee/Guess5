@@ -3981,7 +3981,7 @@ const generateReportHandler = async (req: any, res: any) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get all matches with available schema fields
+    // Get only FINISHED matches (completed games or cancelled games with refunds)
     const matches = await matchRepository.query(`
       SELECT 
         id,
@@ -4038,10 +4038,18 @@ const generateReportHandler = async (req: any, res: any) => {
         "updatedAt"
       FROM "match" 
       WHERE ${dateFilter}
+        AND status IN ('completed', 'cancelled')
+        AND (
+          -- Completed games must have results
+          (status = 'completed' AND "player1Result" IS NOT NULL AND "player2Result" IS NOT NULL)
+          OR 
+          -- Cancelled games must have refund signatures (indicating refunds were processed)
+          (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL))
+        )
       ORDER BY "createdAt" DESC
     `);
     
-    console.log(`📊 Found ${matches.length} matches for report`);
+    console.log(`📊 Found ${matches.length} FINISHED matches for report (completed games or cancelled games with refunds)`);
     
     // Helper function to sanitize CSV values (prevent injection)
     const sanitizeCsvValue = (value: any) => {
@@ -4079,7 +4087,7 @@ const generateReportHandler = async (req: any, res: any) => {
       }
     };
     
-    // Generate CSV headers - Focused on player verification
+    // Generate CSV headers - Only finished matches with results or refunds
     const csvHeaders = [
       'Match ID',
       'Player 1 Wallet',
@@ -4127,10 +4135,19 @@ const generateReportHandler = async (req: any, res: any) => {
       const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
       const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
       
-      // Calculate total pot and winner amount
+      // Calculate total pot and amounts based on match status
       const totalPot = match.entryFee * 2;
-      const winnerAmount = payoutResult?.winnerAmount || 0;
-      const platformFee = payoutResult?.feeAmount || 0;
+      let winnerAmount = 0;
+      let platformFee = 0;
+      
+      if (match.status === 'completed' && payoutResult) {
+        winnerAmount = payoutResult.winnerAmount || 0;
+        platformFee = payoutResult.feeAmount || 0;
+      } else if (match.status === 'cancelled') {
+        // For cancelled matches, show refund amounts
+        winnerAmount = 0; // No winner
+        platformFee = 0; // No platform fee for cancelled matches
+      }
       
       return [
         sanitizeCsvValue(match.id),
@@ -4142,15 +4159,15 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.winner),
         sanitizeCsvValue(winnerAmount),
         sanitizeCsvValue(platformFee),
-        sanitizeCsvValue(match.isCompleted ? 'Yes' : 'No'),
-        sanitizeCsvValue(match.isCompleted ? match.word : '***PROTECTED***'),
+        sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
+        sanitizeCsvValue(match.status === 'completed' ? match.word : 'GAME_CANCELLED'),
         '', // 🔗 GAME RESULTS 🔗
-        sanitizeCsvValue(player1Result?.won ? 'Yes' : 'No'),
-        sanitizeCsvValue(player1Result?.numGuesses || ''),
-        sanitizeCsvValue(player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
-        sanitizeCsvValue(player2Result?.won ? 'Yes' : 'No'),
-        sanitizeCsvValue(player2Result?.numGuesses || ''),
-        sanitizeCsvValue(player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
+        sanitizeCsvValue(match.status === 'completed' ? (player1Result?.won ? 'Yes' : 'No') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player1Result?.numGuesses || '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player2Result?.won ? 'Yes' : 'No') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player2Result?.numGuesses || '') : 'N/A'),
+        sanitizeCsvValue(match.status === 'completed' ? (player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : '') : 'N/A'),
         '', // 🔗 TIMESTAMPS 🔗
         convertToEST(match.createdAt),
         convertToEST(match.gameStartTimeUtc),
@@ -4186,7 +4203,7 @@ const generateReportHandler = async (req: any, res: any) => {
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
     res.setHeader('X-File-Hash', fileHash);
     
-    console.log(`✅ Secure report generated: ${filename} with ${matches.length} matches`);
+    console.log(`✅ Secure report generated: ${filename} with ${matches.length} finished matches (completed games or cancelled games with refunds)`);
     console.log(`🔐 File integrity hash: ${fileHash}`);
     
     res.send(csvContent);
