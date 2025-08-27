@@ -38,6 +38,25 @@ export class RedisMatchmakingService {
     }
   }
 
+  private async cleanupOldEntriesForWallet(wallet: string): Promise<void> {
+    try {
+      if (!this.redis) return;
+
+      // Remove this wallet from all waiting queues
+      const waitingKeys = await this.redis.keys('waiting:*');
+      for (const key of waitingKeys) {
+        await this.redis.hDel(key, wallet);
+        enhancedLogger.info(`🧹 Cleaned up old entry for wallet ${wallet} from queue ${key}`);
+      }
+
+      // Remove old player associations
+      await this.redis.del(`player:${wallet}`);
+      enhancedLogger.info(`🧹 Cleaned up old player association for wallet ${wallet}`);
+    } catch (error: unknown) {
+      enhancedLogger.error(`❌ Error cleaning up old entries for wallet ${wallet}:`, error);
+    }
+  }
+
   async addPlayerToQueue(wallet: string, entryFee: number): Promise<{ status: 'waiting' | 'matched'; matchId?: string; waitingCount?: number }> {
     try {
       await this.ensureInitialized();
@@ -52,6 +71,9 @@ export class RedisMatchmakingService {
         timestamp: Date.now()
       };
 
+      // Clean up any old entries for this wallet first
+      await this.cleanupOldEntriesForWallet(wallet);
+
       // Check if there's already a waiting player with the same entry fee
       const waitingPlayers = await this.redis.hGetAll(waitingKey);
       
@@ -65,12 +87,21 @@ export class RedisMatchmakingService {
       } else {
         // Find a compatible player
         for (const [waitingWallet, playerJson] of Object.entries(waitingPlayers)) {
+          // Double-check: never match with self
           if (waitingWallet === wallet) {
-            // Player is already in queue
-            return { status: 'waiting', waitingCount: Object.keys(waitingPlayers).length };
+            enhancedLogger.warn(`🚫 Preventing self-match for wallet ${wallet} - removing old entry`);
+            await this.redis.hDel(waitingKey, wallet);
+            continue;
           }
 
           const waitingPlayer: WaitingPlayer = JSON.parse(playerJson as string);
+          
+          // Triple-check: ensure wallets are different
+          if (waitingPlayer.wallet === wallet) {
+            enhancedLogger.warn(`🚫 Preventing self-match for wallet ${wallet} - removing old entry`);
+            await this.redis.hDel(waitingKey, wallet);
+            continue;
+          }
           
           // Check if players are compatible (same entry fee, different wallets)
           if (waitingPlayer.entryFee === entryFee && waitingPlayer.wallet !== wallet) {
@@ -114,6 +145,42 @@ export class RedisMatchmakingService {
       }
     } catch (error: unknown) {
       enhancedLogger.error('❌ Error adding player to queue:', error);
+      throw error;
+    }
+  }
+
+  // Method to clear all matchmaking data (useful for testing)
+  async clearAllMatchmakingData(): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
+      // Clear all waiting queues
+      const waitingKeys = await this.redis.keys('waiting:*');
+      for (const key of waitingKeys) {
+        await this.redis.del(key);
+        enhancedLogger.info(`🧹 Cleared waiting queue: ${key}`);
+      }
+
+      // Clear all match data
+      const matchKeys = await this.redis.keys('match:*');
+      for (const key of matchKeys) {
+        await this.redis.del(key);
+        enhancedLogger.info(`🧹 Cleared match data: ${key}`);
+      }
+
+      // Clear all player associations
+      const playerKeys = await this.redis.keys('player:*');
+      for (const key of playerKeys) {
+        await this.redis.del(key);
+        enhancedLogger.info(`🧹 Cleared player association: ${key}`);
+      }
+
+      enhancedLogger.info('✅ All Redis matchmaking data cleared');
+    } catch (error: unknown) {
+      enhancedLogger.error('❌ Error clearing matchmaking data:', error);
       throw error;
     }
   }

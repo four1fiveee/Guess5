@@ -286,6 +286,18 @@ const periodicCleanup = async () => {
 // Run periodic cleanup every 5 minutes
 setInterval(periodicCleanup, 5 * 60 * 1000);
 
+// API endpoint to clear Redis matchmaking data (for testing)
+const clearMatchmakingDataHandler = async (req: any, res: any) => {
+  try {
+    console.log('🧹 Clearing Redis matchmaking data...');
+    await redisMatchmakingService.clearAllMatchmakingData();
+    res.json({ success: true, message: 'Redis matchmaking data cleared' });
+  } catch (error: unknown) {
+    console.error('❌ Error clearing matchmaking data:', error);
+    res.status(500).json({ error: 'Failed to clear matchmaking data' });
+  }
+};
+
 // Word list for games
 const wordList = [
   'APPLE', 'BEACH', 'CHAIR', 'DREAM', 'EARTH', 'FLAME', 'GRAPE', 'HEART',
@@ -4445,6 +4457,7 @@ module.exports = {
   debugMatchmakingHandler,
   manualRefundHandler,
   manualMatchHandler,
+  clearMatchmakingDataHandler,
   runMigrationHandler,
   generateReportHandler,
   verifyBlockchainDataHandler,

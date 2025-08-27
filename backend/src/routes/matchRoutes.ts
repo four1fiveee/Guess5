@@ -91,6 +91,9 @@ router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHa
 // Manual match endpoint for testing
 router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHandler));
 
+// Clear Redis matchmaking data endpoint (for testing)
+router.post('/clear-matchmaking-data', asyncHandlerWrapper(matchController.clearMatchmakingDataHandler));
+
 // Database migration endpoints
 router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHandler));
 router.post('/run-security-migration', asyncHandlerWrapper(async (req: any, res: any) => {
