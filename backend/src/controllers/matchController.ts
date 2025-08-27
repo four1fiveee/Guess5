@@ -191,15 +191,7 @@ const markGameCompleted = async (matchId: string) => {
         await matchRepository.save(match);
         console.log(`✅ Marked match ${matchId} as completed in database`);
         
-        // Remove completed match after 1 minute
-        setTimeout(async () => {
-          try {
-            await matchRepository.remove(match);
-            console.log(`🧹 Removed completed match ${matchId} from database`);
-          } catch (error: unknown) {
-            console.error(`❌ Error removing completed match ${matchId}:`, error);
-          }
-        }, 60000); // 1 minute delay
+        // NOTE: We do NOT remove completed matches - they are kept for long-term storage and CSV downloads
       }
     } catch (error: unknown) {
       console.error(`❌ Error marking match ${matchId} as completed:`, error);
@@ -4139,14 +4131,17 @@ const generateReportHandler = async (req: any, res: any) => {
       const totalPot = match.entryFee * 2;
       let winnerAmount = 0;
       let platformFee = 0;
+      let winner = '';
       
       if (match.status === 'completed' && payoutResult) {
         winnerAmount = payoutResult.winnerAmount || 0;
         platformFee = payoutResult.feeAmount || 0;
+        winner = payoutResult.winner || '';
       } else if (match.status === 'cancelled') {
         // For cancelled matches, show refund amounts
         winnerAmount = 0; // No winner
         platformFee = 0; // No platform fee for cancelled matches
+        winner = 'cancelled';
       }
       
       return [
@@ -4156,7 +4151,7 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.entryFee),
         sanitizeCsvValue(totalPot),
         sanitizeCsvValue(match.status),
-        sanitizeCsvValue(match.winner),
+        sanitizeCsvValue(winner),
         sanitizeCsvValue(winnerAmount),
         sanitizeCsvValue(platformFee),
         sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
@@ -4175,13 +4170,13 @@ const generateReportHandler = async (req: any, res: any) => {
         '', // 🔗 BLOCKCHAIN TRANSACTIONS 🔗
         sanitizeCsvValue(match.player1EntrySignature),
         sanitizeCsvValue(match.player2EntrySignature),
-        sanitizeCsvValue(match.winnerPayoutSignature),
+        sanitizeCsvValue(payoutResult?.transactions?.[0]?.signature || match.winnerPayoutSignature || ''),
         sanitizeCsvValue(match.player1RefundSignature),
         sanitizeCsvValue(match.player2RefundSignature),
         '', // 🔗 EXPLORER LINKS 🔗
         match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
         match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
-        match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${network}` : '',
+        (payoutResult?.transactions?.[0]?.signature || match.winnerPayoutSignature) ? `https://explorer.solana.com/tx/${payoutResult?.transactions?.[0]?.signature || match.winnerPayoutSignature}?cluster=${network}` : '',
         match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
         match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
       ];
