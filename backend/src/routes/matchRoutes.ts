@@ -93,6 +93,17 @@ router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHand
 // Clear Redis matchmaking data endpoint (for testing)
 router.post('/clear-matchmaking-data', asyncHandlerWrapper(matchController.clearMatchmakingDataHandler));
 
+// ReCaptcha test endpoint
+router.get('/test-recaptcha', asyncHandlerWrapper(async (req: any, res: any) => {
+  const recaptchaSecret = process.env.RECAPTCHA_SECRET;
+  res.json({
+    recaptchaConfigured: !!recaptchaSecret,
+    secretLength: recaptchaSecret ? recaptchaSecret.length : 0,
+    environment: process.env.NODE_ENV,
+    message: recaptchaSecret ? 'ReCaptcha is configured' : 'ReCaptcha is not configured'
+  });
+}));
+
 // Database migration endpoints
 router.post('/run-migration', asyncHandlerWrapper(matchController.runMigrationHandler));
 router.post('/run-security-migration', asyncHandlerWrapper(async (req: any, res: any) => {

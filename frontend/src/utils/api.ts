@@ -13,21 +13,39 @@ const getReCaptchaToken = async (action: string): Promise<string | null> => {
       return null;
     }
     
+    // Wait for ReCaptcha to be ready
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    while (!window.grecaptcha && attempts < maxAttempts) {
+      console.log(`⏳ Waiting for ReCaptcha to load... (attempt ${attempts + 1}/${maxAttempts})`);
+      await new Promise(resolve => setTimeout(resolve, 500));
+      attempts++;
+    }
+    
     if (!window.grecaptcha) {
-      console.warn('⚠️ ReCaptcha not loaded, skipping token generation');
-      return null;
+      console.warn('⚠️ ReCaptcha not loaded after waiting, skipping token generation');
+      throw new Error('ReCaptcha not loaded - please refresh the page');
     }
     
     if (!window.grecaptcha.enterprise) {
       console.warn('⚠️ ReCaptcha Enterprise not available, skipping token generation');
-      return null;
+      throw new Error('ReCaptcha Enterprise not available - please refresh the page');
     }
 
+    const siteKey = process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI';
+    
+    if (!siteKey || siteKey === '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI') {
+      console.warn('⚠️ Using fallback ReCaptcha site key - check environment variable configuration');
+    }
+    
     console.log('🔄 Calling grecaptcha.enterprise.execute...');
-    const token = await window.grecaptcha.enterprise.execute(
-      process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', 
-      { action }
-    );
+    const token = await window.grecaptcha.enterprise.execute(siteKey, { action });
+    
+    if (!token || typeof token !== 'string' || token.length < 10) {
+      console.error('❌ ReCaptcha returned invalid token:', token);
+      throw new Error('ReCaptcha returned invalid token - please try again');
+    }
     
     console.log(`✅ ReCaptcha token generated successfully for action: ${action}`);
     return token;
@@ -62,12 +80,37 @@ const apiRequest = async (
 
   if (requireReCaptcha) {
     console.log('🔄 Generating ReCaptcha token...');
-    const token = await getReCaptchaToken(reCaptchaAction);
-    if (token) {
-      headers['x-recaptcha-token'] = token;
-      console.log('✅ ReCaptcha token added to headers');
-    } else {
-      console.warn('⚠️ ReCaptcha token generation failed, proceeding without token');
+    let token = null;
+    let retryCount = 0;
+    const maxRetries = 2;
+    
+    while (!token && retryCount < maxRetries) {
+      try {
+        token = await getReCaptchaToken(reCaptchaAction);
+        if (token) {
+          headers['x-recaptcha-token'] = token;
+          console.log('✅ ReCaptcha token added to headers');
+          break;
+        } else {
+          console.warn(`⚠️ ReCaptcha token generation failed (attempt ${retryCount + 1}/${maxRetries})`);
+          retryCount++;
+          if (retryCount < maxRetries) {
+            // Wait a bit before retrying
+            await new Promise(resolve => setTimeout(resolve, 1000));
+          }
+        }
+      } catch (error) {
+        console.error(`❌ ReCaptcha token generation error (attempt ${retryCount + 1}/${maxRetries}):`, error);
+        retryCount++;
+        if (retryCount < maxRetries) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      }
+    }
+    
+    if (!token) {
+      console.error('❌ ReCaptcha token generation failed after all retries');
+      throw new Error('ReCaptcha verification failed - please refresh the page and try again');
     }
   }
 

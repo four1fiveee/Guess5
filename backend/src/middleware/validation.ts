@@ -1,10 +1,14 @@
 import { Request, Response } from 'express';
 import Joi from 'joi';
 
-// Extend Request interface to include headers
+// Extend Request interface to include headers and IP
 interface RequestWithHeaders extends Request {
   headers: {
     [key: string]: string | string[] | undefined;
+  };
+  ip?: string;
+  connection?: {
+    remoteAddress?: string;
   };
 }
 
@@ -57,14 +61,22 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
     return res.status(400).json({ error: 'ReCaptcha token required' });
   }
 
-  console.log('✅ ReCaptcha token found in headers:', recaptchaToken);
+  if (typeof recaptchaToken !== 'string' || recaptchaToken.length < 10) {
+    console.error('❌ ReCaptcha validation failed: Invalid token format');
+    console.error('❌ Token:', recaptchaToken);
+    return res.status(400).json({ error: 'Invalid ReCaptcha token format' });
+  }
+
+  console.log('✅ ReCaptcha token found in headers:', recaptchaToken.substring(0, 20) + '...');
 
   try {
     const recaptchaSecret = process.env.RECAPTCHA_SECRET;
     if (!recaptchaSecret) {
-      console.warn('⚠️ RECAPTCHA_SECRET not configured, skipping validation');
-      return next();
+      console.error('❌ RECAPTCHA_SECRET not configured');
+      return res.status(500).json({ error: 'ReCaptcha configuration error' });
     }
+    
+    console.log('🔍 ReCaptcha secret configured:', recaptchaSecret ? 'Yes' : 'No');
 
     console.log('🔄 Verifying ReCaptcha token with Google...');
     
@@ -72,7 +84,7 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
     const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `secret=${recaptchaSecret}&response=${recaptchaToken}`
+      body: `secret=${recaptchaSecret}&response=${recaptchaToken}&remoteip=${req.ip || req.connection?.remoteAddress || 'unknown'}`
     });
 
     const data = await response.json();
@@ -81,7 +93,22 @@ export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, 
     if (!data.success) {
       console.error('❌ ReCaptcha validation failed: Invalid token');
       console.error('❌ ReCaptcha error codes:', data['error-codes']);
-      return res.status(400).json({ error: 'Invalid ReCaptcha token' });
+      
+      // Provide more specific error messages based on error codes
+      const errorCodes = data['error-codes'] || [];
+      let errorMessage = 'Invalid ReCaptcha token';
+      
+      if (errorCodes.includes('timeout-or-duplicate')) {
+        errorMessage = 'ReCaptcha token expired or already used';
+      } else if (errorCodes.includes('invalid-input-secret')) {
+        errorMessage = 'ReCaptcha configuration error';
+      } else if (errorCodes.includes('invalid-input-response')) {
+        errorMessage = 'Invalid ReCaptcha token';
+      } else if (errorCodes.includes('bad-request')) {
+        errorMessage = 'ReCaptcha request malformed';
+      }
+      
+      return res.status(400).json({ error: errorMessage });
     }
 
     console.log('✅ ReCaptcha validation successful');
