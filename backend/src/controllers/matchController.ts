@@ -249,20 +249,8 @@ const periodicCleanup = async () => {
       console.log(`✅ Processed refunds for ${oldPaymentRequiredMatches.length} old payment_required matches`);
     }
     
-    // Clean up completed matches older than 1 hour
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    const oldCompletedMatches = await matchRepository.find({
-      where: { 
-        status: 'completed',
-        updatedAt: LessThan(oneHourAgo)
-      }
-    });
-    
-    if (oldCompletedMatches.length > 0) {
-      console.log(`🧹 Cleaning up ${oldCompletedMatches.length} old completed matches`);
-      await matchRepository.remove(oldCompletedMatches);
-      console.log(`✅ Cleaned up ${oldCompletedMatches.length} old completed matches`);
-    }
+    // NOTE: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
+    // Only clean up incomplete/stale matches that are blocking the system
     
     // Log memory statistics
     console.log('📊 Memory statistics:', memoryStats);
@@ -551,21 +539,8 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     console.log(`✅ Cleaned up ${staleWaitingMatches.length} stale waiting matches`);
   }
   
-  // Cleanup any completed matches older than 1 hour
-  const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-  const oldCompletedMatches = await matchRepository.query(`
-    SELECT id FROM "match" 
-    WHERE "status" = $1 AND "updatedAt" < $2
-  `, ['completed', oneHourAgo]);
-  
-  if (oldCompletedMatches.length > 0) {
-    console.log(`🧹 Found ${oldCompletedMatches.length} old completed matches, removing them`);
-    await matchRepository.query(`
-      DELETE FROM "match" 
-      WHERE "status" = $1 AND "updatedAt" < $2
-    `, ['completed', oneHourAgo]);
-    console.log(`✅ Cleaned up ${oldCompletedMatches.length} old completed matches`);
-  }
+  // NOTE: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
+  // Only clean up incomplete/stale matches that are blocking the system
 };
 
 // Helper function to check for existing matches and cleanup if needed
@@ -1432,6 +1407,14 @@ const submitResultHandler = async (req: any, res: any) => {
           
           return result;
         });
+        
+        // Clear Redis game state after completion
+        try {
+          await deleteGameState(matchId);
+          console.log('🧹 Redis game state cleared for completed match:', matchId);
+        } catch (error) {
+          console.warn('⚠️ Failed to clear Redis game state:', error);
+        }
         
         // Execute automated payment if there's a clear winner
         // Calculate direct payment instructions
@@ -2679,28 +2662,27 @@ const simpleCleanupHandler = async (req: any, res: any) => {
     // Clean up all old matches
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     
-    // Clean up old completed matches
-    const completedMatches = await matchRepository.find({
-      where: { status: 'completed' }
-    });
-    
-    // Clean up old waiting matches
+    // Clean up old waiting matches (only stale ones)
+    const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const waitingMatches = await matchRepository.find({
-      where: { status: 'waiting' }
+      where: { 
+        status: 'waiting',
+        createdAt: LessThan(tenMinutesAgo)
+      }
     });
     
-    // Clean up old escrow matches
+    // Clean up old escrow matches (only stale ones)
     const escrowMatches = await matchRepository.find({
-      where: { status: 'escrow' }
+      where: { 
+        status: 'escrow',
+        createdAt: LessThan(tenMinutesAgo)
+      }
     });
     
     let cleanedCount = 0;
     
-    if (completedMatches.length > 0) {
-      await matchRepository.remove(completedMatches);
-      cleanedCount += completedMatches.length;
-      console.log(`🧹 Cleaned up ${completedMatches.length} completed matches`);
-    }
+    // NOTE: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
+    console.log(`📊 Found ${waitingMatches.length} stale waiting matches and ${escrowMatches.length} stale escrow matches to clean up`);
     
     if (waitingMatches.length > 0) {
       await matchRepository.remove(waitingMatches);
