@@ -23,22 +23,14 @@ const Result: React.FC = () => {
       const matchId = router.query.matchId as string;
       if (matchId) {
         try {
-          console.log('🔍 Fetching fresh data from backend for match:', matchId);
+  
           const apiUrl = process.env.NEXT_PUBLIC_API_URL;
           const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
           
           if (response.ok) {
             const matchData = await response.json();
-            console.log('📋 Match data from backend:', matchData);
-            console.log('🔍 Debug match data fields:', {
-              isCompleted: matchData.isCompleted,
-              hasPayout: !!matchData.payout,
-              player1Result: matchData.player1Result,
-              player2Result: matchData.player2Result,
-              winner: matchData.winner,
-              player1: matchData.player1,
-              player2: matchData.player2
-            });
+
+
             
             if (matchData.isCompleted) {
               // Get player results from match data
@@ -66,26 +58,10 @@ const Result: React.FC = () => {
                 payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
               };
               
-              console.log('🔍 Debug payout data creation:', {
-                playerResult,
-                opponentResult,
-                matchDataWinner: matchData.winner,
-                payoutWinner: matchData.payout?.winner,
-                playerWallet: publicKey?.toString(),
-                won: matchData.payout?.winner === publicKey?.toString(),
-                isTie: matchData.payout?.winner === 'tie',
-                isWinningTie: matchData.payout?.isWinningTie,
-                refundAmount: matchData.payout?.refundAmount,
-                calculatedIsTie: matchData.payout?.winner === 'tie'
-              });
+
               
               setPayoutData(payoutData);
-              console.log('✅ Payout data created from backend data:', {
-                ...payoutData,
-                isTie: payoutData.isTie,
-                isWinningTie: payoutData.isWinningTie,
-                refundAmount: payoutData.refundAmount
-              });
+
               setLoading(false);
               return;
             } else {
@@ -109,16 +85,11 @@ const Result: React.FC = () => {
           if (data.isTie && data.isWinningTie === undefined) {
             // If it's a tie but isWinningTie is missing, assume losing tie (more common)
             data.isWinningTie = false;
-            console.log('🔧 Fixed missing isWinningTie flag in localStorage data - assuming losing tie');
+
           }
           
           setPayoutData(data);
-          console.log('💰 Payout data loaded from localStorage (fallback):', {
-            ...data,
-            isTie: data.isTie,
-            isWinningTie: data.isWinningTie,
-            refundAmount: data.refundAmount
-          });
+
           setLoading(false);
           return;
         } catch (error) {
@@ -233,9 +204,7 @@ const Result: React.FC = () => {
                 ) : (
                   <div className="text-red-400 text-2xl font-bold mb-2">😔 You Lost</div>
                 )}
-                <div className="text-white/60 text-sm">
-                  Debug: won={String(payoutData.won)}, winner={payoutData.winner}, isWinningTie={String(payoutData.isWinningTie)}, playerWallet={publicKey?.toString()}
-                </div>
+
               </div>
               
               {/* Game Details */}

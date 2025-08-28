@@ -594,12 +594,7 @@ const Game: React.FC = () => {
     // Handle the result after the guess submission is complete
     if (result) {
       console.log('🎯 Processing guess result:', result);
-      console.log('🔍 Debug conditions:', {
-        solved: result.solved,
-        remainingGuesses: result.remainingGuesses,
-        playerSolved: playerSolved,
-        shouldCallHandleGameEnd: result.solved || result.remainingGuesses === 0
-      });
+
       if (result.solved) {
         console.log('🎉 Player solved the word! Submitting result immediately...');
         setGameState('solved');

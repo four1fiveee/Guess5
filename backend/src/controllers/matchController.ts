@@ -1816,38 +1816,130 @@ const submitResultHandler = async (req: any, res: any) => {
             
             console.log('✅ Tie payment instructions created');
           } else {
-            // Losing tie - each pays fee
-            console.log('🤝 Losing tie - each player pays fee...');
+            // Losing tie - both players get 95% refund
+            console.log('🤝 Losing tie - processing 95% refunds to both players...');
             
             const entryFee = updatedMatch.entryFee;
-            const feeAmount = entryFee * 0.05; // 5% fee
+            const refundAmount = entryFee * 0.95; // 95% refund to each player
             
-            const paymentInstructions = {
-              winner: 'tie',
-              player1: updatedMatch.player1,
-              player2: updatedMatch.player2,
-              feeAmount,
-              feeWallet: FEE_WALLET_ADDRESS,
-              transactions: [
-                {
-                  from: updatedMatch.player1,
-                  to: FEE_WALLET_ADDRESS,
-                  amount: feeAmount * 0.5,
-                  description: 'Fee payment from player 1'
-                },
-                {
-                  from: updatedMatch.player2,
-                  to: FEE_WALLET_ADDRESS,
-                  amount: feeAmount * 0.5,
-                  description: 'Fee payment from player 2'
-                }
-              ]
-            };
-            
-            (payoutResult as any).paymentInstructions = paymentInstructions;
-            (payoutResult as any).paymentSuccess = true;
-            
-            console.log('✅ Losing tie payment instructions created');
+            // Try to execute automated refunds if private key is available
+            try {
+              const { getFeeWalletKeypair } = require('../config/wallet');
+              const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+              
+              const feeWalletKeypair = getFeeWalletKeypair();
+              const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+              
+              // Create refund transactions for both players
+              const player1RefundTx = new Transaction().add(
+                SystemProgram.transfer({
+                  fromPubkey: feeWalletKeypair.publicKey,
+                  toPubkey: new PublicKey(updatedMatch.player1),
+                  lamports: Math.floor(refundAmount * LAMPORTS_PER_SOL)
+                })
+              );
+              
+              const player2RefundTx = new Transaction().add(
+                SystemProgram.transfer({
+                  fromPubkey: feeWalletKeypair.publicKey,
+                  toPubkey: new PublicKey(updatedMatch.player2),
+                  lamports: Math.floor(refundAmount * LAMPORTS_PER_SOL)
+                })
+              );
+              
+              // Get recent blockhash
+              const { blockhash } = await connection.getLatestBlockhash();
+              player1RefundTx.recentBlockhash = blockhash;
+              player2RefundTx.recentBlockhash = blockhash;
+              player1RefundTx.feePayer = feeWalletKeypair.publicKey;
+              player2RefundTx.feePayer = feeWalletKeypair.publicKey;
+              
+              // Sign and send transactions
+              const player1Signature = await connection.sendTransaction(player1RefundTx, [feeWalletKeypair]);
+              const player2Signature = await connection.sendTransaction(player2RefundTx, [feeWalletKeypair]);
+              
+              await connection.confirmTransaction(player1Signature);
+              await connection.confirmTransaction(player2Signature);
+              
+              console.log('✅ Automated losing tie refunds successful:', {
+                player1: player1Signature,
+                player2: player2Signature
+              });
+              
+              // Create payment instructions for display
+              const paymentInstructions = {
+                winner: 'tie',
+                player1: updatedMatch.player1,
+                player2: updatedMatch.player2,
+                refundAmount: refundAmount,
+                feeAmount: entryFee * 0.05 * 2, // Total fees from both players
+                feeWallet: FEE_WALLET_ADDRESS,
+                automatedPayout: true,
+                player1RefundSignature: player1Signature,
+                player2RefundSignature: player2Signature,
+                transactions: [
+                  {
+                    from: FEE_WALLET_ADDRESS,
+                    to: updatedMatch.player1,
+                    amount: refundAmount,
+                    description: 'Losing tie refund (player 1)',
+                    signature: player1Signature
+                  },
+                  {
+                    from: FEE_WALLET_ADDRESS,
+                    to: updatedMatch.player2,
+                    amount: refundAmount,
+                    description: 'Losing tie refund (player 2)',
+                    signature: player2Signature
+                  }
+                ]
+              };
+              
+              (payoutResult as any).paymentInstructions = paymentInstructions;
+              (payoutResult as any).paymentSuccess = true;
+              (payoutResult as any).automatedPayout = true;
+              
+              // Update the database columns with the refund signatures
+              updatedMatch.player1RefundSignature = player1Signature;
+              updatedMatch.player2RefundSignature = player2Signature;
+              
+              console.log('✅ Automated losing tie refunds completed');
+              
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.warn('⚠️ Automated losing tie refunds failed, falling back to manual instructions:', errorMessage);
+              
+              // Fallback to manual payment instructions
+              const paymentInstructions = {
+                winner: 'tie',
+                player1: updatedMatch.player1,
+                player2: updatedMatch.player2,
+                refundAmount: refundAmount,
+                feeAmount: entryFee * 0.05 * 2,
+                feeWallet: FEE_WALLET_ADDRESS,
+                automatedPayout: false,
+                transactions: [
+                  {
+                    from: FEE_WALLET_ADDRESS,
+                    to: updatedMatch.player1,
+                    amount: refundAmount,
+                    description: 'Manual losing tie refund (player 1) - contact support'
+                  },
+                  {
+                    from: FEE_WALLET_ADDRESS,
+                    to: updatedMatch.player2,
+                    amount: refundAmount,
+                    description: 'Manual losing tie refund (player 2) - contact support'
+                  }
+                ]
+              };
+              
+              (payoutResult as any).paymentInstructions = paymentInstructions;
+              (payoutResult as any).paymentSuccess = false;
+              (payoutResult as any).paymentError = 'Automated refunds failed - contact support';
+              
+              console.log('⚠️ Manual losing tie refund instructions created');
+            }
           }
         }
         
@@ -4133,16 +4225,7 @@ const generateReportHandler = async (req: any, res: any) => {
       const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
       const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
       
-      // Debug payout data for CSV generation
-      if (match.status === 'completed' && payoutResult) {
-        console.log(`🔍 CSV Debug - Match ${match.id} payout data:`, {
-          payoutResult: payoutResult,
-          transactions: payoutResult.transactions,
-          firstTransaction: payoutResult.transactions?.[0],
-          signature: payoutResult.transactions?.[0]?.signature,
-          winnerPayoutSignature: match.winnerPayoutSignature
-        });
-      }
+
       
       // Calculate total pot and amounts based on match status
       const totalPot = match.entryFee * 2;
