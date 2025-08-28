@@ -11,8 +11,6 @@ const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction } = useWallet();
   const [status, setStatus] = useState<'waiting' | 'payment_required' | 'waiting_for_game' | 'active' | 'error' | 'cancelled'>('waiting');
-  const [timeLeft, setTimeLeft] = useState(120);
-  const [timeoutMessage, setTimeoutMessage] = useState<string>('');
   const [waitingCount, setWaitingCount] = useState(0);
   const [matchData, setMatchData] = useState<any>(null);
   const [entryFee, setEntryFee] = useState<number>(0);
@@ -179,7 +177,6 @@ const Matchmaking: React.FC = () => {
     setIsMatchmakingInProgress(true);
 
     let pollInterval: NodeJS.Timeout;
-    let timeoutId: NodeJS.Timeout;
 
     // Define startPolling function FIRST to avoid declaration order issues
     const startPolling = () => {
@@ -357,7 +354,6 @@ const Matchmaking: React.FC = () => {
           matchDataRef.current = data;
           setStatus('payment_required');
           clearInterval(pollInterval);
-          clearTimeout(timeoutId);
           setIsPolling(false);
           setIsMatchmakingInProgress(false);
         } else if (data.error) {
@@ -435,20 +431,9 @@ const Matchmaking: React.FC = () => {
       }
     }
     
-    // 2-minute timeout
-    timeoutId = setTimeout(() => {
-      console.log('⏰ 2-minute timeout reached, status:', status);
-      if (status === 'waiting') {
-        console.log('⏰ No opponents found after 2 minutes. Returning to lobby...');
-        setTimeoutMessage('No opponents found after 2 minutes. Returning to lobby...');
-        clearInterval(pollInterval);
-        setIsPolling(false);
-        setTimeout(() => router.push('/lobby'), 3000);
-      }
-    }, 120000);
+
 
     return () => {
-      clearTimeout(timeoutId);
       clearInterval(pollInterval);
       setIsMatchmakingInProgress(false);
     };
@@ -471,31 +456,7 @@ const Matchmaking: React.FC = () => {
     statusRef.current = status;
   }, [status]);
 
-  // Separate useEffect to manage countdown timer
-  useEffect(() => {
-    let countdownInterval: NodeJS.Timeout;
-    
-    // Only start countdown if we're waiting for a match
-    if (status === 'waiting') {
-      countdownInterval = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    } else {
-      // Stop countdown if we're not waiting
-      setTimeLeft(120);
-    }
 
-    return () => {
-      if (countdownInterval) {
-        clearInterval(countdownInterval);
-      }
-    };
-  }, [status]);
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
@@ -511,17 +472,15 @@ const Matchmaking: React.FC = () => {
               <div className="text-white/80 mb-4">
                 Waiting for another player to join
               </div>
-              <div className="text-accent text-lg font-semibold">
+              <div className="text-accent text-lg font-semibold mb-4">
                 {waitingCount > 0 ? `${waitingCount} players waiting` : 'Searching...'}
               </div>
-              <div className="text-white/60 text-sm mt-2">
-                Time remaining: {Math.floor(timeLeft / 60)}:{(timeLeft % 60).toString().padStart(2, '0')}
-              </div>
-              {timeoutMessage && (
-                <div className="text-red-400 text-sm mt-2">
-                  {timeoutMessage}
-                </div>
-              )}
+              <button
+                onClick={() => router.push('/lobby')}
+                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
+              >
+                Back to Lobby
+              </button>
             </div>
           )}
 
