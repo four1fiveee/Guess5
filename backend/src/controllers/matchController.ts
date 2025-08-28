@@ -307,9 +307,7 @@ const requestMatchHandler = async (req: any, res: any) => {
     const wallet = req.body.wallet;
     const entryFee = Number(req.body.entryFee);
     
-    console.log('🔍 Parsed data:', { wallet, entryFee, originalEntryFee: req.body.entryFee });
-    console.log('🔍 Request body type:', typeof req.body);
-    console.log('🔍 Request body keys:', Object.keys(req.body || {}));
+
     
     if (!wallet || !entryFee) {
       console.log('❌ Missing required fields:', { wallet: !!wallet, entryFee: !!entryFee });
@@ -404,7 +402,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     }
     
     // REDIS ATOMIC MATCHMAKING: Use Redis service for high-scale operations
-    console.log(`🎯 REDIS: Attempting to add player to queue: ${wallet}`);
+
     const redisResult = await redisMatchmakingService.addPlayerToQueue(wallet, entryFee);
     
     if (redisResult.status === 'matched' && redisResult.matchId) {
@@ -475,7 +473,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
 
 // Helper function to cleanup old matches for a player
 const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
-  console.log(`🧹 Cleaning up old matches for wallet: ${wallet}`);
+  
   
   // Use raw SQL to avoid TypeORM column issues - only select existing columns
   // Don't cleanup matches created in the last 30 seconds to avoid race conditions
@@ -494,7 +492,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   `, [wallet, 'escrow', 'completed', wallet, 'escrow', 'completed', thirtySecondsAgo]);
   
   if (oldPlayerMatches.length > 0) {
-    console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, processing refunds and removing them`);
+
     
     // Process refunds for any matches where players paid but match failed
     for (const match of oldPlayerMatches) {
@@ -504,15 +502,11 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     }
     
     // Remove old matches using raw SQL - EXCLUDE completed matches
-    await matchRepository.query(`
+        await matchRepository.query(`
       DELETE FROM "match" 
       WHERE (("player1" = $1 AND "status" NOT IN ($2, $3)) OR ("player2" = $4 AND "status" NOT IN ($5, $6)))
         AND "createdAt" < $7
     `, [wallet, 'escrow', 'completed', wallet, 'escrow', 'completed', thirtySecondsAgo]);
-    
-    console.log(`✅ Cleaned up ${oldPlayerMatches.length} old matches for ${wallet}`);
-  } else {
-    console.log(`✅ No old matches found for ${wallet}`);
   }
   
   // Also cleanup any stale waiting entries older than 5 minutes
@@ -523,12 +517,10 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   `, ['waiting', fiveMinutesAgo]);
   
   if (staleWaitingMatches.length > 0) {
-    console.log(`🧹 Found ${staleWaitingMatches.length} stale waiting matches, removing them`);
     await matchRepository.query(`
       DELETE FROM "match" 
       WHERE "status" = $1 AND "createdAt" < $2
     `, ['waiting', fiveMinutesAgo]);
-    console.log(`✅ Cleaned up ${staleWaitingMatches.length} stale waiting matches`);
   }
   
   // CRITICAL: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
@@ -580,7 +572,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
   const maxEntryFee = entryFee + tolerance;
   
   try {
-    console.log(`🔍 Looking for waiting players for ${wallet} with entry fee: ${entryFee} SOL`);
+
     
     // First try exact match using raw SQL
     let waitingMatches = await matchRepository.query(`
@@ -604,7 +596,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       const flexibleMinEntryFee = entryFee * 0.90;
       const flexibleMaxEntryFee = entryFee * 1.10;
       
-      console.log(`🔍 Trying flexible matching (10% tolerance):`);
+  
       console.log(`  Range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
       
       waitingMatches = await matchRepository.query(`
@@ -626,7 +618,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     
     // If still no match, try any waiting player (for testing)
     if (waitingMatches.length === 0) {
-      console.log(`🔍 Trying any waiting player (for testing):`);
+  
       
       waitingMatches = await matchRepository.query(`
         SELECT 
@@ -647,7 +639,7 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     if (waitingMatches.length > 0) {
       const waitingEntry = waitingMatches[0];
       
-      console.log(`🎯 Found waiting player: ${waitingEntry.player1} for ${wallet}`);
+  
       
       // Create a NEW match record (not update the waiting entry)
       const actualEntryFee = Math.min(waitingEntry.entryFee, entryFee);
@@ -727,7 +719,7 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
 // Debug endpoint to check waiting players
 const debugWaitingPlayersHandler = async (req: any, res: any) => {
   try {
-    console.log('🔍 Debug: Checking waiting players...');
+
     
     let dbWaitingMatches = [];
     let dbActiveMatches = [];
@@ -773,9 +765,9 @@ const debugWaitingPlayersHandler = async (req: any, res: any) => {
     }
     
     const totalWaiting = dbWaitingMatches.length;
-    const totalActive = dbActiveMatches.length + memoryActiveMatches.length;
+        const totalActive = dbActiveMatches.length + memoryActiveMatches.length;
     
-    console.log('🔍 Debug results:', {
+    console.log('Debug results:', {
       database: { waiting: dbWaitingMatches.length, active: dbActiveMatches.length },
       memory: { waiting: 0, active: memoryActiveMatches.length },
       total: { waiting: totalWaiting, active: totalActive }
@@ -3217,8 +3209,8 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       };
       await setGameState(matchId, newGameState);
 
-      console.log(`🎮 Game started for match ${matchId} with word: ${word}`);
-      console.log(`🎮 Active games count: ${activeGames.size}`);
+          console.log(`🎮 Game started for match ${matchId}`);
+    console.log(`🎮 Active games count: ${activeGames.size}`);
       console.log(`🎮 Game state initialized:`, {
         matchId,
         word,
@@ -4062,8 +4054,6 @@ const generateReportHandler = async (req: any, res: any) => {
   try {
     const { startDate = '2025-08-16', endDate, includeWords = 'false' } = req.query;
     
-    console.log('📊 Generating secure match report...');
-    
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
@@ -4072,21 +4062,6 @@ const generateReportHandler = async (req: any, res: any) => {
     if (endDate) {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
-    
-    console.log('📊 Date filter:', dateFilter);
-    console.log('📊 Start date:', startDate, 'End date:', endDate);
-    
-    // Debug: Check total matches in database
-    const totalMatches = await matchRepository.query(`
-      SELECT COUNT(*) as total FROM "match" WHERE ${dateFilter}
-    `);
-    console.log('📊 Total matches in date range:', totalMatches[0]?.total || 0);
-    
-    // Debug: Check completed matches specifically
-    const completedMatches = await matchRepository.query(`
-      SELECT COUNT(*) as total FROM "match" WHERE ${dateFilter} AND status = 'completed'
-    `);
-    console.log('📊 Completed matches in date range:', completedMatches[0]?.total || 0);
     
     // Get all FINISHED matches (completed games, cancelled games with refunds, and any matches with refunds)
     const matches = await matchRepository.query(`
@@ -4158,20 +4133,7 @@ const generateReportHandler = async (req: any, res: any) => {
       ORDER BY "createdAt" DESC
     `);
     
-    console.log(`📊 Found ${matches.length} matches for report (completed games, cancelled games with refunds, and all matches with refunds)`);
-    
-    // Debug: Show breakdown of matches by status
-    const statusBreakdown = matches.reduce((acc: any, match: any) => {
-      acc[match.status] = (acc[match.status] || 0) + 1;
-      return acc;
-    }, {});
-    console.log('📊 Match status breakdown:', statusBreakdown);
-    
-    // Debug: Show matches with refunds
-    const matchesWithRefunds = matches.filter((match: any) => 
-      match.player1RefundSignature || match.player2RefundSignature
-    );
-    console.log(`📊 Matches with refunds: ${matchesWithRefunds.length}`);
+
     
     // Helper function to sanitize CSV values (prevent injection)
     const sanitizeCsvValue = (value: any) => {
@@ -4257,24 +4219,7 @@ const generateReportHandler = async (req: any, res: any) => {
       const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
       const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
       
-      // Debug: Log match details for troubleshooting
-      if (matches.length <= 5) { // Only log for first few matches to avoid spam
-        console.log(`📊 Match ${match.id}:`, {
-          status: match.status,
-          isCompleted: match.isCompleted,
-          winner: match.winner,
-          hasPayoutResult: !!payoutResult,
-          hasPlayer1Refund: !!match.player1RefundSignature,
-          hasPlayer2Refund: !!match.player2RefundSignature,
-          payoutResult: payoutResult ? {
-            winner: payoutResult.winner,
-            winnerAmount: payoutResult.winnerAmount,
-            feeAmount: payoutResult.feeAmount,
-            isWinningTie: payoutResult.isWinningTie,
-            refundAmount: payoutResult.refundAmount
-          } : null
-        });
-      }
+
       
 
       

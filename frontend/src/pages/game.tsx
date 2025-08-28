@@ -66,7 +66,7 @@ const Game: React.FC = () => {
       reason: reason || 'game_completed'
     };
 
-    console.log('📊 Final game result:', result);
+
 
     // Store result locally for potential retry
     setPlayerResult(result);
@@ -106,7 +106,7 @@ const Game: React.FC = () => {
       
       // If the game is completed, store payout data and navigate
       if (data.status === 'completed' && data.payout) {
-        console.log('💰 Storing payout data:', data.payout);
+    
         
         // Create payout data object for localStorage
         const payoutData = {
@@ -272,7 +272,7 @@ const Game: React.FC = () => {
         // Check if game is completed on the server side (both players finished)
         // Only redirect if we're in waiting state AND both players have finished
         if (data.gameCompleted && gameState === 'waiting') {
-          console.log('🎮 Both players finished, fetching payout data and navigating to results');
+      
           
           // Try to fetch the completed match data to get payout information
           try {
@@ -357,7 +357,7 @@ const Game: React.FC = () => {
         if (!gameMatchId) {
           // Fallback to localStorage if not in URL
           gameMatchId = localStorage.getItem('matchId') || '';
-          console.log('🔍 No matchId in URL, checking localStorage:', gameMatchId);
+      
         }
 
         if (!gameMatchId) {
@@ -384,7 +384,7 @@ const Game: React.FC = () => {
           
           // If both players have paid but status is still payment_required, wait a moment and retry
           if (matchData.status === 'payment_required' && matchData.player1Paid && matchData.player2Paid) {
-            console.log('💰 Both players paid but status not updated yet, waiting...');
+        
             setTimeout(() => {
               router.reload();
             }, 2000);
@@ -593,7 +593,7 @@ const Game: React.FC = () => {
     
     // Handle the result after the guess submission is complete
     if (result) {
-      console.log('🎯 Processing guess result:', result);
+  
 
       if (result.solved) {
         console.log('🎉 Player solved the word! Submitting result immediately...');
