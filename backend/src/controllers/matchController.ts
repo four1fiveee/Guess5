@@ -1474,6 +1474,9 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).automatedPayout = true;
             
+            // Update the database column with the payout signature
+            updatedMatch.winnerPayoutSignature = signature;
+            
             console.log('✅ Automated payout completed');
             
           } catch (error: unknown) {
@@ -1728,6 +1731,9 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentInstructions = paymentInstructions;
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).automatedPayout = true;
+            
+            // Update the database column with the payout signature
+            updatedMatch.winnerPayoutSignature = signature;
             
             console.log('✅ Automated payout completed');
             
@@ -4127,6 +4133,17 @@ const generateReportHandler = async (req: any, res: any) => {
       const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
       const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
       
+      // Debug payout data for CSV generation
+      if (match.status === 'completed' && payoutResult) {
+        console.log(`🔍 CSV Debug - Match ${match.id} payout data:`, {
+          payoutResult: payoutResult,
+          transactions: payoutResult.transactions,
+          firstTransaction: payoutResult.transactions?.[0],
+          signature: payoutResult.transactions?.[0]?.signature,
+          winnerPayoutSignature: match.winnerPayoutSignature
+        });
+      }
+      
       // Calculate total pot and amounts based on match status
       const totalPot = match.entryFee * 2;
       let winnerAmount = 0;
@@ -4170,13 +4187,41 @@ const generateReportHandler = async (req: any, res: any) => {
         '', // 🔗 BLOCKCHAIN TRANSACTIONS 🔗
         sanitizeCsvValue(match.player1EntrySignature),
         sanitizeCsvValue(match.player2EntrySignature),
-        sanitizeCsvValue((payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) || match.winnerPayoutSignature || ''),
+        sanitizeCsvValue((() => {
+          // Try multiple sources for payout signature
+          if (payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) {
+            return payoutResult.transactions[0].signature;
+          }
+          if (match.winnerPayoutSignature) {
+            return match.winnerPayoutSignature;
+          }
+          if (payoutResult && payoutResult.payoutSignature) {
+            return payoutResult.payoutSignature;
+          }
+          if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.payoutSignature) {
+            return payoutResult.paymentInstructions.payoutSignature;
+          }
+          return '';
+        })()),
         sanitizeCsvValue(match.player1RefundSignature),
         sanitizeCsvValue(match.player2RefundSignature),
         '', // 🔗 EXPLORER LINKS 🔗
         match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
         match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
-        ((payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) || match.winnerPayoutSignature) ? `https://explorer.solana.com/tx/${(payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) || match.winnerPayoutSignature}?cluster=${network}` : '',
+        (() => {
+          // Try multiple sources for payout signature
+          let signature = '';
+          if (payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) {
+            signature = payoutResult.transactions[0].signature;
+          } else if (match.winnerPayoutSignature) {
+            signature = match.winnerPayoutSignature;
+          } else if (payoutResult && payoutResult.payoutSignature) {
+            signature = payoutResult.payoutSignature;
+          } else if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.payoutSignature) {
+            signature = payoutResult.paymentInstructions.payoutSignature;
+          }
+          return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
+        })(),
         match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
         match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
       ];
