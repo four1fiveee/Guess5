@@ -489,9 +489,9 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       "player1Paid",
       "player2Paid"
     FROM "match" 
-    WHERE (("player1" = $1 AND "status" != $2) OR ("player2" = $3 AND "status" != $4))
-      AND "createdAt" < $5
-  `, [wallet, 'escrow', wallet, 'escrow', thirtySecondsAgo]);
+    WHERE (("player1" = $1 AND "status" NOT IN ($2, $3)) OR ("player2" = $4 AND "status" NOT IN ($5, $6)))
+      AND "createdAt" < $7
+  `, [wallet, 'escrow', 'completed', wallet, 'escrow', 'completed', thirtySecondsAgo]);
   
   if (oldPlayerMatches.length > 0) {
     console.log(`🧹 Found ${oldPlayerMatches.length} old matches for ${wallet}, processing refunds and removing them`);
@@ -503,12 +503,12 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       }
     }
     
-    // Remove old matches using raw SQL
+    // Remove old matches using raw SQL - EXCLUDE completed matches
     await matchRepository.query(`
       DELETE FROM "match" 
-      WHERE (("player1" = $1 AND "status" != $2) OR ("player2" = $3 AND "status" != $4))
-        AND "createdAt" < $5
-    `, [wallet, 'escrow', wallet, 'escrow', thirtySecondsAgo]);
+      WHERE (("player1" = $1 AND "status" NOT IN ($2, $3)) OR ("player2" = $4 AND "status" NOT IN ($5, $6)))
+        AND "createdAt" < $7
+    `, [wallet, 'escrow', 'completed', wallet, 'escrow', 'completed', thirtySecondsAgo]);
     
     console.log(`✅ Cleaned up ${oldPlayerMatches.length} old matches for ${wallet}`);
   } else {
@@ -531,8 +531,9 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     console.log(`✅ Cleaned up ${staleWaitingMatches.length} stale waiting matches`);
   }
   
-  // NOTE: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
+  // CRITICAL: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
   // Only clean up incomplete/stale matches that are blocking the system
+  // Completed matches (status = 'completed') are NEVER deleted by cleanup functions
 };
 
 // Helper function to check for existing matches and cleanup if needed
@@ -2749,9 +2750,6 @@ const simpleCleanupHandler = async (req: any, res: any) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Clean up all old matches
-    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
-    
     // Clean up old waiting matches (only stale ones)
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     const waitingMatches = await matchRepository.find({
@@ -2786,9 +2784,13 @@ const simpleCleanupHandler = async (req: any, res: any) => {
       console.log(`🧹 Cleaned up ${escrowMatches.length} escrow matches`);
     }
     
-    // Clean up old payment_required matches and process refunds
+    // Clean up old payment_required matches and process refunds (only very old ones)
+    const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const paymentRequiredMatches = await matchRepository.find({
-      where: { status: 'payment_required' }
+      where: { 
+        status: 'payment_required',
+        createdAt: LessThan(oneHourAgo) // Only remove very old payment_required matches
+      }
     });
     
     if (paymentRequiredMatches.length > 0) {
@@ -4071,7 +4073,22 @@ const generateReportHandler = async (req: any, res: any) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get only FINISHED matches (completed games or cancelled games with refunds)
+    console.log('📊 Date filter:', dateFilter);
+    console.log('📊 Start date:', startDate, 'End date:', endDate);
+    
+    // Debug: Check total matches in database
+    const totalMatches = await matchRepository.query(`
+      SELECT COUNT(*) as total FROM "match" WHERE ${dateFilter}
+    `);
+    console.log('📊 Total matches in date range:', totalMatches[0]?.total || 0);
+    
+    // Debug: Check completed matches specifically
+    const completedMatches = await matchRepository.query(`
+      SELECT COUNT(*) as total FROM "match" WHERE ${dateFilter} AND status = 'completed'
+    `);
+    console.log('📊 Completed matches in date range:', completedMatches[0]?.total || 0);
+    
+    // Get all FINISHED matches (completed games, cancelled games with refunds, and any matches with refunds)
     const matches = await matchRepository.query(`
       SELECT 
         id,
@@ -4128,18 +4145,33 @@ const generateReportHandler = async (req: any, res: any) => {
         "updatedAt"
       FROM "match" 
       WHERE ${dateFilter}
-        AND status IN ('completed', 'cancelled')
         AND (
-          -- Completed games must have results
-          (status = 'completed' AND "player1Result" IS NOT NULL AND "player2Result" IS NOT NULL)
+          -- Include all completed matches (winners, losers, ties, losing ties)
+          (status = 'completed' AND "isCompleted" = true)
           OR 
-          -- Cancelled games must have refund signatures (indicating refunds were processed)
+          -- Include cancelled matches that have refund signatures
           (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL))
+          OR
+          -- Include any matches with refund signatures (covers losing ties and other refund scenarios)
+          ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL)
         )
       ORDER BY "createdAt" DESC
     `);
     
-    console.log(`📊 Found ${matches.length} FINISHED matches for report (completed games or cancelled games with refunds)`);
+    console.log(`📊 Found ${matches.length} matches for report (completed games, cancelled games with refunds, and all matches with refunds)`);
+    
+    // Debug: Show breakdown of matches by status
+    const statusBreakdown = matches.reduce((acc: any, match: any) => {
+      acc[match.status] = (acc[match.status] || 0) + 1;
+      return acc;
+    }, {});
+    console.log('📊 Match status breakdown:', statusBreakdown);
+    
+    // Debug: Show matches with refunds
+    const matchesWithRefunds = matches.filter((match: any) => 
+      match.player1RefundSignature || match.player2RefundSignature
+    );
+    console.log(`📊 Matches with refunds: ${matchesWithRefunds.length}`);
     
     // Helper function to sanitize CSV values (prevent injection)
     const sanitizeCsvValue = (value: any) => {
@@ -4224,6 +4256,25 @@ const generateReportHandler = async (req: any, res: any) => {
       const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
       const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
       const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
+      
+      // Debug: Log match details for troubleshooting
+      if (matches.length <= 5) { // Only log for first few matches to avoid spam
+        console.log(`📊 Match ${match.id}:`, {
+          status: match.status,
+          isCompleted: match.isCompleted,
+          winner: match.winner,
+          hasPayoutResult: !!payoutResult,
+          hasPlayer1Refund: !!match.player1RefundSignature,
+          hasPlayer2Refund: !!match.player2RefundSignature,
+          payoutResult: payoutResult ? {
+            winner: payoutResult.winner,
+            winnerAmount: payoutResult.winnerAmount,
+            feeAmount: payoutResult.feeAmount,
+            isWinningTie: payoutResult.isWinningTie,
+            refundAmount: payoutResult.refundAmount
+          } : null
+        });
+      }
       
 
       
