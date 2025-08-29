@@ -1345,15 +1345,34 @@ const submitResultHandler = async (req: any, res: any) => {
 
     console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
 
-    // Check if this player solved the puzzle
-    if (result.won) {
-      console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
+    // Check if both players have submitted results (regardless of win/loss)
+    const updatedMatch = await AppDataSource.manager.findOne(Match, { where: { id: matchId } });
+    const player1Result = updatedMatch?.getPlayer1Result();
+    const player2Result = updatedMatch?.getPlayer2Result();
+    
+    console.log('🔍 Checking if both players have submitted results:', {
+      matchId,
+      player1Result: !!player1Result,
+      player2Result: !!player2Result,
+      player1Won: player1Result?.won,
+      player2Won: player2Result?.won,
+      player1Reason: player1Result?.reason,
+      player2Reason: player2Result?.reason
+    });
+
+    // Check if this player solved the puzzle OR if both players have submitted results
+    if (result.won || (player1Result && player2Result)) {
+      if (result.won) {
+        console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
+      } else {
+        console.log(`⏰ Both players have submitted results (timeout scenario)`);
+      }
       
-      // Check if both players have finished playing (solved or run out of guesses)
+      // Check if both players have finished playing (solved, run out of guesses, or both submitted results)
       // Use the updated server game state after recording this player's result
       const updatedServerGameState = await getGameState(matchId);
-      const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7;
-      const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7;
+      const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7 || player1Result;
+      const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7 || player2Result;
       
       console.log('🔍 Game end check:', {
         matchId,
