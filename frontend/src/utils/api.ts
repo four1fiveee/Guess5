@@ -6,7 +6,7 @@ const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender
 // Get ReCaptcha token for API requests
 const getReCaptchaToken = async (action: string): Promise<string | null> => {
   try {
-    console.log('🔄 Attempting to generate ReCaptcha token for action:', action);
+
     
     if (typeof window === 'undefined') {
       console.warn('⚠️ Window is undefined (server-side), skipping ReCaptcha');
@@ -39,7 +39,7 @@ const getReCaptchaToken = async (action: string): Promise<string | null> => {
       console.warn('⚠️ Using fallback ReCaptcha site key - check environment variable configuration');
     }
     
-    console.log('🔄 Calling grecaptcha.enterprise.execute...');
+
     const token = await window.grecaptcha.enterprise.execute(siteKey, { action });
     
     if (!token || typeof token !== 'string' || token.length < 10) {
@@ -69,7 +69,7 @@ const apiRequest = async (
 ) => {
   const url = `${API_BASE_URL}${endpoint}`;
   
-  console.log(`🌐 Making API request to: ${url}`);
+  
   console.log(`🔍 Request details:`, { requireReCaptcha, reCaptchaAction, method: options.method });
   
   // Add ReCaptcha token if required
@@ -79,7 +79,7 @@ const apiRequest = async (
   };
 
   if (requireReCaptcha) {
-    console.log('🔄 Generating ReCaptcha token...');
+
     let token = null;
     let retryCount = 0;
     const maxRetries = 2;
@@ -119,15 +119,10 @@ const apiRequest = async (
     headers,
   };
 
-  console.log('📤 Sending request with config:', {
-    url,
-    method: config.method,
-    headers: Object.keys(config.headers || {}),
-    bodySize: config.body ? JSON.stringify(config.body).length : 0
-  });
+
 
   try {
-    console.log('🔄 Fetching response...');
+
     
     // Add timeout to prevent hanging requests
     const controller = new AbortController();
@@ -135,13 +130,7 @@ const apiRequest = async (
       controller.abort();
     }, 30000); // 30 second timeout
     
-    console.log('🌐 About to call fetch with URL:', url);
-    console.log('🌐 Fetch config:', {
-      method: config.method,
-      headers: Object.keys(config.headers || {}),
-      bodySize: config.body ? JSON.stringify(config.body).length : 0,
-      hasSignal: !!controller.signal
-    });
+
     
     const response = await fetch(url, {
       ...config,
@@ -149,15 +138,7 @@ const apiRequest = async (
     });
     
     clearTimeout(timeoutId);
-    console.log(`📥 Response received: ${response.status} ${response.statusText}`);
-    
-    // Log additional response details for debugging
-    console.log('📋 Response details:', {
-      status: response.status,
-      statusText: response.statusText,
-      headers: Object.fromEntries(response.headers.entries()),
-      url: response.url
-    });
+
     
     if (response.status === 429) {
       console.log('⚠️ Unexpected rate limit response, waiting before retry...');
@@ -174,7 +155,7 @@ const apiRequest = async (
     }
     
     const responseData = await response.json();
-    console.log('✅ API request successful, response data:', responseData);
+
     return responseData;
   } catch (error) {
     console.error(`❌ API request failed for ${endpoint}:`, error);

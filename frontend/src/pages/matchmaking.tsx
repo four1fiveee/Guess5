@@ -83,7 +83,7 @@ const Matchmaking: React.FC = () => {
       const signedTransaction = await signTransaction(transaction);
       const signature = await connection.sendRawTransaction(signedTransaction.serialize());
       
-      console.log('✅ Transaction sent with signature:', signature);
+  
 
       // Wait for confirmation
       const confirmation = await connection.confirmTransaction(signature, 'confirmed');
@@ -91,7 +91,7 @@ const Matchmaking: React.FC = () => {
         throw new Error('Transaction failed to confirm');
       }
 
-      console.log('✅ Payment successful:', signature);
+  
 
       // Confirm payment with backend with retry mechanism
       let confirmData;
@@ -101,7 +101,7 @@ const Matchmaking: React.FC = () => {
       while (retryCount < maxRetries) {
         try {
           confirmData = await api.confirmPayment(matchData.matchId, publicKey.toString(), signature);
-          console.log('✅ Payment confirmed by backend:', confirmData);
+      
           break; // Success, exit retry loop
         } catch (error) {
           retryCount++;
@@ -125,7 +125,7 @@ const Matchmaking: React.FC = () => {
 
       // Check if both players have paid based on backend response
       if (confirmData.player1Paid && confirmData.player2Paid) {
-        console.log('🎮 Both players have paid! Waiting for game to start...');
+    
         setStatus('waiting_for_game');
       } else {
         console.log('⏳ Waiting for other player to pay...');
@@ -180,9 +180,7 @@ const Matchmaking: React.FC = () => {
 
     // Define startPolling function FIRST to avoid declaration order issues
     const startPolling = () => {
-      console.log('🔄 Starting polling for match updates...');
-      console.log('🔄 Current status:', status);
-      console.log('🔄 Current matchData:', matchDataRef.current);
+      
       
       // Clear any existing interval first
       if (pollInterval) {
@@ -190,68 +188,39 @@ const Matchmaking: React.FC = () => {
       }
       
       pollInterval = setInterval(async () => {
-        console.log('🔄 Polling tick started...');
-        
         // Get the current matchData from ref to avoid closure issues
         const currentMatchData = matchDataRef.current;
-        console.log('🔄 Current matchData state:', currentMatchData);
         
         try {
           // Always check for new matches first when in waiting status
           if (statusRef.current === 'waiting' || !currentMatchData || !currentMatchData.matchId) {
             // Check if we've been matched while waiting
-            console.log('🔄 Checking for new match...');
-            console.log('🔄 Checking for wallet:', publicKey.toString());
             try {
               const data = await api.checkPlayerMatch(publicKey.toString());
-              console.log('🔄 Check-match response:', data);
-              console.log('🔄 Response type:', typeof data);
-              console.log('🔄 Has matched property:', 'matched' in data);
-              console.log('🔄 Matched value:', data.matched);
               
-              if (data.matched) {
-                console.log('🎯 Match found!', data);
-                console.log('🎯 Setting matchData to:', data);
-                
-                // Stop current polling
-                clearInterval(pollInterval);
-                setIsMatchmakingInProgress(false);
-                
-                // Set the match data
-                setMatchData(data);
-                matchDataRef.current = data; // Update ref to avoid closure issues
-                setStatus('payment_required');
-                
-                // Start new polling for status updates
-                console.log('🎯 Starting new polling for status updates');
-                setIsPolling(true);
-                startPolling();
-                return; // Exit early to restart polling with new match data
-              } else {
-                // No match found, continue waiting
-                console.log('⏳ Still waiting for match...');
-                console.log('⏳ Response data:', data);
-              }
+                              if (data.matched) {
+                  // Stop current polling
+                  clearInterval(pollInterval);
+                  setIsMatchmakingInProgress(false);
+                  
+                  // Set the match data
+                  setMatchData(data);
+                  matchDataRef.current = data; // Update ref to avoid closure issues
+                  setStatus('payment_required');
+                  
+                  // Start new polling for status updates
+                  setIsPolling(true);
+                  startPolling();
+                  return; // Exit early to restart polling with new match data
+                }
             } catch (error) {
               console.error('❌ Error checking for match:', error);
               console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
             }
           } else if (currentMatchData && currentMatchData.matchId) {
             // Check payment status for existing match
-            console.log('🔄 Polling for match status:', currentMatchData.matchId);
             try {
               const data = await api.getMatchStatus(currentMatchData.matchId);
-              
-              console.log('🔄 Polling update:', data);
-              console.log('🔄 Current matchData:', matchData);
-              console.log('🔄 Checking conditions:', {
-                player1Paid: data.player1Paid,
-                player2Paid: data.player2Paid,
-                status: data.status,
-                bothPaid: data.player1Paid && data.player2Paid,
-                isActive: data.status === 'active',
-                shouldRedirect: data.player1Paid && data.player2Paid && data.status === 'active'
-              });
               
               // Update match data with latest payment status
               setMatchData((prev: any) => {
@@ -261,14 +230,12 @@ const Matchmaking: React.FC = () => {
                   player2Paid: data.player2Paid,
                   status: data.status
                 };
-                console.log('🔄 Updated matchData:', updated);
                 matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
               });
 
               // Check if both players have paid and game is active
               if (data.player1Paid && data.player2Paid && data.status === 'active') {
-                console.log('🎮 Game is active! Redirecting to game...');
                 setStatus('active');
                 
                 // Store match data and redirect to game
@@ -289,7 +256,6 @@ const Matchmaking: React.FC = () => {
                 }, 1000);
               } else if (data.player1Paid && data.player2Paid && data.status !== 'active') {
                 // Both players paid but game not yet active - show waiting state
-                console.log('⏳ Both players paid, waiting for game to start...');
                 setStatus('waiting_for_game');
               }
             } catch (error) {
@@ -301,10 +267,7 @@ const Matchmaking: React.FC = () => {
           console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
         }
         
-        console.log('🔄 Polling tick completed, next tick in 2 seconds...');
       }, 2000);
-      
-      console.log('🔄 Polling interval set up with 2-second interval');
     };
 
     // Define startMatchmaking function AFTER startPolling
@@ -332,24 +295,17 @@ const Matchmaking: React.FC = () => {
       setIsRequestInProgress(true);
       
       try {
-        console.log('🎮 Starting matchmaking request for wallet:', publicKey.toString());
-        console.log('🎮 Entry fee:', currentEntryFee);
         const data = await api.requestMatch(publicKey.toString(), currentEntryFee);
-        console.log('🎮 Matchmaking response:', data);
-        console.log('🎮 Response status:', data.status);
 
         if (data.status === 'waiting') {
-          console.log('⏳ Player is waiting for match');
           setWaitingCount(data.waitingCount || 0);
           setStatus('waiting');
           // Ensure polling starts after initial request returns 'waiting'
           if (!isPolling) {
-            console.log('🔄 Starting polling after initial waiting response...');
             setIsPolling(true);
             startPolling();
           }
         } else if (data.status === 'matched') {
-          console.log('✅ Match found!');
           setMatchData(data);
           matchDataRef.current = data;
           setStatus('payment_required');
@@ -357,7 +313,6 @@ const Matchmaking: React.FC = () => {
           setIsPolling(false);
           setIsMatchmakingInProgress(false);
         } else if (data.error) {
-          console.log('⚠️ Matchmaking error:', data.error);
           setStatus('error');
         }
       } catch (error) {
@@ -372,7 +327,6 @@ const Matchmaking: React.FC = () => {
     // Check if we have a matchId in the URL (from lobby redirect)
     const urlMatchId = router.query.matchId as string;
     if (urlMatchId) {
-      console.log('🎯 Found matchId in URL:', urlMatchId);
       // Initialize match data from URL
       const urlEntryFee = router.query.entryFee as string;
       const entryFeeAmount = urlEntryFee ? parseFloat(urlEntryFee) : 0;
@@ -384,8 +338,6 @@ const Matchmaking: React.FC = () => {
         entryFee: entryFeeAmount,
         status: 'payment_required'
       };
-      
-      console.log('🎯 Setting initial match data:', initialMatchData);
       setMatchData(initialMatchData);
       matchDataRef.current = initialMatchData;
       setStatus('payment_required');
@@ -394,7 +346,6 @@ const Matchmaking: React.FC = () => {
       
       // Start polling for status updates
       if (!isPolling) {
-        console.log('🔄 Starting polling for status updates...');
         setIsPolling(true);
         startPolling();
       }
@@ -415,17 +366,14 @@ const Matchmaking: React.FC = () => {
     }
 
     if (!matchDataRef.current || !matchDataRef.current.matchId) {
-      console.log('🎮 Starting initial matchmaking...');
       startMatchmaking();
       if (!isPolling) {
-        console.log('🔄 Starting polling for new matches...');
         setIsPolling(true);
         startPolling();
       }
     } else {
       // If we already have matchData, start polling for status updates
       if (!isPolling) {
-        console.log('🔄 Starting polling for status updates...');
         setIsPolling(true);
         startPolling();
       }
@@ -439,17 +387,7 @@ const Matchmaking: React.FC = () => {
     };
   }, [publicKey, router, signTransaction, entryFee]);
 
-  // Debug useEffect to track state changes
-  useEffect(() => {
-    console.log('🔍 State change detected:', {
-      status,
-      isPolling,
-      isMatchmakingInProgress,
-      isRequestInProgress,
-      hasMatchData: !!matchDataRef.current,
-      matchData: matchDataRef.current
-    });
-  }, [status, isPolling, isMatchmakingInProgress, isRequestInProgress]);
+
 
   // Update status ref when status changes
   useEffect(() => {
