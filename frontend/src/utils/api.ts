@@ -47,7 +47,7 @@ const getReCaptchaToken = async (action: string): Promise<string | null> => {
       throw new Error('ReCaptcha returned invalid token - please try again');
     }
     
-    console.log(`✅ ReCaptcha token generated successfully for action: ${action}`);
+
     return token;
   } catch (error) {
     console.error('❌ ReCaptcha token generation failed:', error);
@@ -70,7 +70,7 @@ const apiRequest = async (
   const url = `${API_BASE_URL}${endpoint}`;
   
   
-  console.log(`🔍 Request details:`, { requireReCaptcha, reCaptchaAction, method: options.method });
+  
   
   // Add ReCaptcha token if required
   let headers: Record<string, string> = {
@@ -89,7 +89,7 @@ const apiRequest = async (
         token = await getReCaptchaToken(reCaptchaAction);
         if (token) {
           headers['x-recaptcha-token'] = token;
-          console.log('✅ ReCaptcha token added to headers');
+      
           break;
         } else {
           console.warn(`⚠️ ReCaptcha token generation failed (attempt ${retryCount + 1}/${maxRetries})`);
@@ -224,7 +224,7 @@ export const submitResult = async (matchId: string, wallet: string, result: {
       body: JSON.stringify({ matchId, wallet, result }),
     }, true, 'submit_result');
     
-    console.log('✅ submitResult successful:', response);
+
     return response;
   } catch (error) {
     console.error('❌ submitResult failed:', error);
@@ -259,12 +259,12 @@ export const getMatchStatus = async (matchId: string) => {
 };
 
 export const checkPlayerMatch = async (wallet: string) => {
-  console.log('🔍 API: checkPlayerMatch called for wallet:', wallet);
+  
   try {
     const result = await apiRequest(`/api/match/check-match/${wallet}`, {
       method: 'GET',
     }, false);
-    console.log('🔍 API: checkPlayerMatch result:', result);
+
     return result;
   } catch (error) {
     console.error('🔍 API: checkPlayerMatch error:', error);

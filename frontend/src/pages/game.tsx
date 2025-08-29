@@ -79,11 +79,11 @@ const Game: React.FC = () => {
 
       for (let attempt = 1; attempt <= maxRetries; attempt++) {
         try {
-          console.log(`📤 Submitting result (attempt ${attempt}/${maxRetries})...`);
+      
           
           // Use the proper submitResult function that handles ReCaptcha
           const data = await submitResult(matchId, publicKey?.toString() || '', result);
-          console.log('✅ Result submission successful:', data);
+  
           
           return data;
         } catch (error: any) {
@@ -132,7 +132,7 @@ const Game: React.FC = () => {
         
         // Store payout data in localStorage
         localStorage.setItem('payoutData', JSON.stringify(payoutData));
-        console.log('✅ Payout data stored in localStorage');
+
         
         // Navigate to results page
         console.log('🏆 Game completed, navigating to results page');
@@ -179,7 +179,7 @@ const Game: React.FC = () => {
                 };
                 
                 localStorage.setItem('payoutData', JSON.stringify(payoutData));
-                console.log('✅ Payout data stored from polling');
+        
                 
                 router.push(`/result?matchId=${matchId}`);
                 return;
@@ -299,7 +299,7 @@ const Game: React.FC = () => {
                 
                 // Store payout data in localStorage
                 localStorage.setItem('payoutData', JSON.stringify(payoutData));
-                console.log('✅ Payout data stored from completed game:', payoutData);
+        
               }
             }
           } catch (error) {
@@ -555,7 +555,7 @@ const Game: React.FC = () => {
         const guessData = await submitGuess(matchId, publicKey?.toString() || '', guess);
 
         clearTimeout(timeoutId);
-        console.log('✅ Guess submitted successfully:', guessData);
+
         
         // Add a small delay after successful guess to prevent rapid submissions
         await new Promise(resolve => setTimeout(resolve, 500));
@@ -571,7 +571,7 @@ const Game: React.FC = () => {
         // Retry up to 2 times for network errors
         if (retryCount < 2 && error instanceof Error && 
             (error.name === 'AbortError' || error.message.includes('Failed to fetch'))) {
-          console.log(`🔄 Retrying guess submission (attempt ${retryCount + 2})...`);
+  
           await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds before retry (increased from 1 second)
           return submitGuessWithRetry(retryCount + 1);
         }

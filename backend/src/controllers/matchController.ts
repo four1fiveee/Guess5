@@ -330,7 +330,7 @@ const requestMatchHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Entry fee must be between 0.001 and 100 SOL' });
     }
 
-    console.log(`✅ Player ${wallet} waiting for match with ${entryFee} SOL entry fee`);
+
 
     // CRITICAL: Implement locking to prevent race conditions
     const lockKey = `matchmaking_${wallet}`;
@@ -406,7 +406,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     const redisResult = await redisMatchmakingService.addPlayerToQueue(wallet, entryFee);
     
     if (redisResult.status === 'matched' && redisResult.matchId) {
-      console.log(`✅ REDIS ATOMIC: Match created via Redis: ${redisResult.matchId}`);
+  
       
       // Get match data from Redis
       const matchData = await redisMatchmakingService.getMatch(redisResult.matchId);
@@ -1270,23 +1270,7 @@ const submitResultHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Suspiciously fast completion time detected' });
     }
 
-    console.log('📝 Submitting SERVER-VALIDATED result for match:', matchId);
-    console.log('Wallet:', wallet);
-    console.log('Is Player 1:', isPlayer1);
-    console.log('Result details:', {
-      won: result.won,
-      numGuesses: result.numGuesses,
-      totalTime: serverTotalTime,
-      reason: result.reason,
-      isTimeoutSubmission,
-      guesses: result.guesses
-    });
-    console.log('Current match state before save:', {
-      player1Result: match.getPlayer1Result(),
-      player2Result: match.getPlayer2Result(),
-      winner: match.winner,
-      isCompleted: match.isCompleted
-    });
+
 
     // Create server-validated result object
     const serverValidatedResult = {
@@ -1315,25 +1299,17 @@ const submitResultHandler = async (req: any, res: any) => {
         throw new Error('Match not found in transaction');
       }
       
-      console.log('🔄 Transaction - Current match state:', {
-        player1Result: freshMatch.getPlayer1Result(),
-        player2Result: freshMatch.getPlayer2Result(),
-        winner: freshMatch.winner,
-        isCompleted: freshMatch.isCompleted
-      });
+
       
       // Set the result for this player
       if (isPlayer1) {
         freshMatch.setPlayer1Result(serverValidatedResult);
-        console.log('💾 Setting Player 1 result in transaction:', serverValidatedResult);
       } else {
         freshMatch.setPlayer2Result(serverValidatedResult);
-        console.log('💾 Setting Player 2 result in transaction:', serverValidatedResult);
       }
       
       // Save within the transaction
       await manager.save(freshMatch);
-      console.log('✅ Match saved in transaction for', isPlayer1 ? 'Player 1' : 'Player 2');
       
       // Update the local match object for consistency
       if (isPlayer1) {
@@ -1343,30 +1319,18 @@ const submitResultHandler = async (req: any, res: any) => {
       }
     });
 
-    console.log(`📝 ${isPlayer1 ? 'Player 1' : 'Player 2'} SERVER-VALIDATED result recorded`);
+
 
     // Check if both players have submitted results (regardless of win/loss)
     const updatedMatch = await AppDataSource.manager.findOne(Match, { where: { id: matchId } });
     const player1Result = updatedMatch?.getPlayer1Result();
     const player2Result = updatedMatch?.getPlayer2Result();
     
-    console.log('🔍 Checking if both players have submitted results:', {
-      matchId,
-      player1Result: !!player1Result,
-      player2Result: !!player2Result,
-      player1Won: player1Result?.won,
-      player2Won: player2Result?.won,
-      player1Reason: player1Result?.reason,
-      player2Reason: player2Result?.reason
-    });
+
 
     // Check if this player solved the puzzle OR if both players have submitted results
     if (result.won || (player1Result && player2Result)) {
-      if (result.won) {
-        console.log(`🏆 ${isPlayer1 ? 'Player 1' : 'Player 2'} solved the puzzle!`);
-      } else {
-        console.log(`⏰ Both players have submitted results (timeout scenario)`);
-      }
+
       
       // Check if both players have finished playing (solved, run out of guesses, or both submitted results)
       // Use the updated server game state after recording this player's result
@@ -1374,20 +1338,9 @@ const submitResultHandler = async (req: any, res: any) => {
       const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7 || player1Result;
       const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7 || player2Result;
       
-      console.log('🔍 Game end check:', {
-        matchId,
-        player1Solved: updatedServerGameState?.player1Solved,
-        player2Solved: updatedServerGameState?.player2Solved,
-        player1Guesses: updatedServerGameState?.player1Guesses?.length || 0,
-        player2Guesses: updatedServerGameState?.player2Guesses?.length || 0,
-        player1Finished,
-        player2Finished,
-        bothFinished: player1Finished && player2Finished
-      });
+
       
       if (player1Finished && player2Finished) {
-        console.log('🏁 Both players have finished playing, determining winner...');
-        
         // Use transaction to ensure atomic winner determination
         let updatedMatch: any = null;
         const payoutResult = await AppDataSource.transaction(async (manager: any) => {
@@ -1397,21 +1350,7 @@ const submitResultHandler = async (req: any, res: any) => {
             throw new Error('Match not found during winner determination');
           }
           
-          console.log('🏆 Winner determination - Match state:', {
-            player1Result: updatedMatch.getPlayer1Result(),
-            player2Result: updatedMatch.getPlayer2Result(),
-            winner: updatedMatch.winner,
-            isCompleted: updatedMatch.isCompleted
-          });
-          
           const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
-          
-          console.log('🏆 Winner determination completed:', {
-            matchId,
-            winner: result?.winner,
-            player1Result: updatedMatch.getPlayer1Result(),
-            player2Result: updatedMatch.getPlayer2Result()
-          });
           
           return result;
         });
@@ -1419,7 +1358,6 @@ const submitResultHandler = async (req: any, res: any) => {
         // Clear Redis game state after completion
         try {
           await deleteGameState(matchId);
-          console.log('🧹 Redis game state cleared for completed match:', matchId);
         } catch (error) {
           console.warn('⚠️ Failed to clear Redis game state:', error);
         }
@@ -1427,7 +1365,6 @@ const submitResultHandler = async (req: any, res: any) => {
         // Execute automated payment if there's a clear winner
         // Calculate direct payment instructions
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
-          console.log('💰 Calculating automated payout...');
           
           const winner = payoutResult.winner;
           const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
@@ -2004,7 +1941,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const matchRepository = AppDataSource.getRepository(Match);
       match = await matchRepository.findOne({ where: { id: matchId } });
       if (match) {
-        console.log('✅ Match found in database');
+    
       }
     } catch (dbError: unknown) {
       const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
@@ -2017,7 +1954,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       // Note: inMemoryMatches is kept for backward compatibility but should be migrated to Redis
       match = inMemoryMatches.get(matchId);
       if (match) {
-        console.log('✅ Match found in Redis (via inMemoryMatches)');
+    
       } else {
         console.log('❌ Match not found in database or Redis');
         return res.status(404).json({ error: 'Match not found' });
@@ -3871,76 +3808,171 @@ const convertToEST = (date: any) => {
   return estDate.toISOString().replace('T', ' ').substring(0, 19);
 };
 
-// Helper function to get SOL price in USD with fallback to recent match data
+// Cache for SOL price to reduce API calls
+let solPriceCache = {
+  price: null as number | null,
+  timestamp: 0,
+  expiresAt: 0
+};
+
+// Helper function to get SOL price in USD with robust fallback system
 const getSolPriceUSD = async () => {
-  try {
-    // Try CoinGecko API first
-    const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
-    const data = await response.json();
-    if (data.solana && data.solana.usd) {
-      return data.solana.usd;
-    }
-    throw new Error('Invalid response from CoinGecko');
-  } catch (error: unknown) {
-    console.error('❌ Error fetching SOL price from CoinGecko:', error);
+  const CACHE_DURATION_MS = 30000; // Cache for 30 seconds
+  const now = Date.now();
+  
+  // Check cache first
+  if (solPriceCache.price && solPriceCache.expiresAt > now) {
+    return solPriceCache.price;
+  }
+  
+  // Clear expired cache
+  if (solPriceCache.expiresAt <= now) {
+    solPriceCache = { price: null, timestamp: 0, expiresAt: 0 };
+  }
+  const TIMEOUT_MS = 5000; // 5 second timeout
+  const MAX_RETRIES = 2;
+  
+  // Helper function to make a fetch request with timeout
+  const fetchWithTimeout = async (url: string, options: any = {}) => {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), TIMEOUT_MS);
     
-    // Fallback: Try Binance API
     try {
-      const binanceResponse = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
-      const binanceData = await binanceResponse.json();
-      if (binanceData.price) {
-        console.log('✅ Using Binance fallback price:', parseFloat(binanceData.price));
-        return parseFloat(binanceData.price);
-      }
-    } catch (binanceError) {
-      console.error('❌ Error fetching SOL price from Binance:', binanceError);
+      const response = await fetch(url, {
+        ...options,
+        signal: controller.signal,
+        headers: {
+          'User-Agent': 'Guess5-Game/1.0',
+          'Accept': 'application/json',
+          ...options.headers
+        }
+      });
+      clearTimeout(timeoutId);
+      return response;
+    } catch (error) {
+      clearTimeout(timeoutId);
+      throw error;
     }
-    
+  };
+
+    // Try CoinGecko API with retries
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+      
+      if (!response.ok) {
+        throw new Error(`CoinGecko API returned ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      if (data.solana && data.solana.usd && typeof data.solana.usd === 'number' && data.solana.usd > 0) {
+        const price = data.solana.usd;
+        // Cache the successful result
+        solPriceCache = {
+          price,
+          timestamp: now,
+          expiresAt: now + CACHE_DURATION_MS
+        };
+        return price;
+      }
+      throw new Error('Invalid SOL price data from CoinGecko');
+    } catch (error: unknown) {
+      if (attempt === MAX_RETRIES) {
+        console.error('❌ SOL price fetch failed from all sources');
+      } else {
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+  
+    // Fallback: Try Binance API with retries
+  for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+    try {
+      const response = await fetchWithTimeout('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+      
+      if (!response.ok) {
+        throw new Error(`Binance API returned ${response.status}: ${response.statusText}`);
+      }
+      
+      const data = await response.json();
+      if (data.price && typeof data.price === 'string' && parseFloat(data.price) > 0) {
+        const price = parseFloat(data.price);
+        // Cache the successful result
+        solPriceCache = {
+          price,
+          timestamp: now,
+          expiresAt: now + CACHE_DURATION_MS
+        };
+        return price;
+      }
+      throw new Error('Invalid SOL price data from Binance');
+    } catch (error: unknown) {
+      if (attempt === MAX_RETRIES) {
+        console.error('❌ SOL price fetch failed from all sources');
+      } else {
+        // Wait before retry (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+      }
+    }
+  }
+  
     // Final fallback: Use recent match data to calculate SOL price
-    try {
-      const { AppDataSource } = require('../db/index');
-      const matchRepository = AppDataSource.getRepository(Match);
-      
-      // Get the most recent completed match with valid SOL price data
-      const recentMatch = await matchRepository.findOne({
-        where: {
-          status: 'completed',
-          solPriceAtTransaction: Not(IsNull())
-        },
-        order: {
-          createdAt: 'DESC'
-        }
-      });
-      
-      if (recentMatch && recentMatch.solPriceAtTransaction) {
-        console.log('✅ Using recent match fallback price:', recentMatch.solPriceAtTransaction);
-        return recentMatch.solPriceAtTransaction;
+  try {
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get the most recent completed match with valid SOL price data
+    const recentMatch = await matchRepository.findOne({
+      where: {
+        status: 'completed',
+        solPriceAtTransaction: Not(IsNull())
+      },
+      order: {
+        createdAt: 'DESC'
       }
-      
-      // If no recent match with price, try to calculate from entry fee and USD amount
-      const recentMatchWithUSD = await matchRepository.findOne({
-        where: {
-          status: 'completed',
-          entryFeeUSD: Not(IsNull()),
-          entryFee: Not(IsNull())
-        },
-        order: {
-          createdAt: 'DESC'
-        }
-      });
-      
-      if (recentMatchWithUSD && recentMatchWithUSD.entryFeeUSD && recentMatchWithUSD.entryFee) {
-        const calculatedPrice = recentMatchWithUSD.entryFeeUSD / recentMatchWithUSD.entryFee;
-        console.log('✅ Using calculated fallback price from recent match:', calculatedPrice);
+    });
+    
+    if (recentMatch && recentMatch.solPriceAtTransaction && recentMatch.solPriceAtTransaction > 0) {
+      const price = recentMatch.solPriceAtTransaction;
+      // Cache the fallback result
+      solPriceCache = {
+        price,
+        timestamp: now,
+        expiresAt: now + CACHE_DURATION_MS
+      };
+      return price;
+    }
+    
+    // If no recent match with price, try to calculate from entry fee and USD amount
+    const recentMatchWithUSD = await matchRepository.findOne({
+      where: {
+        status: 'completed',
+        entryFeeUSD: Not(IsNull()),
+        entryFee: Not(IsNull())
+      },
+      order: {
+        createdAt: 'DESC'
+      }
+    });
+    
+    if (recentMatchWithUSD && recentMatchWithUSD.entryFeeUSD && recentMatchWithUSD.entryFee && recentMatchWithUSD.entryFee > 0) {
+      const calculatedPrice = recentMatchWithUSD.entryFeeUSD / recentMatchWithUSD.entryFee;
+      if (calculatedPrice > 0) {
+        // Cache the calculated fallback result
+        solPriceCache = {
+          price: calculatedPrice,
+          timestamp: now,
+          expiresAt: now + CACHE_DURATION_MS
+        };
         return calculatedPrice;
       }
-      
-      console.warn('⚠️ No fallback price available, using default');
-      return null;
-    } catch (dbError) {
-      console.error('❌ Error getting fallback price from database:', dbError);
-      return null;
     }
+    
+    return null;
+  } catch (dbError) {
+    console.error('❌ Error getting fallback price from database:', dbError);
+    return null;
   }
 };
 
