@@ -1258,8 +1258,10 @@ const submitResultHandler = async (req: any, res: any) => {
     const serverEndTime = Date.now();
     const serverTotalTime = serverEndTime - serverStartTime;
 
-    // SERVER-SIDE VALIDATION: Validate time limits
-    if (serverTotalTime > 120000) { // 2 minutes
+    // SERVER-SIDE VALIDATION: Validate time limits (allow timeout submissions)
+    const isTimeoutSubmission = result.reason === 'timeout';
+    if (serverTotalTime > 120000 && !isTimeoutSubmission) { // 2 minutes, but allow timeout submissions
+      console.log('⏰ Time validation failed:', { serverTotalTime, reason: result.reason, isTimeoutSubmission });
       return res.status(400).json({ error: 'Game time exceeded 2-minute limit' });
     }
 
@@ -1271,10 +1273,12 @@ const submitResultHandler = async (req: any, res: any) => {
     console.log('📝 Submitting SERVER-VALIDATED result for match:', matchId);
     console.log('Wallet:', wallet);
     console.log('Is Player 1:', isPlayer1);
-    console.log('Server-validated result:', {
+    console.log('Result details:', {
       won: result.won,
       numGuesses: result.numGuesses,
       totalTime: serverTotalTime,
+      reason: result.reason,
+      isTimeoutSubmission,
       guesses: result.guesses
     });
     console.log('Current match state before save:', {
@@ -1290,7 +1294,7 @@ const submitResultHandler = async (req: any, res: any) => {
       numGuesses: result.numGuesses,
       totalTime: serverTotalTime, // Use server time, not client time
       guesses: result.guesses,
-      reason: 'server-validated'
+      reason: isTimeoutSubmission ? 'timeout' : 'server-validated'
     };
 
     // Update server game state in Redis
@@ -4240,6 +4244,9 @@ const generateReportHandler = async (req: any, res: any) => {
           OR
           -- Include any matches with refund signatures (covers losing ties and other refund scenarios)
           ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL)
+          OR
+          -- Include matches with player results (covers timeout scenarios and other completed games)
+          ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
         )
       ORDER BY "createdAt" DESC
     `);
@@ -4299,9 +4306,11 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 1 Solved',
       'Player 1 Guesses',
       'Player 1 Time (sec)',
+      'Player 1 Result Reason',
       'Player 2 Solved',
       'Player 2 Guesses',
       'Player 2 Time (sec)',
+      'Player 2 Result Reason',
       '🔗 TIMESTAMPS 🔗',
       'Match Created (EST)',
       'Game Started (EST)',
@@ -4364,12 +4373,14 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
         sanitizeCsvValue(match.status === 'completed' ? match.word : 'GAME_CANCELLED'),
         '', // 🔗 GAME RESULTS 🔗
-        sanitizeCsvValue(match.status === 'completed' ? ((player1Result && player1Result.won) ? 'Yes' : 'No') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player1Result && player1Result.numGuesses ? player1Result.numGuesses : '') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player1Result && player1Result.totalTime ? Math.round(player1Result.totalTime / 1000) : '') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? ((player2Result && player2Result.won) ? 'Yes' : 'No') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player2Result && player2Result.numGuesses ? player2Result.numGuesses : '') : 'N/A'),
-        sanitizeCsvValue(match.status === 'completed' ? (player2Result && player2Result.totalTime ? Math.round(player2Result.totalTime / 1000) : '') : 'N/A'),
+        sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
+        sanitizeCsvValue(player1Result && player1Result.numGuesses ? player1Result.numGuesses : ''),
+        sanitizeCsvValue(player1Result && player1Result.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
+        sanitizeCsvValue(player1Result && player1Result.reason ? player1Result.reason : ''),
+        sanitizeCsvValue((player2Result && player2Result.won) ? 'Yes' : (player2Result ? 'No' : 'N/A')),
+        sanitizeCsvValue(player2Result && player2Result.numGuesses ? player2Result.numGuesses : ''),
+        sanitizeCsvValue(player2Result && player2Result.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
+        sanitizeCsvValue(player2Result && player2Result.reason ? player2Result.reason : ''),
         '', // 🔗 TIMESTAMPS 🔗
         convertToEST(match.createdAt),
         convertToEST(match.gameStartTimeUtc),
