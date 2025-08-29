@@ -89,6 +89,14 @@ export default function Lobby() {
     checkWalletBalance();
   }, [publicKey]);
 
+  // Clean up stale match data when lobby loads
+  useEffect(() => {
+    // Clear any stale match data from previous sessions
+    localStorage.removeItem('matchId');
+    localStorage.removeItem('word');
+    localStorage.removeItem('entryFee');
+  }, []);
+
   const checkBalance = async (requiredSol: number) => {
     if (!publicKey) {
       alert('Please connect your wallet first!')

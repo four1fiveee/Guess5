@@ -380,6 +380,10 @@ const Game: React.FC = () => {
           // Handle cancelled matches
           if (matchData.status === 'cancelled') {
             console.log('⚠️ Match was cancelled, redirecting to lobby');
+            // Clear stale match data before redirecting
+            localStorage.removeItem('matchId');
+            localStorage.removeItem('word');
+            localStorage.removeItem('entryFee');
             router.push('/lobby');
             return;
           }

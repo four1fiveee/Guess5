@@ -240,6 +240,17 @@ const Matchmaking: React.FC = () => {
                 clearInterval(pollInterval);
                 setIsPolling(false);
                 setIsMatchmakingInProgress(false);
+                
+                // Clear all stale match data to prevent re-entering cancelled match
+                setMatchData(null);
+                matchDataRef.current = null;
+                localStorage.removeItem('matchId');
+                localStorage.removeItem('word');
+                localStorage.removeItem('entryFee');
+                
+                // Clear URL parameters to prevent re-entering stale match
+                router.replace('/matchmaking', undefined, { shallow: true });
+                
                 return;
               }
               
@@ -497,7 +508,15 @@ const Matchmaking: React.FC = () => {
                 The match was cancelled due to payment timeout. If you paid, you will receive a refund.
               </div>
               <button
-                onClick={() => router.push('/lobby')}
+                onClick={() => {
+                  // Clear all stale match data before going to lobby
+                  setMatchData(null);
+                  matchDataRef.current = null;
+                  localStorage.removeItem('matchId');
+                  localStorage.removeItem('word');
+                  localStorage.removeItem('entryFee');
+                  router.push('/lobby');
+                }}
                 className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
               >
                 Back to Lobby
