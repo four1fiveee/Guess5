@@ -1,7 +1,7 @@
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
-const { Not, LessThan, Between } = require('typeorm');
+const { Not, LessThan, Between, IsNull } = require('typeorm');
 const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const path = require('path');
 const wordListModule = require(path.join(__dirname, '../wordList'));
@@ -3848,15 +3848,119 @@ const convertToEST = (date: any) => {
   return estDate.toISOString().replace('T', ' ').substring(0, 19);
 };
 
-// Helper function to get SOL price in USD
+// Helper function to get SOL price in USD with fallback to recent match data
 const getSolPriceUSD = async () => {
   try {
-    // Using CoinGecko API for SOL price
+    // Try CoinGecko API first
     const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
     const data = await response.json();
-    return data.solana.usd;
+    if (data.solana && data.solana.usd) {
+      return data.solana.usd;
+    }
+    throw new Error('Invalid response from CoinGecko');
   } catch (error: unknown) {
-    console.error('❌ Error fetching SOL price:', error);
+    console.error('❌ Error fetching SOL price from CoinGecko:', error);
+    
+    // Fallback: Try Binance API
+    try {
+      const binanceResponse = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+      const binanceData = await binanceResponse.json();
+      if (binanceData.price) {
+        console.log('✅ Using Binance fallback price:', parseFloat(binanceData.price));
+        return parseFloat(binanceData.price);
+      }
+    } catch (binanceError) {
+      console.error('❌ Error fetching SOL price from Binance:', binanceError);
+    }
+    
+    // Final fallback: Use recent match data to calculate SOL price
+    try {
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
+      
+      // Get the most recent completed match with valid SOL price data
+      const recentMatch = await matchRepository.findOne({
+        where: {
+          status: 'completed',
+          solPriceAtTransaction: Not(IsNull())
+        },
+        order: {
+          createdAt: 'DESC'
+        }
+      });
+      
+      if (recentMatch && recentMatch.solPriceAtTransaction) {
+        console.log('✅ Using recent match fallback price:', recentMatch.solPriceAtTransaction);
+        return recentMatch.solPriceAtTransaction;
+      }
+      
+      // If no recent match with price, try to calculate from entry fee and USD amount
+      const recentMatchWithUSD = await matchRepository.findOne({
+        where: {
+          status: 'completed',
+          entryFeeUSD: Not(IsNull()),
+          entryFee: Not(IsNull())
+        },
+        order: {
+          createdAt: 'DESC'
+        }
+      });
+      
+      if (recentMatchWithUSD && recentMatchWithUSD.entryFeeUSD && recentMatchWithUSD.entryFee) {
+        const calculatedPrice = recentMatchWithUSD.entryFeeUSD / recentMatchWithUSD.entryFee;
+        console.log('✅ Using calculated fallback price from recent match:', calculatedPrice);
+        return calculatedPrice;
+      }
+      
+      console.warn('⚠️ No fallback price available, using default');
+      return null;
+    } catch (dbError) {
+      console.error('❌ Error getting fallback price from database:', dbError);
+      return null;
+    }
+  }
+};
+
+// Helper function to get the most recent SOL price from completed matches
+const getRecentSolPriceFromMatches = async () => {
+  try {
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get the most recent completed match with valid SOL price data
+    const recentMatch = await matchRepository.findOne({
+      where: {
+        status: 'completed',
+        solPriceAtTransaction: Not(IsNull())
+      },
+      order: {
+        createdAt: 'DESC'
+      }
+    });
+    
+    if (recentMatch && recentMatch.solPriceAtTransaction) {
+      return recentMatch.solPriceAtTransaction;
+    }
+    
+    // If no recent match with price, try to calculate from entry fee and USD amount
+    const recentMatchWithUSD = await matchRepository.findOne({
+      where: {
+        status: 'completed',
+        entryFeeUSD: Not(IsNull()),
+        entryFee: Not(IsNull())
+      },
+      order: {
+        createdAt: 'DESC'
+      }
+    });
+    
+    if (recentMatchWithUSD && recentMatchWithUSD.entryFeeUSD && recentMatchWithUSD.entryFee) {
+      return recentMatchWithUSD.entryFeeUSD / recentMatchWithUSD.entryFee;
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('❌ Error getting recent SOL price from matches:', error);
     return null;
   }
 };
