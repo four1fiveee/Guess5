@@ -43,6 +43,8 @@ const Game: React.FC = () => {
 
   // handleGameEnd with correct totalTime and immediate navigation for specific reasons
   const handleGameEnd = useCallback(async (won: boolean, reason?: string, customGuesses?: string[]) => {
+    console.log('🏁 handleGameEnd called:', { won, reason, customGuesses, isSubmittingResult, hasPlayerResult: !!playerResult });
+    
     if (isSubmittingResult) {
       console.log('⏳ Already submitting result, ignoring duplicate call');
       return;
@@ -56,7 +58,7 @@ const Game: React.FC = () => {
     // Use custom guesses if provided (for testing), otherwise use current guesses
     const finalGuesses = customGuesses || guesses;
     const endTime = Date.now();
-    const totalTime = endTime - startTime;
+    const totalTime = startTime > 0 ? endTime - startTime : 120000; // Use 2 minutes if startTime not set
 
     const result = {
       won,
@@ -249,6 +251,7 @@ const Game: React.FC = () => {
         if (data.solved) {
           setGameState('solved');
           setTimerActive(false);
+          console.log('⏰ Timer stopped - player solved the puzzle');
           // Don't show solved state - immediately submit result and go to waiting
           if (!playerResult && !isSubmittingResult) {
             console.log('🏆 Player solved, immediately submitting result');
@@ -436,14 +439,25 @@ const Game: React.FC = () => {
 
   // Timer countdown
   useEffect(() => {
-    if (!timerActive || gameState !== 'playing') return;
+    if (!timerActive || gameState !== 'playing') {
+      if (timerActive && gameState !== 'playing') {
+        console.log('⏰ Timer stopped - game state changed to:', gameState);
+        setTimerActive(false);
+      }
+      return;
+    }
 
     const timer = setInterval(() => {
       setTimeRemaining(prev => {
-        if (prev <= 1) {
+        if (prev <= 0) {
           clearInterval(timer);
-          if (!isSubmittingResult) {
+          setTimerActive(false);
+          console.log('⏰ Timer reached zero, submitting timeout result');
+          if (!isSubmittingResult && !playerResult) {
+            console.log('⏰ Calling handleGameEnd with timeout reason');
             handleGameEndRef.current?.(false, 'timeout');
+          } else {
+            console.log('⏰ Skipping timeout submission - already submitting or has result:', { isSubmittingResult, hasPlayerResult: !!playerResult });
           }
           return 0;
         }
@@ -452,11 +466,13 @@ const Game: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [timerActive, gameState]);
+  }, [timerActive, gameState, isSubmittingResult, playerResult]);
 
   // Start timer when game begins
   useEffect(() => {
     if (gameState === 'playing' && !timerActive) {
+      console.log('⏰ Starting 2-minute timer');
+      setTimeRemaining(120); // Reset timer to 2 minutes
       setTimerActive(true);
     }
   }, [gameState, timerActive]);
