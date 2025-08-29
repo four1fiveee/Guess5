@@ -377,6 +377,13 @@ const Game: React.FC = () => {
         if (matchData.status !== 'active') {
           console.log('⚠️ Match is not active, status:', matchData.status);
           
+          // Handle cancelled matches
+          if (matchData.status === 'cancelled') {
+            console.log('⚠️ Match was cancelled, redirecting to lobby');
+            router.push('/lobby');
+            return;
+          }
+          
           // If both players have paid but status is still payment_required, wait a moment and retry
           if (matchData.status === 'payment_required' && matchData.player1Paid && matchData.player2Paid) {
         

@@ -234,6 +234,15 @@ const Matchmaking: React.FC = () => {
                 return updated;
               });
 
+              // Check if match was cancelled
+              if (data.status === 'cancelled') {
+                setStatus('cancelled');
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
+                return;
+              }
+              
               // Check if both players have paid and game is active
               if (data.player1Paid && data.player2Paid && data.status === 'active') {
                 setStatus('active');
@@ -485,7 +494,7 @@ const Matchmaking: React.FC = () => {
             <div>
               <h2 className="text-2xl font-bold text-yellow-400 mb-4">Match Cancelled</h2>
               <div className="text-white/80 mb-4">
-                The match was cancelled.
+                The match was cancelled due to payment timeout. If you paid, you will receive a refund.
               </div>
               <button
                 onClick={() => router.push('/lobby')}
