@@ -89,13 +89,43 @@ export default function Lobby() {
     checkWalletBalance();
   }, [publicKey]);
 
-  // Clean up stale match data when lobby loads
+  // Clean up stale match data and check for existing matches when lobby loads
   useEffect(() => {
     // Clear any stale match data from previous sessions
     localStorage.removeItem('matchId');
     localStorage.removeItem('word');
     localStorage.removeItem('entryFee');
-  }, []);
+    
+    // Check if player has an active match
+    const checkForActiveMatch = async () => {
+      if (!publicKey) return;
+      
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/match/check-player-match/${publicKey.toString()}`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.matched && data.status === 'active') {
+            console.log('🎮 Found active match, redirecting to game:', data.matchId);
+            localStorage.setItem('matchId', data.matchId);
+            if (data.word) {
+              localStorage.setItem('word', data.word);
+            }
+            if (data.entryFee) {
+              localStorage.setItem('entryFee', data.entryFee.toString());
+            }
+            router.push(`/game?matchId=${data.matchId}`);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error checking for active match:', error);
+      }
+    };
+    
+    checkForActiveMatch();
+  }, [publicKey, router]);
 
   const checkBalance = async (requiredSol: number) => {
     if (!publicKey) {

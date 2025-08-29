@@ -1338,9 +1338,14 @@ const submitResultHandler = async (req: any, res: any) => {
       const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7 || player1Result;
       const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7 || player2Result;
       
-
+      // Check if match should complete:
+      // 1. Both players have submitted results, OR
+      // 2. One player has submitted a timeout result and the other player has no result (never got to game)
+      const shouldComplete = (player1Finished && player2Finished) || 
+                           (player1Result && player1Result.reason === 'timeout' && !player2Result) ||
+                           (player2Result && player2Result.reason === 'timeout' && !player1Result);
       
-      if (player1Finished && player2Finished) {
+      if (shouldComplete) {
         // Use transaction to ensure atomic winner determination
         let updatedMatch: any = null;
         const payoutResult = await AppDataSource.transaction(async (manager: any) => {
@@ -1348,6 +1353,33 @@ const submitResultHandler = async (req: any, res: any) => {
           updatedMatch = await manager.findOne(Match, { where: { id: matchId } });
           if (!updatedMatch) {
             throw new Error('Match not found during winner determination');
+          }
+          
+          // Handle case where one player times out and the other never gets to the game
+          const player1Result = updatedMatch.getPlayer1Result();
+          const player2Result = updatedMatch.getPlayer2Result();
+          
+          if ((player1Result && player1Result.reason === 'timeout' && !player2Result) ||
+              (player2Result && player2Result.reason === 'timeout' && !player1Result)) {
+            console.log('⏰ One player timed out, other player never got to game - creating timeout result for missing player');
+            
+            // Create a timeout result for the missing player
+            const timeoutResult = {
+              won: false,
+              numGuesses: 0,
+              totalTime: 120000, // 2 minutes
+              guesses: [],
+              reason: 'timeout'
+            };
+            
+            if (!player1Result) {
+              updatedMatch.setPlayer1Result(timeoutResult);
+            } else if (!player2Result) {
+              updatedMatch.setPlayer2Result(timeoutResult);
+            }
+            
+            // Save the updated match
+            await manager.save(updatedMatch);
           }
           
           const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
@@ -3104,6 +3136,10 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       
       // Initialize server-side game state with the SAME word for both players
       const word = freshMatch.word || getRandomWord();
+      
+      // Ensure the word is saved to the database for both players to access
+      freshMatch.word = word;
+      
       const newGameState = {
         startTime: Date.now(),
         player1StartTime: Date.now(),

@@ -390,10 +390,17 @@ const Game: React.FC = () => {
           
           // If both players have paid but status is still payment_required, wait a moment and retry
           if (matchData.status === 'payment_required' && matchData.player1Paid && matchData.player2Paid) {
-        
+            console.log('⏳ Both players paid but game not yet active, waiting...');
             setTimeout(() => {
               router.reload();
             }, 2000);
+            return;
+          }
+          
+          // If match is completed, redirect to result page
+          if (matchData.status === 'completed' || matchData.isCompleted) {
+            console.log('✅ Match is completed, redirecting to result page');
+            router.push(`/result?matchId=${gameMatchId}`);
             return;
           }
           
