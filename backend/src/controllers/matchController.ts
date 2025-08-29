@@ -2166,65 +2166,15 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
       
       if (availableWaitingMatches.length > 0) {
         const availableWaitingMatch = availableWaitingMatches[0];
-        console.log('🎯 Found available waiting match for player to join:', {
+        console.log('🎯 Found available waiting match, but not creating duplicate - Redis handles matchmaking:', {
           waitingEntryId: availableWaitingMatch.id,
           waitingPlayer: availableWaitingMatch.player1,
           entryFee: availableWaitingMatch.entryFee,
           requestingPlayer: wallet
         });
         
-        // Create a new match (don't update the waiting entry)
-        const actualEntryFee = Math.min(availableWaitingMatch.entryFee, 0.1039); // Use the entry fee from the request
-        
-        // Generate game word
-        const gameWord = getRandomWord();
-        
-        // Create new match record
-        let newMatchResult = [];
-        try {
-          newMatchResult = await matchRepository.query(`
-            INSERT INTO "match" (
-              "player1", "player2", "entryFee", "status", "word", 
-              "player1Paid", "player2Paid", "createdAt", "updatedAt"
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-            RETURNING id, "player1", "player2", "entryFee", "status"
-          `, [
-            availableWaitingMatch.player1, wallet, actualEntryFee, 'payment_required', gameWord,
-            false, false, new Date(), new Date()
-          ]);
-          
-          const newMatch = newMatchResult[0];
-          
-          // Delete the waiting entry since we've created a match
-          try {
-            await matchRepository.query(`
-              DELETE FROM "match" 
-              WHERE id = $1
-            `, [availableWaitingMatch.id]);
-          } catch (deleteError) {
-            console.error('❌ Error deleting waiting entry:', deleteError);
-            // Continue even if deletion fails
-          }
-          
-          console.log('✅ Successfully created match and removed waiting entry');
-          
-          res.json({
-            matched: true,
-            matchId: newMatch.id,
-            status: 'payment_required',
-            player1: newMatch.player1,
-            player2: wallet,
-            player1Paid: false,
-            player2Paid: false,
-            entryFee: newMatch.entryFee,
-            message: 'Match created - please pay your entry fee'
-          });
-          return;
-        } catch (createError) {
-          console.error('❌ Error creating match:', createError);
-          // Continue to check for waiting matches
-        }
+        // Don't create matches here - let Redis handle all matchmaking
+        // This prevents duplicate matches from being created
       }
       
       // Also check for waiting matches to debug using raw SQL
