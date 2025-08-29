@@ -3921,6 +3921,13 @@ const getSolPriceUSD = async () => {
   }
 };
 
+// Helper function to determine the correct network for explorer links
+const getExplorerNetwork = () => {
+  const network = (process.env.SOLANA_NETWORK && process.env.SOLANA_NETWORK.toLowerCase().includes('devnet')) ? 'devnet' : 'mainnet';
+  console.log(`🔗 Network detection: SOLANA_NETWORK="${process.env.SOLANA_NETWORK}", detected="${network}"`);
+  return network;
+};
+
 // Helper function to get the most recent SOL price from completed matches
 const getRecentSolPriceFromMatches = async () => {
   try {
@@ -3991,7 +3998,7 @@ const getTransactionDetails = async (signature: any) => {
     const solPrice = await getSolPriceUSD();
     
     // Create explorer links
-    const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet';
+    const network = getExplorerNetwork();
     const explorerLink = `https://explorer.solana.com/tx/${signature}?cluster=${network}`;
     const solscanLink = `https://solscan.io/tx/${signature}?cluster=${network}`;
     
@@ -4316,7 +4323,7 @@ const generateReportHandler = async (req: any, res: any) => {
     // Generate CSV rows with available data
     const csvRows = matches.map((match: any) => {
       // Determine explorer network
-      const network = (process.env.SOLANA_NETWORK && process.env.SOLANA_NETWORK.includes('devnet')) ? 'devnet' : 'mainnet';
+      const network = getExplorerNetwork();
       
       // Parse player results for meaningful data
       const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
