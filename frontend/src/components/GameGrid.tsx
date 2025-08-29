@@ -113,7 +113,11 @@ const GameGrid: React.FC<{
               type="text"
               maxLength={5}
               value={currentGuess}
-              onChange={e => setCurrentGuess(e.target.value.toUpperCase())}
+              onChange={e => {
+                // Only allow A-Z characters, filter out everything else
+                const filteredValue = e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase();
+                setCurrentGuess(filteredValue);
+              }}
               className="px-6 py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white text-center text-xl font-semibold placeholder-white/50 focus:outline-none focus:border-accent"
               disabled={remainingGuesses <= 0}
               onKeyDown={handleKeyDown}
