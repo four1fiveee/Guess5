@@ -94,7 +94,7 @@ export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn =
       wsRef.current = ws;
 
       ws.onopen = () => {
-        console.log('🔌 WebSocket connected');
+    
         setState(prev => ({
           ...prev,
           isConnected: true,
@@ -135,7 +135,7 @@ export const useWebSocket = (options: UseWebSocketOptions): UseWebSocketReturn =
       };
 
       ws.onclose = (event) => {
-        console.log('🔌 WebSocket disconnected:', event.code, event.reason);
+    
         setState(prev => ({
           ...prev,
           isConnected: false,

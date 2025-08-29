@@ -226,7 +226,7 @@ const Game: React.FC = () => {
       
       if (response.ok) {
         const data = await response.json();
-        console.log('🔄 Fetched game state:', data);
+    
         
         if (!data.success) {
           console.error('❌ Game state fetch failed:', data.error);
@@ -237,14 +237,6 @@ const Game: React.FC = () => {
         setNetworkStatus('connected');
         
         // Update local state with server data
-        console.log('🔄 Updating game state with server data:', {
-          playerGuesses: data.playerGuesses,
-          remainingGuesses: data.remainingGuesses,
-          targetWord: data.targetWord,
-          solved: data.solved,
-          gameActive: data.gameActive,
-          gameCompleted: data.gameCompleted
-        });
         setGuesses(data.playerGuesses || []);
         setRemainingGuesses(data.remainingGuesses || 7);
         setTargetWord(data.targetWord || '');

@@ -37,13 +37,13 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
 
     // Create new SSE connection
     const sseUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`;
-    console.log('🔌 Attempting SSE connection to:', sseUrl);
+
     
     const eventSource = new EventSource(sseUrl);
     eventSourceRef.current = eventSource;
 
     eventSource.onopen = () => {
-      console.log('🔌 SSE connection opened for wallet:', walletAddress);
+  
       setIsConnected(true);
       setError(null);
       reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
@@ -55,7 +55,7 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
         
         switch (data.type) {
           case 'connected':
-            console.log('✅ SSE connected for wallet:', data.wallet);
+        
             break;
             
           case 'balance_update':
@@ -104,7 +104,7 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
     // Cleanup function
     return () => {
       if (eventSource) {
-        console.log('🔌 Closing SSE connection for wallet:', walletAddress);
+    
         eventSource.close();
         setIsConnected(false);
       }
