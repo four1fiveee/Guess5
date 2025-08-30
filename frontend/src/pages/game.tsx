@@ -41,6 +41,42 @@ const Game: React.FC = () => {
   const handleGameEndRef = useRef<typeof handleGameEnd>();
   const memoizedFetchGameStateRef = useRef<typeof memoizedFetchGameState>();
 
+  // Safe localStorage wrapper with error handling
+  const safeLocalStorage = {
+    setItem: (key: string, value: string) => {
+      try {
+        localStorage.setItem(key, value);
+      } catch (error) {
+        console.error(`❌ localStorage.setItem failed for ${key}:`, error);
+        // Fallback: try to clear some space and retry
+        try {
+          // Remove old data to make space
+          const keysToRemove = ['oldMatchData', 'tempData'];
+          keysToRemove.forEach(k => localStorage.removeItem(k));
+          localStorage.setItem(key, value);
+        } catch (retryError) {
+          console.error(`❌ localStorage retry failed for ${key}:`, retryError);
+          setError('Storage error - game data may not be saved');
+        }
+      }
+    },
+    getItem: (key: string): string | null => {
+      try {
+        return localStorage.getItem(key);
+      } catch (error) {
+        console.error(`❌ localStorage.getItem failed for ${key}:`, error);
+        return null;
+      }
+    },
+    removeItem: (key: string) => {
+      try {
+        localStorage.removeItem(key);
+      } catch (error) {
+        console.error(`❌ localStorage.removeItem failed for ${key}:`, error);
+      }
+    }
+  };
+
   // handleGameEnd with correct totalTime and immediate navigation for specific reasons
   const handleGameEnd = useCallback(async (won: boolean, reason?: string, customGuesses?: string[]) => {
     console.log('🏁 handleGameEnd called:', { won, reason, customGuesses, isSubmittingResult, hasPlayerResult: !!playerResult });
@@ -131,7 +167,7 @@ const Game: React.FC = () => {
         };
         
         // Store payout data in localStorage
-        localStorage.setItem('payoutData', JSON.stringify(payoutData));
+        safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
 
         
         // Navigate to results page
@@ -178,7 +214,7 @@ const Game: React.FC = () => {
                   payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
                 };
                 
-                localStorage.setItem('payoutData', JSON.stringify(payoutData));
+                safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
         
                 
                 router.push(`/result?matchId=${matchId}`);
@@ -297,8 +333,8 @@ const Game: React.FC = () => {
                   payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
                 };
                 
-                // Store payout data in localStorage
-                localStorage.setItem('payoutData', JSON.stringify(payoutData));
+                        // Store payout data in localStorage
+        safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
         
               }
             }
@@ -350,8 +386,8 @@ const Game: React.FC = () => {
         let gameMatchId = router.query.matchId as string;
         
         if (!gameMatchId) {
-          // Fallback to localStorage if not in URL
-          gameMatchId = localStorage.getItem('matchId') || '';
+                  // Fallback to localStorage if not in URL
+        gameMatchId = safeLocalStorage.getItem('matchId') || '';
       
         }
 
@@ -381,9 +417,9 @@ const Game: React.FC = () => {
           if (matchData.status === 'cancelled') {
             console.log('⚠️ Match was cancelled, redirecting to lobby');
             // Clear stale match data before redirecting
-            localStorage.removeItem('matchId');
-            localStorage.removeItem('word');
-            localStorage.removeItem('entryFee');
+            safeLocalStorage.removeItem('matchId');
+            safeLocalStorage.removeItem('word');
+            safeLocalStorage.removeItem('entryFee');
             router.push('/lobby');
             return;
           }
@@ -454,6 +490,76 @@ const Game: React.FC = () => {
       window.removeEventListener('touchstart', updateActivity);
     };
   }, []);
+
+  // Enhanced edge case handling for browser/tab management
+  useEffect(() => {
+    // Handle browser visibility changes (tab switching, minimizing)
+    const handleVisibilityChange = () => {
+      if (document.hidden) {
+        console.log('📱 Tab/window hidden - pausing game updates');
+        setNetworkStatus('disconnected');
+      } else {
+        console.log('📱 Tab/window visible - resuming game updates');
+        setNetworkStatus('connected');
+        // Refresh game state when tab becomes visible
+        if (gameState === 'playing') {
+          memoizedFetchGameStateRef.current?.();
+        }
+      }
+    };
+
+    // Handle page focus/blur events
+    const handleFocus = () => {
+      console.log('📱 Page focused - refreshing game state');
+      if (gameState === 'playing') {
+        memoizedFetchGameStateRef.current?.();
+      }
+    };
+
+    // Handle beforeunload (page refresh/close)
+    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (gameState === 'playing' && !playerSolved) {
+        const message = 'Game in progress! Are you sure you want to leave?';
+        e.preventDefault();
+        e.returnValue = message;
+        return message;
+      }
+    };
+
+    // Handle storage quota exceeded errors
+    const handleStorageError = (e: StorageEvent) => {
+      if (e.key === null && e.newValue === null) {
+        console.error('❌ localStorage quota exceeded or corrupted');
+        setError('Storage error - please refresh the page');
+      }
+    };
+
+    // Add event listeners
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('focus', handleFocus);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    window.addEventListener('storage', handleStorageError);
+
+    // Mobile-specific handling
+    const handleOrientationChange = () => {
+      console.log('📱 Orientation changed - refreshing layout');
+      // Force a small delay to let orientation settle
+      setTimeout(() => {
+        window.dispatchEvent(new Event('resize'));
+      }, 100);
+    };
+
+    window.addEventListener('orientationchange', handleOrientationChange);
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('focus', handleFocus);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+      window.removeEventListener('storage', handleStorageError);
+      window.removeEventListener('orientationchange', handleOrientationChange);
+    };
+  }, [gameState, playerSolved]);
 
   // Timer countdown
   useEffect(() => {

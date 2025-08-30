@@ -198,24 +198,33 @@ const Matchmaking: React.FC = () => {
             try {
               const data = await api.checkPlayerMatch(publicKey.toString());
               
-                              if (data.matched) {
-                  // Stop current polling
-                  clearInterval(pollInterval);
-                  setIsMatchmakingInProgress(false);
-                  
-                  // Set the match data
-                  setMatchData(data);
-                  matchDataRef.current = data; // Update ref to avoid closure issues
-                  setStatus('payment_required');
-                  
-                  // Start new polling for status updates
-                  setIsPolling(true);
-                  startPolling();
-                  return; // Exit early to restart polling with new match data
-                }
+              if (data.matched) {
+                // Stop current polling
+                clearInterval(pollInterval);
+                setIsMatchmakingInProgress(false);
+                
+                // Set the match data
+                setMatchData(data);
+                matchDataRef.current = data; // Update ref to avoid closure issues
+                setStatus('payment_required');
+                
+                // Start new polling for status updates
+                setIsPolling(true);
+                startPolling();
+                return; // Exit early to restart polling with new match data
+              }
             } catch (error) {
               console.error('❌ Error checking for match:', error);
               console.error('❌ Error details:', error instanceof Error ? error.message : String(error));
+              
+              // Enhanced error handling for network issues
+              if (error instanceof Error) {
+                if (error.name === 'AbortError' || error.message.includes('timeout')) {
+                  console.log('⏰ Network timeout - will retry on next poll cycle');
+                } else if (error.message.includes('Failed to fetch')) {
+                  console.log('🌐 Network error - will retry on next poll cycle');
+                }
+              }
             }
           } else if (currentMatchData && currentMatchData.matchId) {
             // Check payment status for existing match
