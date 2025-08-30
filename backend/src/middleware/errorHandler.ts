@@ -1,5 +1,10 @@
 import { enhancedLogger } from '../utils/enhancedLogger';
 
+// Async handler wrapper for Express routes
+export const asyncHandler = (fn: any) => (req: any, res: any, next: any) => {
+  Promise.resolve(fn(req, res, next)).catch(next);
+};
+
 // Enhanced error types for better frontend compatibility
 export enum BackendErrorType {
   NETWORK_TIMEOUT = 'network_timeout',
