@@ -1,7 +1,8 @@
 const express = require('express');
 const cors = require('cors');
 const { initializeDatabase, AppDataSource } = require('./db/index');
-const { errorHandler, notFound, asyncHandler } = require('./middleware/errorHandler');
+const { errorHandler, timeoutHandler, withRetry, healthCheck } = require('./middleware/errorHandler');
+const { correlationIdMiddleware, requestLoggingMiddleware, errorTrackingMiddleware } = require('./middleware/correlationId');
 const { validateMatchRequest, validateSubmitResult, validateSubmitGuess } = require('./middleware/validation');
 const { deduplicateRequests } = require('./middleware/deduplication');
 const matchRoutes = require('./routes/matchRoutes');
@@ -97,6 +98,13 @@ app.options('*', (req: any, res: any) => {
   res.status(200).end();
 });
 
+// Apply correlation ID and logging middleware
+app.use(correlationIdMiddleware);
+app.use(requestLoggingMiddleware);
+
+// Apply timeout handler for long-running operations
+app.use(timeoutHandler(30000)); // 30 second timeout
+
 // Apply deduplication middleware
 app.use(deduplicateRequests);
 
@@ -166,10 +174,7 @@ app.use((req: any, res: any, next: any) => {
 });
 
 // Health check endpoint
-app.get('/health', asyncHandler(async (req: any, res: any) => {
-  const { healthCheckHandler } = require('./utils/healthCheck');
-  await healthCheckHandler(req, res);
-}));
+app.get('/health', healthCheck);
 
 // Test endpoint for CSP debugging
 app.get('/api/test-csp', (req: any, res: any) => {
@@ -222,7 +227,12 @@ if (process.env.NODE_ENV === 'development') {
 }
 
 // 404 handler
-app.use(notFound);
+app.use((req: any, res: any) => {
+  res.status(404).json({ error: `Not found - ${req.originalUrl}` });
+});
+
+// Error tracking middleware
+app.use(errorTrackingMiddleware);
 
 // Error handler (must be last)
 app.use(errorHandler);

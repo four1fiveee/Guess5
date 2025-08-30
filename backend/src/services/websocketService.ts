@@ -31,6 +31,9 @@ interface WebSocketConnection {
   matchId?: string;
   isAlive: boolean;
   lastPing: number;
+  pingInterval?: NodeJS.Timeout;
+  reconnectAttempts: number;
+  lastActivity: number;
 }
 
 class WebSocketService {
@@ -70,7 +73,9 @@ class WebSocketService {
         ws,
         wallet,
         isAlive: true,
-        lastPing: Date.now()
+        lastPing: Date.now(),
+        reconnectAttempts: 0,
+        lastActivity: Date.now()
       });
 
       // Track wallet connections
@@ -99,8 +104,10 @@ class WebSocketService {
       ws.on('error', (error: any) => this.handleError(connectionId, error));
       ws.on('pong', () => this.handlePong(connectionId));
 
-      // Start ping interval
+      // Start ping interval for connection health monitoring
       this.startPingInterval(connectionId);
+
+      // Connection is already started above
     });
 
     // Setup ping interval for all connections
@@ -165,8 +172,14 @@ class WebSocketService {
 
     enhancedLogger.info('🔌 WebSocket client disconnected', { 
       connectionId, 
-      wallet: connection.wallet 
+      wallet: connection.wallet,
+      reconnectAttempts: connection.reconnectAttempts
     });
+
+    // Clean up ping interval
+    if (connection.pingInterval) {
+      clearInterval(connection.pingInterval);
+    }
 
     // Clean up subscriptions
     if (connection.matchId) {
@@ -204,13 +217,17 @@ class WebSocketService {
     if (!connection) return;
 
     const pingInterval = setInterval(() => {
-             if (connection.ws.readyState === WebSocket.OPEN) {
+      if (connection.ws.readyState === WebSocket.OPEN) {
         connection.ws.ping();
+        connection.lastPing = Date.now();
       } else {
         clearInterval(pingInterval);
         this.handleDisconnect(connectionId);
       }
     }, 30000); // 30 seconds
+
+    // Store interval reference for cleanup
+    connection.pingInterval = pingInterval;
   }
 
   private pingAllConnections() {
