@@ -1,4 +1,3 @@
-import { Request, Response, NextFunction } from 'express';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 // Enhanced error types for better frontend compatibility
@@ -22,7 +21,7 @@ export interface BackendError {
 }
 
 // Enhanced error handler middleware
-export const errorHandler = (err: any, req: Request, res: Response, next: NextFunction) => {
+export const errorHandler = (err: any, req: any, res: any, next: any) => {
   const correlationId = req.headers['x-correlation-id'] as string || `req-${Date.now()}`;
   
   // Log the error with correlation ID for tracking
@@ -126,7 +125,7 @@ export const errorHandler = (err: any, req: Request, res: Response, next: NextFu
 
 // Enhanced timeout middleware for long-running operations
 export const timeoutHandler = (timeoutMs: number = 30000) => {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return (req: any, res: any, next: any) => {
     const timeoutId = setTimeout(() => {
       const error = new Error('Request timeout');
       error.name = 'TimeoutError';
@@ -142,49 +141,49 @@ export const timeoutHandler = (timeoutMs: number = 30000) => {
   };
 };
 
-// Enhanced retry logic for database operations
-export const withRetry = async <T>(
-  operation: () => Promise<T>,
-  maxRetries: number = 3,
-  baseDelay: number = 1000
-): Promise<T> => {
-  let lastError: any;
-
-  for (let attempt = 0; attempt <= maxRetries; attempt++) {
-    try {
-      return await operation();
-    } catch (error) {
-      lastError = error;
-      
-      if (attempt === maxRetries) {
-        throw error;
-      }
-
-      // Only retry on certain error types
-      if (error.name === 'TimeoutError' || 
-          error.message?.includes('timeout') ||
-          error.message?.includes('connection') ||
-          error.message?.includes('Redis')) {
+  // Enhanced retry logic for database operations
+  export const withRetry = async <T>(
+    operation: () => Promise<T>,
+    maxRetries: number = 3,
+    baseDelay: number = 1000
+  ): Promise<T> => {
+    let lastError: any;
+  
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        return await operation();
+      } catch (error: any) {
+        lastError = error;
         
-        const delay = baseDelay * Math.pow(2, attempt);
-        enhancedLogger.warn(`⚠️ Retrying operation (attempt ${attempt + 1}/${maxRetries}) in ${delay}ms`, {
-          error: error.message,
-          attempt
-        });
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
-      } else {
-        // Don't retry on validation or other non-retryable errors
-        throw error;
+        if (attempt === maxRetries) {
+          throw error;
+        }
+  
+        // Only retry on certain error types
+        if (error.name === 'TimeoutError' || 
+            error.message?.includes('timeout') ||
+            error.message?.includes('connection') ||
+            error.message?.includes('Redis')) {
+          
+          const delay = baseDelay * Math.pow(2, attempt);
+          enhancedLogger.warn(`⚠️ Retrying operation (attempt ${attempt + 1}/${maxRetries}) in ${delay}ms`, {
+            error: error.message,
+            attempt
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          // Don't retry on validation or other non-retryable errors
+          throw error;
+        }
       }
     }
-  }
-
-  throw lastError;
-};
+  
+    throw lastError;
+  };
 
 // Health check endpoint with detailed status
-export const healthCheck = async (req: Request, res: Response) => {
+export const healthCheck = async (req: any, res: any) => {
   try {
     const { AppDataSource } = require('../db/index');
     const { checkRedisHealth } = require('../config/redis');
@@ -217,7 +216,7 @@ export const healthCheck = async (req: Request, res: Response) => {
 
     const statusCode = healthStatus.status === 'healthy' ? 200 : 503;
     res.status(statusCode).json(healthStatus);
-  } catch (error) {
+  } catch (error: any) {
     enhancedLogger.error('❌ Health check failed:', error);
     res.status(503).json({
       timestamp: new Date().toISOString(),

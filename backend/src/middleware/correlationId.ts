@@ -1,8 +1,7 @@
-import { Request, Response, NextFunction } from 'express';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 // Correlation ID middleware for request tracking
-export const correlationIdMiddleware = (req: Request, res: Response, next: NextFunction) => {
+export const correlationIdMiddleware = (req: any, res: any, next: any) => {
   // Generate or use existing correlation ID
   const correlationId = req.headers['x-correlation-id'] as string || 
                        req.headers['x-request-id'] as string || 
@@ -39,7 +38,7 @@ export const correlationIdMiddleware = (req: Request, res: Response, next: NextF
 };
 
 // Enhanced logging middleware for debugging edge cases
-export const requestLoggingMiddleware = (req: Request, res: Response, next: NextFunction) => {
+export const requestLoggingMiddleware = (req: any, res: any, next: any) => {
   const startTime = Date.now();
   const correlationId = (req as any).correlationId;
 
@@ -86,7 +85,7 @@ export const requestLoggingMiddleware = (req: Request, res: Response, next: Next
 };
 
 // Error tracking middleware
-export const errorTrackingMiddleware = (err: any, req: Request, res: Response, next: NextFunction) => {
+export const errorTrackingMiddleware = (err: any, req: any, res: any, next: any) => {
   const correlationId = (req as any).correlationId;
 
   enhancedLogger.error('❌ Request error', {
