@@ -198,7 +198,12 @@ export const healthCheck = async (req: any, res: any) => {
     const dbStatus = AppDataSource.isInitialized ? 'healthy' : 'unhealthy';
     
     // Check Redis connections
-    const redisStatus = await checkRedisHealth();
+    const redisHealth = await checkRedisHealth();
+    const redisStatus = {
+      mm: redisHealth.mm ? 'healthy' : 'unhealthy',
+      ops: redisHealth.ops ? 'healthy' : 'unhealthy',
+      overall: redisHealth.mm && redisHealth.ops ? 'healthy' : 'degraded'
+    };
     
     // Check WebSocket service
     const wsStats = websocketService.getStats();
@@ -219,8 +224,10 @@ export const healthCheck = async (req: any, res: any) => {
       }
     };
 
-    const statusCode = healthStatus.status === 'healthy' ? 200 : 503;
-    res.status(statusCode).json(healthStatus);
+    // For deployment health checks, return 200 if database is healthy (most critical service)
+    // Only return 503 if database is completely down
+    const deploymentStatus = dbStatus === 'healthy' ? 200 : 503;
+    res.status(deploymentStatus).json(healthStatus);
   } catch (error: any) {
     enhancedLogger.error('❌ Health check failed:', error);
     res.status(503).json({
