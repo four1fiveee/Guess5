@@ -42,7 +42,7 @@ const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> =
 // Memory limit check function using Redis
 const checkMemoryLimits = async () => {
   try {
-    const stats = await redisMemoryManager.checkMemoryLimits();
+    const stats = await redisMemoryManager.getInstance().checkMemoryLimits();
     
     // Log warnings
     stats.warnings.forEach((warning: string) => {
@@ -66,7 +66,7 @@ const checkMemoryLimits = async () => {
 // Enhanced cleanup function using Redis memory manager
 const cleanupInactiveGames = async () => {
   try {
-    const result = await redisMemoryManager.cleanupInactiveGames();
+    const result = await redisMemoryManager.getInstance().cleanupInactiveGames();
     
     if (result.cleanedGames > 0 || result.cleanedLocks > 0) {
       console.log(`🧹 Memory cleanup completed:`, {
@@ -76,7 +76,7 @@ const cleanupInactiveGames = async () => {
     }
     
     // Log current memory stats
-    const stats = await redisMemoryManager.checkMemoryLimits();
+    const stats = await redisMemoryManager.getInstance().checkMemoryLimits();
     console.log(`📊 Memory stats: ${stats.activeGames} active games, ${stats.matchmakingLocks} locks, ${stats.inMemoryMatches} in-memory matches`);
     
     // Log memory usage if high
@@ -178,7 +178,7 @@ const periodicCleanup = async () => {
     // Only clean up incomplete/stale matches that are blocking the system
     
     // Log memory statistics from Redis
-    const stats = await redisMemoryManager.checkMemoryLimits();
+    const stats = await redisMemoryManager.getInstance().checkMemoryLimits();
     console.log('📊 Memory statistics:', stats);
     
     // Alert if memory usage is high
@@ -1918,7 +1918,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (!match) {
       console.log('🔍 Checking Redis matches...');
       // Note: inMemoryMatches is kept for backward compatibility but should be migrated to Redis
-      match = await redisMemoryManager.getInMemoryMatch(matchId);
+      match = await redisMemoryManager.getInstance().getInMemoryMatch(matchId);
       if (match) {
     
       } else {
@@ -3092,7 +3092,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
 
           console.log(`🎮 Game started for match ${matchId}`);
     // Get active games count from Redis
-    const stats = await redisMemoryManager.checkMemoryLimits();
+    const stats = await redisMemoryManager.getInstance().checkMemoryLimits();
     console.log(`🎮 Active games count: ${stats.activeGames}`);
       console.log(`🎮 Game state initialized:`, {
         matchId,
@@ -3388,7 +3388,7 @@ const memoryStatsHandler = async (req: any, res: any) => {
     const completedMatches = await matchRepository.count({ where: { status: 'completed' } });
     
     // Get memory stats from Redis
-    const memoryStats = await redisMemoryManager.checkMemoryLimits();
+    const memoryStats = await redisMemoryManager.getInstance().checkMemoryLimits();
     
     res.json({
       timestamp: new Date().toISOString(),
@@ -3470,7 +3470,7 @@ const debugMatchmakingHandler = async (req: any, res: any) => {
           age: Date.now() - lockData.timestamp
         } : null
       },
-      memoryStats: await redisMemoryManager.checkMemoryLimits()
+      memoryStats: await redisMemoryManager.getInstance().checkMemoryLimits()
     });
     
   } catch (error: unknown) {

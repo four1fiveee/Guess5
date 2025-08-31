@@ -4,10 +4,10 @@ import { enhancedLogger } from './enhancedLogger';
 // Redis-based memory management for 1000 concurrent users
 export class RedisMemoryManager {
   private static instance: RedisMemoryManager;
-  private redis: any;
+  private redis: any | null = null;
 
   private constructor() {
-    this.redis = getRedisOps();
+    // Lazy initialization - don't connect to Redis during construction
   }
 
   public static getInstance(): RedisMemoryManager {
@@ -22,10 +22,19 @@ export class RedisMemoryManager {
   private readonly MAX_MATCHMAKING_LOCKS = 500;
   private readonly MAX_IN_MEMORY_MATCHES = 100;
 
+  // Get Redis connection with lazy initialization
+  private getRedis() {
+    if (!this.redis) {
+      this.redis = getRedisOps();
+    }
+    return this.redis;
+  }
+
   // Memory monitoring
   private async getMemoryStats() {
     try {
-      const stats = await this.redis.mGet([
+      const redis = this.getRedis();
+      const stats = await redis.mGet([
         'memory:activeGames',
         'memory:matchmakingLocks', 
         'memory:inMemoryMatches',
@@ -81,7 +90,8 @@ export class RedisMemoryManager {
   // Increment counters
   public async incrementCounter(counterType: 'activeGames' | 'matchmakingLocks' | 'inMemoryMatches'): Promise<void> {
     try {
-      await this.redis.incr(`memory:${counterType}`);
+      const redis = this.getRedis();
+      await redis.incr(`memory:${counterType}`);
     } catch (error) {
       enhancedLogger.error(`❌ Error incrementing ${counterType} counter:`, error);
     }
@@ -90,7 +100,8 @@ export class RedisMemoryManager {
   // Decrement counters
   public async decrementCounter(counterType: 'activeGames' | 'matchmakingLocks' | 'inMemoryMatches'): Promise<void> {
     try {
-      await this.redis.decr(`memory:${counterType}`);
+      const redis = this.getRedis();
+      await redis.decr(`memory:${counterType}`);
     } catch (error) {
       enhancedLogger.error(`❌ Error decrementing ${counterType} counter:`, error);
     }
@@ -99,6 +110,7 @@ export class RedisMemoryManager {
   // Cleanup inactive games
   public async cleanupInactiveGames(): Promise<{ cleanedGames: number; cleanedLocks: number }> {
     try {
+      const redis = this.getRedis();
       const now = Date.now();
       const inactiveTimeout = 10 * 60 * 1000; // 10 minutes
       const lockTimeout = 30 * 1000; // 30 seconds
@@ -107,44 +119,44 @@ export class RedisMemoryManager {
       let cleanedLocks = 0;
 
       // Get all active games
-      const activeGameKeys = await this.redis.keys('activeGame:*');
+      const activeGameKeys = await redis.keys('activeGame:*');
       
-      for (const key of activeGameKeys) {
-        const gameData = await this.redis.get(key);
-        if (gameData) {
-          const game = JSON.parse(gameData);
-          const timeSinceActivity = now - game.lastActivity;
-          
-          // Only clean up games that are truly inactive (not completed)
-          if (!game.completed && timeSinceActivity > inactiveTimeout) {
-            enhancedLogger.info(`🧹 Cleaning up inactive game: ${key}`);
-            await this.redis.del(key);
-            await this.decrementCounter('activeGames');
-            cleanedGames++;
+              for (const key of activeGameKeys) {
+          const gameData = await redis.get(key);
+          if (gameData) {
+            const game = JSON.parse(gameData);
+            const timeSinceActivity = now - game.lastActivity;
+            
+            // Only clean up games that are truly inactive (not completed)
+            if (!game.completed && timeSinceActivity > inactiveTimeout) {
+              enhancedLogger.info(`🧹 Cleaning up inactive game: ${key}`);
+              await redis.del(key);
+              await this.decrementCounter('activeGames');
+              cleanedGames++;
+            }
           }
         }
-      }
 
-      // Get all matchmaking locks
-      const lockKeys = await this.redis.keys('matchmakingLock:*');
-      
-      for (const key of lockKeys) {
-        const lockData = await this.redis.get(key);
-        if (lockData) {
-          const lock = JSON.parse(lockData);
-          const timeSinceCreated = now - lock.createdAt;
-          
-          if (timeSinceCreated > lockTimeout) {
-            enhancedLogger.info(`🧹 Cleaning up expired lock: ${key}`);
-            await this.redis.del(key);
-            await this.decrementCounter('matchmakingLocks');
-            cleanedLocks++;
+        // Get all matchmaking locks
+        const lockKeys = await redis.keys('matchmakingLock:*');
+        
+        for (const key of lockKeys) {
+          const lockData = await redis.get(key);
+          if (lockData) {
+            const lock = JSON.parse(lockData);
+            const timeSinceCreated = now - lock.createdAt;
+            
+            if (timeSinceCreated > lockTimeout) {
+              enhancedLogger.info(`🧹 Cleaning up expired lock: ${key}`);
+              await redis.del(key);
+              await this.decrementCounter('matchmakingLocks');
+              cleanedLocks++;
+            }
           }
         }
-      }
 
-      // Update last cleanup time
-      await this.redis.set('memory:lastCleanup', now.toString());
+        // Update last cleanup time
+        await redis.set('memory:lastCleanup', now.toString());
 
       return { cleanedGames, cleanedLocks };
     } catch (error) {
@@ -156,8 +168,9 @@ export class RedisMemoryManager {
   // Store active game data
   public async storeActiveGame(matchId: string, gameData: any): Promise<void> {
     try {
+      const redis = this.getRedis();
       const key = `activeGame:${matchId}`;
-      await this.redis.setEx(key, 3600, JSON.stringify(gameData)); // 1 hour TTL
+      await redis.setEx(key, 3600, JSON.stringify(gameData)); // 1 hour TTL
       await this.incrementCounter('activeGames');
     } catch (error) {
       enhancedLogger.error(`❌ Error storing active game ${matchId}:`, error);
@@ -167,8 +180,9 @@ export class RedisMemoryManager {
   // Get active game data
   public async getActiveGame(matchId: string): Promise<any | null> {
     try {
+      const redis = this.getRedis();
       const key = `activeGame:${matchId}`;
-      const data = await this.redis.get(key);
+      const data = await redis.get(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
       enhancedLogger.error(`❌ Error getting active game ${matchId}:`, error);
@@ -179,8 +193,9 @@ export class RedisMemoryManager {
   // Remove active game
   public async removeActiveGame(matchId: string): Promise<void> {
     try {
+      const redis = this.getRedis();
       const key = `activeGame:${matchId}`;
-      await this.redis.del(key);
+      await redis.del(key);
       await this.decrementCounter('activeGames');
     } catch (error) {
       enhancedLogger.error(`❌ Error removing active game ${matchId}:`, error);
@@ -190,8 +205,9 @@ export class RedisMemoryManager {
   // Store matchmaking lock
   public async storeMatchmakingLock(lockKey: string, lockData: any): Promise<void> {
     try {
+      const redis = this.getRedis();
       const key = `matchmakingLock:${lockKey}`;
-      await this.redis.setEx(key, 300, JSON.stringify(lockData)); // 5 minutes TTL
+      await redis.setEx(key, 300, JSON.stringify(lockData)); // 5 minutes TTL
       await this.incrementCounter('matchmakingLocks');
     } catch (error) {
       enhancedLogger.error(`❌ Error storing matchmaking lock ${lockKey}:`, error);
@@ -201,8 +217,9 @@ export class RedisMemoryManager {
   // Get matchmaking lock
   public async getMatchmakingLock(lockKey: string): Promise<any | null> {
     try {
+      const redis = this.getRedis();
       const key = `matchmakingLock:${lockKey}`;
-      const data = await this.redis.get(key);
+      const data = await redis.get(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
       enhancedLogger.error(`❌ Error getting matchmaking lock ${lockKey}:`, error);
@@ -213,8 +230,9 @@ export class RedisMemoryManager {
   // Remove matchmaking lock
   public async removeMatchmakingLock(lockKey: string): Promise<void> {
     try {
+      const redis = this.getRedis();
       const key = `matchmakingLock:${lockKey}`;
-      await this.redis.del(key);
+      await redis.del(key);
       await this.decrementCounter('matchmakingLocks');
     } catch (error) {
       enhancedLogger.error(`❌ Error removing matchmaking lock ${lockKey}:`, error);
@@ -224,8 +242,9 @@ export class RedisMemoryManager {
   // Store in-memory match (for backward compatibility)
   public async storeInMemoryMatch(matchId: string, matchData: any): Promise<void> {
     try {
+      const redis = this.getRedis();
       const key = `inMemoryMatch:${matchId}`;
-      await this.redis.setEx(key, 1800, JSON.stringify(matchData)); // 30 minutes TTL
+      await redis.setEx(key, 1800, JSON.stringify(matchData)); // 30 minutes TTL
       await this.incrementCounter('inMemoryMatches');
     } catch (error) {
       enhancedLogger.error(`❌ Error storing in-memory match ${matchId}:`, error);
@@ -235,8 +254,9 @@ export class RedisMemoryManager {
   // Get in-memory match
   public async getInMemoryMatch(matchId: string): Promise<any | null> {
     try {
+      const redis = this.getRedis();
       const key = `inMemoryMatch:${matchId}`;
-      const data = await this.redis.get(key);
+      const data = await redis.get(key);
       return data ? JSON.parse(data) : null;
     } catch (error) {
       enhancedLogger.error(`❌ Error getting in-memory match ${matchId}:`, error);
@@ -247,8 +267,9 @@ export class RedisMemoryManager {
   // Remove in-memory match
   public async removeInMemoryMatch(matchId: string): Promise<void> {
     try {
+      const redis = this.getRedis();
       const key = `inMemoryMatch:${matchId}`;
-      await this.redis.del(key);
+      await redis.del(key);
       await this.decrementCounter('inMemoryMatches');
     } catch (error) {
       enhancedLogger.error(`❌ Error removing in-memory match ${matchId}:`, error);
@@ -256,5 +277,14 @@ export class RedisMemoryManager {
   }
 }
 
-// Export singleton instance
-export const redisMemoryManager = RedisMemoryManager.getInstance();
+// Export lazy singleton instance
+let _redisMemoryManager: RedisMemoryManager | null = null;
+
+export const redisMemoryManager = {
+  getInstance(): RedisMemoryManager {
+    if (!_redisMemoryManager) {
+      _redisMemoryManager = RedisMemoryManager.getInstance();
+    }
+    return _redisMemoryManager;
+  }
+};
