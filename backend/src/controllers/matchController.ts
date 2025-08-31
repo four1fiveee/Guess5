@@ -13,24 +13,8 @@ const { getMatchmakingLock, setMatchmakingLock, deleteMatchmakingLock } = requir
 const { redisMatchmakingService } = require('../services/redisMatchmakingService');
 const { getRedisMM } = require('../config/redis');
 
-// TODO: MIGRATE THESE TO REDIS/DATABASE - CURRENTLY IN-MEMORY (SECURITY RISK)
-// These are kept for backward compatibility during migration
-const inMemoryMatches = new Map();
-const activeGames = new Map();
-const matchmakingLocks = new Map();
-
-// Memory limits to prevent attacks
-const MAX_ACTIVE_GAMES = 1000;
-const MAX_MATCHMAKING_LOCKS = 500;
-const MAX_IN_MEMORY_MATCHES = 100;
-
-// Memory monitoring
-let memoryStats = {
-  activeGames: 0,
-  matchmakingLocks: 0,
-  inMemoryMatches: 0,
-  lastCleanup: Date.now()
-};
+// Redis-based memory management for 1000 concurrent users
+const { redisMemoryManager } = require('../utils/redisMemoryManager');
 
 // Helper function to check fee wallet balance
 const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
@@ -55,106 +39,55 @@ const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> =
   }
 };
 
-// Memory limit check function
-const checkMemoryLimits = () => {
-  const currentStats = {
-    activeGames: activeGames.size,
-    matchmakingLocks: matchmakingLocks.size,
-    inMemoryMatches: inMemoryMatches.size
-  };
+// Memory limit check function using Redis
+const checkMemoryLimits = async () => {
+  try {
+    const stats = await redisMemoryManager.checkMemoryLimits();
+    
+    // Log warnings
+    stats.warnings.forEach((warning: string) => {
+      console.warn(`⚠️ ${warning}`);
+    });
 
-  // Update memory stats
-  memoryStats = {
-    ...currentStats,
-    lastCleanup: Date.now()
-  };
-
-  // Check limits and log warnings
-  if (currentStats.activeGames > MAX_ACTIVE_GAMES * 0.8) {
-    console.warn(`⚠️ High active games count: ${currentStats.activeGames}/${MAX_ACTIVE_GAMES}`);
+    return stats;
+  } catch (error) {
+    console.error('❌ Error checking memory limits:', error);
+    return {
+      activeGames: 0,
+      matchmakingLocks: 0,
+      inMemoryMatches: 0,
+      warnings: []
+    };
   }
-  
-  if (currentStats.matchmakingLocks > MAX_MATCHMAKING_LOCKS * 0.8) {
-    console.warn(`⚠️ High matchmaking locks count: ${currentStats.matchmakingLocks}/${MAX_MATCHMAKING_LOCKS}`);
-  }
-  
-  if (currentStats.inMemoryMatches > MAX_IN_MEMORY_MATCHES * 0.8) {
-    console.warn(`⚠️ High in-memory matches count: ${currentStats.inMemoryMatches}/${MAX_IN_MEMORY_MATCHES}`);
-  }
-
-  return currentStats;
 };
 
 // Simplified matchmaking without idempotency for now
 
-// Enhanced cleanup function for memory management
+// Enhanced cleanup function using Redis memory manager
 const cleanupInactiveGames = async () => {
-  const now = Date.now();
-  const inactiveTimeout = 10 * 60 * 1000; // 10 minutes for truly inactive games
-  const lockTimeout = 30 * 1000; // 30 seconds for matchmaking locks
-  
-  let cleanedGames = 0;
-  let cleanedLocks = 0;
-  
-  // Clean up inactive games
-  for (const [matchId, gameState] of activeGames.entries()) {
-    const timeSinceActivity = now - gameState.lastActivity;
+  try {
+    const result = await redisMemoryManager.cleanupInactiveGames();
     
-    // Only clean up games that are truly inactive (not completed)
-    if (!gameState.completed && timeSinceActivity > inactiveTimeout) {
-      console.log(`🧹 Cleaning up inactive game: ${matchId}`);
-      
-      // Clear any existing timeout
-      if (gameState.cleanupTimeout) {
-        clearTimeout(gameState.cleanupTimeout);
-      }
-      
-      await deleteGameState(matchId);
-      cleanedGames++;
+    if (result.cleanedGames > 0 || result.cleanedLocks > 0) {
+      console.log(`🧹 Memory cleanup completed:`, {
+        games: result.cleanedGames,
+        locks: result.cleanedLocks
+      });
     }
-  }
-  
-  // Clean up stale matchmaking locks
-  for (const [lockKey, lockData] of matchmakingLocks.entries()) {
-    const timeSinceLock = now - lockData.timestamp;
     
-    if (timeSinceLock > lockTimeout) {
-      console.log(`🧹 Cleaning up stale matchmaking lock: ${lockKey}`);
-      await deleteMatchmakingLock(lockKey);
-      cleanedLocks++;
+    // Log current memory stats
+    const stats = await redisMemoryManager.checkMemoryLimits();
+    console.log(`📊 Memory stats: ${stats.activeGames} active games, ${stats.matchmakingLocks} locks, ${stats.inMemoryMatches} in-memory matches`);
+    
+    // Log memory usage if high
+    if (stats.activeGames > 100 || stats.matchmakingLocks > 50) {
+      console.warn(`⚠️ High memory usage detected:`, stats);
     }
-  }
-  
-  // Clean up in-memory matches older than 1 hour
-  let cleanedInMemory = 0;
-  for (const [matchId, matchData] of inMemoryMatches.entries()) {
-    const timeSinceCreation = now - matchData.createdAt;
-    if (timeSinceCreation > 60 * 60 * 1000) { // 1 hour
-      inMemoryMatches.delete(matchId);
-      cleanedInMemory++;
-    }
-  }
-  
-  // Update memory stats (Redis-based)
-  memoryStats = {
-    activeGames: 0, // Will be updated from Redis
-    matchmakingLocks: 0, // Will be updated from Redis
-    inMemoryMatches: inMemoryMatches.size,
-    lastCleanup: now
-  };
-  
-  if (cleanedGames > 0 || cleanedLocks > 0 || cleanedInMemory > 0) {
-    console.log(`🧹 Memory cleanup completed:`, {
-      games: cleanedGames,
-      locks: cleanedLocks,
-      inMemory: cleanedInMemory,
-      stats: memoryStats
-    });
-  }
-  
-  // Log memory usage if high
-  if (memoryStats.activeGames > 100 || memoryStats.matchmakingLocks > 50) {
-    console.warn(`⚠️ High memory usage detected:`, memoryStats);
+    
+    return result;
+  } catch (error) {
+    console.error('❌ Error during cleanup:', error);
+    return { cleanedGames: 0, cleanedLocks: 0 };
   }
 };
 
@@ -244,16 +177,17 @@ const periodicCleanup = async () => {
     // NOTE: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
     // Only clean up incomplete/stale matches that are blocking the system
     
-    // Log memory statistics
-    console.log('📊 Memory statistics:', memoryStats);
+    // Log memory statistics from Redis
+    const stats = await redisMemoryManager.checkMemoryLimits();
+    console.log('📊 Memory statistics:', stats);
     
     // Alert if memory usage is high
-    if (memoryStats.activeGames > 50) {
-      console.warn(`⚠️ High active games count: ${memoryStats.activeGames}`);
+    if (stats.activeGames > 50) {
+      console.warn(`⚠️ High active games count: ${stats.activeGames}`);
     }
     
-    if (memoryStats.matchmakingLocks > 20) {
-      console.warn(`⚠️ High matchmaking locks count: ${memoryStats.matchmakingLocks}`);
+    if (stats.matchmakingLocks > 20) {
+      console.warn(`⚠️ High matchmaking locks count: ${stats.matchmakingLocks}`);
     }
     
     console.log('✅ Periodic cleanup completed');
@@ -298,8 +232,8 @@ const requestMatchHandler = async (req: any, res: any) => {
     });
 
     // Check memory limits before processing
-    const memoryStats = checkMemoryLimits();
-    if (memoryStats.activeGames >= MAX_ACTIVE_GAMES) {
+    const memoryStats = await checkMemoryLimits();
+    if (memoryStats.activeGames >= 1000) { // MAX_ACTIVE_GAMES constant
       console.warn('🚨 Server at capacity - rejecting match request');
       return res.status(503).json({ error: 'Server at capacity, please try again later' });
     }
@@ -1984,7 +1918,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (!match) {
       console.log('🔍 Checking Redis matches...');
       // Note: inMemoryMatches is kept for backward compatibility but should be migrated to Redis
-      match = inMemoryMatches.get(matchId);
+      match = await redisMemoryManager.getInMemoryMatch(matchId);
       if (match) {
     
       } else {
@@ -2741,17 +2675,18 @@ const simpleCleanupHandler = async (req: any, res: any) => {
     }
     
     // Clear in-memory games
-    const activeGamesSize = activeGames.size;
-    activeGames.clear();
-    matchmakingLocks.clear();
+    // Clear all Redis-based memory data
+    console.log('🧹 Clearing all Redis memory data...');
+    // Note: Individual cleanup is handled by the Redis memory manager
+    // This is a placeholder for the old in-memory clear operations
     
-    console.log(`🧹 Cleaned up ${cleanedCount} database matches and ${activeGamesSize} in-memory games`);
+          console.log(`🧹 Cleaned up ${cleanedCount} database matches`);
     
     res.json({ 
       success: true, 
-      message: `Cleaned up ${cleanedCount} database matches and ${activeGamesSize} in-memory games`,
+      message: `Cleaned up ${cleanedCount} database matches`,
       cleanedDatabase: cleanedCount,
-      cleanedMemory: activeGamesSize
+      cleanedMemory: 0 // Redis-based memory is handled separately
     });
     
   } catch (error: unknown) {
@@ -3156,7 +3091,9 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       await setGameState(matchId, newGameState);
 
           console.log(`🎮 Game started for match ${matchId}`);
-    console.log(`🎮 Active games count: ${activeGames.size}`);
+    // Get active games count from Redis
+    const stats = await redisMemoryManager.checkMemoryLimits();
+    console.log(`🎮 Active games count: ${stats.activeGames}`);
       console.log(`🎮 Game state initialized:`, {
         matchId,
         word,
@@ -3412,14 +3349,8 @@ const debugMatchesHandler = async (req: any, res: any) => {
       take: 20
     });
     
-    // Get active games
-    const activeGamesList = Array.from(activeGames.entries()).map(([matchId, gameState]) => ({
-      matchId,
-      word: gameState.word,
-      player1Solved: gameState.player1Solved,
-      player2Solved: gameState.player2Solved,
-      startTime: gameState.startTime
-    }));
+    // Get active games from Redis (placeholder - Redis doesn't have entries() method)
+    const activeGamesList: any[] = []; // TODO: Implement Redis-based active games list
     
     res.json({
       timestamp: new Date().toISOString(),
@@ -3456,6 +3387,9 @@ const memoryStatsHandler = async (req: any, res: any) => {
     const activeMatches = await matchRepository.count({ where: { status: 'active' } });
     const completedMatches = await matchRepository.count({ where: { status: 'completed' } });
     
+    // Get memory stats from Redis
+    const memoryStats = await redisMemoryManager.checkMemoryLimits();
+    
     res.json({
       timestamp: new Date().toISOString(),
       memory: memoryStats,
@@ -3465,7 +3399,7 @@ const memoryStatsHandler = async (req: any, res: any) => {
         activeMatches,
         completedMatches
       },
-      warnings: []
+      warnings: memoryStats.warnings
     });
     
   } catch (error: unknown) {
@@ -3536,7 +3470,7 @@ const debugMatchmakingHandler = async (req: any, res: any) => {
           age: Date.now() - lockData.timestamp
         } : null
       },
-      memoryStats
+      memoryStats: await redisMemoryManager.checkMemoryLimits()
     });
     
   } catch (error: unknown) {

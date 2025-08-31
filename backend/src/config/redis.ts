@@ -25,7 +25,7 @@ const redisOpsConfig = {
   }
 };
 
-// ioredis config for BullMQ compatibility
+// ioredis config for BullMQ compatibility - Enhanced for 1000 concurrent users
 const ioredisMMConfig = {
   host: process.env.REDIS_MM_HOST || 'localhost',
   port: parseInt(process.env.REDIS_MM_PORT || '6379'),
@@ -33,11 +33,22 @@ const ioredisMMConfig = {
   password: process.env.REDIS_MM_PASSWORD || '',
   db: 0,
   retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: 5, // Increased from 3
   lazyConnect: false,
   keepAlive: 30000,
-  connectTimeout: 10000,
-  commandTimeout: 5000,
+  connectTimeout: 15000, // Increased from 10000
+  commandTimeout: 10000, // Increased from 5000
+  // Connection pool settings for high concurrency
+  enableReadyCheck: true,
+  maxLoadingTimeout: 10000,
+  // Connection resilience
+  reconnectOnError: (err: any) => {
+    const targetError = 'READONLY';
+    if (err.message.includes(targetError)) {
+      return true;
+    }
+    return false;
+  },
   tls: process.env.REDIS_MM_TLS === 'true' ? {
     rejectUnauthorized: false
   } : undefined,
@@ -50,11 +61,22 @@ const ioredisOpsConfig = {
   password: process.env.REDIS_OPS_PASSWORD || '',
   db: parseInt(process.env.REDIS_OPS_DB || '0'),
   retryDelayOnFailover: 100,
-  maxRetriesPerRequest: 3,
+  maxRetriesPerRequest: 5, // Increased from 3
   lazyConnect: false,
   keepAlive: 30000,
-  connectTimeout: 10000,
-  commandTimeout: 5000,
+  connectTimeout: 15000, // Increased from 10000
+  commandTimeout: 10000, // Increased from 5000
+  // Connection pool settings for high concurrency
+  enableReadyCheck: true,
+  maxLoadingTimeout: 10000,
+  // Connection resilience
+  reconnectOnError: (err: any) => {
+    const targetError = 'READONLY';
+    if (err.message.includes(targetError)) {
+      return true;
+    }
+    return false;
+  },
   tls: process.env.REDIS_OPS_TLS === 'true' ? {
     rejectUnauthorized: false
   } : undefined,

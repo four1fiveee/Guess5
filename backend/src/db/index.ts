@@ -42,11 +42,25 @@ export const AppDataSource = new DataSource({
     retryAttempts: 3,
     retryDelay: 1000,
     keepConnectionAlive: true,
-    // Connection pool settings
-    max: 20, // Maximum number of connections
-    min: 5,  // Minimum number of connections
-    idle: 10000, // Close idle connections after 10 seconds
+    // Connection pool settings - Optimized for 1000 concurrent users
+    max: 50, // Maximum number of connections (increased from 20)
+    min: 10,  // Minimum number of connections (increased from 5)
+    idle: 30000, // Close idle connections after 30 seconds (increased from 10)
     acquire: 60000, // Acquire timeout
+    // Additional connection management
+    extra: {
+      ssl: {
+        rejectUnauthorized: false
+      },
+      // Connection pool monitoring
+      connectionLimit: 50,
+      queueLimit: 0, // No limit on queue
+      acquireTimeout: 60000,
+      timeout: 60000,
+      // Connection health checks
+      healthCheck: true,
+      healthCheckInterval: 30000, // 30 seconds
+    }
   })
 })
 
