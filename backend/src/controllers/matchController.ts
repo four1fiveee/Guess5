@@ -4580,11 +4580,12 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Connection': 'keep-alive',
-      'Keep-Alive': 'timeout=120, max=1000',
+      'Keep-Alive': 'timeout=300, max=1000', // Increased timeout to 5 minutes
       'Access-Control-Allow-Origin': process.env.FRONTEND_URL || 'https://guess5.vercel.app',
       'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
-      'Access-Control-Allow-Credentials': 'true'
+      'Access-Control-Allow-Credentials': 'true',
+      'X-Accel-Buffering': 'no' // Disable nginx buffering
     });
     
     // Send initial connection message
@@ -4624,7 +4625,7 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
     }
     
-    // Set up periodic balance checks (every 30 seconds) and heartbeat (every 15 seconds)
+    // Set up periodic balance checks (every 30 seconds) and heartbeat (every 10 seconds)
     const balanceInterval = setInterval(async () => {
       try {
         const balance = await connection.getBalance(publicKey);
@@ -4661,8 +4662,11 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
         res.write(`data: ${JSON.stringify(heartbeatMessage)}\n\n`);
       } catch (error: unknown) {
         console.error('❌ Error sending heartbeat:', error);
+        // If we can't send heartbeat, connection is likely dead
+        clearInterval(balanceInterval);
+        clearInterval(heartbeatInterval);
       }
-    }, 15000); // Heartbeat every 15 seconds
+    }, 10000); // Heartbeat every 10 seconds (more frequent)
     
     // Handle client disconnect
     req.on('close', () => {
