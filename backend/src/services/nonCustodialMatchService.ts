@@ -30,7 +30,7 @@ export class NonCustodialMatchService {
 
   constructor(connection: Connection) {
     this.connection = connection;
-    this.smartContractService = getSmartContractService(connection);
+    this.smartContractService = getSmartContractService();
   }
 
   /**
@@ -63,7 +63,8 @@ export class NonCustodialMatchService {
         player2: params.player2,
         stakeLamports,
         feeBps,
-        deadlineSlot
+        deadlineSlot,
+        resultsAttestor: process.env.RESULTS_ATTESTOR_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'
       };
 
       const onChainResult = await this.smartContractService.createMatch(matchCreationParams);
@@ -341,7 +342,7 @@ export class NonCustodialMatchService {
         feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
         transactions: [
           {
-            from: match.vaultPda,
+            from: match.vaultPda || 'unknown-vault',
             to: match.winner === 'tie' ? 'both_players' : match.winner,
             amount: winnerAmount,
             description,

@@ -16,6 +16,7 @@ export interface SmartContractService {
   settleMatch(matchId: string, result: string): Promise<string>;
   refundTimeout(matchId: string): Promise<string>;
   refundPartialDeposit(matchId: string): Promise<string>;
+  calculateDeadlineSlot(bufferSlots: number): Promise<number>;
 }
 
 export function getSmartContractService(): SmartContractService {
@@ -50,6 +51,12 @@ export function getSmartContractService(): SmartContractService {
       enhancedLogger.info('Processing partial deposit refund on smart contract', { matchId });
       // Placeholder - return a mock transaction ID
       return 'mock-partial-refund-transaction-id-' + Date.now();
+    },
+
+    async calculateDeadlineSlot(bufferSlots: number): Promise<number> {
+      enhancedLogger.info('Calculating deadline slot', { bufferSlots });
+      // Placeholder - return current slot + buffer
+      return Date.now() + bufferSlots;
     }
   };
 }
