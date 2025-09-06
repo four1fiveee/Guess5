@@ -49,6 +49,11 @@ router.get('/status/:matchId',
   asyncHandlerWrapper(matchController.getMatchStatusHandler)
 );
 
+router.get('/check-player-match/:walletAddress', 
+  // Check if player has an active match
+  asyncHandlerWrapper(matchController.checkPlayerMatchHandler)
+);
+
 router.get('/check-match/:wallet', 
   // No rate limiting for polling endpoint to avoid 429 errors
   asyncHandlerWrapper(matchController.checkPlayerMatchHandler)

@@ -37,6 +37,7 @@ const getReCaptchaToken = async (action: string): Promise<string | null> => {
     
     if (!siteKey || siteKey === '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI') {
       console.warn('⚠️ Using fallback ReCaptcha site key - check environment variable configuration');
+      // For now, continue with the fallback key to avoid breaking the app
     }
     
 

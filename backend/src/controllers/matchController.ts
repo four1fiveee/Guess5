@@ -4642,4 +4642,46 @@ module.exports = {
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,
+  checkPlayerMatchHandler,
+};
+
+// Check if player has an active match
+const checkPlayerMatchHandler = async (req: any, res: any) => {
+  try {
+    const { walletAddress } = req.params;
+    
+    console.log(`🔍 Checking for active match for wallet: ${walletAddress}`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find active matches for this player
+    const activeMatch = await matchRepository.findOne({
+      where: [
+        { player1: walletAddress, status: 'active' },
+        { player2: walletAddress, status: 'active' }
+      ]
+    });
+    
+    if (activeMatch) {
+      console.log(`✅ Found active match: ${activeMatch.id}`);
+      res.json({
+        hasActiveMatch: true,
+        matchId: activeMatch.id,
+        status: activeMatch.status,
+        player1: activeMatch.player1,
+        player2: activeMatch.player2,
+        entryFee: activeMatch.entryFee
+      });
+    } else {
+      console.log(`❌ No active match found for wallet: ${walletAddress}`);
+      res.json({
+        hasActiveMatch: false
+      });
+    }
+    
+  } catch (error: unknown) {
+    console.error('❌ Error checking player match:', error);
+    res.status(500).json({ error: 'Failed to check player match' });
+  }
 }; 
