@@ -61,7 +61,9 @@ export const createMatchInstruction = async (
   const matchPda = getMatchPda(matchId, program.programId);
   const vaultPda = getVaultPda(matchPda, program.programId);
 
-  // Create the instruction using the IDL method name (initializeMatch)
+  // Try to use the correct instruction name that matches the deployed smart contract
+  // The deployed smart contract has create_match, but the IDL has initializeMatch
+  // Let's try to use the IDL method but with the correct parameters
   const instruction = await program.methods
     .initializeMatch(
       matchId, // Use matchId as string parameter
@@ -172,7 +174,9 @@ export const initializeProgram = async (
     commitment: 'confirmed',
   });
 
-  return new Program(IDL as any, SOLANA_PROGRAM_ID, provider);
+  // Try to use the program ID from the IDL instead of the hardcoded one
+  // The IDL might have been generated with a different program ID
+  return new Program(IDL as any, provider);
 };
 
 // Calculate deadline slot (current slot + 24 hours)

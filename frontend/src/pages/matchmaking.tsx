@@ -86,18 +86,25 @@ const Matchmaking: React.FC = () => {
         }
       };
 
+      console.log('🔧 Initializing smart contract program...');
       const program = await initializeProgram(connection, wallet);
+      console.log('✅ Smart contract program initialized');
       
       // Use matchId for smart contract
       const matchId = matchData.matchId;
       
       // Create smart contract instruction
+      console.log('🔧 Creating smart contract instruction...');
       const { instruction, matchPda, vaultPda } = await createMatchInstruction(
         program,
         publicKey,
         entryFee,
         matchId
       );
+      console.log('✅ Smart contract instruction created:', {
+        matchPda: matchPda.toString(),
+        vaultPda: vaultPda.toString()
+      });
 
       // Create transaction with smart contract instruction
       const transaction = new Transaction().add(instruction);
@@ -108,16 +115,20 @@ const Matchmaking: React.FC = () => {
       transaction.feePayer = publicKey;
 
       // Sign and send transaction
+      console.log('🔐 Signing transaction...');
       const signedTransaction = await signTransaction(transaction);
+      console.log('📤 Sending transaction to Solana...');
       const signature = await connection.sendRawTransaction(signedTransaction.serialize());
+      console.log('✅ Transaction sent with signature:', signature);
       
-  
-
       // Wait for confirmation
+      console.log('⏳ Waiting for transaction confirmation...');
       const confirmation = await connection.confirmTransaction(signature, 'confirmed');
       if (confirmation.value.err) {
-        throw new Error('Transaction failed to confirm');
+        console.error('❌ Transaction confirmation failed:', confirmation.value.err);
+        throw new Error(`Transaction failed to confirm: ${JSON.stringify(confirmation.value.err)}`);
       }
+      console.log('✅ Transaction confirmed successfully');
 
   
 
