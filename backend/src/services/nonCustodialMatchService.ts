@@ -338,7 +338,7 @@ export class NonCustodialMatchService {
         winner: match.winner,
         winnerAmount,
         feeAmount,
-        feeWallet: process.env.FEE_WALLET_ADDRESS,
+        feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
         transactions: [
           {
             from: match.vaultPda,
