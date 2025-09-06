@@ -245,10 +245,26 @@ export const submitGuess = async (matchId: string, wallet: string, guess: string
   }, true, 'submit_guess');
 };
 
-export const confirmPayment = async (matchId: string, wallet: string, paymentSignature: string) => {
+export const confirmPayment = async (
+  matchId: string, 
+  wallet: string, 
+  paymentSignature: string, 
+  smartContractData?: {
+    matchPda: string;
+    vaultPda: string;
+    deadlineSlot: number;
+    smartContractVerified: boolean;
+    verificationDetails?: any;
+  }
+) => {
   return apiRequest('/api/match/confirm-payment', {
     method: 'POST',
-    body: JSON.stringify({ matchId, wallet, paymentSignature }),
+    body: JSON.stringify({ 
+      matchId, 
+      wallet, 
+      paymentSignature,
+      smartContractData 
+    }),
   }, true, 'confirm_payment');
 };
 

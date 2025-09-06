@@ -1,6 +1,7 @@
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
+const RESULTS_ATTESTOR_ADDRESS = '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt';
 const { Not, LessThan, Between, IsNull } = require('typeorm');
 const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
 const path = require('path');
@@ -1015,20 +1016,82 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
     const feeAmount = totalPot * 0.05; // 5% fee from total pot
 
-    payoutResult = {
-      winner: winnerWallet,
-      winnerAmount: winnerAmount,
-      feeAmount: feeAmount,
-      feeWallet: FEE_WALLET_ADDRESS,
-      transactions: [
-        {
-          from: FEE_WALLET_ADDRESS,
-          to: winnerWallet,
-          amount: winnerAmount,
-          description: 'Winner payout (95% of total pot)'
-        }
-      ]
-    };
+    // Check if this match used smart contract
+    const hasSmartContract = match.matchPda && match.vaultPda;
+    
+    if (hasSmartContract) {
+      console.log('🔗 Creating smart contract payout for match:', match.id);
+      
+      // Import smart contract payout service
+      const { createSmartContractPayout } = require('../services/payoutService');
+      
+      const smartContractPayout = await createSmartContractPayout(
+        match.id,
+        winnerWallet,
+        winnerAmount,
+        feeAmount,
+        match.matchPda,
+        match.vaultPda
+      );
+      
+      if (smartContractPayout.success) {
+        payoutResult = {
+          winner: winnerWallet,
+          winnerAmount: winnerAmount,
+          feeAmount: feeAmount,
+          feeWallet: RESULTS_ATTESTOR_ADDRESS.toString(),
+          smartContract: true,
+          matchPda: match.matchPda,
+          vaultPda: match.vaultPda,
+          transactions: [
+            {
+              from: match.vaultPda,
+              to: winnerWallet,
+              amount: winnerAmount,
+              description: 'Smart contract winner payout (95% of total pot)',
+              instruction: 'claimPrize',
+              transaction: smartContractPayout.transaction
+            }
+          ]
+        };
+        console.log('✅ Smart contract payout created successfully');
+      } else {
+        console.warn('⚠️ Smart contract payout failed, falling back to manual:', smartContractPayout.error);
+        // Fallback to manual payout
+        payoutResult = {
+          winner: winnerWallet,
+          winnerAmount: winnerAmount,
+          feeAmount: feeAmount,
+          feeWallet: FEE_WALLET_ADDRESS,
+          smartContract: false,
+          transactions: [
+            {
+              from: FEE_WALLET_ADDRESS,
+              to: winnerWallet,
+              amount: winnerAmount,
+              description: 'Manual winner payout (95% of total pot) - smart contract failed'
+            }
+          ]
+        };
+      }
+    } else {
+      // Legacy payout system
+      payoutResult = {
+        winner: winnerWallet,
+        winnerAmount: winnerAmount,
+        feeAmount: feeAmount,
+        feeWallet: FEE_WALLET_ADDRESS,
+        smartContract: false,
+        transactions: [
+          {
+            from: FEE_WALLET_ADDRESS,
+            to: winnerWallet,
+            amount: winnerAmount,
+            description: 'Winner payout (95% of total pot)'
+          }
+        ]
+      };
+    }
 
     console.log('💰 Payout calculated:', payoutResult);
   } else if (winner === 'tie') {
@@ -2884,9 +2947,14 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       url: req.url
     });
 
-    const { matchId, wallet, paymentSignature } = req.body;
+    const { matchId, wallet, paymentSignature, smartContractData } = req.body;
     
-    console.log('🔍 Parsed confirm payment data:', { matchId, wallet, paymentSignature });
+    console.log('🔍 Parsed confirm payment data:', { 
+      matchId, 
+      wallet, 
+      paymentSignature, 
+      smartContractData: smartContractData ? 'Present' : 'Not present' 
+    });
     
     if (!matchId || !wallet || !paymentSignature) {
       console.log('❌ Missing required fields:', { matchId: !!matchId, wallet: !!wallet, paymentSignature: !!paymentSignature });
@@ -2988,7 +3056,15 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       paymentSignature,
       slot: verificationResult.slot,
       blockTime: verificationResult.timestamp,
-      finalized: true
+      finalized: true,
+      // Add smart contract data if present
+      ...(smartContractData && {
+        matchPda: smartContractData.matchPda,
+        vaultPda: smartContractData.vaultPda,
+        deadlineSlot: smartContractData.deadlineSlot,
+        smartContractVerified: smartContractData.smartContractVerified,
+        verificationDetails: smartContractData.verificationDetails
+      })
     };
     
     await updateMatchPayment(match, isPlayer1, paymentData);

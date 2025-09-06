@@ -7,6 +7,8 @@ interface PaymentTransaction {
   to: string;
   amount: number;
   description: string;
+  instruction?: string;
+  transaction?: string;
 }
 
 interface PayoutInstructionsProps {
@@ -18,6 +20,9 @@ interface PayoutInstructionsProps {
   playerWallet: string;
   automatedPayout?: boolean;
   payoutSignature?: string;
+  smartContract?: boolean;
+  matchPda?: string;
+  vaultPda?: string;
 }
 
 interface CompletedTransaction {
@@ -35,7 +40,10 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
   transactions,
   playerWallet,
   automatedPayout = false,
-  payoutSignature
+  payoutSignature,
+  smartContract = false,
+  matchPda,
+  vaultPda
 }) => {
   const { publicKey, sendTransaction } = useWallet();
   const [sendingTx, setSendingTx] = useState<string | null>(null);
@@ -68,19 +76,40 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
       // Create connection to devnet
       const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
       
-      // Create transaction
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey(to),
-          lamports: Math.floor(amount * LAMPORTS_PER_SOL),
-        })
-      );
+      let transaction: Transaction;
+      
+      // Check if this is a smart contract transaction
+      const txData = transactions[txIndex];
+      if (smartContract && txData.instruction === 'claimPrize' && txData.transaction) {
+        // Deserialize smart contract transaction
+        const transactionBuffer = Buffer.from(txData.transaction, 'base64');
+        transaction = Transaction.from(transactionBuffer);
+        
+        // Update the transaction to use the current user's public key
+        transaction.feePayer = publicKey;
+        
+        // Get recent blockhash
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        
+        console.log('🔗 Sending smart contract claim prize transaction');
+      } else {
+        // Legacy transaction
+        transaction = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: publicKey,
+            toPubkey: new PublicKey(to),
+            lamports: Math.floor(amount * LAMPORTS_PER_SOL),
+          })
+        );
 
-      // Get recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash();
-      transaction.recentBlockhash = blockhash;
-      transaction.feePayer = publicKey;
+        // Get recent blockhash
+        const { blockhash } = await connection.getLatestBlockhash();
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+        
+        console.log('💰 Sending legacy payment transaction');
+      }
 
       // Send transaction
       const signature = await sendTransaction(transaction, connection);
@@ -103,12 +132,12 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
       };
       setCompletedTxs(prev => [...prev, completedTx]);
       
-      console.log(`✅ Payment sent: ${signature}`);
+      console.log(`✅ ${smartContract ? 'Smart contract' : 'Payment'} transaction sent: ${signature}`);
       
     } catch (error) {
-      console.error('❌ Payment error:', error);
+      console.error('❌ Transaction error:', error);
       setTxStatus(prev => ({ ...prev, [`tx-${txIndex}`]: 'error' }));
-      alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      alert(`Transaction failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSendingTx(null);
     }

@@ -41,7 +41,13 @@ const updateMatchPayment = async (match, isPlayer1, paymentData) => {
     paymentSignature,
     slot,
     blockTime,
-    finalized = true
+    finalized = true,
+    // Smart contract fields
+    matchPda,
+    vaultPda,
+    deadlineSlot,
+    smartContractVerified,
+    verificationDetails
   } = paymentData;
   
   try {
@@ -77,6 +83,29 @@ const updateMatchPayment = async (match, isPlayer1, paymentData) => {
       if (player2EntrySlotField && slot) match[player2EntrySlotField] = slot;
       if (player2EntryBlockTimeField && blockTime) match[player2EntryBlockTimeField] = new Date(blockTime * 1000);
       if (player2EntryFinalizedField) match[player2EntryFinalizedField] = finalized;
+    }
+    
+    // Update smart contract fields if present
+    if (matchPda) {
+      const matchPdaField = await getFieldName('match', 'matchPda', null);
+      if (matchPdaField) match[matchPdaField] = matchPda;
+    }
+    
+    if (vaultPda) {
+      const vaultPdaField = await getFieldName('match', 'vaultPda', null);
+      if (vaultPdaField) match[vaultPdaField] = vaultPda;
+    }
+    
+    if (deadlineSlot) {
+      const deadlineSlotField = await getFieldName('match', 'deadlineSlot', null);
+      if (deadlineSlotField) match[deadlineSlotField] = deadlineSlot;
+    }
+    
+    if (smartContractVerified !== undefined) {
+      const smartContractStatusField = await getFieldName('match', 'smartContractStatus', null);
+      if (smartContractStatusField) {
+        match[smartContractStatusField] = smartContractVerified ? 'verified' : 'unverified';
+      }
     }
     
     return true;

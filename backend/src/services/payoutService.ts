@@ -1,6 +1,10 @@
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
 
+// Smart contract configuration
+const SOLANA_PROGRAM_ID = new PublicKey('HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC');
+const RESULTS_ATTESTOR_ADDRESS = new PublicKey('2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
+
 // Configuration
 const SOLANA_NETWORK = process.env.SOLANA_NETWORK || "https://api.devnet.solana.com";
 const connection = new Connection(SOLANA_NETWORK);
@@ -22,6 +26,53 @@ const validatePayoutConfig = () => {
 
 // Validate on module load
 validatePayoutConfig();
+
+// Smart contract payout function (simplified version without Anchor)
+export const createSmartContractPayout = async (
+  matchId: string,
+  winner: string,
+  winnerAmount: number,
+  feeAmount: number,
+  matchPda: string,
+  vaultPda: string
+) => {
+  try {
+    console.log('🔗 Creating smart contract payout for match:', matchId);
+    console.log('Winner:', winner);
+    console.log('Winner amount:', winnerAmount, 'SOL');
+    console.log('Fee amount:', feeAmount, 'SOL');
+    console.log('Match PDA:', matchPda);
+    console.log('Vault PDA:', vaultPda);
+
+    // For now, return a placeholder that indicates smart contract should be used
+    // The frontend will handle the actual smart contract interaction
+    return {
+      success: true,
+      transaction: null, // Will be created by frontend
+      instruction: 'claimPrize',
+      accounts: {
+        match: matchPda,
+        vault: vaultPda,
+        winner: winner,
+        resultsAttestor: RESULTS_ATTESTOR_ADDRESS.toString(),
+        systemProgram: SystemProgram.programId.toString()
+      },
+      amounts: {
+        winnerAmount,
+        feeAmount,
+        totalAmount: winnerAmount + feeAmount
+      },
+      message: 'Smart contract payout instruction created - frontend will handle transaction'
+    };
+
+  } catch (error) {
+    console.error('❌ Smart contract payout creation failed:', error);
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : 'Unknown error'
+    };
+  }
+};
 
 export const createEscrowAccount = async (matchId: string, player1: string, player2: string, entryFee: number) => {
   try {

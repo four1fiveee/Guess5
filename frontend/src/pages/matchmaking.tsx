@@ -6,6 +6,15 @@ import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
 import api from '../utils/api';
+import { 
+  initializeProgram, 
+  createMatchInstruction, 
+  joinMatchInstruction,
+  calculateDeadlineSlot,
+  verifySmartContractTransaction,
+  SOLANA_PROGRAM_ID
+} from '../utils/smartContract';
+import { Wallet } from '@project-serum/anchor';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
@@ -65,14 +74,34 @@ const Matchmaking: React.FC = () => {
         throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
       }
       
-      // Create transaction to pay entry fee to fee wallet
-      const transaction = new Transaction().add(
-        SystemProgram.transfer({
-          fromPubkey: publicKey,
-          toPubkey: new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt"), // Fee wallet
-          lamports: Math.floor(entryFee * LAMPORTS_PER_SOL),
-        })
+      // Initialize smart contract program
+      const wallet = new Wallet({
+        publicKey: publicKey,
+        signTransaction: signTransaction!,
+        signAllTransactions: async (txs) => {
+          const signedTxs = [];
+          for (const tx of txs) {
+            signedTxs.push(await signTransaction!(tx));
+          }
+          return signedTxs;
+        }
+      });
+
+      const program = await initializeProgram(connection, wallet);
+      
+      // Calculate deadline slot (24 hours from now)
+      const deadlineSlot = await calculateDeadlineSlot(connection);
+      
+      // Create smart contract instruction
+      const { instruction, matchPda, vaultPda } = await createMatchInstruction(
+        program,
+        publicKey,
+        entryFee,
+        deadlineSlot
       );
+
+      // Create transaction with smart contract instruction
+      const transaction = new Transaction().add(instruction);
 
       // Get recent blockhash
       const { blockhash } = await connection.getLatestBlockhash();
@@ -93,14 +122,38 @@ const Matchmaking: React.FC = () => {
 
   
 
-      // Confirm payment with backend with retry mechanism
+      // Verify smart contract transaction
+      const verificationResult = await verifySmartContractTransaction(
+        connection,
+        signature,
+        SOLANA_PROGRAM_ID
+      );
+
+      if (!verificationResult.verified) {
+        throw new Error(`Smart contract verification failed: ${verificationResult.error}`);
+      }
+
+      console.log('✅ Smart contract transaction verified:', verificationResult.details);
+
+      // Confirm payment with backend with smart contract data
       let confirmData;
       let retryCount = 0;
       const maxRetries = 3;
       
       while (retryCount < maxRetries) {
         try {
-          confirmData = await api.confirmPayment(matchData.matchId, publicKey.toString(), signature);
+          confirmData = await api.confirmPayment(
+            matchData.matchId, 
+            publicKey.toString(), 
+            signature,
+            {
+              matchPda: matchPda.toString(),
+              vaultPda: vaultPda.toString(),
+              deadlineSlot: deadlineSlot,
+              smartContractVerified: true,
+              verificationDetails: verificationResult.details
+            }
+          );
       
           break; // Success, exit retry loop
         } catch (error) {
