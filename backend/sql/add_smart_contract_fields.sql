@@ -34,11 +34,11 @@ END $$;
 
 DO $$ 
 BEGIN
-    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'match' AND column_name = 'deadlineSlot') THEN
-        ALTER TABLE "match" ADD COLUMN "deadlineSlot" BIGINT;
-        RAISE NOTICE 'Added deadlineSlot column';
+    IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'match' AND column_name = 'matchId') THEN
+        ALTER TABLE "match" ADD COLUMN "matchId" VARCHAR;
+        RAISE NOTICE 'Added matchId column';
     ELSE
-        RAISE NOTICE 'deadlineSlot column already exists';
+        RAISE NOTICE 'matchId column already exists';
     END IF;
 END $$;
 
@@ -66,5 +66,5 @@ END $$;
 SELECT column_name, data_type 
 FROM information_schema.columns 
 WHERE table_name = 'match' 
-AND column_name IN ('matchPda', 'vaultPda', 'resultsAttestor', 'deadlineSlot', 'feeBps', 'smartContractStatus')
+AND column_name IN ('matchPda', 'vaultPda', 'resultsAttestor', 'matchId', 'feeBps', 'smartContractStatus')
 ORDER BY column_name;

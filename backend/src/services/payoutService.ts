@@ -49,12 +49,12 @@ export const createSmartContractPayout = async (
     return {
       success: true,
       transaction: null, // Will be created by frontend
-      instruction: 'claimPrize',
+      instruction: 'submitResult', // Use submitResult instead of claimPrize
       accounts: {
-        match: matchPda,
-        vault: vaultPda,
+        matchEscrow: matchPda,
+        vaultAccount: vaultPda,
         winner: winner,
-        resultsAttestor: RESULTS_ATTESTOR_ADDRESS.toString(),
+        feeWallet: RESULTS_ATTESTOR_ADDRESS.toString(),
         systemProgram: SystemProgram.programId.toString()
       },
       amounts: {

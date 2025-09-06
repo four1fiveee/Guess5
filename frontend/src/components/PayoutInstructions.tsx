@@ -80,7 +80,7 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
       
       // Check if this is a smart contract transaction
       const txData = transactions[txIndex];
-      if (smartContract && txData.instruction === 'claimPrize' && txData.transaction) {
+      if (smartContract && txData.instruction === 'submitResult' && txData.transaction) {
         // Deserialize smart contract transaction
         const transactionBuffer = Buffer.from(txData.transaction, 'base64');
         transaction = Transaction.from(transactionBuffer);
@@ -92,7 +92,7 @@ const PayoutInstructions: React.FC<PayoutInstructionsProps> = ({
         const { blockhash } = await connection.getLatestBlockhash();
         transaction.recentBlockhash = blockhash;
         
-        console.log('🔗 Sending smart contract claim prize transaction');
+        console.log('🔗 Sending smart contract submit result transaction');
       } else {
         // Legacy transaction
         transaction = new Transaction().add(

@@ -88,15 +88,15 @@ const Matchmaking: React.FC = () => {
 
       const program = await initializeProgram(connection, wallet);
       
-      // Calculate deadline slot (24 hours from now)
-      const deadlineSlot = await calculateDeadlineSlot(connection);
+      // Use matchId for smart contract
+      const matchId = matchData.matchId;
       
       // Create smart contract instruction
       const { instruction, matchPda, vaultPda } = await createMatchInstruction(
         program,
         publicKey,
         entryFee,
-        deadlineSlot
+        matchId
       );
 
       // Create transaction with smart contract instruction
@@ -148,7 +148,7 @@ const Matchmaking: React.FC = () => {
             {
               matchPda: matchPda.toString(),
               vaultPda: vaultPda.toString(),
-              deadlineSlot: deadlineSlot,
+              matchId: matchId,
               smartContractVerified: true,
               verificationDetails: verificationResult.details
             }

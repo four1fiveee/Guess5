@@ -1049,7 +1049,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
               to: winnerWallet,
               amount: winnerAmount,
               description: 'Smart contract winner payout (95% of total pot)',
-              instruction: 'claimPrize',
+              instruction: 'submitResult',
               transaction: smartContractPayout.transaction
             }
           ]
@@ -3061,7 +3061,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       ...(smartContractData && {
         matchPda: smartContractData.matchPda,
         vaultPda: smartContractData.vaultPda,
-        deadlineSlot: smartContractData.deadlineSlot,
+        matchId: smartContractData.matchId,
         smartContractVerified: smartContractData.smartContractVerified,
         verificationDetails: smartContractData.verificationDetails
       })

@@ -45,7 +45,7 @@ const updateMatchPayment = async (match, isPlayer1, paymentData) => {
     // Smart contract fields
     matchPda,
     vaultPda,
-    deadlineSlot,
+    matchId,
     smartContractVerified,
     verificationDetails
   } = paymentData;
@@ -96,9 +96,9 @@ const updateMatchPayment = async (match, isPlayer1, paymentData) => {
       if (vaultPdaField) match[vaultPdaField] = vaultPda;
     }
     
-    if (deadlineSlot) {
-      const deadlineSlotField = await getFieldName('match', 'deadlineSlot', null);
-      if (deadlineSlotField) match[deadlineSlotField] = deadlineSlot;
+    if (matchId) {
+      const matchIdField = await getFieldName('match', 'matchId', null);
+      if (matchIdField) match[matchIdField] = matchId;
     }
     
     if (smartContractVerified !== undefined) {

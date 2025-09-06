@@ -36,11 +36,11 @@ export const createMatchInstruction = async (
   program: Program,
   payer: PublicKey,
   entryFee: number,
-  deadlineSlot: number
+  matchId: string
 ): Promise<{ instruction: TransactionInstruction; matchPda: PublicKey; vaultPda: PublicKey }> => {
   // Generate PDAs for this match
   const [matchPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('match'), payer.toBuffer(), Buffer.from(deadlineSlot.toString())],
+    [Buffer.from('match'), Buffer.from(matchId)],
     program.programId
   );
 
@@ -49,17 +49,16 @@ export const createMatchInstruction = async (
     program.programId
   );
 
-  // Create the instruction
+  // Create the instruction using the correct IDL method name
   const instruction = await program.methods
-    .createMatch(
-      new BN(entryFee * LAMPORTS_PER_SOL),
-      new BN(deadlineSlot)
+    .initializeMatch(
+      matchId,
+      new BN(entryFee * LAMPORTS_PER_SOL)
     )
     .accounts({
-      match: matchPda,
-      vault: vaultPda,
-      payer: payer,
-      resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
+      matchEscrow: matchPda,
+      player1: payer,
+      feeWallet: RESULTS_ATTESTOR_ADDRESS,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -72,15 +71,13 @@ export const joinMatchInstruction = async (
   program: Program,
   payer: PublicKey,
   matchPda: PublicKey,
-  vaultPda: PublicKey,
   entryFee: number
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .joinMatch()
+    .joinMatch(new BN(entryFee * LAMPORTS_PER_SOL))
     .accounts({
-      match: matchPda,
-      vault: vaultPda,
-      payer: payer,
+      matchEscrow: matchPda,
+      player2: payer,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -92,33 +89,41 @@ export const submitResultInstruction = async (
   payer: PublicKey,
   matchPda: PublicKey,
   vaultPda: PublicKey,
-  result: string,
-  signature: string
+  player1: PublicKey,
+  player2: PublicKey,
+  result: any,
+  attempts: number,
+  solved: boolean
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .submitResult(result, signature)
+    .submitResult(result, attempts, solved)
     .accounts({
-      match: matchPda,
-      vault: vaultPda,
-      payer: payer,
-      resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
+      matchEscrow: matchPda,
+      player: payer,
+      player1: player1,
+      player2: player2,
+      feeWallet: RESULTS_ATTESTOR_ADDRESS,
+      vaultAccount: vaultPda,
+      systemProgram: SystemProgram.programId,
     })
     .instruction();
 };
 
-// Claim prize from smart contract
-export const claimPrizeInstruction = async (
+// Refund players from smart contract
+export const refundPlayersInstruction = async (
   program: Program,
-  winner: PublicKey,
   matchPda: PublicKey,
-  vaultPda: PublicKey
+  vaultPda: PublicKey,
+  player1: PublicKey,
+  player2: PublicKey
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .claimPrize()
+    .refundPlayers()
     .accounts({
-      match: matchPda,
-      vault: vaultPda,
-      winner: winner,
+      matchEscrow: matchPda,
+      player1: player1,
+      player2: player2,
+      vaultAccount: vaultPda,
       systemProgram: SystemProgram.programId,
     })
     .instruction();

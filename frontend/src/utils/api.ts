@@ -252,7 +252,7 @@ export const confirmPayment = async (
   smartContractData?: {
     matchPda: string;
     vaultPda: string;
-    deadlineSlot: number;
+    matchId: string;
     smartContractVerified: boolean;
     verificationDetails?: any;
   }
