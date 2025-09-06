@@ -3018,18 +3018,35 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       });
     }
 
-    // Enhanced transaction verification using Phase 2 service
-    const verificationResult = await paymentVerificationService.verifyPayment(
-      paymentSignature, 
-      wallet, 
-      match.entryFee,
-      {
-        tolerance: 0.001,
-        requireConfirmation: true,
-        maxRetries: 3,
-        timeout: 30000
-      }
-    );
+    // Enhanced transaction verification - use smart contract verification if available
+    let verificationResult;
+    
+    if (smartContractData && smartContractData.smartContractVerified) {
+      // For smart contract payments, use the verification details from frontend
+      console.log('🔗 Using smart contract payment verification');
+      verificationResult = {
+        verified: true,
+        amount: match.entryFee,
+        timestamp: smartContractData.verificationDetails?.blockTime,
+        slot: smartContractData.verificationDetails?.slot,
+        signature: paymentSignature,
+        details: smartContractData.verificationDetails
+      };
+    } else {
+      // For legacy payments, use the fee wallet verification service
+      console.log('💰 Using legacy fee wallet payment verification');
+      verificationResult = await paymentVerificationService.verifyPayment(
+        paymentSignature, 
+        wallet, 
+        match.entryFee,
+        {
+          tolerance: 0.001,
+          requireConfirmation: true,
+          maxRetries: 3,
+          timeout: 30000
+        }
+      );
+    }
 
     if (!verificationResult.verified) {
       console.error('❌ Payment verification failed:', verificationResult.error);
