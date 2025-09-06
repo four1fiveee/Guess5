@@ -21,6 +21,25 @@ export enum InstructionType {
   CLAIM_PRIZE = 'claimPrize'
 }
 
+// Helper function to generate match PDA from matchId
+export const getMatchPda = (matchId: string, programId: PublicKey): PublicKey => {
+  const truncatedMatchId = matchId.substring(0, 32);
+  const [matchPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('match'), Buffer.from(truncatedMatchId)],
+    programId
+  );
+  return matchPda;
+};
+
+// Helper function to generate vault PDA from match PDA
+export const getVaultPda = (matchPda: PublicKey, programId: PublicKey): PublicKey => {
+  const [vaultPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('vault'), matchPda.toBuffer()],
+    programId
+  );
+  return vaultPda;
+};
+
 // Smart contract match data structure
 export interface SmartContractMatch {
   matchPda: PublicKey;
@@ -38,16 +57,9 @@ export const createMatchInstruction = async (
   entryFee: number,
   matchId: string
 ): Promise<{ instruction: TransactionInstruction; matchPda: PublicKey; vaultPda: PublicKey }> => {
-  // Generate PDAs for this match
-  const [matchPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('match'), Buffer.from(matchId)],
-    program.programId
-  );
-
-  const [vaultPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('vault'), matchPda.toBuffer()],
-    program.programId
-  );
+  // Generate PDAs for this match using helper functions
+  const matchPda = getMatchPda(matchId, program.programId);
+  const vaultPda = getVaultPda(matchPda, program.programId);
 
   // Create the instruction using the correct IDL method name
   const instruction = await program.methods
