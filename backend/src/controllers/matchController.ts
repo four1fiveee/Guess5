@@ -1974,11 +1974,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 // Check if a player has been matched (for polling)
 const checkPlayerMatchHandler = async (req: any, res: any) => {
   try {
-    const { wallet } = req.params;
+    const { wallet, walletAddress } = req.params;
+    const walletParam = wallet || walletAddress;
     
-    console.log('🔍 Checking if player has been matched:', wallet);
+    console.log('🔍 Checking if player has been matched:', walletParam);
     
-    if (!wallet) {
+    if (!walletParam) {
       console.log('❌ No wallet provided in request');
       return res.status(400).json({ error: 'Wallet address required' });
     }
@@ -2012,7 +2013,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         FROM "match" 
         WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6))
         LIMIT 1
-      `, [wallet, wallet, 'active', 'escrow', 'matched', 'payment_required']);
+      `, [walletParam, walletParam, 'active', 'escrow', 'matched', 'payment_required']);
 
       // Also check for cancelled matches
       cancelledMatches = await matchRepository.query(`
@@ -2024,7 +2025,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         FROM "match" 
         WHERE (("player1" = $1 OR "player2" = $2) AND "status" = $3)
         LIMIT 1
-      `, [wallet, wallet, 'cancelled']);
+      `, [walletParam, walletParam, 'cancelled']);
       
       console.log('✅ Database queries completed successfully');
     } catch (dbError: unknown) {
@@ -4642,46 +4643,4 @@ module.exports = {
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,
-  checkPlayerMatchHandler,
-};
-
-// Check if player has an active match
-const checkPlayerMatchHandler = async (req: any, res: any) => {
-  try {
-    const { walletAddress } = req.params;
-    
-    console.log(`🔍 Checking for active match for wallet: ${walletAddress}`);
-    
-    const { AppDataSource } = require('../db/index');
-    const matchRepository = AppDataSource.getRepository(Match);
-    
-    // Find active matches for this player
-    const activeMatch = await matchRepository.findOne({
-      where: [
-        { player1: walletAddress, status: 'active' },
-        { player2: walletAddress, status: 'active' }
-      ]
-    });
-    
-    if (activeMatch) {
-      console.log(`✅ Found active match: ${activeMatch.id}`);
-      res.json({
-        hasActiveMatch: true,
-        matchId: activeMatch.id,
-        status: activeMatch.status,
-        player1: activeMatch.player1,
-        player2: activeMatch.player2,
-        entryFee: activeMatch.entryFee
-      });
-    } else {
-      console.log(`❌ No active match found for wallet: ${walletAddress}`);
-      res.json({
-        hasActiveMatch: false
-      });
-    }
-    
-  } catch (error: unknown) {
-    console.error('❌ Error checking player match:', error);
-    res.status(500).json({ error: 'Failed to check player match' });
-  }
 }; 
