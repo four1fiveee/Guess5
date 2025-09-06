@@ -174,10 +174,9 @@ export const initializeProgram = async (
     commitment: 'confirmed',
   });
 
-  // Try to use the program ID from the IDL instead of the hardcoded one
-  // The IDL might have been generated with a different program ID
-  // If the IDL has a program ID, it will be used automatically
-  return new Program(IDL as any, SOLANA_PROGRAM_ID, provider);
+  // Use the program ID from the IDL
+  const programId = new PublicKey(IDL.address);
+  return new Program(IDL as any, programId, provider);
 };
 
 // Calculate deadline slot (current slot + 24 hours)
