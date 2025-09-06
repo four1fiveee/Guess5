@@ -6,7 +6,7 @@ import {
   SystemProgram,
   LAMPORTS_PER_SOL 
 } from '@solana/web3.js';
-import { Program, AnchorProvider, Wallet, BN } from '@project-serum/anchor';
+import { Program, AnchorProvider, BN } from '@project-serum/anchor';
 import { IDL } from '../types/guess5';
 
 // Smart contract configuration
@@ -148,7 +148,7 @@ export const getMatchData = async (
 // Initialize Anchor program
 export const initializeProgram = async (
   connection: Connection,
-  wallet: Wallet
+  wallet: any
 ): Promise<Program> => {
   const provider = new AnchorProvider(connection, wallet, {
     commitment: 'confirmed',

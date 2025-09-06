@@ -14,7 +14,6 @@ import {
   verifySmartContractTransaction,
   SOLANA_PROGRAM_ID
 } from '../utils/smartContract';
-import { Wallet } from '@project-serum/anchor';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
@@ -75,17 +74,17 @@ const Matchmaking: React.FC = () => {
       }
       
       // Initialize smart contract program
-      const wallet = new Wallet({
+      const wallet = {
         publicKey: publicKey,
         signTransaction: signTransaction!,
-        signAllTransactions: async (txs) => {
+        signAllTransactions: async (txs: any[]) => {
           const signedTxs = [];
           for (const tx of txs) {
             signedTxs.push(await signTransaction!(tx));
           }
           return signedTxs;
         }
-      });
+      };
 
       const program = await initializeProgram(connection, wallet);
       
