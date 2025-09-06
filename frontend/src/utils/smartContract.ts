@@ -21,18 +21,11 @@ export enum InstructionType {
   CLAIM_PRIZE = 'claimPrize'
 }
 
-// Helper function to generate match PDA using the same seeds as the smart contract
-export const getMatchPda = (player1: PublicKey, player2: PublicKey, stakeLamports: number, programId: PublicKey): PublicKey => {
-  const stakeLamportsBuffer = Buffer.alloc(8);
-  stakeLamportsBuffer.writeBigUInt64LE(BigInt(stakeLamports), 0);
-  
+// Helper function to generate match PDA from matchId (as expected by IDL)
+export const getMatchPda = (matchId: string, programId: PublicKey): PublicKey => {
+  const truncatedMatchId = matchId.substring(0, 32);
   const [matchPda] = PublicKey.findProgramAddressSync(
-    [
-      Buffer.from('match'),
-      player1.toBuffer(),
-      player2.toBuffer(),
-      stakeLamportsBuffer
-    ],
+    [Buffer.from('match'), Buffer.from(truncatedMatchId)],
     programId
   );
   return matchPda;
@@ -62,26 +55,21 @@ export const createMatchInstruction = async (
   program: Program,
   payer: PublicKey,
   entryFee: number,
-  player2: PublicKey
+  matchId: string
 ): Promise<{ instruction: TransactionInstruction; matchPda: PublicKey; vaultPda: PublicKey }> => {
-  const stakeLamports = Math.floor(entryFee * LAMPORTS_PER_SOL);
-  
   // Generate PDAs for this match using helper functions
-  const matchPda = getMatchPda(payer, player2, stakeLamports, program.programId);
+  const matchPda = getMatchPda(matchId, program.programId);
   const vaultPda = getVaultPda(matchPda, program.programId);
 
-  // Create the instruction using the correct smart contract method name
+  // Create the instruction using the IDL method name (initializeMatch)
   const instruction = await program.methods
-    .createMatch(
-      new BN(entryFee * LAMPORTS_PER_SOL),
-      500, // feeBps (5%)
-      0    // deadlineSlot (0 for now)
+    .initializeMatch(
+      matchId, // Use matchId as string parameter
+      new BN(entryFee * LAMPORTS_PER_SOL)
     )
     .accounts({
-      matchAccount: matchPda,
+      matchEscrow: matchPda,
       player1: payer,
-      player2: payer, // For now, use same player for both
-      resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
       feeWallet: RESULTS_ATTESTOR_ADDRESS,
       systemProgram: SystemProgram.programId,
     })
@@ -99,11 +87,10 @@ export const joinMatchInstruction = async (
   entryFee: number
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .deposit()
+    .joinMatch(new BN(entryFee * LAMPORTS_PER_SOL))
     .accounts({
-      matchAccount: matchPda,
-      vault: vaultPda,
-      player: payer,
+      matchEscrow: matchPda,
+      player2: payer,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -122,14 +109,14 @@ export const submitResultInstruction = async (
   solved: boolean
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .settleMatch(result)
+    .submitResult(result, attempts, solved)
     .accounts({
-      matchAccount: matchPda,
-      vault: vaultPda,
-      resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
+      matchEscrow: matchPda,
+      player: payer,
       player1: player1,
       player2: player2,
       feeWallet: RESULTS_ATTESTOR_ADDRESS,
+      vaultAccount: vaultPda,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -144,12 +131,12 @@ export const refundPlayersInstruction = async (
   player2: PublicKey
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .refundTimeout()
+    .refundPlayers()
     .accounts({
-      matchAccount: matchPda,
-      vault: vaultPda,
+      matchEscrow: matchPda,
       player1: player1,
       player2: player2,
+      vaultAccount: vaultPda,
       systemProgram: SystemProgram.programId,
     })
     .instruction();

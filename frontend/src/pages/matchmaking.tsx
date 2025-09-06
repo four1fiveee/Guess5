@@ -92,12 +92,11 @@ const Matchmaking: React.FC = () => {
       const matchId = matchData.matchId;
       
       // Create smart contract instruction
-      // For now, use the same player for both until we have a proper matchmaking flow
       const { instruction, matchPda, vaultPda } = await createMatchInstruction(
         program,
         publicKey,
         entryFee,
-        publicKey // Use same player for both initially
+        matchId
       );
 
       // Create transaction with smart contract instruction
