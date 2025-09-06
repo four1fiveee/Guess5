@@ -159,7 +159,7 @@ export const initializeProgram = async (
     commitment: 'confirmed',
   });
 
-  return new Program(IDL, SOLANA_PROGRAM_ID, provider);
+  return new Program(IDL as any, SOLANA_PROGRAM_ID, provider);
 };
 
 // Calculate deadline slot (current slot + 24 hours)
