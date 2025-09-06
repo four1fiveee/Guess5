@@ -28,7 +28,26 @@ export class Match {
   player1EscrowSignature?: string;
   player2EscrowSignature?: string;
 
-  // New fee wallet fields (renamed from escrow)
+  // Smart contract fields
+  @Column({ nullable: true })
+  matchPda?: string;
+
+  @Column({ nullable: true })
+  vaultPda?: string;
+
+  @Column({ nullable: true })
+  resultsAttestor?: string;
+
+  @Column({ type: 'bigint', nullable: true })
+  deadlineSlot?: number;
+
+  @Column({ type: 'int', nullable: true })
+  feeBps?: number;
+
+  @Column({ nullable: true })
+  smartContractStatus?: string; // Active, Deposited, Settled, Refunded
+
+  // Legacy fee wallet fields (for backward compatibility)
   @Column({ nullable: true })
   feeWalletAddress?: string;
 
