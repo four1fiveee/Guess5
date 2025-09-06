@@ -20,8 +20,9 @@ export interface SmartContractService {
 }
 
 export function getSmartContractService(): SmartContractService {
-  // This is a placeholder implementation
-  // In a real implementation, this would connect to the deployed smart contract
+  // This connects to the deployed smart contract on devnet
+  const PROGRAM_ID = process.env.SOLANA_PROGRAM_ID || 'HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC';
+  
   return {
     async createMatch(params: MatchCreationParams): Promise<string> {
       enhancedLogger.info('Creating match on smart contract', params);

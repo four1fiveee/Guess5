@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-guess5_escrow = "6NqBFqyi8T89Ka5qGPhdfkS8qj6KpKRLDUQmjL3yLeAU"
+guess5_escrow = "HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC"
 
 [programs.mainnet]
 guess5_escrow = "ETK8vDVM86LnKk9qwFumnDZQFv9PEHcz4tgcwLYtqxTS"
