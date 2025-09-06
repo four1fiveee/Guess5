@@ -11,30 +11,55 @@ const ENTRY_FEES_USD = [1, 5, 20];
 
 // Fetch live SOL/USD price with fallback
 const fetchSolPrice = async () => {
+  console.log('🔍 Fetching live SOL price...');
+  
   try {
     // Try CoinGecko first
+    console.log('📡 Trying CoinGecko API...');
     const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+    
+    if (!response.ok) {
+      throw new Error(`CoinGecko API returned ${response.status}: ${response.statusText}`);
+    }
+    
     const data = await response.json();
-    if (data.solana?.usd) {
+    console.log('📊 CoinGecko response:', data);
+    
+    if (data.solana?.usd && typeof data.solana.usd === 'number' && data.solana.usd > 0) {
+      console.log('✅ CoinGecko SOL price:', data.solana.usd);
       return data.solana.usd;
+    } else {
+      throw new Error('Invalid SOL price data from CoinGecko');
     }
   } catch (e) {
-    console.log('CoinGecko failed, trying fallback...');
+    console.error('❌ CoinGecko failed:', e);
+    console.log('🔄 Trying Binance fallback...');
   }
   
   try {
     // Fallback to alternative API
     const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
+    
+    if (!response.ok) {
+      throw new Error(`Binance API returned ${response.status}: ${response.statusText}`);
+    }
+    
     const data = await response.json();
-    if (data.price) {
-      return parseFloat(data.price);
+    console.log('📊 Binance response:', data);
+    
+    if (data.price && typeof data.price === 'string' && parseFloat(data.price) > 0) {
+      const price = parseFloat(data.price);
+      console.log('✅ Binance SOL price:', price);
+      return price;
+    } else {
+      throw new Error('Invalid SOL price data from Binance');
     }
   } catch (e) {
-    console.log('Binance fallback failed');
+    console.error('❌ Binance fallback failed:', e);
   }
   
   // Final fallback to a reasonable estimate
-  console.log('Using fallback SOL price: $100');
+  console.warn('⚠️ All SOL price APIs failed, using fallback price: $100');
   return 100;
 };
 
@@ -50,20 +75,37 @@ export default function Lobby() {
 
   useEffect(() => {
     const getPrice = async () => {
-      const price = await fetchSolPrice();
-      setSolPrice(price);
-      if (price) {
-        setSolAmounts(ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4)));
+      try {
+        const price = await fetchSolPrice();
+        console.log('💰 Setting SOL price:', price);
+        setSolPrice(price);
+        
+        if (price && price > 0) {
+          const calculatedAmounts = ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4));
+          console.log('💵 Calculated SOL amounts:', calculatedAmounts, 'for USD amounts:', ENTRY_FEES_USD);
+          setSolAmounts(calculatedAmounts);
+        } else {
+          console.warn('⚠️ Invalid SOL price received:', price);
+        }
+      } catch (error) {
+        console.error('❌ Error in getPrice:', error);
       }
     };
     
     // Get initial price
+    console.log('🚀 Initializing SOL price fetching...');
     getPrice();
     
     // Refresh price every 30 seconds
-    const interval = setInterval(getPrice, 30000);
+    const interval = setInterval(() => {
+      console.log('🔄 Refreshing SOL price...');
+      getPrice();
+    }, 30000);
     
-    return () => clearInterval(interval);
+    return () => {
+      console.log('🧹 Cleaning up SOL price interval');
+      clearInterval(interval);
+    };
   }, []);
 
   // Check wallet balance when wallet connects
@@ -228,6 +270,31 @@ export default function Lobby() {
             {solPrice && (
               <div className="text-white/80 text-center mb-4">
                 Current SOL Price: ${solPrice.toFixed(2)}
+                {solPrice === 100 && (
+                  <div className="text-yellow-400 text-sm mt-1">
+                    ⚠️ Using fallback price - live price fetch may have failed
+                  </div>
+                )}
+                <button
+                  onClick={async () => {
+                    console.log('🔄 Manual SOL price refresh requested');
+                    const price = await fetchSolPrice();
+                    setSolPrice(price);
+                    if (price && price > 0) {
+                      const calculatedAmounts = ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4));
+                      setSolAmounts(calculatedAmounts);
+                    }
+                  }}
+                  className="ml-2 text-blue-400 hover:text-blue-300 text-sm underline"
+                >
+                  🔄 Refresh
+                </button>
+              </div>
+            )}
+            
+            {!solPrice && (
+              <div className="text-yellow-400 text-center mb-4">
+                🔄 Loading SOL price...
               </div>
             )}
             
