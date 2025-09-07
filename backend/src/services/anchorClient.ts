@@ -53,9 +53,9 @@ export class SmartContractService {
     this.provider = new AnchorProvider(connection, {
       publicKey: feeWalletKeypair.publicKey,
       signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
-        if ('sign' in tx) {
+        if (tx instanceof Transaction) {
           // Legacy Transaction
-          (tx as Transaction).sign(feeWalletKeypair);
+          tx.sign(feeWalletKeypair);
         } else {
           // VersionedTransaction - sign with keypair
           tx.sign([feeWalletKeypair]);
@@ -64,9 +64,9 @@ export class SmartContractService {
       },
       signAllTransactions: async <T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> => {
         txs.forEach(tx => {
-          if ('sign' in tx) {
+          if (tx instanceof Transaction) {
             // Legacy Transaction
-            (tx as Transaction).sign(feeWalletKeypair);
+            tx.sign(feeWalletKeypair);
           } else {
             // VersionedTransaction
             tx.sign([feeWalletKeypair]);
@@ -78,7 +78,7 @@ export class SmartContractService {
       commitment: 'confirmed'
     });
 
-    this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+    this.program = new Program(IDL as any, this.provider);
   }
 
   // Create a match on the smart contract
@@ -161,7 +161,7 @@ export class SmartContractService {
       });
 
       // Get match data to get player addresses
-      const matchAccount = await this.program.account.Match.fetch(matchPda);
+      const matchAccount = await (this.program.account as any).matchAccount.fetch(matchPda);
       const player1 = matchAccount.player1;
       const player2 = matchAccount.player2;
 
@@ -197,7 +197,7 @@ export class SmartContractService {
   // Get match data from smart contract
   async getMatchData(matchPda: PublicKey): Promise<any> {
     try {
-      const matchAccount = await this.program.account.Match.fetch(matchPda);
+      const matchAccount = await (this.program.account as any).matchAccount.fetch(matchPda);
       return matchAccount;
     } catch (error) {
       console.error('❌ Error fetching match data:', error);
@@ -209,7 +209,7 @@ export class SmartContractService {
   async getVaultData(matchPda: PublicKey): Promise<any> {
     try {
       const vaultPda = getVaultPda(matchPda);
-      const vaultAccount = await this.program.account.Vault.fetch(vaultPda);
+      const vaultAccount = await (this.program.account as any).vault.fetch(vaultPda);
       return vaultAccount;
     } catch (error) {
       console.error('❌ Error fetching vault data:', error);
