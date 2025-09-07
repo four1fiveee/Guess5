@@ -13,19 +13,19 @@ const getReCaptchaToken = async (action: string): Promise<string | null> => {
       return null;
     }
     
-    // Wait for ReCaptcha to be ready
+    // Wait for ReCaptcha to be ready with longer timeout
     let attempts = 0;
-    const maxAttempts = 10;
+    const maxAttempts = 20; // Increased attempts
     
     while (!window.grecaptcha && attempts < maxAttempts) {
       console.log(`⏳ Waiting for ReCaptcha to load... (attempt ${attempts + 1}/${maxAttempts})`);
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Increased wait time
       attempts++;
     }
     
     if (!window.grecaptcha) {
       console.warn('⚠️ ReCaptcha not loaded after waiting, skipping token generation');
-      throw new Error('ReCaptcha not loaded - please refresh the page');
+      throw new Error('ReCaptcha not loaded - please refresh the page and wait for it to load completely');
     }
     
     if (!window.grecaptcha.enterprise) {
@@ -80,38 +80,42 @@ const apiRequest = async (
   };
 
   if (requireReCaptcha) {
-
+    console.log(`🔄 Generating ReCaptcha token for action: ${reCaptchaAction}`);
+    
     let token = null;
     let retryCount = 0;
-    const maxRetries = 2;
+    const maxRetries = 3; // Increased retries
     
     while (!token && retryCount < maxRetries) {
       try {
+        console.log(`🔄 ReCaptcha attempt ${retryCount + 1}/${maxRetries}`);
         token = await getReCaptchaToken(reCaptchaAction);
         if (token) {
+          console.log(`✅ ReCaptcha token generated successfully (length: ${token.length})`);
           headers['x-recaptcha-token'] = token;
-      
           break;
         } else {
-          console.warn(`⚠️ ReCaptcha token generation failed (attempt ${retryCount + 1}/${maxRetries})`);
+          console.warn(`⚠️ ReCaptcha token generation returned null (attempt ${retryCount + 1}/${maxRetries})`);
           retryCount++;
           if (retryCount < maxRetries) {
-            // Wait a bit before retrying
-            await new Promise(resolve => setTimeout(resolve, 1000));
+            // Wait longer between retries
+            await new Promise(resolve => setTimeout(resolve, 2000));
           }
         }
       } catch (error) {
         console.error(`❌ ReCaptcha token generation error (attempt ${retryCount + 1}/${maxRetries}):`, error);
         retryCount++;
         if (retryCount < maxRetries) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // Wait longer between retries for network issues
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
     }
     
     if (!token) {
       console.error('❌ ReCaptcha token generation failed after all retries');
-      throw new Error('ReCaptcha verification failed - please refresh the page and try again');
+      // Provide more specific error message
+      throw new Error('ReCaptcha verification failed - please check your internet connection and refresh the page');
     }
   }
 

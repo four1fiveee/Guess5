@@ -238,7 +238,21 @@ export default function Lobby() {
       }
     } catch (error) {
       console.error('❌ Matchmaking error:', error)
-      alert('Failed to start matchmaking. Please try again.')
+      
+      // Provide more specific error messages based on the error type
+      let errorMessage = 'Failed to start matchmaking. Please try again.';
+      
+      if (error instanceof Error) {
+        if (error.message.includes('ReCaptcha')) {
+          errorMessage = 'ReCaptcha verification failed. Please refresh the page and try again.';
+        } else if (error.message.includes('network') || error.message.includes('connection')) {
+          errorMessage = 'Network error. Please check your connection and try again.';
+        } else if (error.message.includes('timeout')) {
+          errorMessage = 'Request timed out. Please try again.';
+        }
+      }
+      
+      alert(errorMessage);
       setIsMatchmaking(false);
     }
   }
