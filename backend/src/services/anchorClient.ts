@@ -1,4 +1,4 @@
-import { Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, VersionedTransaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
@@ -52,12 +52,26 @@ export class SmartContractService {
     
     this.provider = new AnchorProvider(connection, {
       publicKey: feeWalletKeypair.publicKey,
-      signTransaction: async (tx: Transaction) => {
-        tx.sign(feeWalletKeypair);
+      signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
+        if ('sign' in tx) {
+          // Legacy Transaction
+          (tx as Transaction).sign(feeWalletKeypair);
+        } else {
+          // VersionedTransaction - sign with keypair
+          tx.sign([feeWalletKeypair]);
+        }
         return tx;
       },
-      signAllTransactions: async (txs: Transaction[]) => {
-        txs.forEach(tx => tx.sign(feeWalletKeypair));
+      signAllTransactions: async <T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> => {
+        txs.forEach(tx => {
+          if ('sign' in tx) {
+            // Legacy Transaction
+            (tx as Transaction).sign(feeWalletKeypair);
+          } else {
+            // VersionedTransaction
+            tx.sign([feeWalletKeypair]);
+          }
+        });
         return txs;
       }
     }, {
@@ -147,7 +161,7 @@ export class SmartContractService {
       });
 
       // Get match data to get player addresses
-      const matchAccount = await this.program.account.matchAccount.fetch(matchPda);
+      const matchAccount = await this.program.account.Match.fetch(matchPda);
       const player1 = matchAccount.player1;
       const player2 = matchAccount.player2;
 
@@ -183,7 +197,7 @@ export class SmartContractService {
   // Get match data from smart contract
   async getMatchData(matchPda: PublicKey): Promise<any> {
     try {
-      const matchAccount = await this.program.account.matchAccount.fetch(matchPda);
+      const matchAccount = await this.program.account.Match.fetch(matchPda);
       return matchAccount;
     } catch (error) {
       console.error('❌ Error fetching match data:', error);
@@ -195,7 +209,7 @@ export class SmartContractService {
   async getVaultData(matchPda: PublicKey): Promise<any> {
     try {
       const vaultPda = getVaultPda(matchPda);
-      const vaultAccount = await this.program.account.vault.fetch(vaultPda);
+      const vaultAccount = await this.program.account.Vault.fetch(vaultPda);
       return vaultAccount;
     } catch (error) {
       console.error('❌ Error fetching vault data:', error);
