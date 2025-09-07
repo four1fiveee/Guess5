@@ -79,6 +79,11 @@ router.get('/game-state',
   asyncHandlerWrapper(matchController.getGameStateHandler)
 );
 
+// Smart contract integration endpoints
+router.get('/get-match-pda/:matchId', 
+  asyncHandlerWrapper(matchController.getMatchPdaHandler)
+);
+
 
 
 // Cleanup endpoints (admin only)

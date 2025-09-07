@@ -4,57 +4,39 @@ export const IDL = {
   "address": "HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC",
   "instructions": [
     {
-      "name": "initializeMatch",
+      "name": "createMatch",
       "docs": [
-        "Initialize a new match escrow"
+        "Creates a new match with escrow vault"
       ],
       "accounts": [
         {
-          "name": "matchEscrow",
+          "name": "matchAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
           "isMut": true,
           "isSigner": false
         },
         {
           "name": "player1",
-          "isMut": true,
-          "isSigner": true
-        },
-        {
-          "name": "feeWallet",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "systemProgram",
           "isMut": false,
-          "isSigner": false
-        }
-      ],
-      "args": [
-        {
-          "name": "matchId",
-          "type": "string"
-        },
-        {
-          "name": "entryFee",
-          "type": "u64"
-        }
-      ]
-    },
-    {
-      "name": "joinMatch",
-      "docs": [
-        "Join an existing match (second player)"
-      ],
-      "accounts": [
-        {
-          "name": "matchEscrow",
-          "isMut": true,
           "isSigner": false
         },
         {
           "name": "player2",
           "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "resultsAttestor",
+          "isMut": false,
+          "isSigner": false
+        },
+        {
+          "name": "feeWallet",
+          "isMut": true,
           "isSigner": true
         },
         {
@@ -65,19 +47,32 @@ export const IDL = {
       ],
       "args": [
         {
-          "name": "player2EntryFee",
+          "name": "stakeLamports",
+          "type": "u64"
+        },
+        {
+          "name": "feeBps",
+          "type": "u16"
+        },
+        {
+          "name": "deadlineSlot",
           "type": "u64"
         }
       ]
     },
     {
-      "name": "lockEntryFee",
+      "name": "deposit",
       "docs": [
-        "Lock entry fee in escrow (called by each player)"
+        "Player deposits stake into the match vault"
       ],
       "accounts": [
         {
-          "name": "matchEscrow",
+          "name": "matchAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
           "isMut": true,
           "isSigner": false
         },
@@ -85,16 +80,6 @@ export const IDL = {
           "name": "player",
           "isMut": true,
           "isSigner": true
-        },
-        {
-          "name": "vaultAuthority",
-          "isMut": false,
-          "isSigner": false
-        },
-        {
-          "name": "vaultAccount",
-          "isMut": true,
-          "isSigner": false
         },
         {
           "name": "systemProgram",
@@ -102,28 +87,28 @@ export const IDL = {
           "isSigner": false
         }
       ],
-      "args": [
-        {
-          "name": "amount",
-          "type": "u64"
-        }
-      ]
+      "args": []
     },
     {
-      "name": "submitResult",
+      "name": "settleMatch",
       "docs": [
-        "Submit game result (called by each player)"
+        "Settles the match and distributes funds"
       ],
       "accounts": [
         {
-          "name": "matchEscrow",
+          "name": "matchAccount",
           "isMut": true,
           "isSigner": false
         },
         {
-          "name": "player",
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "resultsAttestor",
           "isMut": false,
-          "isSigner": true
+          "isSigner": false
         },
         {
           "name": "player1",
@@ -137,11 +122,6 @@ export const IDL = {
         },
         {
           "name": "feeWallet",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "vaultAccount",
           "isMut": true,
           "isSigner": false
         },
@@ -155,27 +135,24 @@ export const IDL = {
         {
           "name": "result",
           "type": {
-            "defined": "GameResult"
+            "defined": "MatchResult"
           }
-        },
-        {
-          "name": "attempts",
-          "type": "u8"
-        },
-        {
-          "name": "solved",
-          "type": "bool"
         }
       ]
     },
     {
-      "name": "refundPlayers",
+      "name": "refundTimeout",
       "docs": [
-        "Refund both players (for ties or timeouts)"
+        "Refunds players if deadline has passed"
       ],
       "accounts": [
         {
-          "name": "matchEscrow",
+          "name": "matchAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
           "isMut": true,
           "isSigner": false
         },
@@ -190,7 +167,7 @@ export const IDL = {
           "isSigner": false
         },
         {
-          "name": "vaultAccount",
+          "name": "feeWallet",
           "isMut": true,
           "isSigner": false
         },
@@ -205,14 +182,10 @@ export const IDL = {
   ],
   "accounts": [
     {
-      "name": "MatchEscrow",
+      "name": "Match",
       "type": {
         "kind": "struct",
         "fields": [
-          {
-            "name": "matchId",
-            "type": "string"
-          },
           {
             "name": "player1",
             "type": "publicKey"
@@ -222,8 +195,28 @@ export const IDL = {
             "type": "publicKey"
           },
           {
-            "name": "entryFee",
+            "name": "stakeLamports",
             "type": "u64"
+          },
+          {
+            "name": "feeBps",
+            "type": "u16"
+          },
+          {
+            "name": "deadlineSlot",
+            "type": "u64"
+          },
+          {
+            "name": "feeWallet",
+            "type": "publicKey"
+          },
+          {
+            "name": "resultsAttestor",
+            "type": "publicKey"
+          },
+          {
+            "name": "vault",
+            "type": "publicKey"
           },
           {
             "name": "status",
@@ -232,78 +225,46 @@ export const IDL = {
             }
           },
           {
-            "name": "player1Locked",
-            "type": "bool"
-          },
-          {
-            "name": "player2Locked",
-            "type": "bool"
-          },
-          {
-            "name": "player1Result",
+            "name": "result",
             "type": {
-              "defined": "GameResult"
+              "option": {
+                "defined": "MatchResult"
+              }
             }
-          },
-          {
-            "name": "player2Result",
-            "type": {
-              "defined": "GameResult"
-            }
-          },
-          {
-            "name": "player1Attempts",
-            "type": "u8"
-          },
-          {
-            "name": "player2Attempts",
-            "type": "u8"
-          },
-          {
-            "name": "player1Solved",
-            "type": "bool"
-          },
-          {
-            "name": "player2Solved",
-            "type": "bool"
-          },
-          {
-            "name": "winner",
-            "type": {
-              "option": "publicKey"
-            }
-          },
-          {
-            "name": "feeWallet",
-            "type": "publicKey"
           },
           {
             "name": "createdAt",
             "type": "i64"
           },
           {
-            "name": "gameStartTime",
-            "type": "i64"
-          },
-          {
-            "name": "completedAt",
-            "type": "i64"
+            "name": "settledAt",
+            "type": {
+              "option": "i64"
+            }
           }
         ]
       }
     },
     {
-      "name": "LockAccount",
+      "name": "Vault",
       "type": {
         "kind": "struct",
         "fields": [
           {
-            "name": "buyer",
+            "name": "matchAccount",
             "type": "publicKey"
           },
           {
-            "name": "amount",
+            "name": "balance",
             "type": "u64"
+          },
+          {
+            "name": "player1Deposited",
+            "type": "bool"
+          },
+          {
+            "name": "player2Deposited",
+            "type": "bool"
           }
         ]
       }
@@ -316,16 +277,10 @@ export const IDL = {
         "kind": "enum",
         "variants": [
           {
-            "name": "Waiting"
-          },
-          {
-            "name": "Escrow"
-          },
-          {
             "name": "Active"
           },
           {
-            "name": "Completed"
+            "name": "Settled"
           },
           {
             "name": "Refunded"
@@ -334,21 +289,27 @@ export const IDL = {
       }
     },
     {
-      "name": "GameResult",
+      "name": "MatchResult",
       "type": {
         "kind": "enum",
         "variants": [
           {
-            "name": "NotSubmitted"
+            "name": "Player1"
           },
           {
-            "name": "Win"
+            "name": "Player2"
           },
           {
-            "name": "Lose"
+            "name": "WinnerTie"
           },
           {
-            "name": "Tie"
+            "name": "LosingTie"
+          },
+          {
+            "name": "Timeout"
+          },
+          {
+            "name": "Error"
           }
         ]
       }
@@ -376,4 +337,4 @@ export const IDL = {
       "msg": "Incorrect entry fee amount"
     }
   ]
-}; 
+};

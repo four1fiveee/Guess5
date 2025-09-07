@@ -349,6 +349,33 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         throw new Error('Match data not found in Redis after creation');
       }
       
+      // Create smart contract match
+      const { smartContractService } = require('../services/anchorClient');
+      const { PublicKey } = require('@solana/web3.js');
+      
+      const player1Pubkey = new PublicKey(matchData.player1);
+      const player2Pubkey = new PublicKey(matchData.player2);
+      const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
+      
+      console.log('🔧 Creating smart contract match...');
+      const smartContractResult = await smartContractService.createMatch(
+        player1Pubkey,
+        player2Pubkey,
+        stakeLamports,
+        500, // 5% fee
+        undefined // Let it calculate deadline
+      );
+      
+      if (!smartContractResult.success) {
+        console.error('❌ Failed to create smart contract match:', smartContractResult.error);
+        throw new Error(`Smart contract match creation failed: ${smartContractResult.error}`);
+      }
+      
+      console.log('✅ Smart contract match created:', {
+        matchPda: smartContractResult.matchPda?.toString(),
+        vaultPda: smartContractResult.vaultPda?.toString()
+      });
+
       // Create database record for the match
       const newMatch = new Match();
       newMatch.id = matchData.matchId;
@@ -359,6 +386,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       newMatch.word = getRandomWord();
       newMatch.createdAt = new Date(matchData.createdAt);
       newMatch.updatedAt = new Date();
+      
+      // Add smart contract data
+      newMatch.matchPda = smartContractResult.matchPda?.toString();
+      newMatch.vaultPda = smartContractResult.vaultPda?.toString();
+      newMatch.smartContractCreated = true;
       
       await matchRepository.save(newMatch);
       console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
@@ -1391,9 +1423,8 @@ const submitResultHandler = async (req: any, res: any) => {
           console.warn('⚠️ Failed to clear Redis game state:', error);
         }
         
-        // Execute automated payment if there's a clear winner
-        // Calculate direct payment instructions
-        if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
+        // Execute smart contract settlement if available, otherwise use legacy payout
+        if (payoutResult && payoutResult.winner) {
           
           const winner = payoutResult.winner;
           const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
@@ -1404,78 +1435,236 @@ const submitResultHandler = async (req: any, res: any) => {
           const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
           const feeAmount = totalPot * 0.05; // 5% fee from total pot
           
-          // Try to execute automated payout if private key is available
-          try {
-            const { getFeeWalletKeypair } = require('../config/wallet');
-            const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
-            
-            const feeWalletKeypair = getFeeWalletKeypair();
-            const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
-            
-            // Create payout transaction
-            const payoutTransaction = new Transaction().add(
-              SystemProgram.transfer({
-                fromPubkey: feeWalletKeypair.publicKey,
-                toPubkey: new PublicKey(winner),
-                lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
-              })
-            );
-            
-            // Get recent blockhash
-            const { blockhash } = await connection.getLatestBlockhash();
-            payoutTransaction.recentBlockhash = blockhash;
-            payoutTransaction.feePayer = feeWalletKeypair.publicKey;
-            
-            // Sign and send transaction
-            const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
-            await connection.confirmTransaction(signature);
-            
-            console.log('✅ Automated payout successful:', signature);
-            
-            // Create payment instructions for display
-            const paymentInstructions = {
-              winner,
-              loser,
-              winnerAmount,
-              feeAmount,
-              feeWallet: FEE_WALLET_ADDRESS,
-              automatedPayout: true,
-              payoutSignature: signature,
-              transactions: [
-                {
-                  from: FEE_WALLET_ADDRESS,
-                  to: winner,
-                  amount: winnerAmount,
-                  description: 'Automated payout to winner',
-                  signature: signature
+          // Try smart contract settlement first if match has smart contract data
+          if (updatedMatch.matchPda && updatedMatch.vaultPda) {
+            try {
+              console.log('🔗 Attempting smart contract settlement...');
+              const { smartContractService } = require('../services/anchorClient');
+              const { PublicKey } = require('@solana/web3.js');
+              
+              const matchPda = new PublicKey(updatedMatch.matchPda);
+              
+              // Determine the result enum for smart contract
+              let resultEnum: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error';
+              
+              if (winner === 'tie') {
+                // Check if it's a winning tie (both solved) or losing tie (neither solved)
+                const player1Result = updatedMatch.getPlayer1Result();
+                const player2Result = updatedMatch.getPlayer2Result();
+                
+                if (player1Result?.won && player2Result?.won) {
+                  resultEnum = 'WinnerTie';
+                } else {
+                  resultEnum = 'LosingTie';
                 }
-              ]
-            };
-            
-            (payoutResult as any).paymentInstructions = paymentInstructions;
-            (payoutResult as any).paymentSuccess = true;
-            (payoutResult as any).automatedPayout = true;
-            
-            // Update the database column with the payout signature
-            updatedMatch.winnerPayoutSignature = signature;
-            
-            console.log('✅ Automated payout completed');
-            
-          } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      const errorName = error instanceof Error ? error.name : undefined;
-            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', errorMessage);
-            
-            // Fallback to manual payment instructions
-            const paymentInstructions = {
-              winner,
-              loser,
-              winnerAmount,
-              feeAmount,
-              feeWallet: FEE_WALLET_ADDRESS,
-              automatedPayout: false,
-              transactions: [
+              } else if (winner === updatedMatch.player1) {
+                resultEnum = 'Player1';
+              } else if (winner === updatedMatch.player2) {
+                resultEnum = 'Player2';
+              } else {
+                resultEnum = 'Error';
+              }
+              
+              console.log('🔗 Settling smart contract with result:', resultEnum);
+              
+              const settlementResult = await smartContractService.settleMatch(matchPda, resultEnum);
+              
+              if (settlementResult.success) {
+                console.log('✅ Smart contract settlement successful:', settlementResult.signature);
+                
+                // Create payment instructions for display
+                const paymentInstructions = {
+                  winner,
+                  loser,
+                  winnerAmount,
+                  feeAmount,
+                  smartContractSettlement: true,
+                  settlementSignature: settlementResult.signature,
+                  matchPda: updatedMatch.matchPda,
+                  vaultPda: updatedMatch.vaultPda,
+                  transactions: [
+                    {
+                      from: 'Smart Contract Vault',
+                      to: winner,
+                      amount: winnerAmount,
+                      description: 'Smart contract settlement to winner',
+                      signature: settlementResult.signature
+                    }
+                  ]
+                };
+                
+                (payoutResult as any).paymentInstructions = paymentInstructions;
+                (payoutResult as any).paymentSuccess = true;
+                (payoutResult as any).smartContractSettlement = true;
+                
+                // Update the database column with the settlement signature
+                updatedMatch.winnerPayoutSignature = settlementResult.signature;
+                
+                console.log('✅ Smart contract settlement completed');
+              } else {
+                throw new Error(`Smart contract settlement failed: ${settlementResult.error}`);
+              }
+              
+            } catch (error: unknown) {
+              console.error('❌ Smart contract settlement failed, falling back to legacy payout:', error);
+              
+              // Fall back to legacy payout system
+              try {
+                const { getFeeWalletKeypair } = require('../config/wallet');
+                const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+                
+                const feeWalletKeypair = getFeeWalletKeypair();
+                const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+                
+                // Create payout transaction
+                const payoutTransaction = new Transaction().add(
+                  SystemProgram.transfer({
+                    fromPubkey: feeWalletKeypair.publicKey,
+                    toPubkey: new PublicKey(winner),
+                    lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
+                  })
+                );
+                
+                // Get recent blockhash
+                const { blockhash } = await connection.getLatestBlockhash();
+                payoutTransaction.recentBlockhash = blockhash;
+                payoutTransaction.feePayer = feeWalletKeypair.publicKey;
+                
+                // Sign and send transaction
+                const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
+                await connection.confirmTransaction(signature);
+                
+                console.log('✅ Legacy payout successful:', signature);
+                
+                // Create payment instructions for display
+                const paymentInstructions = {
+                  winner,
+                  loser,
+                  winnerAmount,
+                  feeAmount,
+                  feeWallet: FEE_WALLET_ADDRESS,
+                  automatedPayout: true,
+                  payoutSignature: signature,
+                  transactions: [
+                    {
+                      from: FEE_WALLET_ADDRESS,
+                      to: winner,
+                      amount: winnerAmount,
+                      description: 'Legacy payout to winner',
+                      signature: signature
+                    }
+                  ]
+                };
+                
+                (payoutResult as any).paymentInstructions = paymentInstructions;
+                (payoutResult as any).paymentSuccess = true;
+                (payoutResult as any).automatedPayout = true;
+                
+                // Update the database column with the payout signature
+                updatedMatch.winnerPayoutSignature = signature;
+                
+                console.log('✅ Legacy payout completed');
+                
+              } catch (legacyError: unknown) {
+                const errorMessage = legacyError instanceof Error ? legacyError.message : String(legacyError);
+                console.warn('⚠️ Legacy payout failed, falling back to manual instructions:', errorMessage);
+                
+                // Fallback to manual payment instructions
+                const paymentInstructions = {
+                  winner,
+                  loser,
+                  winnerAmount,
+                  feeAmount,
+                  feeWallet: FEE_WALLET_ADDRESS,
+                  automatedPayout: false,
+                  transactions: [
+                    {
+                      from: FEE_WALLET_ADDRESS,
+                      to: winner,
+                      amount: winnerAmount,
+                      description: 'Manual payout to winner (contact support)'
+                    }
+                  ]
+                };
+                
+                (payoutResult as any).paymentInstructions = paymentInstructions;
+                (payoutResult as any).paymentSuccess = false;
+                (payoutResult as any).paymentError = 'Both smart contract and legacy payouts failed - contact support';
+                
+                console.log('⚠️ Manual payment instructions created');
+              }
+            }
+          } else {
+            // No smart contract data - use legacy payout system
+            try {
+              const { getFeeWalletKeypair } = require('../config/wallet');
+              const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+              
+              const feeWalletKeypair = getFeeWalletKeypair();
+              const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+              
+              // Create payout transaction
+              const payoutTransaction = new Transaction().add(
+                SystemProgram.transfer({
+                  fromPubkey: feeWalletKeypair.publicKey,
+                  toPubkey: new PublicKey(winner),
+                  lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
+                })
+              );
+              
+              // Get recent blockhash
+              const { blockhash } = await connection.getLatestBlockhash();
+              payoutTransaction.recentBlockhash = blockhash;
+              payoutTransaction.feePayer = feeWalletKeypair.publicKey;
+              
+              // Sign and send transaction
+              const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
+              await connection.confirmTransaction(signature);
+              
+              console.log('✅ Legacy payout successful:', signature);
+              
+              // Create payment instructions for display
+              const paymentInstructions = {
+                winner,
+                loser,
+                winnerAmount,
+                feeAmount,
+                feeWallet: FEE_WALLET_ADDRESS,
+                automatedPayout: true,
+                payoutSignature: signature,
+                transactions: [
+                  {
+                    from: FEE_WALLET_ADDRESS,
+                    to: winner,
+                    amount: winnerAmount,
+                    description: 'Legacy payout to winner',
+                    signature: signature
+                  }
+                ]
+              };
+              
+              (payoutResult as any).paymentInstructions = paymentInstructions;
+              (payoutResult as any).paymentSuccess = true;
+              (payoutResult as any).automatedPayout = true;
+              
+              // Update the database column with the payout signature
+              updatedMatch.winnerPayoutSignature = signature;
+              
+              console.log('✅ Legacy payout completed');
+              
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.warn('⚠️ Legacy payout failed, falling back to manual instructions:', errorMessage);
+              
+              // Fallback to manual payment instructions
+              const paymentInstructions = {
+                winner,
+                loser,
+                winnerAmount,
+                feeAmount,
+                feeWallet: FEE_WALLET_ADDRESS,
+                automatedPayout: false,
+                transactions: [
                 {
                   from: FEE_WALLET_ADDRESS,
                   to: winner,
@@ -1491,6 +1680,7 @@ const submitResultHandler = async (req: any, res: any) => {
             
             console.log('⚠️ Manual payment instructions created');
           }
+            }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
@@ -4706,6 +4896,57 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
   }
 };
 
+// Get match PDA endpoint for smart contract integration
+const getMatchPdaHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.params;
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID is required' });
+    }
+
+    console.log('🔍 Getting match PDA for matchId:', matchId);
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find the match
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Check if match has smart contract data
+    if (!match.matchPda || !match.vaultPda) {
+      return res.status(400).json({ 
+        error: 'Match does not have smart contract data',
+        message: 'This match was created before smart contract integration'
+      });
+    }
+
+    console.log('✅ Found match with smart contract data:', {
+      matchId,
+      matchPda: match.matchPda,
+      vaultPda: match.vaultPda
+    });
+
+    res.json({
+      success: true,
+      matchPda: match.matchPda,
+      vaultPda: match.vaultPda,
+      player1: match.player1,
+      player2: match.player2,
+      entryFee: match.entryFee,
+      status: match.status
+    });
+
+  } catch (error: unknown) {
+    console.error('❌ Error getting match PDA:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -4737,6 +4978,7 @@ module.exports = {
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,
+  getMatchPdaHandler,
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,

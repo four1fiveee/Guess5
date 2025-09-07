@@ -21,11 +21,30 @@ export enum InstructionType {
   CLAIM_PRIZE = 'claimPrize'
 }
 
-// Helper function to generate match PDA from matchId (as expected by IDL)
-export const getMatchPda = (matchId: string, programId: PublicKey): PublicKey => {
-  const truncatedMatchId = matchId.substring(0, 32);
+// Helper function to generate match PDA using the actual smart contract seeds
+export const getMatchPda = (player1: PublicKey, player2: PublicKey, stakeLamports: number, programId: PublicKey): PublicKey => {
+  const stakeLamportsBuffer = Buffer.alloc(8);
+  stakeLamportsBuffer.writeBigUInt64LE(BigInt(stakeLamports));
+  
   const [matchPda] = PublicKey.findProgramAddressSync(
-    [Buffer.from('match'), Buffer.from(truncatedMatchId)],
+    [
+      Buffer.from('match'),
+      player1.toBuffer(),
+      player2.toBuffer(),
+      stakeLamportsBuffer
+    ],
+    programId
+  );
+  return matchPda;
+};
+
+// Helper function to generate match PDA from matchId (for existing matches)
+export const getMatchPdaFromId = (matchId: string, programId: PublicKey): PublicKey => {
+  // For existing matches, we need to get the PDA from the backend
+  // This is a placeholder - the actual PDA should come from the backend
+  const matchIdBuffer = Buffer.from(matchId.slice(0, 32)); // Truncate to 32 chars
+  const [matchPda] = PublicKey.findProgramAddressSync(
+    [Buffer.from('match'), matchIdBuffer],
     programId
   );
   return matchPda;
@@ -53,26 +72,30 @@ export interface SmartContractMatch {
 // Create a match on the smart contract
 export const createMatchInstruction = async (
   program: Program,
-  payer: PublicKey,
-  entryFee: number,
-  matchId: string
+  player1: PublicKey,
+  player2: PublicKey,
+  stakeLamports: number,
+  feeBps: number,
+  deadlineSlot: number
 ): Promise<{ instruction: TransactionInstruction; matchPda: PublicKey; vaultPda: PublicKey }> => {
-  // Generate PDAs for this match using helper functions
-  const matchPda = getMatchPda(matchId, program.programId);
+  // Generate PDAs for this match using the actual smart contract seeds
+  const matchPda = getMatchPda(player1, player2, stakeLamports, program.programId);
   const vaultPda = getVaultPda(matchPda, program.programId);
 
-  // Try to use the correct instruction name that matches the deployed smart contract
-  // The deployed smart contract has create_match, but the IDL has initializeMatch
-  // Let's try to use the IDL method but with the correct parameters
+  // Use the correct instruction name and parameters from the actual smart contract
   const instruction = await program.methods
-    .initializeMatch(
-      matchId, // Use matchId as string parameter
-      new BN(entryFee * LAMPORTS_PER_SOL)
+    .createMatch(
+      new BN(stakeLamports),
+      feeBps,
+      new BN(deadlineSlot)
     )
     .accounts({
-      matchEscrow: matchPda,
-      player1: payer,
-      feeWallet: RESULTS_ATTESTOR_ADDRESS,
+      matchAccount: matchPda,
+      vault: vaultPda,
+      player1: player1,
+      player2: player2,
+      resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
+      feeWallet: RESULTS_ATTESTOR_ADDRESS, // The fee wallet signs the transaction
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -80,52 +103,67 @@ export const createMatchInstruction = async (
   return { instruction, matchPda, vaultPda };
 };
 
-// Join a match on the smart contract (deposit entry fee)
-export const joinMatchInstruction = async (
+// Deposit stake into the match vault
+export const depositInstruction = async (
   program: Program,
-  payer: PublicKey,
+  player: PublicKey,
   matchPda: PublicKey,
-  vaultPda: PublicKey,
-  entryFee: number
+  vaultPda: PublicKey
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .joinMatch(new BN(entryFee * LAMPORTS_PER_SOL))
+    .deposit()
     .accounts({
-      matchEscrow: matchPda,
-      player2: payer,
+      matchAccount: matchPda,
+      vault: vaultPda,
+      player: player,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
 };
 
-// Submit result to smart contract
-export const submitResultInstruction = async (
+// Create deposit instruction for existing match
+export const createDepositInstruction = async (
   program: Program,
-  payer: PublicKey,
+  player: PublicKey,
+  matchPda: PublicKey,
+  vaultPda: PublicKey
+): Promise<TransactionInstruction> => {
+  return await program.methods
+    .deposit()
+    .accounts({
+      matchAccount: matchPda,
+      vault: vaultPda,
+      player: player,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+};
+
+// Settle match and distribute funds
+export const settleMatchInstruction = async (
+  program: Program,
   matchPda: PublicKey,
   vaultPda: PublicKey,
   player1: PublicKey,
   player2: PublicKey,
-  result: any,
-  attempts: number,
-  solved: boolean
+  result: any
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .submitResult(result, attempts, solved)
+    .settleMatch(result)
     .accounts({
-      matchEscrow: matchPda,
-      player: payer,
+      matchAccount: matchPda,
+      vault: vaultPda,
+      resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
       player1: player1,
       player2: player2,
       feeWallet: RESULTS_ATTESTOR_ADDRESS,
-      vaultAccount: vaultPda,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
 };
 
-// Refund players from smart contract
-export const refundPlayersInstruction = async (
+// Refund players if deadline has passed
+export const refundTimeoutInstruction = async (
   program: Program,
   matchPda: PublicKey,
   vaultPda: PublicKey,
@@ -133,12 +171,13 @@ export const refundPlayersInstruction = async (
   player2: PublicKey
 ): Promise<TransactionInstruction> => {
   return await program.methods
-    .refundPlayers()
+    .refundTimeout()
     .accounts({
-      matchEscrow: matchPda,
+      matchAccount: matchPda,
+      vault: vaultPda,
       player1: player1,
       player2: player2,
-      vaultAccount: vaultPda,
+      feeWallet: RESULTS_ATTESTOR_ADDRESS,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -150,7 +189,7 @@ export const getMatchData = async (
   matchPda: PublicKey
 ): Promise<SmartContractMatch | null> => {
   try {
-    const matchAccount = await program.account.match.fetch(matchPda);
+    const matchAccount = await program.account.matchAccount.fetch(matchPda);
     return {
       matchPda,
       vaultPda: matchAccount.vault,

@@ -252,7 +252,10 @@ export const confirmPayment = async (
   smartContractData?: {
     matchPda: string;
     vaultPda: string;
-    matchId: string;
+    player1?: string;
+    player2?: string;
+    stakeLamports?: number;
+    matchId?: string;
     smartContractVerified: boolean;
     verificationDetails?: any;
   }
@@ -295,6 +298,12 @@ export const getGameState = async (matchId: string, wallet: string) => {
   }, false);
 };
 
+export const getMatchPda = async (matchId: string) => {
+  return apiRequest(`/api/match/get-match-pda/${matchId}`, {
+    method: 'GET',
+  }, false, 'get_match_pda');
+};
+
 const api = {
   requestMatch,
   submitResult,
@@ -303,6 +312,7 @@ const api = {
   getMatchStatus,
   checkPlayerMatch,
   getGameState,
+  getMatchPda,
 };
 
 export default api; 

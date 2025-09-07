@@ -93,18 +93,30 @@ const Matchmaking: React.FC = () => {
       // Use matchId for smart contract
       const matchId = matchData.matchId;
       
-      // Create smart contract instruction
-      console.log('🔧 Creating smart contract instruction...');
-      const { instruction, matchPda, vaultPda } = await createMatchInstruction(
-        program,
-        publicKey,
-        entryFee,
-        matchId
-      );
-      console.log('✅ Smart contract instruction created:', {
+      // Get match PDA and vault PDA from backend
+      console.log('🔧 Getting match PDA from backend...');
+      const matchPdaResponse = await api.getMatchPda(matchId);
+      if (!matchPdaResponse.success) {
+        throw new Error('Failed to get match PDA from backend');
+      }
+      
+      const matchPda = new PublicKey(matchPdaResponse.matchPda);
+      const vaultPda = new PublicKey(matchPdaResponse.vaultPda);
+      
+      console.log('✅ Got match PDAs:', {
         matchPda: matchPda.toString(),
         vaultPda: vaultPda.toString()
       });
+
+      // Create deposit instruction for existing match
+      console.log('🔧 Creating deposit instruction...');
+      const instruction = await createDepositInstruction(
+        program,
+        publicKey,
+        matchPda,
+        vaultPda
+      );
+      console.log('✅ Deposit instruction created');
 
       // Create transaction with smart contract instruction
       const transaction = new Transaction().add(instruction);
