@@ -1,5 +1,5 @@
 import { Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { Program, AnchorProvider, BN } from '@project-serum/anchor';
+import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
 
