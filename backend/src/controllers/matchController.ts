@@ -2159,14 +2159,37 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       console.warn('⚠️ Database lookup failed:', dbErrorMessage);
     }
     
-    // If not found in database, check Redis matches
+    // If not found in database, check Redis matchmaking service
     if (!match) {
-      console.log('🔍 Checking Redis matches...');
-      // Note: inMemoryMatches is kept for backward compatibility but should be migrated to Redis
-      match = await redisMemoryManager.getInstance().getInMemoryMatch(matchId);
-      if (match) {
-    
-      } else {
+      console.log('🔍 Checking Redis matchmaking service...');
+      try {
+        const { redisMatchmakingService } = require('../services/redisMatchmakingService');
+        const redisMatch = await redisMatchmakingService.getMatch(matchId);
+        if (redisMatch) {
+          console.log('✅ Found match in Redis matchmaking service');
+          // Convert Redis match data to database match format
+          match = {
+            id: redisMatch.matchId,
+            player1: redisMatch.player1,
+            player2: redisMatch.player2,
+            entryFee: redisMatch.entryFee,
+            status: redisMatch.status,
+            word: redisMatch.word,
+            createdAt: redisMatch.createdAt,
+            updatedAt: redisMatch.updatedAt,
+            // Add methods that the frontend expects
+            getPlayer1Result: () => redisMatch.player1Result,
+            getPlayer2Result: () => redisMatch.player2Result,
+            isCompleted: redisMatch.status === 'completed',
+            winner: redisMatch.winner
+          };
+        } else {
+          console.log('❌ Match not found in database or Redis matchmaking service');
+          return res.status(404).json({ error: 'Match not found' });
+        }
+      } catch (redisError: unknown) {
+        const redisErrorMessage = redisError instanceof Error ? redisError.message : String(redisError);
+        console.warn('⚠️ Redis matchmaking service lookup failed:', redisErrorMessage);
         console.log('❌ Match not found in database or Redis');
         return res.status(404).json({ error: 'Match not found' });
       }
