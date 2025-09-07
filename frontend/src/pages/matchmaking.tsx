@@ -9,7 +9,7 @@ import api from '../utils/api';
 import { 
   initializeProgram, 
   createMatchInstruction, 
-  joinMatchInstruction,
+  createDepositInstruction,
   calculateDeadlineSlot,
   verifySmartContractTransaction,
   SOLANA_PROGRAM_ID
