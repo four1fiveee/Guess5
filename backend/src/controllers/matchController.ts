@@ -406,17 +406,9 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     } else if (redisResult.status === 'waiting') {
       console.log(`⏳ REDIS: Player added to waiting queue: ${wallet}`);
       
-      // Create database record for waiting player
-      const newMatch = new Match();
-      newMatch.player1 = wallet;
-      newMatch.player2 = null;
-      newMatch.entryFee = entryFee;
-      newMatch.status = 'waiting';
-      newMatch.createdAt = new Date();
-      newMatch.updatedAt = new Date();
-      
-      await matchRepository.save(newMatch);
-      console.log(`✅ Database record created for waiting player: ${wallet}`);
+      // Don't create database record for waiting players - let Redis handle everything
+      // This prevents the synchronization issue between database and Redis
+      console.log(`✅ Player ${wallet} is waiting in Redis queue (${redisResult.waitingCount || 1} waiting)`);
       
       return {
         status: 'waiting',
@@ -2421,6 +2413,33 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
           player1: waitingMatch.player1,
           status: waitingMatch.status
         });
+      }
+      
+      // Check if player is waiting in Redis
+      try {
+        const { redisMatchmakingService } = require('../services/redisMatchmakingService');
+        const redisMatch = await redisMatchmakingService.getPlayerMatch(walletParam);
+        if (redisMatch) {
+          console.log('🔍 Player has Redis match:', {
+            matchId: redisMatch.matchId,
+            player1: redisMatch.player1,
+            player2: redisMatch.player2,
+            status: redisMatch.status
+          });
+          
+          // Return the Redis match data
+          return res.json({ 
+            matched: true, 
+            matchId: redisMatch.matchId,
+            player1: redisMatch.player1,
+            player2: redisMatch.player2,
+            entryFee: redisMatch.entryFee,
+            status: redisMatch.status
+          });
+        }
+      } catch (redisError) {
+        console.error('❌ Error checking Redis match:', redisError);
+        // Continue without failing the request
       }
       
       res.json({ matched: false });
