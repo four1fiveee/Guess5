@@ -2177,9 +2177,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             word: redisMatch.word,
             createdAt: redisMatch.createdAt,
             updatedAt: redisMatch.updatedAt,
+            payoutResult: redisMatch.payoutResult,
             // Add methods that the frontend expects
             getPlayer1Result: () => redisMatch.player1Result,
             getPlayer2Result: () => redisMatch.player2Result,
+            getPayoutResult: () => {
+              if (!redisMatch.payoutResult) return null;
+              try {
+                return JSON.parse(redisMatch.payoutResult);
+              } catch {
+                return null;
+              }
+            },
             isCompleted: redisMatch.status === 'completed',
             winner: redisMatch.winner
           };
