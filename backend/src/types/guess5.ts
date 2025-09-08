@@ -310,6 +310,9 @@ export const IDL = {
           },
           {
             "name": "Error"
+          },
+          {
+            "name": "result"
           }
         ]
       }
