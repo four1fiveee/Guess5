@@ -1,7 +1,8 @@
 import { Connection, PublicKey, Keypair, Transaction, VersionedTransaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
-import { FEE_WALLET_ADDRESS } from '../config/wallet';
+import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
+import bs58 from 'bs58';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
 const PROGRAM_ID = new PublicKey("HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC");
@@ -46,9 +47,7 @@ export class SmartContractService {
 
   constructor() {
     // Create a dummy wallet for the provider (we'll use the fee wallet)
-    const feeWalletKeypair = Keypair.fromSecretKey(
-      Buffer.from(process.env.FEE_WALLET_PRIVATE_KEY || '', 'base64')
-    );
+    const feeWalletKeypair = getFeeWalletKeypair();
     
     this.provider = new AnchorProvider(connection, {
       publicKey: feeWalletKeypair.publicKey,

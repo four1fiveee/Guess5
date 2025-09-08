@@ -358,23 +358,35 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
       
       console.log('🔧 Creating smart contract match...');
-      const smartContractResult = await smartContractService.createMatch(
-        player1Pubkey,
-        player2Pubkey,
-        stakeLamports,
-        500, // 5% fee
-        undefined // Let it calculate deadline
-      );
+      let smartContractResult;
+      try {
+        smartContractResult = await smartContractService.createMatch(
+          player1Pubkey,
+          player2Pubkey,
+          stakeLamports,
+          500, // 5% fee
+          undefined // Let it calculate deadline
+        );
+      } catch (smartContractError) {
+        console.error('❌ Smart contract service error:', smartContractError);
+        // Continue without smart contract for now - create match in database only
+        smartContractResult = { success: false, error: smartContractError instanceof Error ? smartContractError.message : String(smartContractError) };
+      }
       
       if (!smartContractResult.success) {
         console.error('❌ Failed to create smart contract match:', smartContractResult.error);
-        throw new Error(`Smart contract match creation failed: ${smartContractResult.error}`);
+        console.log('⚠️ Continuing with database-only match creation...');
+        // Don't throw error - continue with database match creation
       }
       
-      console.log('✅ Smart contract match created:', {
-        matchPda: smartContractResult.matchPda?.toString(),
-        vaultPda: smartContractResult.vaultPda?.toString()
-      });
+      if (smartContractResult.success) {
+        console.log('✅ Smart contract match created:', {
+          matchPda: smartContractResult.matchPda?.toString(),
+          vaultPda: smartContractResult.vaultPda?.toString()
+        });
+      } else {
+        console.log('⚠️ Smart contract creation failed, creating database-only match');
+      }
 
       // Create database record for the match
       const newMatch = new Match();
@@ -387,10 +399,14 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       newMatch.createdAt = new Date(matchData.createdAt);
       newMatch.updatedAt = new Date();
       
-      // Add smart contract data
-      newMatch.matchPda = smartContractResult.matchPda?.toString();
-      newMatch.vaultPda = smartContractResult.vaultPda?.toString();
-      newMatch.smartContractCreated = true;
+      // Add smart contract data only if successful
+      if (smartContractResult.success) {
+        newMatch.matchPda = smartContractResult.matchPda?.toString();
+        newMatch.vaultPda = smartContractResult.vaultPda?.toString();
+        newMatch.smartContractCreated = true;
+      } else {
+        newMatch.smartContractCreated = false;
+      }
       
       await matchRepository.save(newMatch);
       console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
