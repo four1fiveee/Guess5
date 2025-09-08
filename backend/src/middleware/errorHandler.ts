@@ -131,6 +131,13 @@ export const errorHandler = (err: any, req: any, res: any, next: any) => {
 // Enhanced timeout middleware for long-running operations
 export const timeoutHandler = (timeoutMs: number = 30000) => {
   return (req: any, res: any, next: any) => {
+    // Skip timeout for SSE connections and other long-running endpoints
+    if (req.url?.includes('/sse/') || 
+        req.url?.includes('/wallet-balance/') ||
+        req.headers['accept']?.includes('text/event-stream')) {
+      return next();
+    }
+
     const timeoutId = setTimeout(() => {
       const error = new Error('Request timeout');
       error.name = 'TimeoutError';
