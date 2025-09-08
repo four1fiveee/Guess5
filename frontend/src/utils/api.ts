@@ -82,10 +82,10 @@ const apiRequest = async (
   if (requireReCaptcha) {
     console.log(`🔄 Generating ReCaptcha token for action: ${reCaptchaAction}`);
     
-    // TEMPORARY BYPASS: Always bypass ReCaptcha until configuration is fixed
+    // TEMPORARY BYPASS: Check if we're in a problematic environment
     const isDevelopment = process.env.NODE_ENV === 'development';
     const isLocalhost = typeof window !== 'undefined' && window.location.hostname === 'localhost';
-    const bypassReCaptcha = true; // TEMPORARY: Always bypass until ReCaptcha is properly configured
+    const bypassReCaptcha = isDevelopment || isLocalhost;
     
     if (bypassReCaptcha) {
       console.log('🚧 TEMPORARY: Bypassing ReCaptcha for development/localhost');
@@ -287,8 +287,9 @@ export const confirmPayment = async (
 };
 
 // Non-critical endpoints (no ReCaptcha required)
-export const getMatchStatus = async (matchId: string) => {
-  return apiRequest(`/api/match/status/${matchId}`, {
+export const getMatchStatus = async (matchId: string, wallet?: string) => {
+  const url = wallet ? `/api/match/status/${matchId}?wallet=${wallet}` : `/api/match/status/${matchId}`;
+  return apiRequest(url, {
     method: 'GET',
   }, false);
 };

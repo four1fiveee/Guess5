@@ -402,7 +402,7 @@ const Game: React.FC = () => {
 
         // Fetch match data from backend
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/status/${gameMatchId}`);
+        const response = await fetch(`${apiUrl}/api/match/status/${gameMatchId}?wallet=${publicKey?.toString()}`);
         
         if (!response.ok) {
           throw new Error('Failed to fetch match data');

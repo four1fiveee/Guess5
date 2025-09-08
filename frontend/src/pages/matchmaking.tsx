@@ -304,7 +304,7 @@ const Matchmaking: React.FC = () => {
           } else if (currentMatchData && currentMatchData.matchId) {
             // Check payment status for existing match
             try {
-              const data = await api.getMatchStatus(currentMatchData.matchId);
+              const data = await api.getMatchStatus(currentMatchData.matchId, publicKey?.toString());
               
               // Update match data with latest payment status
               setMatchData((prev: any) => {
