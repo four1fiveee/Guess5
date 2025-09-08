@@ -178,6 +178,40 @@ export const IDL = {
         }
       ],
       "args": []
+    },
+    {
+      "name": "refundPartialDeposit",
+      "docs": [
+        "Refunds a single player if they deposited but the other player didn't"
+      ],
+      "accounts": [
+        {
+          "name": "matchAccount",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "vault",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player1",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "player2",
+          "isMut": true,
+          "isSigner": false
+        },
+        {
+          "name": "systemProgram",
+          "isMut": false,
+          "isSigner": false
+        }
+      ],
+      "args": []
     }
   ],
   "accounts": [
@@ -280,6 +314,9 @@ export const IDL = {
             "name": "Active"
           },
           {
+            "name": "Deposited"
+          },
+          {
             "name": "Settled"
           },
           {
@@ -310,9 +347,6 @@ export const IDL = {
           },
           {
             "name": "Error"
-          },
-          {
-            "name": "result"
           }
         ]
       }
@@ -347,23 +381,58 @@ export const IDL = {
   "errors": [
     {
       "code": 6000,
-      "name": "InvalidMatchStatus",
-      "msg": "Invalid match status"
+      "name": "FeeTooHigh",
+      "msg": "Fee is too high (max 5%)"
     },
     {
       "code": 6001,
-      "name": "MatchAlreadyFull",
-      "msg": "Match is already full"
+      "name": "StakeTooLow",
+      "msg": "Stake amount is too low (min 0.001 SOL)"
     },
     {
       "code": 6002,
-      "name": "NotMatchParticipant",
-      "msg": "Not a match participant"
+      "name": "InvalidDeadline",
+      "msg": "Invalid deadline"
     },
     {
       "code": 6003,
-      "name": "IncorrectEntryFee",
-      "msg": "Incorrect entry fee amount"
+      "name": "MatchNotActive",
+      "msg": "Match is not active"
+    },
+    {
+      "code": 6004,
+      "name": "DeadlinePassed",
+      "msg": "Deadline has passed"
+    },
+    {
+      "code": 6005,
+      "name": "InvalidPlayer",
+      "msg": "Invalid player"
+    },
+    {
+      "code": 6006,
+      "name": "AlreadyDeposited",
+      "msg": "Player has already deposited"
+    },
+    {
+      "code": 6007,
+      "name": "NotAllDeposited",
+      "msg": "Not all players have deposited"
+    },
+    {
+      "code": 6008,
+      "name": "UnauthorizedAttestor",
+      "msg": "Unauthorized results attestor"
+    },
+    {
+      "code": 6009,
+      "name": "DeadlineNotPassed",
+      "msg": "Deadline has not passed yet"
+    },
+    {
+      "code": 6010,
+      "name": "InvalidPartialDeposit",
+      "msg": "Invalid partial deposit state"
     }
   ]
 } as const;
