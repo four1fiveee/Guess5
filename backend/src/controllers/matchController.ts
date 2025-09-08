@@ -2174,26 +2174,43 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             player2: redisMatch.player2,
             entryFee: redisMatch.entryFee,
             status: redisMatch.status,
-            word: redisMatch.word,
-            createdAt: redisMatch.createdAt,
-            updatedAt: redisMatch.updatedAt,
+            word: (redisMatch as any).word || null,
+            createdAt: new Date(redisMatch.createdAt),
+            updatedAt: new Date(redisMatch.createdAt), // Use createdAt as updatedAt for Redis matches
             // Add payment status fields (default to false for new matches)
-            player1Paid: redisMatch.player1Paid || false,
-            player2Paid: redisMatch.player2Paid || false,
-            payoutResult: redisMatch.payoutResult,
+            player1Paid: (redisMatch as any).player1Paid || false,
+            player2Paid: (redisMatch as any).player2Paid || false,
+            payoutResult: (redisMatch as any).payoutResult || null,
             // Add methods that the frontend expects
-            getPlayer1Result: () => redisMatch.player1Result,
-            getPlayer2Result: () => redisMatch.player2Result,
-            getPayoutResult: () => {
-              if (!redisMatch.payoutResult) return null;
+            getPlayer1Result: () => {
+              const result = (redisMatch as any).player1Result;
+              if (!result) return null;
               try {
-                return JSON.parse(redisMatch.payoutResult);
+                return JSON.parse(result);
+              } catch {
+                return null;
+              }
+            },
+            getPlayer2Result: () => {
+              const result = (redisMatch as any).player2Result;
+              if (!result) return null;
+              try {
+                return JSON.parse(result);
+              } catch {
+                return null;
+              }
+            },
+            getPayoutResult: () => {
+              const result = (redisMatch as any).payoutResult;
+              if (!result) return null;
+              try {
+                return JSON.parse(result);
               } catch {
                 return null;
               }
             },
             isCompleted: redisMatch.status === 'completed',
-            winner: redisMatch.winner
+            winner: (redisMatch as any).winner || null
           };
         } else {
           console.log('❌ Match not found in database or Redis matchmaking service');

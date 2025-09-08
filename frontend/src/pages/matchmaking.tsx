@@ -18,7 +18,7 @@ import {
 const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction } = useWallet();
-  const [status, setStatus] = useState<'waiting' | 'payment_required' | 'waiting_for_game' | 'active' | 'error' | 'cancelled'>('waiting');
+  const [status, setStatus] = useState<'waiting' | 'payment_required' | 'waiting_for_payment' | 'waiting_for_game' | 'active' | 'error' | 'cancelled'>('waiting');
   const [waitingCount, setWaitingCount] = useState(0);
   const [matchData, setMatchData] = useState<any>(null);
   const [entryFee, setEntryFee] = useState<number>(0);
@@ -546,6 +546,21 @@ const Matchmaking: React.FC = () => {
               >
                 {isPaymentInProgress ? 'Processing Payment...' : 'Pay Entry Fee'}
               </button>
+            </div>
+          )}
+
+          {status === 'waiting_for_payment' && matchData && (
+            <div>
+              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Opponent</h2>
+              <div className="text-white/80 mb-4">
+                You have paid your entry fee. Waiting for your opponent to pay.
+              </div>
+              <div className="text-white/60 text-sm mb-4">
+                Match ID: {matchData.matchId}
+              </div>
+              <div className="text-accent text-lg font-semibold mb-4">
+                Please wait...
+              </div>
             </div>
           )}
 
