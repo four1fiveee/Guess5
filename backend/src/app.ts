@@ -103,7 +103,7 @@ app.use(correlationIdMiddleware);
 app.use(requestLoggingMiddleware);
 
 // Apply timeout handler for long-running operations
-app.use(timeoutHandler(30000)); // 30 second timeout
+app.use(timeoutHandler(120000)); // 2 minute timeout for matchmaking operations
 
 // Apply deduplication middleware
 app.use(deduplicateRequests);
