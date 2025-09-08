@@ -2177,6 +2177,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             word: redisMatch.word,
             createdAt: redisMatch.createdAt,
             updatedAt: redisMatch.updatedAt,
+            // Add payment status fields (default to false for new matches)
+            player1Paid: redisMatch.player1Paid || false,
+            player2Paid: redisMatch.player2Paid || false,
             payoutResult: redisMatch.payoutResult,
             // Add methods that the frontend expects
             getPlayer1Result: () => redisMatch.player1Result,
