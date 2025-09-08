@@ -115,18 +115,18 @@ export class RedisMatchmakingService {
               entryFee,
               status: 'payment_required',
               createdAt: Date.now(),
-              expiresAt: Date.now() + 300000 // 5 minutes
+              expiresAt: Date.now() + 1800000 // 30 minutes
             };
 
             // Store match data
             await this.redis.hSet(`match:${matchId}`, 'data', JSON.stringify(matchData));
-            await this.redis.expire(`match:${matchId}`, 600); // 10 minutes
+            await this.redis.expire(`match:${matchId}`, 1800); // 30 minutes
 
             // Store player associations
             await this.redis.hSet(`player:${waitingPlayer.wallet}`, 'matchId', matchId);
             await this.redis.hSet(`player:${wallet}`, 'matchId', matchId);
-            await this.redis.expire(`player:${waitingPlayer.wallet}`, 600);
-            await this.redis.expire(`player:${wallet}`, 600);
+            await this.redis.expire(`player:${waitingPlayer.wallet}`, 1800); // 30 minutes
+            await this.redis.expire(`player:${wallet}`, 1800); // 30 minutes
 
             // Remove waiting player from queue
             await this.redis.hDel(waitingKey, waitingPlayer.wallet);
