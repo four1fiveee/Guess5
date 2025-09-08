@@ -2209,12 +2209,35 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     const isPlayer1 = match.player1 === requestingWallet;
     const existingResult = isPlayer1 ? match.getPlayer1Result() : match.getPlayer2Result();
     
+    // Determine the appropriate status based on the requesting player's payment status
+    let playerSpecificStatus = match.status;
+    
+    if (match.status === 'payment_required') {
+      const requestingPlayerPaid = isPlayer1 ? match.player1Paid : match.player2Paid;
+      const otherPlayerPaid = isPlayer1 ? match.player2Paid : match.player1Paid;
+      
+      if (requestingPlayerPaid && otherPlayerPaid) {
+        // Both players have paid
+        playerSpecificStatus = 'active';
+      } else if (requestingPlayerPaid && !otherPlayerPaid) {
+        // Requesting player has paid, waiting for other player
+        playerSpecificStatus = 'waiting_for_payment';
+      } else if (!requestingPlayerPaid) {
+        // Requesting player hasn't paid yet
+        playerSpecificStatus = 'payment_required';
+      }
+    }
+    
     console.log('✅ Returning match data:', {
-      status: match.status,
+      status: playerSpecificStatus,
+      originalStatus: match.status,
       player1: match.player1,
       player2: match.player2,
       hasWord: !!match.word,
       requestingWallet,
+      isPlayer1,
+      requestingPlayerPaid: isPlayer1 ? match.player1Paid : match.player2Paid,
+      otherPlayerPaid: isPlayer1 ? match.player2Paid : match.player1Paid,
       hasExistingResult: !!existingResult,
       player1Result: match.getPlayer1Result(),
       player2Result: match.getPlayer2Result(),
@@ -2224,12 +2247,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
     // If match has existing results, mark it as completed
     if (existingResult) {
-      match.status = 'completed';
+      playerSpecificStatus = 'completed';
       match.isCompleted = true;
     }
 
   res.json({
-    status: match.status,
+    status: playerSpecificStatus,
       player1: match.player1,
       player2: match.player2,
       player1Paid: match.player1Paid,
