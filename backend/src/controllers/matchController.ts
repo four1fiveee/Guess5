@@ -352,7 +352,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       // Create smart contract match - wrap in try-catch to handle IDL errors
       let smartContractResult;
       try {
-        const { smartContractService } = require('../services/anchorClient');
+        const { getSmartContractService } = require('../services/anchorClient');
         const { PublicKey } = require('@solana/web3.js');
         
         const player1Pubkey = new PublicKey(matchData.player1);
@@ -360,6 +360,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
         
         console.log('🔧 Creating smart contract match...');
+        const smartContractService = getSmartContractService();
         smartContractResult = await smartContractService.createMatch(
           player1Pubkey,
           player2Pubkey,
@@ -1447,7 +1448,7 @@ const submitResultHandler = async (req: any, res: any) => {
           if (updatedMatch.matchPda && updatedMatch.vaultPda) {
             try {
               console.log('🔗 Attempting smart contract settlement...');
-              const { smartContractService } = require('../services/anchorClient');
+              const { getSmartContractService } = require('../services/anchorClient');
               const { PublicKey } = require('@solana/web3.js');
               
               const matchPda = new PublicKey(updatedMatch.matchPda);
@@ -1475,6 +1476,7 @@ const submitResultHandler = async (req: any, res: any) => {
               
               console.log('🔗 Settling smart contract with result:', resultEnum);
               
+              const smartContractService = getSmartContractService();
               const settlementResult = await smartContractService.settleMatch(matchPda, resultEnum);
               
               if (settlementResult.success) {

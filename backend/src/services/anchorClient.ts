@@ -222,13 +222,18 @@ let smartContractServiceInstance: SmartContractService | null = null;
 
 export const getSmartContractService = (): SmartContractService => {
   if (!smartContractServiceInstance) {
-    smartContractServiceInstance = new SmartContractService();
+    try {
+      smartContractServiceInstance = new SmartContractService();
+    } catch (error) {
+      console.error('❌ Failed to initialize SmartContractService:', error);
+      throw error;
+    }
   }
   return smartContractServiceInstance;
 };
 
-// Backward compatibility - but this will still cause IDL errors on import
-export const smartContractService = new SmartContractService();
+// Remove the immediate instantiation that causes IDL errors on import
+// export const smartContractService = new SmartContractService();
 
 /*
 export class Guess5AnchorClient {
