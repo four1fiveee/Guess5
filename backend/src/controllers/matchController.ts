@@ -376,8 +376,12 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       if (!smartContractResult.success) {
         console.error('❌ Failed to create smart contract match:', smartContractResult.error);
-        console.log('⚠️ Continuing with database-only match creation...');
-        // Don't throw error - continue with database match creation
+        console.log('❌ Smart contract creation is mandatory - cannot proceed without proper fund custody');
+        return res.status(500).json({
+          success: false,
+          error: 'Smart contract initialization failed. Match cannot be created without proper fund custody.',
+          details: smartContractResult.error
+        });
       }
       
       if (smartContractResult.success) {
