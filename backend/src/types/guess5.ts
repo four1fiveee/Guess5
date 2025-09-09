@@ -267,11 +267,11 @@ export const IDL = {
             }
           },
           {
-            "name": "createdAt",
+            "name": "created_at",
             "type": "i64"
           },
           {
-            "name": "settledAt",
+            "name": "settled_at",
             "type": {
               "option": "i64"
             }
@@ -293,11 +293,11 @@ export const IDL = {
             "type": "u64"
           },
           {
-            "name": "player1Deposited",
+            "name": "player1_deposited",
             "type": "bool"
           },
           {
-            "name": "player2Deposited",
+            "name": "player2_deposited",
             "type": "bool"
           }
         ]
