@@ -217,7 +217,17 @@ export class SmartContractService {
   }
 }
 
-// Export singleton instance
+// Export singleton instance with lazy initialization
+let smartContractServiceInstance: SmartContractService | null = null;
+
+export const getSmartContractService = (): SmartContractService => {
+  if (!smartContractServiceInstance) {
+    smartContractServiceInstance = new SmartContractService();
+  }
+  return smartContractServiceInstance;
+};
+
+// Backward compatibility - but this will still cause IDL errors on import
 export const smartContractService = new SmartContractService();
 
 /*

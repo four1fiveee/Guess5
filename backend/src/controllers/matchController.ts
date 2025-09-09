@@ -349,17 +349,17 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         throw new Error('Match data not found in Redis after creation');
       }
       
-      // Create smart contract match
-      const { smartContractService } = require('../services/anchorClient');
-      const { PublicKey } = require('@solana/web3.js');
-      
-      const player1Pubkey = new PublicKey(matchData.player1);
-      const player2Pubkey = new PublicKey(matchData.player2);
-      const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
-      
-      console.log('🔧 Creating smart contract match...');
+      // Create smart contract match - wrap in try-catch to handle IDL errors
       let smartContractResult;
       try {
+        const { smartContractService } = require('../services/anchorClient');
+        const { PublicKey } = require('@solana/web3.js');
+        
+        const player1Pubkey = new PublicKey(matchData.player1);
+        const player2Pubkey = new PublicKey(matchData.player2);
+        const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
+        
+        console.log('🔧 Creating smart contract match...');
         smartContractResult = await smartContractService.createMatch(
           player1Pubkey,
           player2Pubkey,
@@ -368,7 +368,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           undefined // Let it calculate deadline
         );
       } catch (smartContractError) {
-        console.error('❌ Smart contract service error:', smartContractError);
+        console.error('❌ Smart contract service error (including IDL errors):', smartContractError);
         // Continue without smart contract for now - create match in database only
         smartContractResult = { success: false, error: smartContractError instanceof Error ? smartContractError.message : String(smartContractError) };
       }
