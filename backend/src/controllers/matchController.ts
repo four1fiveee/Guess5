@@ -3319,6 +3319,14 @@ const confirmPaymentHandler = async (req: any, res: any) => {
     // Enhanced transaction verification - use smart contract verification if available
     let verificationResult;
     
+    console.log('🔍 Smart contract data received:', {
+      hasSmartContractData: !!smartContractData,
+      smartContractVerified: smartContractData?.smartContractVerified,
+      matchPda: smartContractData?.matchPda,
+      vaultPda: smartContractData?.vaultPda,
+      verificationDetails: smartContractData?.verificationDetails
+    });
+    
     if (smartContractData && smartContractData.smartContractVerified) {
       // For smart contract payments, use the verification details from frontend
       console.log('🔗 Using smart contract payment verification');
@@ -3333,6 +3341,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
     } else {
       // For legacy payments, use the fee wallet verification service
       console.log('💰 Using legacy fee wallet payment verification');
+      console.log('⚠️ Smart contract data missing or not verified, falling back to legacy verification');
       verificationResult = await paymentVerificationService.verifyPayment(
         paymentSignature, 
         wallet, 
