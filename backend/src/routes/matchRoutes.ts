@@ -84,6 +84,31 @@ router.get('/get-match-pda/:matchId',
   asyncHandlerWrapper(matchController.getMatchPdaHandler)
 );
 
+// Smart contract deposit endpoint
+router.post('/deposit-to-smart-contract', 
+  asyncHandlerWrapper(matchController.depositToSmartContractHandler)
+);
+
+// Smart contract settlement endpoint
+router.post('/settle-match', 
+  asyncHandlerWrapper(matchController.settleMatchHandler)
+);
+
+// Smart contract status endpoint
+router.get('/smart-contract-status/:matchId', 
+  asyncHandlerWrapper(matchController.getSmartContractStatusHandler)
+);
+
+// Smart contract deposit verification endpoint
+router.post('/verify-deposit', 
+  asyncHandlerWrapper(matchController.verifyDepositHandler)
+);
+
+// Smart contract deposit status endpoint
+router.get('/deposit-status/:matchId', 
+  asyncHandlerWrapper(matchController.getDepositStatusHandler)
+);
+
 
 
 // Cleanup endpoints (admin only)

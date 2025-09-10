@@ -352,22 +352,20 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       // Create smart contract match - wrap in try-catch to handle IDL errors
       let smartContractResult;
       try {
-        const { getSmartContractService } = require('../services/anchorClient');
-        const { PublicKey } = require('@solana/web3.js');
+        const { getSmartContractService } = require('../services/smartContractService');
         
-        const player1Pubkey = new PublicKey(matchData.player1);
-        const player2Pubkey = new PublicKey(matchData.player2);
         const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
         
         console.log('🔧 Creating smart contract match...');
         const smartContractService = getSmartContractService();
-        smartContractResult = await smartContractService.createMatch(
-          player1Pubkey,
-          player2Pubkey,
+        smartContractResult = await smartContractService.createMatch({
+          player1: matchData.player1,
+          player2: matchData.player2,
           stakeLamports,
-          500, // 5% fee
-          undefined // Let it calculate deadline
-        );
+          feeBps: 500, // 5% fee
+          deadlineSlot: await smartContractService.calculateDeadlineSlot(1000), // 1000 slots buffer
+          resultsAttestor: process.env.RESULTS_ATTESTOR_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'
+        });
       } catch (smartContractError) {
         console.error('❌ Smart contract service error (including IDL errors):', smartContractError);
         // Continue without smart contract for now - create match in database only
@@ -1448,10 +1446,7 @@ const submitResultHandler = async (req: any, res: any) => {
           if (updatedMatch.matchPda && updatedMatch.vaultPda) {
             try {
               console.log('🔗 Attempting smart contract settlement...');
-              const { getSmartContractService } = require('../services/anchorClient');
-              const { PublicKey } = require('@solana/web3.js');
-              
-              const matchPda = new PublicKey(updatedMatch.matchPda);
+              const { getSmartContractService } = require('../services/smartContractService');
               
               // Determine the result enum for smart contract
               let resultEnum: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error';
@@ -1477,10 +1472,10 @@ const submitResultHandler = async (req: any, res: any) => {
               console.log('🔗 Settling smart contract with result:', resultEnum);
               
               const smartContractService = getSmartContractService();
-              const settlementResult = await smartContractService.settleMatch(matchPda, resultEnum);
+              const settlementResult = await smartContractService.settleMatch(matchId, resultEnum);
               
               if (settlementResult.success) {
-                console.log('✅ Smart contract settlement successful:', settlementResult.signature);
+                console.log('✅ Smart contract settlement successful:', settlementResult.transactionId);
                 
                 // Create payment instructions for display
                 const paymentInstructions = {
@@ -1489,7 +1484,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   winnerAmount,
                   feeAmount,
                   smartContractSettlement: true,
-                  settlementSignature: settlementResult.signature,
+                  settlementSignature: settlementResult.transactionId,
                   matchPda: updatedMatch.matchPda,
                   vaultPda: updatedMatch.vaultPda,
                   transactions: [
@@ -1498,7 +1493,7 @@ const submitResultHandler = async (req: any, res: any) => {
                       to: winner,
                       amount: winnerAmount,
                       description: 'Smart contract settlement to winner',
-                      signature: settlementResult.signature
+                      signature: settlementResult.transactionId
                     }
                   ]
                 };
@@ -1508,7 +1503,8 @@ const submitResultHandler = async (req: any, res: any) => {
                 (payoutResult as any).smartContractSettlement = true;
                 
                 // Update the database column with the settlement signature
-                updatedMatch.winnerPayoutSignature = settlementResult.signature;
+                updatedMatch.winnerPayoutSignature = settlementResult.transactionId;
+                updatedMatch.smartContractStatus = 'Settled';
                 
                 console.log('✅ Smart contract settlement completed');
               } else {
@@ -5059,6 +5055,307 @@ const getMatchPdaHandler = async (req: any, res: any) => {
   }
 };
 
+// Smart contract integration handlers
+
+/**
+ * Handle player deposit to smart contract vault
+ */
+const depositToSmartContractHandler = async (req: any, res: any) => {
+  try {
+    const { matchId, playerWallet } = req.body;
+
+    if (!matchId || !playerWallet) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: matchId and playerWallet' 
+      });
+    }
+
+    console.log('💰 Processing smart contract deposit request:', { matchId, playerWallet });
+
+    // Get smart contract service
+    const { getSmartContractService } = require('../services/smartContractService');
+    const smartContractService = getSmartContractService();
+
+    // Process deposit
+    const result = await smartContractService.deposit(matchId, playerWallet);
+
+    if (result.success) {
+      console.log('✅ Smart contract deposit processed successfully:', {
+        matchId,
+        playerWallet,
+        transactionId: result.transactionId
+      });
+
+      res.json({
+        success: true,
+        message: 'Deposit instruction prepared for frontend',
+        transactionId: result.transactionId,
+        matchId,
+        playerWallet
+      });
+    } else {
+      console.error('❌ Smart contract deposit failed:', result.error);
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error in depositToSmartContractHandler:', error);
+    res.status(500).json({ 
+      success: false,
+      error: errorMessage 
+    });
+  }
+};
+
+/**
+ * Handle match settlement on smart contract
+ */
+const settleMatchHandler = async (req: any, res: any) => {
+  try {
+    const { matchId, result } = req.body;
+
+    if (!matchId || !result) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: matchId and result' 
+      });
+    }
+
+    // Validate result type
+    const validResults = ['Player1', 'Player2', 'WinnerTie', 'LosingTie', 'Timeout', 'Error'];
+    if (!validResults.includes(result)) {
+      return res.status(400).json({ 
+        error: `Invalid result type: ${result}. Must be one of: ${validResults.join(', ')}` 
+      });
+    }
+
+    console.log('🏁 Processing smart contract settlement:', { matchId, result });
+
+    // Get smart contract service
+    const { getSmartContractService } = require('../services/smartContractService');
+    const smartContractService = getSmartContractService();
+
+    // Settle match
+    const settlementResult = await smartContractService.settleMatch(matchId, result);
+
+    if (settlementResult.success) {
+      console.log('✅ Smart contract settlement processed successfully:', {
+        matchId,
+        result,
+        transactionId: settlementResult.transactionId
+      });
+
+      // Update database match status
+      try {
+        const { AppDataSource } = require('../db/index');
+        const { Match } = require('../models/Match');
+        const matchRepository = AppDataSource.getRepository(Match);
+        
+        const match = await matchRepository.findOne({ where: { id: matchId } });
+        if (match) {
+          match.status = 'completed';
+          match.smartContractStatus = 'Settled';
+          match.winner = result === 'Player1' ? match.player1 : 
+                        result === 'Player2' ? match.player2 : 'tie';
+          match.isCompleted = true;
+          match.matchOutcome = result;
+          
+          await matchRepository.save(match);
+          console.log('✅ Database match status updated');
+        }
+      } catch (dbError) {
+        console.error('⚠️ Failed to update database match status:', dbError);
+        // Don't fail the request if database update fails
+      }
+
+      res.json({
+        success: true,
+        message: 'Match settled successfully on smart contract',
+        transactionId: settlementResult.transactionId,
+        matchId,
+        result
+      });
+    } else {
+      console.error('❌ Smart contract settlement failed:', settlementResult.error);
+      res.status(500).json({
+        success: false,
+        error: settlementResult.error
+      });
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error in settleMatchHandler:', error);
+    res.status(500).json({ 
+      success: false,
+      error: errorMessage 
+    });
+  }
+};
+
+/**
+ * Get smart contract status for a match
+ */
+const getSmartContractStatusHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.params;
+
+    if (!matchId) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: matchId' 
+      });
+    }
+
+    console.log('🔍 Getting smart contract status for match:', matchId);
+
+    // Get smart contract service
+    const { getSmartContractService } = require('../services/smartContractService');
+    const smartContractService = getSmartContractService();
+
+    // Get match status
+    const statusResult = await smartContractService.getMatchStatus(matchId);
+
+    if (statusResult.success) {
+      console.log('✅ Smart contract status retrieved:', {
+        matchId,
+        onChainStatus: statusResult.onChainStatus,
+        vaultBalance: statusResult.vaultBalance
+      });
+
+      res.json({
+        success: true,
+        matchId,
+        onChainStatus: statusResult.onChainStatus,
+        vaultBalance: statusResult.vaultBalance,
+        player1Deposited: statusResult.player1Deposited,
+        player2Deposited: statusResult.player2Deposited
+      });
+    } else {
+      console.error('❌ Failed to get smart contract status:', statusResult.error);
+      res.status(500).json({
+        success: false,
+        error: statusResult.error
+      });
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error in getSmartContractStatusHandler:', error);
+    res.status(500).json({ 
+      success: false,
+      error: errorMessage 
+    });
+  }
+};
+
+/**
+ * Verify a deposit transaction on the smart contract
+ */
+const verifyDepositHandler = async (req: any, res: any) => {
+  try {
+    const { matchId, playerWallet, transactionSignature } = req.body;
+
+    if (!matchId || !playerWallet || !transactionSignature) {
+      return res.status(400).json({ 
+        error: 'Missing required fields: matchId, playerWallet, and transactionSignature' 
+      });
+    }
+
+    console.log('🔍 Verifying deposit transaction:', { matchId, playerWallet, transactionSignature });
+
+    // Get deposit service
+    const { getSmartContractDepositService } = require('../services/smartContractDepositService');
+    const depositService = getSmartContractDepositService();
+
+    // Verify deposit
+    const result = await depositService.verifyDeposit(matchId, playerWallet, transactionSignature);
+
+    if (result.success) {
+      console.log('✅ Deposit verification successful:', {
+        matchId,
+        playerWallet,
+        deposited: result.deposited,
+        transactionSignature: result.transactionSignature
+      });
+
+      res.json({
+        success: true,
+        deposited: result.deposited,
+        transactionSignature: result.transactionSignature,
+        matchId,
+        playerWallet
+      });
+    } else {
+      console.error('❌ Deposit verification failed:', result.error);
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error in verifyDepositHandler:', error);
+    res.status(500).json({ 
+      success: false,
+      error: errorMessage 
+    });
+  }
+};
+
+/**
+ * Get deposit status for a match
+ */
+const getDepositStatusHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.params;
+
+    if (!matchId) {
+      return res.status(400).json({ 
+        error: 'Missing required parameter: matchId' 
+      });
+    }
+
+    console.log('🔍 Getting deposit status for match:', matchId);
+
+    // Get deposit service
+    const { getSmartContractDepositService } = require('../services/smartContractDepositService');
+    const depositService = getSmartContractDepositService();
+
+    // Get deposit status
+    const result = await depositService.getDepositStatus(matchId);
+
+    if (result.success) {
+      console.log('✅ Deposit status retrieved:', {
+        matchId,
+        player1Deposited: result.player1Deposited,
+        player2Deposited: result.player2Deposited,
+        vaultBalance: result.vaultBalance
+      });
+
+      res.json({
+        success: true,
+        matchId,
+        player1Deposited: result.player1Deposited,
+        player2Deposited: result.player2Deposited,
+        vaultBalance: result.vaultBalance
+      });
+    } else {
+      console.error('❌ Failed to get deposit status:', result.error);
+      res.status(500).json({
+        success: false,
+        error: result.error
+      });
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error in getDepositStatusHandler:', error);
+    res.status(500).json({ 
+      success: false,
+      error: errorMessage 
+    });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -5094,4 +5391,11 @@ module.exports = {
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,
-}; 
+
+  // Smart contract integration handlers
+  depositToSmartContractHandler,
+  settleMatchHandler,
+  getSmartContractStatusHandler,
+  verifyDepositHandler,
+  getDepositStatusHandler,
+};
