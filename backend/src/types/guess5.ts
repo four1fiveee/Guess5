@@ -350,6 +350,32 @@ export const IDL = {
           }
         ]
       }
+    },
+    {
+      "name": "result",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "WinnerTie"
+          },
+          {
+            "name": "LosingTie"
+          },
+          {
+            "name": "Timeout"
+          },
+          {
+            "name": "Error"
+          }
+        ]
+      }
     }
   ],
   "errors": [
