@@ -1,4 +1,4 @@
-import { Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, Keypair, Transaction, VersionedTransaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
 import { enhancedLogger } from '../utils/enhancedLogger';
@@ -39,11 +39,11 @@ export class SmartContractDepositService {
     
     this.provider = new AnchorProvider(connection, {
       publicKey: feeWalletKeypair.publicKey,
-      signTransaction: async <T extends Transaction>(tx: T): Promise<T> => {
+      signTransaction: async <T extends Transaction | VersionedTransaction>(tx: T): Promise<T> => {
         // Don't sign here - let the frontend handle signing
         return tx;
       },
-      signAllTransactions: async <T extends Transaction>(txs: T[]): Promise<T[]> => {
+      signAllTransactions: async <T extends Transaction | VersionedTransaction>(txs: T[]): Promise<T[]> => {
         // Don't sign here - let the frontend handle signing
         return txs;
       }
@@ -186,6 +186,7 @@ export class SmartContractDepositService {
       if (!match || !match.matchPda) {
         return {
           success: false,
+          deposited: false,
           error: 'Match not found or not properly initialized'
         };
       }
@@ -198,6 +199,7 @@ export class SmartContractDepositService {
       if (!transaction) {
         return {
           success: false,
+          deposited: false,
           error: 'Transaction not found on blockchain'
         };
       }
@@ -206,6 +208,7 @@ export class SmartContractDepositService {
       if (transaction.meta?.err) {
         return {
           success: false,
+          deposited: false,
           error: `Transaction failed: ${JSON.stringify(transaction.meta.err)}`
         };
       }
@@ -217,6 +220,7 @@ export class SmartContractDepositService {
       if (!vaultAccount) {
         return {
           success: false,
+          deposited: false,
           error: 'Failed to fetch vault account'
         };
       }
@@ -269,6 +273,7 @@ export class SmartContractDepositService {
       enhancedLogger.error('❌ Error verifying deposit', { error: errorMessage });
       return {
         success: false,
+        deposited: false,
         error: errorMessage
       };
     }
