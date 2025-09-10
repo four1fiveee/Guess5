@@ -133,7 +133,7 @@ export const IDL = {
       ],
       "args": [
         {
-          "name": "result",
+          "name": "matchResult",
           "type": {
             "defined": "MatchResult"
           }
