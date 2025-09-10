@@ -1,5 +1,5 @@
 [toolchain]
-anchor_version = "0.31.1"
+anchor_version = "0.29.0"
 
 [features]
 resolution = true
@@ -9,7 +9,7 @@ skip-lint = false
 guess5_escrow = "HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC"
 
 [programs.mainnet]
-guess5_escrow = "BnATdNCmijkHo74t76djNNDqfUyzSacvrEbG94KFSVux"
+guess5_escrow = "65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H"
 
 [registry]
 url = "https://api.apr.dev"
