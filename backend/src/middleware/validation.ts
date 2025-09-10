@@ -49,6 +49,9 @@ const confirmPaymentSchema = Joi.object({
   smartContractData: Joi.object({
     matchPda: Joi.string().optional(),
     vaultPda: Joi.string().optional(),
+    player1: Joi.string().optional(),
+    player2: Joi.string().optional(),
+    stakeLamports: Joi.number().optional(),
     matchId: Joi.string().optional(),
     smartContractVerified: Joi.boolean().optional(),
     verificationDetails: Joi.object().optional()
