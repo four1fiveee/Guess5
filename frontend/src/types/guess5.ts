@@ -1,7 +1,7 @@
 export const IDL = {
   "version": "0.1.0",
   "name": "guess5_escrow",
-  "address": "HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC",
+  "address": "65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H",
   "instructions": [
     {
       "name": "createMatch",

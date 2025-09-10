@@ -10,7 +10,7 @@ import { Program, AnchorProvider, BN } from '@project-serum/anchor';
 import { IDL } from '../types/guess5';
 
 // Smart contract configuration
-export const SOLANA_PROGRAM_ID = new PublicKey('HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC');
+export const SOLANA_PROGRAM_ID = new PublicKey('65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H');
 export const RESULTS_ATTESTOR_ADDRESS = new PublicKey('2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
 
 // Smart contract instruction types

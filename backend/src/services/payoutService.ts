@@ -2,7 +2,7 @@ import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, Ke
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
 
 // Smart contract configuration
-const SOLANA_PROGRAM_ID = new PublicKey('HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC');
+const SOLANA_PROGRAM_ID = new PublicKey('65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H');
 const RESULTS_ATTESTOR_ADDRESS = new PublicKey('2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
 
 // Configuration
