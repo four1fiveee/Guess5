@@ -9,7 +9,7 @@ skip-lint = false
 guess5_escrow = "HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC"
 
 [programs.mainnet]
-guess5_escrow = "ETK8vDVM86LnKk9qwFumnDZQFv9PEHcz4tgcwLYtqxTS"
+guess5_escrow = "BnATdNCmijkHo74t76djNNDqfUyzSacvrEbG94KFSVux"
 
 [registry]
 url = "https://api.apr.dev"

@@ -133,9 +133,29 @@ export const IDL = {
       ],
       "args": [
         {
-          "name": "matchResult",
+          "name": "result",
           "type": {
-            "defined": "MatchResult"
+            "kind": "enum",
+            "variants": [
+              {
+                "name": "Player1"
+              },
+              {
+                "name": "Player2"
+              },
+              {
+                "name": "WinnerTie"
+              },
+              {
+                "name": "LosingTie"
+              },
+              {
+                "name": "Timeout"
+              },
+              {
+                "name": "Error"
+              }
+            ]
           }
         }
       ]

@@ -1,7 +1,7 @@
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
 
-declare_id!("HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC");
+declare_id!("BnATdNCmijkHo74t76djNNDqfUyzSacvrEbG94KFSVux");
 
 // Gas fee constant: 0.0001 SOL to cover transaction costs
 const GAS_FEE_LAMPORTS: u64 = 100_000; // 0.0001 SOL
