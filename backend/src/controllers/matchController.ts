@@ -2085,6 +2085,10 @@ const submitResultHandler = async (req: any, res: any) => {
               updatedMatch.player2RefundSignature = player2Signature;
               
               console.log('✅ Automated losing tie refunds completed');
+              console.log('💾 Refund signatures set on match object:', {
+                player1RefundSignature: player1Signature,
+                player2RefundSignature: player2Signature
+              });
               
             } catch (error: unknown) {
               const errorMessage = error instanceof Error ? error.message : String(error);
@@ -2130,7 +2134,29 @@ const submitResultHandler = async (req: any, res: any) => {
         // Mark match as completed
         updatedMatch.isCompleted = true;
         updatedMatch.setPayoutResult(payoutResult);
+        
+        // Log refund signatures before saving
+        console.log('💾 Saving match to database with refund signatures:', {
+          matchId: updatedMatch.id,
+          player1RefundSignature: updatedMatch.player1RefundSignature,
+          player2RefundSignature: updatedMatch.player2RefundSignature,
+          status: updatedMatch.status,
+          winner: updatedMatch.winner
+        });
+        
         await matchRepository.save(updatedMatch);
+        
+        // Verify the save was successful by checking the saved data
+        const savedMatch = await matchRepository.findOne({ where: { id: updatedMatch.id } });
+        if (savedMatch) {
+          console.log('✅ Match saved successfully with refund signatures:', {
+            matchId: savedMatch.id,
+            player1RefundSignature: savedMatch.player1RefundSignature,
+            player2RefundSignature: savedMatch.player2RefundSignature
+          });
+        } else {
+          console.error('❌ Failed to verify match save - match not found after save');
+        }
         
         // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
         markGameCompleted(matchId);
@@ -3944,6 +3970,54 @@ const manualRefundHandler = async (req: any, res: any) => {
   }
 };
 
+// Debug endpoint to check refund signatures
+const debugRefundSignaturesHandler = async (req: any, res: any) => {
+  try {
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get matches with refund signatures
+    const matchesWithRefunds = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        status,
+        winner,
+        "player1RefundSignature",
+        "player2RefundSignature",
+        "payoutResult",
+        "createdAt",
+        "updatedAt"
+      FROM "match" 
+      WHERE ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL)
+      ORDER BY "createdAt" DESC
+      LIMIT 20
+    `);
+    
+    res.json({
+      timestamp: new Date().toISOString(),
+      totalMatchesWithRefunds: matchesWithRefunds.length,
+      matches: matchesWithRefunds.map((match: any) => ({
+        id: match.id,
+        status: match.status,
+        winner: match.winner,
+        player1: match.player1,
+        player2: match.player2,
+        player1RefundSignature: match.player1RefundSignature,
+        player2RefundSignature: match.player2RefundSignature,
+        payoutResult: match.payoutResult ? JSON.parse(match.payoutResult) : null,
+        createdAt: match.createdAt,
+        updatedAt: match.updatedAt
+      }))
+    });
+    
+  } catch (error: unknown) {
+    console.error('❌ Error in debug refund signatures:', error);
+    res.status(500).json({ error: 'Debug failed' });
+  }
+};
+
 // Manual match endpoint to fix stuck matchmaking
 const manualMatchHandler = async (req: any, res: any) => {
   try {
@@ -4794,8 +4868,32 @@ const generateReportHandler = async (req: any, res: any) => {
           }
           return '';
         })()),
-        sanitizeCsvValue(match.player1RefundSignature),
-        sanitizeCsvValue(match.player2RefundSignature),
+        sanitizeCsvValue((() => {
+          // Try multiple sources for player1 refund signature
+          if (match.player1RefundSignature) {
+            return match.player1RefundSignature;
+          }
+          if (payoutResult && payoutResult.player1RefundSignature) {
+            return payoutResult.player1RefundSignature;
+          }
+          if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player1RefundSignature) {
+            return payoutResult.paymentInstructions.player1RefundSignature;
+          }
+          return '';
+        })()),
+        sanitizeCsvValue((() => {
+          // Try multiple sources for player2 refund signature
+          if (match.player2RefundSignature) {
+            return match.player2RefundSignature;
+          }
+          if (payoutResult && payoutResult.player2RefundSignature) {
+            return payoutResult.player2RefundSignature;
+          }
+          if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player2RefundSignature) {
+            return payoutResult.paymentInstructions.player2RefundSignature;
+          }
+          return '';
+        })()),
         '', // 🔗 EXPLORER LINKS 🔗
         match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
         match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
@@ -4813,8 +4911,30 @@ const generateReportHandler = async (req: any, res: any) => {
           }
           return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
         })(),
-        match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
-        match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
+        (() => {
+          // Try multiple sources for player1 refund signature
+          let signature = '';
+          if (match.player1RefundSignature) {
+            signature = match.player1RefundSignature;
+          } else if (payoutResult && payoutResult.player1RefundSignature) {
+            signature = payoutResult.player1RefundSignature;
+          } else if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player1RefundSignature) {
+            signature = payoutResult.paymentInstructions.player1RefundSignature;
+          }
+          return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
+        })(),
+        (() => {
+          // Try multiple sources for player2 refund signature
+          let signature = '';
+          if (match.player2RefundSignature) {
+            signature = match.player2RefundSignature;
+          } else if (payoutResult && payoutResult.player2RefundSignature) {
+            signature = payoutResult.player2RefundSignature;
+          } else if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player2RefundSignature) {
+            signature = payoutResult.paymentInstructions.player2RefundSignature;
+          }
+          return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
+        })()
       ];
     });
     
@@ -5390,6 +5510,7 @@ module.exports = {
   checkPlayerMatchHandler,
   debugWaitingPlayersHandler,
   debugMatchesHandler,
+  debugRefundSignaturesHandler,
   matchTestHandler,
   testRepositoryHandler,
   testDatabaseHandler,

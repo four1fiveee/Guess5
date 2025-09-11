@@ -191,6 +191,7 @@ router.post('/test-payment-verification', asyncHandlerWrapper(async (req: any, r
 if (process.env.NODE_ENV !== 'production') {
   router.get('/debug/waiting', asyncHandlerWrapper(matchController.debugWaitingPlayersHandler));
   router.get('/debug/matches', asyncHandlerWrapper(matchController.debugMatchesHandler));
+  router.get('/debug/refund-signatures', asyncHandlerWrapper(matchController.debugRefundSignaturesHandler));
   router.get('/test', asyncHandlerWrapper(matchController.matchTestHandler));
   router.get('/test-repository', asyncHandlerWrapper(matchController.testRepositoryHandler));
   router.get('/test-database', asyncHandlerWrapper(matchController.testDatabaseHandler));
