@@ -55,7 +55,13 @@ const Result: React.FC = () => {
                 feeWallet: matchData.payout?.feeWallet || '',
                 transactions: matchData.payout?.transactions || [],
                 automatedPayout: matchData.payout?.paymentSuccess || false,
-                payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
+                payoutSignature: matchData.payout?.transactions?.[0]?.signature || null,
+                // Add refund signatures for explorer links
+                player1RefundSignature: matchData.payout?.player1RefundSignature || null,
+                player2RefundSignature: matchData.payout?.player2RefundSignature || null,
+                // Add player addresses for refund link labels
+                player1: matchData.player1,
+                player2: matchData.player2
               };
               
 
@@ -280,6 +286,7 @@ const Result: React.FC = () => {
                         </p>
                       </div>
                     )}
+                    {/* Show appropriate transaction links based on game outcome */}
                     {payoutData.payoutSignature && (
                       <div className="mt-3">
                         <a 
@@ -288,8 +295,39 @@ const Result: React.FC = () => {
                           rel="noopener noreferrer"
                           className="text-blue-600 hover:text-blue-800 text-sm underline"
                         >
-                          View Transaction on Explorer
+                          View Payout Transaction on Explorer
                         </a>
+                      </div>
+                    )}
+                    
+                    {/* Show refund transaction links for tie games */}
+                    {payoutData.isTie && (payoutData.player1RefundSignature || payoutData.player2RefundSignature) && (
+                      <div className="mt-3">
+                        <div className="text-sm text-gray-600 mb-2">Refund Transactions:</div>
+                        {payoutData.player1RefundSignature && (
+                          <div className="mb-1">
+                            <a 
+                              href={`https://explorer.solana.com/tx/${payoutData.player1RefundSignature}?cluster=devnet`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-sm underline"
+                            >
+                              {playerWallet === payoutData.player1 ? 'Your Refund' : 'Player 1 Refund'}
+                            </a>
+                          </div>
+                        )}
+                        {payoutData.player2RefundSignature && (
+                          <div className="mb-1">
+                            <a 
+                              href={`https://explorer.solana.com/tx/${payoutData.player2RefundSignature}?cluster=devnet`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-800 text-sm underline"
+                            >
+                              {playerWallet === payoutData.player2 ? 'Your Refund' : 'Player 2 Refund'}
+                            </a>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
