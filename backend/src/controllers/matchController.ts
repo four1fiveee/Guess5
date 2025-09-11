@@ -1140,6 +1140,15 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
                         player1Result.numGuesses === player2Result.numGuesses &&
                         Math.abs(player1Result.totalTime - player2Result.totalTime) < 0.001;
     
+    console.log('🤝 Tie determination:', {
+      matchId,
+      player1Result,
+      player2Result,
+      isWinningTie,
+      player1Won: player1Result?.won,
+      player2Won: player2Result?.won
+    });
+    
     if (isWinningTie) {
       // Winning tie: Both solved with same moves AND same time (within 1ms tolerance) - FULL REFUND to both players
       console.log('🤝 Winning tie: Both solved with same moves AND same time (within 1ms tolerance) - FULL REFUND to both players');
@@ -1168,6 +1177,12 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     } else {
       // Losing tie: Both failed to solve - 5% fee kept, 95% refunded to both players
       console.log('🤝 Losing tie: Both failed to solve - 5% fee kept, 95% refunded to both players');
+      console.log('🤝 Losing tie payout calculation:', {
+        matchId,
+        entryFee: match.entryFee,
+        feeAmount: match.entryFee * 0.05,
+        refundAmount: match.entryFee * 0.95
+      });
       const feeAmount = match.entryFee * 0.05;
       const refundAmount = match.entryFee * 0.95; // 95% refund to each player
       
@@ -1947,6 +1962,14 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
+          console.log('🤝 Processing tie scenario:', {
+            matchId: updatedMatch.id,
+            player1Result: updatedMatch.getPlayer1Result(),
+            player2Result: updatedMatch.getPlayer2Result(),
+            player1Won: updatedMatch.getPlayer1Result()?.won,
+            player2Won: updatedMatch.getPlayer2Result()?.won
+          });
+          
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
               updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
             // Winning tie - each player gets their entry fee back
@@ -1996,6 +2019,12 @@ const submitResultHandler = async (req: any, res: any) => {
           } else {
             // Losing tie - both players get 95% refund
             console.log('🤝 Losing tie - processing 95% refunds to both players...');
+            console.log('🤝 Losing tie details:', {
+              matchId: updatedMatch.id,
+              player1Result: updatedMatch.getPlayer1Result(),
+              player2Result: updatedMatch.getPlayer2Result(),
+              entryFee: updatedMatch.entryFee
+            });
             
             const entryFee = updatedMatch.entryFee;
             const refundAmount = entryFee * 0.95; // 95% refund to each player
