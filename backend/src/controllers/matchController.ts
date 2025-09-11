@@ -2076,6 +2076,9 @@ const submitResultHandler = async (req: any, res: any) => {
               (payoutResult as any).paymentInstructions = paymentInstructions;
               (payoutResult as any).paymentSuccess = true;
               (payoutResult as any).automatedPayout = true;
+              // Add refund signatures directly to payout result for frontend access
+              (payoutResult as any).player1RefundSignature = player1Signature;
+              (payoutResult as any).player2RefundSignature = player2Signature;
               
               // Update the database columns with the refund signatures
               updatedMatch.player1RefundSignature = player1Signature;
@@ -2115,6 +2118,9 @@ const submitResultHandler = async (req: any, res: any) => {
               (payoutResult as any).paymentInstructions = paymentInstructions;
               (payoutResult as any).paymentSuccess = false;
               (payoutResult as any).paymentError = 'Automated refunds failed - contact support';
+              // No refund signatures for manual fallback case
+              (payoutResult as any).player1RefundSignature = null;
+              (payoutResult as any).player2RefundSignature = null;
               
               console.log('⚠️ Manual losing tie refund instructions created');
             }
@@ -2285,6 +2291,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       match.isCompleted = true;
     }
 
+  // Get payout result and ensure refund signatures are included
+  let payoutResult = match.getPayoutResult();
+  if (payoutResult && (match.player1RefundSignature || match.player2RefundSignature)) {
+    // Add refund signatures from database if not already in payout result
+    if (!payoutResult.player1RefundSignature && match.player1RefundSignature) {
+      payoutResult.player1RefundSignature = match.player1RefundSignature;
+    }
+    if (!payoutResult.player2RefundSignature && match.player2RefundSignature) {
+      payoutResult.player2RefundSignature = match.player2RefundSignature;
+    }
+  }
+
   res.json({
     status: playerSpecificStatus,
       player1: match.player1,
@@ -2295,7 +2313,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player1Result: match.getPlayer1Result(),
       player2Result: match.getPlayer2Result(),
       winner: match.winner,
-      payout: match.getPayoutResult(),
+      payout: payoutResult,
       isCompleted: match.isCompleted || !!existingResult
     });
 
