@@ -23,8 +23,8 @@ export interface SmartContractService {
   getMatchStatus(matchId: string): Promise<{ success: boolean; onChainStatus?: string; vaultBalance?: number; player1Deposited?: boolean; player2Deposited?: boolean; error?: string }>;
 }
 
-export function getSmartContractService(): SmartContractService {
-  const anchorService = getAnchorService();
+export async function getSmartContractService(): Promise<SmartContractService> {
+  const anchorService = await getAnchorService();
   const connection = new Connection(
     process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
     'confirmed'

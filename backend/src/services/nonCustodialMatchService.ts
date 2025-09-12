@@ -30,7 +30,13 @@ export class NonCustodialMatchService {
 
   constructor(connection: Connection) {
     this.connection = connection;
-    this.smartContractService = getSmartContractService();
+    this.smartContractService = null;
+  }
+
+  async initialize(): Promise<void> {
+    if (!this.smartContractService) {
+      this.smartContractService = await getSmartContractService();
+    }
   }
 
   /**
@@ -44,6 +50,7 @@ export class NonCustodialMatchService {
     error?: string;
   }> {
     try {
+      await this.initialize();
       enhancedLogger.info('🎮 Creating non-custodial match', {
         player1: params.player1,
         player2: params.player2,
@@ -129,6 +136,7 @@ export class NonCustodialMatchService {
    */
   async processDeposit(matchId: string, playerWallet: string, playerKeypair: Keypair): Promise<DepositResult> {
     try {
+      await this.initialize();
       enhancedLogger.info('💰 Processing non-custodial deposit', {
         matchId,
         playerWallet
@@ -238,6 +246,7 @@ export class NonCustodialMatchService {
    */
   async settleMatch(matchId: string, result: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error'): Promise<SettlementResult> {
     try {
+      await this.initialize();
       enhancedLogger.info('🏁 Settling non-custodial match', {
         matchId,
         result
@@ -383,6 +392,7 @@ export class NonCustodialMatchService {
    */
   async processTimeoutRefund(matchId: string): Promise<SettlementResult> {
     try {
+      await this.initialize();
       enhancedLogger.info('⏰ Processing timeout refund', { matchId });
 
       // Get match from database
@@ -464,6 +474,7 @@ export class NonCustodialMatchService {
     error?: string;
   }> {
     try {
+      await this.initialize();
       const matchRepository = AppDataSource.getRepository(Match);
       const match = await matchRepository.findOne({ where: { id: matchId } });
 

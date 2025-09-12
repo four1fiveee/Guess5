@@ -85,8 +85,9 @@ export class SmartContractService {
     });
 
       try {
+        // Use embedded IDL for now - will be replaced with on-chain IDL in initializeProgram()
         this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
-        console.log('✅ Program initialized with IDL successfully');
+        console.log('✅ Program initialized with embedded IDL successfully');
       } catch (idlError) {
         console.error('❌ IDL parsing failed:', idlError);
         // Don't create a program with empty IDL - this will cause issues
@@ -103,6 +104,33 @@ export class SmartContractService {
       // Don't throw the error - let the service continue with null program
       this.program = null;
       console.warn('⚠️ SmartContractService initialized with null program - smart contract features will be disabled');
+    }
+  }
+
+  isProgramInitialized(): boolean {
+    return this.program !== null;
+  }
+
+  async initializeWithOnChainIdl(): Promise<void> {
+    if (!this.provider) {
+      throw new Error('Provider not initialized');
+    }
+
+    try {
+      console.log('🔍 Fetching IDL from blockchain...');
+      const onChainIdl = await Program.fetchIdl(PROGRAM_ID, this.provider);
+      
+      if (!onChainIdl) {
+        throw new Error('Failed to fetch IDL from blockchain');
+      }
+      
+      console.log('✅ IDL fetched from blockchain successfully');
+      this.program = new Program(onChainIdl, PROGRAM_ID, this.provider);
+      console.log('✅ Program reinitialized with on-chain IDL successfully');
+    } catch (error) {
+      console.error('❌ Failed to fetch on-chain IDL:', error);
+      console.log('⚠️ Continuing with embedded IDL as fallback');
+      // Keep using the embedded IDL as fallback
     }
   }
 
@@ -271,10 +299,20 @@ export class SmartContractService {
 // Export singleton instance with lazy initialization
 let smartContractServiceInstance: SmartContractService | null = null;
 
-export const getSmartContractService = (): SmartContractService => {
+export const getSmartContractService = async (): Promise<SmartContractService> => {
   if (!smartContractServiceInstance) {
     smartContractServiceInstance = new SmartContractService();
   }
+  
+  // Try to initialize with on-chain IDL if not already done
+  if (smartContractServiceInstance.isProgramInitialized()) {
+    try {
+      await smartContractServiceInstance.initializeWithOnChainIdl();
+    } catch (error) {
+      console.warn('⚠️ Failed to initialize with on-chain IDL, using embedded IDL');
+    }
+  }
+  
   return smartContractServiceInstance;
 };
 

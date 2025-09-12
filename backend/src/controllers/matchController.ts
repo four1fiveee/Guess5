@@ -357,7 +357,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
         
         console.log('🔧 Creating smart contract match...');
-        const smartContractService = getSmartContractService();
+        const smartContractService = await getSmartContractService();
         smartContractResult = await smartContractService.createMatch({
           player1: matchData.player1,
           player2: matchData.player2,
@@ -1471,7 +1471,7 @@ const submitResultHandler = async (req: any, res: any) => {
               
               console.log('🔗 Settling smart contract with result:', resultEnum);
               
-              const smartContractService = getSmartContractService();
+              const smartContractService = await getSmartContractService();
               const settlementResult = await smartContractService.settleMatch(matchId, resultEnum);
               
               if (settlementResult.success) {
