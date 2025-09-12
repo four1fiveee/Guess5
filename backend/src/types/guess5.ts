@@ -5,9 +5,6 @@ export const IDL = {
   "instructions": [
     {
       "name": "createMatch",
-      "docs": [
-        "Creates a new match with escrow vault"
-      ],
       "accounts": [
         {
           "name": "matchAccount",
@@ -62,9 +59,6 @@ export const IDL = {
     },
     {
       "name": "deposit",
-      "docs": [
-        "Player deposits stake into the match vault"
-      ],
       "accounts": [
         {
           "name": "matchAccount",
@@ -91,9 +85,6 @@ export const IDL = {
     },
     {
       "name": "settleMatch",
-      "docs": [
-        "Settles the match and distributes funds"
-      ],
       "accounts": [
         {
           "name": "matchAccount",
@@ -162,9 +153,6 @@ export const IDL = {
     },
     {
       "name": "refundTimeout",
-      "docs": [
-        "Refunds players if deadline has passed"
-      ],
       "accounts": [
         {
           "name": "matchAccount",
@@ -198,7 +186,7 @@ export const IDL = {
         }
       ],
       "args": []
-    },
+    }
   ],
   "accounts": [
     {
@@ -253,11 +241,11 @@ export const IDL = {
             }
           },
           {
-            "name": "created_at",
+            "name": "createdAt",
             "type": "i64"
           },
           {
-            "name": "settled_at",
+            "name": "settledAt",
             "type": {
               "option": "i64"
             }
@@ -279,11 +267,11 @@ export const IDL = {
             "type": "u64"
           },
           {
-            "name": "player1_deposited",
+            "name": "player1Deposited",
             "type": "bool"
           },
           {
-            "name": "player2_deposited",
+            "name": "player2Deposited",
             "type": "bool"
           }
         ]
@@ -382,6 +370,6 @@ export const IDL = {
       "code": 6009,
       "name": "DeadlineNotPassed",
       "msg": "Deadline has not passed yet"
-    },
+    }
   ]
 } as const;
