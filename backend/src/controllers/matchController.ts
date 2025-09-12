@@ -1493,32 +1493,78 @@ const submitResultHandler = async (req: any, res: any) => {
                 console.log('✅ Smart contract settlement successful:', settlementResult.transactionId);
                 
                 // Create payment instructions for display
-                const paymentInstructions = {
-                  winner,
-                  loser,
-                  winnerAmount,
-                  feeAmount,
-                  smartContractSettlement: true,
-                  settlementSignature: settlementResult.transactionId,
-                  matchPda: updatedMatch.matchPda,
-                  vaultPda: updatedMatch.vaultPda,
-                  transactions: [
-                    {
-                      from: 'Smart Contract Vault',
-                      to: winner,
-                      amount: winnerAmount,
-                      description: 'Smart contract settlement to winner',
-                      signature: settlementResult.transactionId
-                    }
-                  ]
-                };
+                let paymentInstructions;
+                
+                if (resultEnum === 'LosingTie') {
+                  // For losing ties, create refund instructions for both players
+                  const refundAmount = entryFee * 0.95; // 95% refund to each player
+                  paymentInstructions = {
+                    winner: 'tie',
+                    player1: updatedMatch.player1,
+                    player2: updatedMatch.player2,
+                    refundAmount: refundAmount,
+                    feeAmount: entryFee * 0.05 * 2, // Total fees from both players
+                    smartContractSettlement: true,
+                    settlementSignature: settlementResult.transactionId,
+                    matchPda: updatedMatch.matchPda,
+                    vaultPda: updatedMatch.vaultPda,
+                    player1RefundSignature: settlementResult.transactionId,
+                    player2RefundSignature: settlementResult.transactionId,
+                    transactions: [
+                      {
+                        from: 'Smart Contract Vault',
+                        to: updatedMatch.player1,
+                        amount: refundAmount,
+                        description: 'Losing tie refund (player 1)',
+                        signature: settlementResult.transactionId
+                      },
+                      {
+                        from: 'Smart Contract Vault',
+                        to: updatedMatch.player2,
+                        amount: refundAmount,
+                        description: 'Losing tie refund (player 2)',
+                        signature: settlementResult.transactionId
+                      }
+                    ]
+                  };
+                  
+                  // Update the database columns with the refund signatures
+                  updatedMatch.player1RefundSignature = settlementResult.transactionId;
+                  updatedMatch.player2RefundSignature = settlementResult.transactionId;
+                  
+                  console.log('✅ Smart contract losing tie refunds completed');
+                } else {
+                  // For regular winners, create single winner transaction
+                  paymentInstructions = {
+                    winner,
+                    loser,
+                    winnerAmount,
+                    feeAmount,
+                    smartContractSettlement: true,
+                    settlementSignature: settlementResult.transactionId,
+                    matchPda: updatedMatch.matchPda,
+                    vaultPda: updatedMatch.vaultPda,
+                    transactions: [
+                      {
+                        from: 'Smart Contract Vault',
+                        to: winner,
+                        amount: winnerAmount,
+                        description: 'Smart contract settlement to winner',
+                        signature: settlementResult.transactionId
+                      }
+                    ]
+                  };
+                  
+                  // Update the database column with the payout signature
+                  updatedMatch.winnerPayoutSignature = settlementResult.transactionId;
+                  
+                  console.log('✅ Smart contract winner payout completed');
+                }
                 
                 (payoutResult as any).paymentInstructions = paymentInstructions;
                 (payoutResult as any).paymentSuccess = true;
                 (payoutResult as any).smartContractSettlement = true;
                 
-                // Update the database column with the settlement signature
-                updatedMatch.winnerPayoutSignature = settlementResult.transactionId;
                 updatedMatch.smartContractStatus = 'Settled';
                 
                 console.log('✅ Smart contract settlement completed');
