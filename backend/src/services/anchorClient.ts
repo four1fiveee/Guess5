@@ -100,8 +100,9 @@ export class SmartContractService {
       });
     } catch (error) {
       console.error('❌ Failed to initialize SmartContractService:', error);
-      // Re-throw the error so the service fails to initialize properly
-      throw error;
+      // Don't throw the error - let the service continue with null program
+      this.program = null;
+      console.warn('⚠️ SmartContractService initialized with null program - smart contract features will be disabled');
     }
   }
 
@@ -272,20 +273,7 @@ let smartContractServiceInstance: SmartContractService | null = null;
 
 export const getSmartContractService = (): SmartContractService => {
   if (!smartContractServiceInstance) {
-    try {
-      smartContractServiceInstance = new SmartContractService();
-    } catch (error) {
-      console.error('❌ Failed to initialize SmartContractService:', error);
-      // Create a minimal service instance that will return proper error messages
-      smartContractServiceInstance = {
-        program: null,
-        provider: null as any,
-        createMatch: async () => ({ success: false, error: 'Smart contract program not initialized' }),
-        settleMatch: async () => ({ success: false, error: 'Smart contract program not initialized' }),
-        getMatchData: async () => null,
-        getVaultData: async () => null
-      } as unknown as SmartContractService;
-    }
+    smartContractServiceInstance = new SmartContractService();
   }
   return smartContractServiceInstance;
 };
