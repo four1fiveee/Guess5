@@ -301,7 +301,12 @@ let smartContractServiceInstance: SmartContractService | null = null;
 
 export const getSmartContractService = async (): Promise<SmartContractService> => {
   if (!smartContractServiceInstance) {
-    smartContractServiceInstance = new SmartContractService();
+    try {
+      smartContractServiceInstance = new SmartContractService();
+    } catch (error) {
+      console.error('❌ Failed to initialize SmartContractService:', error);
+      throw new Error(`Failed to initialize program with IDL: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
   
   // Try to initialize with on-chain IDL if not already done
