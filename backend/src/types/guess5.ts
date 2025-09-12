@@ -199,40 +199,6 @@ export const IDL = {
       ],
       "args": []
     },
-    {
-      "name": "refundPartialDeposit",
-      "docs": [
-        "Refunds a single player if they deposited but the other player didn't"
-      ],
-      "accounts": [
-        {
-          "name": "matchAccount",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "vault",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "player1",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "player2",
-          "isMut": true,
-          "isSigner": false
-        },
-        {
-          "name": "systemProgram",
-          "isMut": false,
-          "isSigner": false
-        }
-      ],
-      "args": []
-    }
   ],
   "accounts": [
     {
@@ -334,13 +300,7 @@ export const IDL = {
             "name": "Active"
           },
           {
-            "name": "Deposited"
-          },
-          {
             "name": "Settled"
-          },
-          {
-            "name": "Refunded"
           }
         ]
       }
@@ -423,10 +383,5 @@ export const IDL = {
       "name": "DeadlineNotPassed",
       "msg": "Deadline has not passed yet"
     },
-    {
-      "code": 6010,
-      "name": "InvalidPartialDeposit",
-      "msg": "Invalid partial deposit state"
-    }
   ]
 } as const;
