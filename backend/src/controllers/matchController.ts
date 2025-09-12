@@ -1140,15 +1140,6 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
                         player1Result.numGuesses === player2Result.numGuesses &&
                         Math.abs(player1Result.totalTime - player2Result.totalTime) < 0.001;
     
-    console.log('🤝 Tie determination:', {
-      matchId,
-      player1Result,
-      player2Result,
-      isWinningTie,
-      player1Won: player1Result?.won,
-      player2Won: player2Result?.won
-    });
-    
     if (isWinningTie) {
       // Winning tie: Both solved with same moves AND same time (within 1ms tolerance) - FULL REFUND to both players
       console.log('🤝 Winning tie: Both solved with same moves AND same time (within 1ms tolerance) - FULL REFUND to both players');
@@ -1177,12 +1168,6 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     } else {
       // Losing tie: Both failed to solve - 5% fee kept, 95% refunded to both players
       console.log('🤝 Losing tie: Both failed to solve - 5% fee kept, 95% refunded to both players');
-      console.log('🤝 Losing tie payout calculation:', {
-        matchId,
-        entryFee: match.entryFee,
-        feeAmount: match.entryFee * 0.05,
-        refundAmount: match.entryFee * 0.95
-      });
       const feeAmount = match.entryFee * 0.05;
       const refundAmount = match.entryFee * 0.95; // 95% refund to each player
       
@@ -1493,78 +1478,32 @@ const submitResultHandler = async (req: any, res: any) => {
                 console.log('✅ Smart contract settlement successful:', settlementResult.transactionId);
                 
                 // Create payment instructions for display
-                let paymentInstructions;
-                
-                if (resultEnum === 'LosingTie') {
-                  // For losing ties, create refund instructions for both players
-                  const refundAmount = entryFee * 0.95; // 95% refund to each player
-                  paymentInstructions = {
-                    winner: 'tie',
-                    player1: updatedMatch.player1,
-                    player2: updatedMatch.player2,
-                    refundAmount: refundAmount,
-                    feeAmount: entryFee * 0.05 * 2, // Total fees from both players
-                    smartContractSettlement: true,
-                    settlementSignature: settlementResult.transactionId,
-                    matchPda: updatedMatch.matchPda,
-                    vaultPda: updatedMatch.vaultPda,
-                    player1RefundSignature: settlementResult.transactionId,
-                    player2RefundSignature: settlementResult.transactionId,
-                    transactions: [
-                      {
-                        from: 'Smart Contract Vault',
-                        to: updatedMatch.player1,
-                        amount: refundAmount,
-                        description: 'Losing tie refund (player 1)',
-                        signature: settlementResult.transactionId
-                      },
-                      {
-                        from: 'Smart Contract Vault',
-                        to: updatedMatch.player2,
-                        amount: refundAmount,
-                        description: 'Losing tie refund (player 2)',
-                        signature: settlementResult.transactionId
-                      }
-                    ]
-                  };
-                  
-                  // Update the database columns with the refund signatures
-                  updatedMatch.player1RefundSignature = settlementResult.transactionId;
-                  updatedMatch.player2RefundSignature = settlementResult.transactionId;
-                  
-                  console.log('✅ Smart contract losing tie refunds completed');
-                } else {
-                  // For regular winners, create single winner transaction
-                  paymentInstructions = {
-                    winner,
-                    loser,
-                    winnerAmount,
-                    feeAmount,
-                    smartContractSettlement: true,
-                    settlementSignature: settlementResult.transactionId,
-                    matchPda: updatedMatch.matchPda,
-                    vaultPda: updatedMatch.vaultPda,
-                    transactions: [
-                      {
-                        from: 'Smart Contract Vault',
-                        to: winner,
-                        amount: winnerAmount,
-                        description: 'Smart contract settlement to winner',
-                        signature: settlementResult.transactionId
-                      }
-                    ]
-                  };
-                  
-                  // Update the database column with the payout signature
-                  updatedMatch.winnerPayoutSignature = settlementResult.transactionId;
-                  
-                  console.log('✅ Smart contract winner payout completed');
-                }
+                const paymentInstructions = {
+                  winner,
+                  loser,
+                  winnerAmount,
+                  feeAmount,
+                  smartContractSettlement: true,
+                  settlementSignature: settlementResult.transactionId,
+                  matchPda: updatedMatch.matchPda,
+                  vaultPda: updatedMatch.vaultPda,
+                  transactions: [
+                    {
+                      from: 'Smart Contract Vault',
+                      to: winner,
+                      amount: winnerAmount,
+                      description: 'Smart contract settlement to winner',
+                      signature: settlementResult.transactionId
+                    }
+                  ]
+                };
                 
                 (payoutResult as any).paymentInstructions = paymentInstructions;
                 (payoutResult as any).paymentSuccess = true;
                 (payoutResult as any).smartContractSettlement = true;
                 
+                // Update the database column with the settlement signature
+                updatedMatch.winnerPayoutSignature = settlementResult.transactionId;
                 updatedMatch.smartContractStatus = 'Settled';
                 
                 console.log('✅ Smart contract settlement completed');
@@ -2008,14 +1947,6 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
-          console.log('🤝 Processing tie scenario:', {
-            matchId: updatedMatch.id,
-            player1Result: updatedMatch.getPlayer1Result(),
-            player2Result: updatedMatch.getPlayer2Result(),
-            player1Won: updatedMatch.getPlayer1Result()?.won,
-            player2Won: updatedMatch.getPlayer2Result()?.won
-          });
-          
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
               updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
             // Winning tie - each player gets their entry fee back
@@ -2065,12 +1996,6 @@ const submitResultHandler = async (req: any, res: any) => {
           } else {
             // Losing tie - both players get 95% refund
             console.log('🤝 Losing tie - processing 95% refunds to both players...');
-            console.log('🤝 Losing tie details:', {
-              matchId: updatedMatch.id,
-              player1Result: updatedMatch.getPlayer1Result(),
-              player2Result: updatedMatch.getPlayer2Result(),
-              entryFee: updatedMatch.entryFee
-            });
             
             const entryFee = updatedMatch.entryFee;
             const refundAmount = entryFee * 0.95; // 95% refund to each player
@@ -2160,10 +2085,6 @@ const submitResultHandler = async (req: any, res: any) => {
               updatedMatch.player2RefundSignature = player2Signature;
               
               console.log('✅ Automated losing tie refunds completed');
-              console.log('💾 Refund signatures set on match object:', {
-                player1RefundSignature: player1Signature,
-                player2RefundSignature: player2Signature
-              });
               
             } catch (error: unknown) {
               const errorMessage = error instanceof Error ? error.message : String(error);
@@ -2209,29 +2130,7 @@ const submitResultHandler = async (req: any, res: any) => {
         // Mark match as completed
         updatedMatch.isCompleted = true;
         updatedMatch.setPayoutResult(payoutResult);
-        
-        // Log refund signatures before saving
-        console.log('💾 Saving match to database with refund signatures:', {
-          matchId: updatedMatch.id,
-          player1RefundSignature: updatedMatch.player1RefundSignature,
-          player2RefundSignature: updatedMatch.player2RefundSignature,
-          status: updatedMatch.status,
-          winner: updatedMatch.winner
-        });
-        
         await matchRepository.save(updatedMatch);
-        
-        // Verify the save was successful by checking the saved data
-        const savedMatch = await matchRepository.findOne({ where: { id: updatedMatch.id } });
-        if (savedMatch) {
-          console.log('✅ Match saved successfully with refund signatures:', {
-            matchId: savedMatch.id,
-            player1RefundSignature: savedMatch.player1RefundSignature,
-            player2RefundSignature: savedMatch.player2RefundSignature
-          });
-        } else {
-          console.error('❌ Failed to verify match save - match not found after save');
-        }
         
         // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
         markGameCompleted(matchId);
@@ -4045,54 +3944,6 @@ const manualRefundHandler = async (req: any, res: any) => {
   }
 };
 
-// Debug endpoint to check refund signatures
-const debugRefundSignaturesHandler = async (req: any, res: any) => {
-  try {
-    const { AppDataSource } = require('../db/index');
-    const matchRepository = AppDataSource.getRepository(Match);
-    
-    // Get matches with refund signatures
-    const matchesWithRefunds = await matchRepository.query(`
-      SELECT 
-        id,
-        "player1",
-        "player2",
-        status,
-        winner,
-        "player1RefundSignature",
-        "player2RefundSignature",
-        "payoutResult",
-        "createdAt",
-        "updatedAt"
-      FROM "match" 
-      WHERE ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL)
-      ORDER BY "createdAt" DESC
-      LIMIT 20
-    `);
-    
-    res.json({
-      timestamp: new Date().toISOString(),
-      totalMatchesWithRefunds: matchesWithRefunds.length,
-      matches: matchesWithRefunds.map((match: any) => ({
-        id: match.id,
-        status: match.status,
-        winner: match.winner,
-        player1: match.player1,
-        player2: match.player2,
-        player1RefundSignature: match.player1RefundSignature,
-        player2RefundSignature: match.player2RefundSignature,
-        payoutResult: match.payoutResult ? JSON.parse(match.payoutResult) : null,
-        createdAt: match.createdAt,
-        updatedAt: match.updatedAt
-      }))
-    });
-    
-  } catch (error: unknown) {
-    console.error('❌ Error in debug refund signatures:', error);
-    res.status(500).json({ error: 'Debug failed' });
-  }
-};
-
 // Manual match endpoint to fix stuck matchmaking
 const manualMatchHandler = async (req: any, res: any) => {
   try {
@@ -4943,32 +4794,8 @@ const generateReportHandler = async (req: any, res: any) => {
           }
           return '';
         })()),
-        sanitizeCsvValue((() => {
-          // Try multiple sources for player1 refund signature
-          if (match.player1RefundSignature) {
-            return match.player1RefundSignature;
-          }
-          if (payoutResult && payoutResult.player1RefundSignature) {
-            return payoutResult.player1RefundSignature;
-          }
-          if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player1RefundSignature) {
-            return payoutResult.paymentInstructions.player1RefundSignature;
-          }
-          return '';
-        })()),
-        sanitizeCsvValue((() => {
-          // Try multiple sources for player2 refund signature
-          if (match.player2RefundSignature) {
-            return match.player2RefundSignature;
-          }
-          if (payoutResult && payoutResult.player2RefundSignature) {
-            return payoutResult.player2RefundSignature;
-          }
-          if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player2RefundSignature) {
-            return payoutResult.paymentInstructions.player2RefundSignature;
-          }
-          return '';
-        })()),
+        sanitizeCsvValue(match.player1RefundSignature),
+        sanitizeCsvValue(match.player2RefundSignature),
         '', // 🔗 EXPLORER LINKS 🔗
         match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
         match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
@@ -4986,30 +4813,8 @@ const generateReportHandler = async (req: any, res: any) => {
           }
           return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
         })(),
-        (() => {
-          // Try multiple sources for player1 refund signature
-          let signature = '';
-          if (match.player1RefundSignature) {
-            signature = match.player1RefundSignature;
-          } else if (payoutResult && payoutResult.player1RefundSignature) {
-            signature = payoutResult.player1RefundSignature;
-          } else if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player1RefundSignature) {
-            signature = payoutResult.paymentInstructions.player1RefundSignature;
-          }
-          return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
-        })(),
-        (() => {
-          // Try multiple sources for player2 refund signature
-          let signature = '';
-          if (match.player2RefundSignature) {
-            signature = match.player2RefundSignature;
-          } else if (payoutResult && payoutResult.player2RefundSignature) {
-            signature = payoutResult.player2RefundSignature;
-          } else if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.player2RefundSignature) {
-            signature = payoutResult.paymentInstructions.player2RefundSignature;
-          }
-          return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
-        })()
+        match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
+        match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
       ];
     });
     
@@ -5585,7 +5390,6 @@ module.exports = {
   checkPlayerMatchHandler,
   debugWaitingPlayersHandler,
   debugMatchesHandler,
-  debugRefundSignaturesHandler,
   matchTestHandler,
   testRepositoryHandler,
   testDatabaseHandler,

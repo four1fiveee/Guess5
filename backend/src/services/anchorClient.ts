@@ -5,7 +5,7 @@ import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import bs58 from 'bs58';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
-const PROGRAM_ID = new PublicKey("65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H");
+const PROGRAM_ID = new PublicKey("HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC");
 const RESULTS_ATTESTOR_ADDRESS = new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt");
 
 // Create connection to Solana network
@@ -46,8 +46,15 @@ export class SmartContractService {
   private provider: AnchorProvider;
 
   constructor() {
-    // Create a dummy wallet for the provider (we'll use the fee wallet)
-    const feeWalletKeypair = getFeeWalletKeypair();
+    try {
+      // Create a dummy wallet for the provider (we'll use the fee wallet)
+      const feeWalletKeypair = getFeeWalletKeypair();
+      
+      console.log('🔧 Initializing SmartContractService:', {
+        programId: PROGRAM_ID.toString(),
+        network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+        feeWallet: feeWalletKeypair.publicKey.toString()
+      });
     
     this.provider = new AnchorProvider(connection, {
       publicKey: feeWalletKeypair.publicKey,
@@ -77,7 +84,17 @@ export class SmartContractService {
       commitment: 'confirmed'
     });
 
-    this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+      this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+      
+      console.log('✅ SmartContractService initialized successfully:', {
+        program: !!this.program,
+        provider: !!this.provider,
+        programAccount: !!this.program?.account
+      });
+    } catch (error) {
+      console.error('❌ Failed to initialize SmartContractService:', error);
+      throw error;
+    }
   }
 
   // Create a match on the smart contract
@@ -156,11 +173,18 @@ export class SmartContractService {
       console.log('🔧 Settling smart contract match:', {
         matchPda: matchPda.toString(),
         vaultPda: vaultPda.toString(),
-        result
+        result,
+        programExists: !!this.program,
+        programAccountExists: !!this.program?.account
       });
 
       // Get match data to get player addresses
+      console.log('🔍 Fetching match account data...');
       const matchAccount = await (this.program.account as any).matchAccount.fetch(matchPda);
+      console.log('✅ Match account fetched successfully:', {
+        player1: matchAccount.player1.toString(),
+        player2: matchAccount.player2.toString()
+      });
       const player1 = matchAccount.player1;
       const player2 = matchAccount.player2;
 
