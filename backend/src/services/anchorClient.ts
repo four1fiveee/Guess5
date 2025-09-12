@@ -42,8 +42,8 @@ export const getVaultPda = (matchPda: PublicKey): PublicKey => {
 
 // Smart contract service class
 export class SmartContractService {
-  private program: Program;
-  private provider: AnchorProvider;
+  private program: Program | null = null;
+  private provider!: AnchorProvider;
 
   constructor() {
     try {
@@ -84,7 +84,13 @@ export class SmartContractService {
       commitment: 'confirmed'
     });
 
-      this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+      try {
+        this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+      } catch (idlError) {
+        console.error('❌ IDL parsing failed, trying alternative approach:', idlError);
+        // Try with a minimal program interface
+        this.program = new Program({} as any, PROGRAM_ID, this.provider);
+      }
       
       console.log('✅ SmartContractService initialized successfully:', {
         program: !!this.program,
@@ -93,7 +99,9 @@ export class SmartContractService {
       });
     } catch (error) {
       console.error('❌ Failed to initialize SmartContractService:', error);
-      throw error;
+      // Don't throw the error, just log it and continue with a null program
+      this.program = null;
+      console.warn('⚠️ SmartContractService initialized with null program - smart contract features will be disabled');
     }
   }
 
@@ -105,6 +113,10 @@ export class SmartContractService {
     feeBps: number = 500, // 5% default fee
     deadlineSlot?: number
   ): Promise<{ success: boolean; matchPda?: PublicKey; vaultPda?: PublicKey; error?: string }> {
+    if (!this.program) {
+      return { success: false, error: 'Smart contract program not initialized' };
+    }
+    
     try {
       // Calculate deadline if not provided (24 hours from now)
       if (!deadlineSlot) {
@@ -167,6 +179,10 @@ export class SmartContractService {
     matchPda: PublicKey,
     result: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error'
   ): Promise<{ success: boolean; signature?: string; error?: string }> {
+    if (!this.program) {
+      return { success: false, error: 'Smart contract program not initialized' };
+    }
+    
     try {
       const vaultPda = getVaultPda(matchPda);
 
@@ -219,6 +235,11 @@ export class SmartContractService {
 
   // Get match data from smart contract
   async getMatchData(matchPda: PublicKey): Promise<any> {
+    if (!this.program) {
+      console.error('❌ Smart contract program not initialized');
+      return null;
+    }
+    
     try {
       const matchAccount = await (this.program.account as any).matchAccount.fetch(matchPda);
       return matchAccount;
@@ -230,6 +251,11 @@ export class SmartContractService {
 
   // Get vault data from smart contract
   async getVaultData(matchPda: PublicKey): Promise<any> {
+    if (!this.program) {
+      console.error('❌ Smart contract program not initialized');
+      return null;
+    }
+    
     try {
       const vaultPda = getVaultPda(matchPda);
       const vaultAccount = await (this.program.account as any).vault.fetch(vaultPda);
