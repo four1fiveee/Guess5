@@ -195,12 +195,11 @@ pub mod guess5_escrow {
                 );
                 system_program::transfer(cpi_context, fee_amount)?;
             },
-            MatchResult::WinnerTie | MatchResult::Timeout | MatchResult::Error => {
-                // Refund both players minus gas fee to cover transaction costs
-                let refund_per_player = match_account.stake_lamports - GAS_FEE_LAMPORTS;
-                let total_gas_fee = GAS_FEE_LAMPORTS * 2; // Gas fee from both players
+            MatchResult::WinnerTie => {
+                // Winner tie: refund both players in full (no fee)
+                let refund_per_player = match_account.stake_lamports;
                 
-                // Refund player1 (minus gas fee)
+                // Refund player1
                 let cpi_context = CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
                     system_program::Transfer {
@@ -210,7 +209,7 @@ pub mod guess5_escrow {
                 );
                 system_program::transfer(cpi_context, refund_per_player)?;
                 
-                // Refund player2 (minus gas fee)
+                // Refund player2
                 let cpi_context = CpiContext::new(
                     ctx.accounts.system_program.to_account_info(),
                     system_program::Transfer {
@@ -219,21 +218,11 @@ pub mod guess5_escrow {
                     },
                 );
                 system_program::transfer(cpi_context, refund_per_player)?;
-                
-                // Send gas fee to fee wallet
-                let cpi_context = CpiContext::new(
-                    ctx.accounts.system_program.to_account_info(),
-                    system_program::Transfer {
-                        from: vault.to_account_info(),
-                        to: ctx.accounts.fee_wallet.to_account_info(),
-                    },
-                );
-                system_program::transfer(cpi_context, total_gas_fee)?;
             },
             MatchResult::LosingTie => {
                 // Losing tie: both players get 95% back, 5% fee to platform
-                let refund_per_player = match_account.stake_lamports - fee_amount;
-                let total_fee = fee_amount * 2; // Fee from both players
+                let refund_per_player = match_account.stake_lamports - (fee_amount / 2);
+                let total_fee = fee_amount; // Total fee from both players
                 
                 // Refund player1 (95% of their stake)
                 let cpi_context = CpiContext::new(
@@ -265,6 +254,41 @@ pub mod guess5_escrow {
                 );
                 system_program::transfer(cpi_context, total_fee)?;
             },
+            MatchResult::Timeout | MatchResult::Error => {
+                // Timeout/Error: refund both players minus gas fee
+                let refund_per_player = match_account.stake_lamports - GAS_FEE_LAMPORTS;
+                let total_gas_fee = GAS_FEE_LAMPORTS * 2;
+                
+                // Refund player1 (minus gas fee)
+                let cpi_context = CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: vault.to_account_info(),
+                        to: ctx.accounts.player1.to_account_info(),
+                    },
+                );
+                system_program::transfer(cpi_context, refund_per_player)?;
+                
+                // Refund player2 (minus gas fee)
+                let cpi_context = CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: vault.to_account_info(),
+                        to: ctx.accounts.player2.to_account_info(),
+                    },
+                );
+                system_program::transfer(cpi_context, refund_per_player)?;
+                
+                // Send gas fee to fee wallet
+                let cpi_context = CpiContext::new(
+                    ctx.accounts.system_program.to_account_info(),
+                    system_program::Transfer {
+                        from: vault.to_account_info(),
+                        to: ctx.accounts.fee_wallet.to_account_info(),
+                    },
+                );
+                system_program::transfer(cpi_context, total_gas_fee)?;
+            },
         }
         
         emit!(MatchSettled {
@@ -292,8 +316,8 @@ pub mod guess5_escrow {
         require!(current_slot > match_account.deadline_slot, ErrorCode::DeadlineNotPassed);
         
         // Update match status
-        match_account.status = MatchStatus::Refunded;
-        match_account.result = Some(MatchResult::Timeout); // Mark as timeout
+        match_account.status = MatchStatus::Settled;
+        match_account.result = Some(MatchResult::Timeout);
         match_account.settled_at = Some(Clock::get()?.unix_timestamp);
         
         // Refund both players if they deposited (minus gas fee)
@@ -336,67 +360,17 @@ pub mod guess5_escrow {
             system_program::transfer(cpi_context, total_gas_fee)?;
         }
         
-        emit!(MatchRefunded {
+        emit!(MatchSettled {
             match_account: match_account.key(),
             vault: vault.key(),
-            reason: "timeout".to_string(),
+            result: MatchResult::Timeout,
+            winner_amount: 0,
+            fee_amount: total_gas_fee,
         });
         
         Ok(())
     }
 
-    /// Refunds a single player if they deposited but the other player didn't
-    /// This can be called by anyone after the deadline if only one player deposited
-    pub fn refund_partial_deposit(ctx: Context<RefundPartialDeposit>) -> Result<()> {
-        let match_account = &mut ctx.accounts.match_account;
-        let vault = &ctx.accounts.vault;
-        
-        // Validate match is still active
-        require!(match_account.status == MatchStatus::Active, ErrorCode::MatchNotActive);
-        
-        // Validate deadline has passed
-        let current_slot = Clock::get()?.slot;
-        require!(current_slot > match_account.deadline_slot, ErrorCode::DeadlineNotPassed);
-        
-        // Validate only one player deposited
-        let only_player1_deposited = vault.player1_deposited && !vault.player2_deposited;
-        let only_player2_deposited = !vault.player1_deposited && vault.player2_deposited;
-        require!(only_player1_deposited || only_player2_deposited, ErrorCode::InvalidPartialDeposit);
-        
-        // Update match status
-        match_account.status = MatchStatus::Refunded;
-        match_account.result = Some(MatchResult::Error); // Mark as error due to incomplete match
-        match_account.settled_at = Some(Clock::get()?.unix_timestamp);
-        
-        // Refund the player who deposited
-        if only_player1_deposited {
-            let cpi_context = CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: vault.to_account_info(),
-                    to: ctx.accounts.player1.to_account_info(),
-                },
-            );
-            system_program::transfer(cpi_context, match_account.stake_lamports)?;
-        } else if only_player2_deposited {
-            let cpi_context = CpiContext::new(
-                ctx.accounts.system_program.to_account_info(),
-                system_program::Transfer {
-                    from: vault.to_account_info(),
-                    to: ctx.accounts.player2.to_account_info(),
-                },
-            );
-            system_program::transfer(cpi_context, match_account.stake_lamports)?;
-        }
-        
-        emit!(MatchRefunded {
-            match_account: match_account.key(),
-            vault: vault.key(),
-            reason: "partial_deposit".to_string(),
-        });
-        
-        Ok(())
-    }
 }
 
 #[derive(Accounts)]
@@ -510,29 +484,6 @@ pub struct RefundTimeout<'info> {
     pub system_program: Program<'info, System>,
 }
 
-#[derive(Accounts)]
-pub struct RefundPartialDeposit<'info> {
-    #[account(mut)]
-    pub match_account: Account<'info, Match>,
-    
-    #[account(
-        mut,
-        seeds = [b"vault", match_account.key().as_ref()],
-        bump
-    )]
-    pub vault: Account<'info, Vault>,
-    
-    /// CHECK: Player 1 wallet (for refunds)
-    #[account(mut)]
-    pub player1: UncheckedAccount<'info>,
-    
-    /// CHECK: Player 2 wallet (for refunds)
-    #[account(mut)]
-    pub player2: UncheckedAccount<'info>,
-    
-    pub system_program: Program<'info, System>,
-}
-
 #[account]
 #[derive(InitSpace)]
 pub struct Match {
@@ -562,9 +513,7 @@ pub struct Vault {
 #[derive(AnchorSerialize, AnchorDeserialize, Clone, PartialEq, Eq)]
 pub enum MatchStatus {
     Active,
-    Deposited,
     Settled,
-    Refunded,
 }
 
 impl anchor_lang::Space for MatchStatus {
@@ -576,9 +525,9 @@ pub enum MatchResult {
     Player1,           // Player 1 wins
     Player2,           // Player 2 wins
     WinnerTie,         // Both players solved (winner tie - no fee)
-    LosingTie,         // Neither player solved (losing tie - no fee)
-    Timeout,           // Game timed out (no fee)
-    Error,             // Game error/abandoned (no fee)
+    LosingTie,         // Neither player solved (losing tie - 5% fee)
+    Timeout,           // Game timed out (gas fee only)
+    Error,             // Game error/abandoned (gas fee only)
 }
 
 impl anchor_lang::Space for MatchResult {
@@ -614,12 +563,6 @@ pub struct MatchSettled {
     pub fee_amount: u64,
 }
 
-#[event]
-pub struct MatchRefunded {
-    pub match_account: Pubkey,
-    pub vault: Pubkey,
-    pub reason: String,
-}
 
 #[error_code]
 pub enum ErrorCode {
@@ -643,6 +586,4 @@ pub enum ErrorCode {
     UnauthorizedAttestor,
     #[msg("Deadline has not passed yet")]
     DeadlineNotPassed,
-    #[msg("Invalid partial deposit state")]
-    InvalidPartialDeposit,
 }

@@ -5,7 +5,7 @@ import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import bs58 from 'bs58';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
-const PROGRAM_ID = new PublicKey("HyejroGJD3TDPHzmCmtUSnsViENuPn6vHDPZZHw35fGC");
+const PROGRAM_ID = new PublicKey("65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H");
 const RESULTS_ATTESTOR_ADDRESS = new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt");
 
 // Create connection to Solana network
