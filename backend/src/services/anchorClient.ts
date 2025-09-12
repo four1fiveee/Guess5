@@ -86,10 +86,11 @@ export class SmartContractService {
 
       try {
         this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+        console.log('✅ Program initialized with IDL successfully');
       } catch (idlError) {
-        console.error('❌ IDL parsing failed, trying alternative approach:', idlError);
-        // Try with a minimal program interface
-        this.program = new Program({} as any, PROGRAM_ID, this.provider);
+        console.error('❌ IDL parsing failed:', idlError);
+        // Don't create a program with empty IDL - this will cause issues
+        throw new Error(`Failed to initialize program with IDL: ${idlError instanceof Error ? idlError.message : String(idlError)}`);
       }
       
       console.log('✅ SmartContractService initialized successfully:', {
@@ -99,9 +100,8 @@ export class SmartContractService {
       });
     } catch (error) {
       console.error('❌ Failed to initialize SmartContractService:', error);
-      // Don't throw the error, just log it and continue with a null program
-      this.program = null;
-      console.warn('⚠️ SmartContractService initialized with null program - smart contract features will be disabled');
+      // Re-throw the error so the service fails to initialize properly
+      throw error;
     }
   }
 
@@ -196,7 +196,7 @@ export class SmartContractService {
 
       // Get match data to get player addresses
       console.log('🔍 Fetching match account data...');
-      const matchAccount = await (this.program.account as any).matchAccount.fetch(matchPda);
+      const matchAccount = await (this.program.account as any).Match.fetch(matchPda);
       console.log('✅ Match account fetched successfully:', {
         player1: matchAccount.player1.toString(),
         player2: matchAccount.player2.toString()
@@ -241,7 +241,7 @@ export class SmartContractService {
     }
     
     try {
-      const matchAccount = await (this.program.account as any).matchAccount.fetch(matchPda);
+      const matchAccount = await (this.program.account as any).Match.fetch(matchPda);
       return matchAccount;
     } catch (error) {
       console.error('❌ Error fetching match data:', error);
@@ -258,7 +258,7 @@ export class SmartContractService {
     
     try {
       const vaultPda = getVaultPda(matchPda);
-      const vaultAccount = await (this.program.account as any).vault.fetch(vaultPda);
+      const vaultAccount = await (this.program.account as any).Vault.fetch(vaultPda);
       return vaultAccount;
     } catch (error) {
       console.error('❌ Error fetching vault data:', error);
@@ -276,7 +276,15 @@ export const getSmartContractService = (): SmartContractService => {
       smartContractServiceInstance = new SmartContractService();
     } catch (error) {
       console.error('❌ Failed to initialize SmartContractService:', error);
-      throw error;
+      // Create a minimal service instance that will return proper error messages
+      smartContractServiceInstance = {
+        program: null,
+        provider: null as any,
+        createMatch: async () => ({ success: false, error: 'Smart contract program not initialized' }),
+        settleMatch: async () => ({ success: false, error: 'Smart contract program not initialized' }),
+        getMatchData: async () => null,
+        getVaultData: async () => null
+      } as unknown as SmartContractService;
     }
   }
   return smartContractServiceInstance;
