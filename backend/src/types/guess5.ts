@@ -1,5 +1,4 @@
-export type Guess5Escrow = 
-{
+export type Guess5Escrow = {
   "address": "65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H",
   "metadata": {
     "name": "guess5_escrow",
@@ -655,8 +654,8 @@ export type Guess5Escrow =
     }
   ]
 };
-export const IDL: Guess5Escrow = 
-{
+
+export const IDL: Guess5Escrow = {
   "address": "65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H",
   "metadata": {
     "name": "guess5_escrow",
