@@ -6,6 +6,236 @@ export const IDL = {
     "spec": "0.1.0",
     "description": "Non-custodial escrow system for Guess5 game"
   },
+  "types": [
+    {
+      "name": "DepositMade",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "player",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "is_player1",
+            "type": "bool"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Match",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "player1",
+            "type": "pubkey"
+          },
+          {
+            "name": "player2",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "deadline_slot",
+            "type": "u64"
+          },
+          {
+            "name": "fee_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "results_attestor",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "status",
+            "type": {
+              "defined": {
+                "name": "MatchStatus"
+              }
+            }
+          },
+          {
+            "name": "result",
+            "type": {
+              "option": {
+                "defined": {
+                  "name": "MatchResult"
+                }
+              }
+            }
+          },
+          {
+            "name": "created_at",
+            "type": "i64"
+          },
+          {
+            "name": "settled_at",
+            "type": {
+              "option": "i64"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchCreated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "player1",
+            "type": "pubkey"
+          },
+          {
+            "name": "player2",
+            "type": "pubkey"
+          },
+          {
+            "name": "stake_lamports",
+            "type": "u64"
+          },
+          {
+            "name": "fee_bps",
+            "type": "u16"
+          },
+          {
+            "name": "deadline_slot",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchResult",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Player1"
+          },
+          {
+            "name": "Player2"
+          },
+          {
+            "name": "WinnerTie"
+          },
+          {
+            "name": "LosingTie"
+          },
+          {
+            "name": "Timeout"
+          },
+          {
+            "name": "Error"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "vault",
+            "type": "pubkey"
+          },
+          {
+            "name": "result",
+            "type": {
+              "defined": {
+                "name": "MatchResult"
+              }
+            }
+          },
+          {
+            "name": "winner_amount",
+            "type": "u64"
+          },
+          {
+            "name": "fee_amount",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "MatchStatus",
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Active"
+          },
+          {
+            "name": "Settled"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Vault",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "match_account",
+            "type": "pubkey"
+          },
+          {
+            "name": "balance",
+            "type": "u64"
+          },
+          {
+            "name": "player1_deposited",
+            "type": "bool"
+          },
+          {
+            "name": "player2_deposited",
+            "type": "bool"
+          }
+        ]
+      }
+    }
+  ],
   "instructions": [
     {
       "name": "create_match",
@@ -507,236 +737,6 @@ export const IDL = {
       "code": 6009,
       "name": "DeadlineNotPassed",
       "msg": "Deadline has not passed yet"
-    }
-  ],
-  "types": [
-    {
-      "name": "DepositMade",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "match_account",
-            "type": "pubkey"
-          },
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "player",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "is_player1",
-            "type": "bool"
-          }
-        ]
-      }
-    },
-    {
-      "name": "Match",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "player1",
-            "type": "pubkey"
-          },
-          {
-            "name": "player2",
-            "type": "pubkey"
-          },
-          {
-            "name": "stake_lamports",
-            "type": "u64"
-          },
-          {
-            "name": "fee_bps",
-            "type": "u16"
-          },
-          {
-            "name": "deadline_slot",
-            "type": "u64"
-          },
-          {
-            "name": "fee_wallet",
-            "type": "pubkey"
-          },
-          {
-            "name": "results_attestor",
-            "type": "pubkey"
-          },
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "status",
-            "type": {
-              "defined": {
-                "name": "MatchStatus"
-              }
-            }
-          },
-          {
-            "name": "result",
-            "type": {
-              "option": {
-                "defined": {
-                  "name": "MatchResult"
-                }
-              }
-            }
-          },
-          {
-            "name": "created_at",
-            "type": "i64"
-          },
-          {
-            "name": "settled_at",
-            "type": {
-              "option": "i64"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "MatchCreated",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "match_account",
-            "type": "pubkey"
-          },
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "player1",
-            "type": "pubkey"
-          },
-          {
-            "name": "player2",
-            "type": "pubkey"
-          },
-          {
-            "name": "stake_lamports",
-            "type": "u64"
-          },
-          {
-            "name": "fee_bps",
-            "type": "u16"
-          },
-          {
-            "name": "deadline_slot",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "MatchResult",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Player1"
-          },
-          {
-            "name": "Player2"
-          },
-          {
-            "name": "WinnerTie"
-          },
-          {
-            "name": "LosingTie"
-          },
-          {
-            "name": "Timeout"
-          },
-          {
-            "name": "Error"
-          }
-        ]
-      }
-    },
-    {
-      "name": "MatchSettled",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "match_account",
-            "type": "pubkey"
-          },
-          {
-            "name": "vault",
-            "type": "pubkey"
-          },
-          {
-            "name": "result",
-            "type": {
-              "defined": {
-                "name": "MatchResult"
-              }
-            }
-          },
-          {
-            "name": "winner_amount",
-            "type": "u64"
-          },
-          {
-            "name": "fee_amount",
-            "type": "u64"
-          }
-        ]
-      }
-    },
-    {
-      "name": "MatchStatus",
-      "type": {
-        "kind": "enum",
-        "variants": [
-          {
-            "name": "Active"
-          },
-          {
-            "name": "Settled"
-          }
-        ]
-      }
-    },
-    {
-      "name": "Vault",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "match_account",
-            "type": "pubkey"
-          },
-          {
-            "name": "balance",
-            "type": "u64"
-          },
-          {
-            "name": "player1_deposited",
-            "type": "bool"
-          },
-          {
-            "name": "player2_deposited",
-            "type": "bool"
-          }
-        ]
-      }
     }
   ]
 } as const;
