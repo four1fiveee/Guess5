@@ -3,7 +3,7 @@ import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import bs58 from 'bs58';
-import { ManualSolanaClient } from './manualSolanaClient.js';
+import { ManualSolanaClient } from './manualSolanaClient';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
 const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
@@ -275,14 +275,14 @@ export class SmartContractService {
       }
     }
     
-    // Use raw client as fallback
-    if (this.rawClient) {
+    // Use manual client as fallback
+    if (this.manualClient) {
       try {
-        console.log('🔄 Using raw client to fetch match data...');
-        const matchData = await this.rawClient.getMatchAccount(matchPda.toString());
+        console.log('🔄 Using manual client to fetch match data...');
+        const matchData = await this.manualClient.getMatchData(matchPda);
         return matchData;
       } catch (error) {
-        console.error('❌ Error fetching match data with raw client:', error);
+        console.error('❌ Error fetching match data with manual client:', error);
         return null;
       }
     }
@@ -304,15 +304,15 @@ export class SmartContractService {
       }
     }
     
-    // Use raw client as fallback
-    if (this.rawClient) {
+    // Use manual client as fallback
+    if (this.manualClient) {
       try {
-        console.log('🔄 Using raw client to fetch vault data...');
+        console.log('🔄 Using manual client to fetch vault data...');
         const vaultPda = getVaultPda(matchPda);
-        const vaultData = await this.rawClient.getVaultAccount(vaultPda.toString());
+        const vaultData = await this.manualClient.getVaultData(vaultPda);
         return vaultData;
       } catch (error) {
-        console.error('❌ Error fetching vault data with raw client:', error);
+        console.error('❌ Error fetching vault data with manual client:', error);
         return null;
       }
     }

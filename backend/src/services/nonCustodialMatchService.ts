@@ -1,5 +1,5 @@
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import { getSmartContractService, MatchCreationParams } from './smartContractService';
+import { smartContractService } from './simpleSmartContractService';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { Match } from '../models/Match';
 import { AppDataSource } from '../db/index';
@@ -65,23 +65,19 @@ export class NonCustodialMatchService {
       );
 
       // Create match on-chain
-      const matchCreationParams: MatchCreationParams = {
-        player1: params.player1,
-        player2: params.player2,
+      const player1Pubkey = new PublicKey(params.player1);
+      const player2Pubkey = new PublicKey(params.player2);
+
+      const onChainResult = await smartContractService.createMatch(
+        player1Pubkey,
+        player2Pubkey,
         stakeLamports,
         feeBps,
-        deadlineSlot,
-        resultsAttestor: process.env.RESULTS_ATTESTOR_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'
-      };
+        deadlineSlot
+      );
 
-      const onChainResult = await this.smartContractService.createMatch(matchCreationParams);
-
-      if (!onChainResult.success) {
-        return {
-          success: false,
-          error: `Failed to create match on-chain: ${onChainResult.error}`
-        };
-      }
+      // onChainResult contains { signature, matchAccount, vaultAccount }
+      const { signature, matchAccount, vaultAccount } = onChainResult;
 
       // Create database record
       const matchRepository = AppDataSource.getRepository(Match);

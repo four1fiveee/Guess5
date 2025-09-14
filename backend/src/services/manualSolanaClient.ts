@@ -22,80 +22,7 @@ const INSTRUCTION_DISCRIMINATORS = {
   refundTimeout: Buffer.from([175, 175, 109, 31, 13, 152, 155, 241]), // Example - need to calculate actual
 };
 
-// Account schemas for serialization/deserialization
-const CreateMatchSchema = new Map([
-  [
-    'CreateMatchArgs',
-    {
-      kind: 'struct',
-      fields: [
-        ['stakeAmount', 'u64'],
-        ['feeBps', 'u16'],
-        ['deadlineSlot', 'u64'],
-      ],
-    },
-  ],
-]);
-
-const DepositSchema = new Map([
-  [
-    'DepositArgs',
-    {
-      kind: 'struct',
-      fields: [
-        ['amount', 'u64'],
-      ],
-    },
-  ],
-]);
-
-const SettleMatchSchema = new Map([
-  [
-    'SettleMatchArgs',
-    {
-      kind: 'struct',
-      fields: [
-        ['result', 'u8'], // MatchResult enum
-      ],
-    },
-  ],
-]);
-
-// Account data schemas
-const MatchAccountSchema = new Map([
-  [
-    'MatchAccount',
-    {
-      kind: 'struct',
-      fields: [
-        ['player1', [32]], // PublicKey
-        ['player2', [32]], // PublicKey
-        ['stakeAmount', 'u64'],
-        ['feeBps', 'u16'],
-        ['deadlineSlot', 'u64'],
-        ['status', 'u8'], // MatchStatus enum
-        ['result', 'u8'], // MatchResult enum
-        ['player1Deposited', 'u64'],
-        ['player2Deposited', 'u64'],
-        ['vaultBump', 'u8'],
-      ],
-    },
-  ],
-]);
-
-const VaultAccountSchema = new Map([
-  [
-    'VaultAccount',
-    {
-      kind: 'struct',
-      fields: [
-        ['matchAccount', [32]], // PublicKey
-        ['totalDeposited', 'u64'],
-        ['bump', 'u8'],
-      ],
-    },
-  ],
-]);
+// Note: We use manual serialization instead of Borsh schemas for better control
 
 export class ManualSolanaClient {
   private connection: Connection;
@@ -293,9 +220,22 @@ export class ManualSolanaClient {
         throw new Error('Match account not found');
       }
 
-      // Deserialize account data (skip the 8-byte discriminator)
+      // Manual deserialization (skip the 8-byte discriminator)
       const data = accountInfo.data.slice(8);
-      return borsh.deserialize(MatchAccountSchema, 'MatchAccount', data);
+      let offset = 0;
+      
+      return {
+        player1: new PublicKey(data.slice(offset, offset + 32)),
+        player2: new PublicKey(data.slice(offset + 32, offset + 64)),
+        stakeAmount: data.readBigUInt64LE(offset + 64),
+        feeBps: data.readUInt16LE(offset + 72),
+        deadlineSlot: data.readBigUInt64LE(offset + 74),
+        status: data.readUInt8(offset + 82),
+        result: data.readUInt8(offset + 83),
+        player1Deposited: data.readBigUInt64LE(offset + 84),
+        player2Deposited: data.readBigUInt64LE(offset + 92),
+        vaultBump: data.readUInt8(offset + 100),
+      };
     } catch (error) {
       console.error('Get match data failed:', error);
       throw error;
@@ -312,9 +252,15 @@ export class ManualSolanaClient {
         throw new Error('Vault account not found');
       }
 
-      // Deserialize account data (skip the 8-byte discriminator)
+      // Manual deserialization (skip the 8-byte discriminator)
       const data = accountInfo.data.slice(8);
-      return borsh.deserialize(VaultAccountSchema, 'VaultAccount', data);
+      let offset = 0;
+      
+      return {
+        matchAccount: new PublicKey(data.slice(offset, offset + 32)),
+        totalDeposited: data.readBigUInt64LE(offset + 32),
+        bump: data.readUInt8(offset + 40),
+      };
     } catch (error) {
       console.error('Get vault data failed:', error);
       throw error;
