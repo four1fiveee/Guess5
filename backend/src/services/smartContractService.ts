@@ -201,6 +201,42 @@ export class SmartContractService {
   getProgramId(): PublicKey {
     return PROGRAM_ID;
   }
+
+  // Calculate deadline slot (current slot + buffer)
+  async calculateDeadlineSlot(bufferSlots: number = 1000): Promise<number> {
+    try {
+      const currentSlot = await connection.getSlot();
+      const deadlineSlot = currentSlot + bufferSlots;
+      
+      console.log('📅 Calculated deadline slot:', {
+        currentSlot,
+        bufferSlots,
+        deadlineSlot
+      });
+      
+      return deadlineSlot;
+    } catch (error) {
+      console.error('❌ Calculate deadline slot failed:', error);
+      throw error;
+    }
+  }
+
+  // Get match status (alias for getMatchData for backward compatibility)
+  async getMatchStatus(matchAccount: PublicKey): Promise<any> {
+    try {
+      const matchData = await this.getMatchData(matchAccount);
+      return {
+        success: true,
+        data: matchData
+      };
+    } catch (error) {
+      console.error('❌ Get match status failed:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
 }
 
 // Export a singleton instance

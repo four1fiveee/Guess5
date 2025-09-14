@@ -358,14 +358,14 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         
         console.log('🔧 Creating smart contract match...');
         const smartContractService = await getSmartContractService();
-        smartContractResult = await smartContractService.createMatch({
-          player1: matchData.player1,
-          player2: matchData.player2,
+        const deadlineSlot = await smartContractService.calculateDeadlineSlot(1000); // 1000 slots buffer
+        smartContractResult = await smartContractService.createMatch(
+          new PublicKey(matchData.player1),
+          new PublicKey(matchData.player2),
           stakeLamports,
-          feeBps: 500, // 5% fee
-          deadlineSlot: await smartContractService.calculateDeadlineSlot(1000), // 1000 slots buffer
-          resultsAttestor: process.env.RESULTS_ATTESTOR_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'
-        });
+          500, // 5% fee
+          deadlineSlot
+        );
       } catch (smartContractError) {
         console.error('❌ Smart contract service error (including IDL errors):', smartContractError);
         // Continue without smart contract for now - create match in database only
@@ -1472,7 +1472,14 @@ const submitResultHandler = async (req: any, res: any) => {
               console.log('🔗 Settling smart contract with result:', resultEnum);
               
               const smartContractService = await getSmartContractService();
-              const settlementResult = await smartContractService.settleMatch(matchId, resultEnum);
+              // Get match data to extract player addresses
+              const matchData = await smartContractService.getMatchData(new PublicKey(matchId));
+              const settlementResult = await smartContractService.settleMatch(
+                new PublicKey(matchId),
+                resultEnum,
+                matchData.player1,
+                matchData.player2
+              );
               
               if (settlementResult.success) {
                 console.log('✅ Smart contract settlement successful:', settlementResult.transactionId);
@@ -5104,7 +5111,11 @@ const depositToSmartContractHandler = async (req: any, res: any) => {
     const smartContractService = getSmartContractService();
 
     // Process deposit
-    const result = await smartContractService.deposit(matchId, playerWallet);
+    const result = await smartContractService.deposit(
+      new PublicKey(matchId),
+      playerWallet,
+      stakeAmount
+    );
 
     if (result.success) {
       console.log('✅ Smart contract deposit processed successfully:', {
@@ -5241,7 +5252,7 @@ const getSmartContractStatusHandler = async (req: any, res: any) => {
     const smartContractService = getSmartContractService();
 
     // Get match status
-    const statusResult = await smartContractService.getMatchStatus(matchId);
+    const statusResult = await smartContractService.getMatchStatus(new PublicKey(matchId));
 
     if (statusResult.success) {
       console.log('✅ Smart contract status retrieved:', {
