@@ -73,14 +73,21 @@ export class ManualSolanaClient {
         PROGRAM_ID
       );
 
-      // Serialize instruction data
+      // Serialize instruction data manually
+      const stakeAmountBuffer = Buffer.alloc(8);
+      stakeAmountBuffer.writeBigUInt64LE(BigInt(stakeAmount), 0);
+      
+      const feeBpsBuffer = Buffer.alloc(2);
+      feeBpsBuffer.writeUInt16LE(feeBps, 0);
+      
+      const deadlineSlotBuffer = Buffer.alloc(8);
+      deadlineSlotBuffer.writeBigUInt64LE(BigInt(deadlineSlot), 0);
+      
       const instructionData = Buffer.concat([
         INSTRUCTION_DISCRIMINATORS.createMatch,
-        borsh.serialize(CreateMatchSchema, {
-          stakeAmount: BigInt(stakeAmount),
-          feeBps,
-          deadlineSlot: BigInt(deadlineSlot),
-        })
+        stakeAmountBuffer,
+        feeBpsBuffer,
+        deadlineSlotBuffer
       ]);
 
       // Create instruction
@@ -128,12 +135,13 @@ export class ManualSolanaClient {
         PROGRAM_ID
       );
 
-      // Serialize instruction data
+      // Serialize instruction data manually
+      const amountBuffer = Buffer.alloc(8);
+      amountBuffer.writeBigUInt64LE(BigInt(amount), 0);
+      
       const instructionData = Buffer.concat([
         INSTRUCTION_DISCRIMINATORS.deposit,
-        borsh.serialize(DepositSchema, {
-          amount: BigInt(amount),
-        })
+        amountBuffer
       ]);
 
       // Create instruction
@@ -174,12 +182,13 @@ export class ManualSolanaClient {
     authority: Keypair
   ): Promise<string> {
     try {
-      // Serialize instruction data
+      // Serialize instruction data manually
+      const resultBuffer = Buffer.alloc(1);
+      resultBuffer.writeUInt8(result, 0);
+      
       const instructionData = Buffer.concat([
         INSTRUCTION_DISCRIMINATORS.settleMatch,
-        borsh.serialize(SettleMatchSchema, {
-          result,
-        })
+        resultBuffer
       ]);
 
       // Create instruction

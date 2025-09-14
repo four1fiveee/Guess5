@@ -35,7 +35,7 @@ export class NonCustodialMatchService {
 
   async initialize(): Promise<void> {
     if (!this.smartContractService) {
-      this.smartContractService = await getSmartContractService();
+      this.smartContractService = smartContractService;
     }
   }
 
@@ -92,8 +92,8 @@ export class NonCustodialMatchService {
       match.word = this.getRandomWord();
       
       // Store smart contract data
-      match.matchPda = onChainResult.matchPda!;
-      match.vaultPda = onChainResult.vaultPda!;
+      match.matchPda = matchAccount.toString();
+      match.vaultPda = vaultAccount.toString();
       match.deadlineSlot = deadlineSlot;
       match.feeBps = feeBps;
       match.smartContractStatus = 'Active';
