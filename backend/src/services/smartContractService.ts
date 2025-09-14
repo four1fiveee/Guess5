@@ -1,5 +1,5 @@
 import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { ManualSolanaClient } from './manualSolanaClient.js';
+import { ManualSolanaClient } from './manualSolanaClient';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 
 // Program ID for our deployed smart contract
@@ -205,3 +205,9 @@ export class SmartContractService {
 
 // Export a singleton instance
 export const smartContractService = new SmartContractService();
+
+// Export a function to get the service (for backward compatibility)
+export const getSmartContractService = async () => {
+  await smartContractService.initialize();
+  return smartContractService;
+};
