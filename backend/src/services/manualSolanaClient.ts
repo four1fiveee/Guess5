@@ -95,7 +95,7 @@ export class ManualSolanaClient {
         keys: [
           { pubkey: matchAccount, isSigner: false, isWritable: true },
           { pubkey: vaultAccount, isSigner: false, isWritable: true },
-          { pubkey: player1, isSigner: true, isWritable: true },
+          { pubkey: player1, isSigner: false, isWritable: true },
           { pubkey: player2, isSigner: false, isWritable: true },
           { pubkey: payer.publicKey, isSigner: true, isWritable: true },
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },

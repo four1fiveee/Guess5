@@ -301,8 +301,8 @@ pub struct CreateMatch<'info> {
     )]
     pub vault: Account<'info, VaultAccount>,
     
-    /// CHECK: This is the player1 who will sign the transaction
-    pub player1: Signer<'info>,
+    /// CHECK: This is the player1 (doesn't need to sign for match creation)
+    pub player1: UncheckedAccount<'info>,
     
     /// CHECK: This is the player2 (doesn't need to sign)
     pub player2: UncheckedAccount<'info>,
