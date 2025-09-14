@@ -5096,7 +5096,7 @@ const getMatchPdaHandler = async (req: any, res: any) => {
  */
 const depositToSmartContractHandler = async (req: any, res: any) => {
   try {
-    const { matchId, playerWallet } = req.body;
+    const { matchId, playerWallet, stakeAmount } = req.body;
 
     if (!matchId || !playerWallet) {
       return res.status(400).json({ 
