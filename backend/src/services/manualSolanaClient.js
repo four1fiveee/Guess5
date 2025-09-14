@@ -107,10 +107,21 @@ class ManualSolanaClient {
    */
   async testConnection() {
     try {
+      // Test basic connection first
+      const version = await this.connection.getVersion();
+      console.log('🔗 Solana connection test successful:', version);
+      
+      // Test program account
       const programInfo = await this.connection.getAccountInfo(PROGRAM_ID);
-      return programInfo !== null;
+      if (programInfo === null) {
+        console.error('❌ Program not found at address:', PROGRAM_ID.toString());
+        return false;
+      }
+      
+      console.log('✅ Program found at address:', PROGRAM_ID.toString());
+      return true;
     } catch (error) {
-      console.error('Connection test failed:', error);
+      console.error('❌ Connection test failed:', error);
       return false;
     }
   }
