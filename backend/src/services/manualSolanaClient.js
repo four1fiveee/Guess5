@@ -15,11 +15,10 @@ const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
 
 // Instruction discriminators (8-byte hashes for each instruction)
 const INSTRUCTION_DISCRIMINATORS = {
-  initialize: Buffer.from([175, 175, 109, 31, 13, 152, 155, 237]),
-  createMatch: Buffer.from([107, 2, 184, 145, 70, 142, 17, 165]),
-  deposit: Buffer.from([242, 35, 198, 137, 82, 225, 242, 182]),
-  settleMatch: Buffer.from([71, 124, 117, 96, 191, 217, 116, 24]),
-  refundTimeout: Buffer.from([142, 147, 135, 70, 231, 198, 23, 207]),
+  createMatch: Buffer.from([107, 2, 184, 145, 70, 142, 17, 165]), // create_match
+  deposit: Buffer.from([242, 35, 198, 137, 82, 225, 242, 182]), // deposit
+  settleMatch: Buffer.from([71, 124, 117, 96, 191, 217, 116, 24]), // settle_match
+  refundTimeout: Buffer.from([142, 147, 135, 70, 231, 198, 23, 207]), // refund_timeout
 };
 
 // Account schemas for serialization/deserialization

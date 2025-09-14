@@ -15,11 +15,10 @@ const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
 
 // Instruction discriminators (8-byte hashes for each instruction)
 const INSTRUCTION_DISCRIMINATORS = {
-  initialize: Buffer.from([175, 175, 109, 31, 13, 152, 155, 237]), // Example - need to calculate actual
-  createMatch: Buffer.from([175, 175, 109, 31, 13, 152, 155, 238]), // Example - need to calculate actual
-  deposit: Buffer.from([175, 175, 109, 31, 13, 152, 155, 239]), // Example - need to calculate actual
-  settleMatch: Buffer.from([175, 175, 109, 31, 13, 152, 155, 240]), // Example - need to calculate actual
-  refundTimeout: Buffer.from([175, 175, 109, 31, 13, 152, 155, 241]), // Example - need to calculate actual
+  createMatch: Buffer.from([107, 2, 184, 145, 70, 142, 17, 165]), // create_match
+  deposit: Buffer.from([242, 35, 198, 137, 82, 225, 242, 182]), // deposit
+  settleMatch: Buffer.from([71, 124, 117, 96, 191, 217, 116, 24]), // settle_match
+  refundTimeout: Buffer.from([142, 147, 135, 70, 231, 198, 23, 207]), // refund_timeout
 };
 
 // Note: We use manual serialization instead of Borsh schemas for better control
