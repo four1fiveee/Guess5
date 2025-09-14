@@ -51,7 +51,7 @@ export class SmartContractDepositService {
       commitment: 'confirmed'
     });
 
-    this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+    this.program = new Program(IDL as any, this.provider);
   }
 
   /**

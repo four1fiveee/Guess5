@@ -106,7 +106,7 @@ export class SmartContractService {
     try {
       // Use embedded IDL directly since on-chain IDL is missing types section
       console.log('🔍 Using embedded IDL directly (on-chain IDL missing types)...');
-      this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+      this.program = new Program(IDL as any, this.provider);
       console.log('✅ Program initialized with embedded IDL successfully');
     } catch (embeddedIdlError) {
       console.error('❌ Embedded IDL parsing failed:', embeddedIdlError);
@@ -360,7 +360,7 @@ export class Guess5AnchorClient {
   constructor(connection: Connection, wallet: any) {
     this.connection = connection;
     this.provider = new AnchorProvider(connection, wallet, {});
-    this.program = new Program(IDL, PROGRAM_ID, this.provider);
+    this.program = new Program(IDL, this.provider);
   }
 
   async createMatchEscrow(
