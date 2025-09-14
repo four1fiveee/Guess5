@@ -1,320 +1,207 @@
-import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import { enhancedLogger } from '../utils/enhancedLogger';
-import { getSmartContractService as getAnchorService } from './anchorClient';
-import { AppDataSource } from '../db/index';
-import { Match } from '../models/Match';
+import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { ManualSolanaClient } from './manualSolanaClient.js';
+import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 
-export interface MatchCreationParams {
-  player1: string;
-  player2: string;
-  stakeLamports: number;
-  feeBps: number;
-  deadlineSlot: number;
-  resultsAttestor: string;
-}
+// Program ID for our deployed smart contract
+const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
 
-export interface SmartContractService {
-  createMatch(params: MatchCreationParams): Promise<{ success: boolean; matchPda?: string; vaultPda?: string; error?: string }>;
-  deposit(matchId: string, player: string): Promise<{ success: boolean; transactionId?: string; error?: string }>;
-  settleMatch(matchId: string, result: string): Promise<{ success: boolean; transactionId?: string; error?: string }>;
-  refundTimeout(matchId: string): Promise<{ success: boolean; transactionId?: string; error?: string }>;
-  refundPartialDeposit(matchId: string): Promise<{ success: boolean; transactionId?: string; error?: string }>;
-  calculateDeadlineSlot(bufferSlots: number): Promise<number>;
-  getMatchStatus(matchId: string): Promise<{ success: boolean; onChainStatus?: string; vaultBalance?: number; player1Deposited?: boolean; player2Deposited?: boolean; error?: string }>;
-}
+// Create connection to Solana network
+const connection = new Connection(
+  process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+  'confirmed'
+);
 
-export async function getSmartContractService(): Promise<SmartContractService> {
-  const anchorService = await getAnchorService();
-  const connection = new Connection(
-    process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-    'confirmed'
-  );
-  
-  return {
-    async createMatch(params: MatchCreationParams): Promise<{ success: boolean; matchPda?: string; vaultPda?: string; error?: string }> {
-      try {
-        enhancedLogger.info('🔧 Creating match on smart contract', params);
-        
-        const result = await anchorService.createMatch(
-          new PublicKey(params.player1),
-          new PublicKey(params.player2),
-          params.stakeLamports,
-          params.feeBps,
-          params.deadlineSlot
-        );
-        
-        if (result.success) {
-          enhancedLogger.info('✅ Smart contract match created successfully', {
-            matchPda: result.matchPda?.toString(),
-            vaultPda: result.vaultPda?.toString()
-          });
-          
-          return {
-            success: true,
-            matchPda: result.matchPda?.toString(),
-            vaultPda: result.vaultPda?.toString()
-          };
-        } else {
-          enhancedLogger.error('❌ Failed to create smart contract match', { error: result.error });
-          return {
-            success: false,
-            error: result.error
-          };
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error creating smart contract match', { error: errorMessage });
-        return {
-          success: false,
-          error: errorMessage
-        };
+// Smart contract service class using manual client
+export class SmartContractService {
+  private manualClient: ManualSolanaClient;
+  private feeWallet: Keypair;
+
+  constructor() {
+    this.manualClient = new ManualSolanaClient(connection);
+    this.feeWallet = getFeeWalletKeypair();
+    
+    console.log('🔧 Initializing SmartContractService:', {
+      programId: PROGRAM_ID.toString(),
+      network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      feeWallet: this.feeWallet.publicKey.toString()
+    });
+  }
+
+  async initialize(): Promise<void> {
+    try {
+      const isConnected = await this.manualClient.testConnection();
+      if (!isConnected) {
+        throw new Error('Failed to connect to smart contract');
       }
-    },
-
-    async deposit(matchId: string, player: string): Promise<{ success: boolean; transactionId?: string; error?: string }> {
-      try {
-        enhancedLogger.info('💰 Processing deposit on smart contract', { matchId, player });
-        
-        // Get match from database to get PDA addresses
-        const matchRepository = AppDataSource.getRepository(Match);
-        const match = await matchRepository.findOne({ where: { id: matchId } });
-        
-        if (!match || !match.matchPda) {
-          return {
-            success: false,
-            error: 'Match not found or not properly initialized with smart contract'
-          };
-        }
-        
-        // Create deposit transaction using the deposit service
-        const { getSmartContractDepositService } = require('./smartContractDepositService');
-        const depositService = getSmartContractDepositService();
-        
-        const depositResult = await depositService.createDepositTransaction(matchId, player);
-        
-        if (depositResult.success) {
-          enhancedLogger.info('✅ Deposit transaction created successfully', {
-            matchId,
-            player,
-            matchPda: match.matchPda,
-            vaultPda: match.vaultPda
-          });
-          
-          return {
-            success: true,
-            transactionId: `deposit-${matchId}-${Date.now()}`
-          };
-        } else {
-          enhancedLogger.error('❌ Failed to create deposit transaction', { error: depositResult.error });
-          return {
-            success: false,
-            error: depositResult.error
-          };
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error processing deposit', { error: errorMessage });
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
-    },
-
-    async settleMatch(matchId: string, result: string): Promise<{ success: boolean; transactionId?: string; error?: string }> {
-      try {
-        enhancedLogger.info('🏁 Settling match on smart contract', { matchId, result });
-        
-        // Get match from database to get PDA address
-        const matchRepository = AppDataSource.getRepository(Match);
-        const match = await matchRepository.findOne({ where: { id: matchId } });
-        
-        if (!match || !match.matchPda) {
-          return {
-            success: false,
-            error: 'Match not found or not properly initialized with smart contract'
-          };
-        }
-        
-        // Validate result type
-        const validResults = ['Player1', 'Player2', 'WinnerTie', 'LosingTie', 'Timeout', 'Error'];
-        if (!validResults.includes(result)) {
-          return {
-            success: false,
-            error: `Invalid result type: ${result}. Must be one of: ${validResults.join(', ')}`
-          };
-        }
-        
-        const settlementResult = await anchorService.settleMatch(
-          new PublicKey(match.matchPda),
-          result as 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error'
-        );
-        
-        if (settlementResult.success) {
-          enhancedLogger.info('✅ Match settled successfully on smart contract', {
-            matchId,
-            result,
-            signature: settlementResult.signature
-          });
-          
-          return {
-            success: true,
-            transactionId: settlementResult.signature
-          };
-        } else {
-          enhancedLogger.error('❌ Failed to settle match on smart contract', { error: settlementResult.error });
-          return {
-            success: false,
-            error: settlementResult.error
-          };
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error settling match', { error: errorMessage });
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
-    },
-
-    async refundTimeout(matchId: string): Promise<{ success: boolean; transactionId?: string; error?: string }> {
-      try {
-        enhancedLogger.info('⏰ Processing timeout refund on smart contract', { matchId });
-        
-        // Get match from database to get PDA address
-        const matchRepository = AppDataSource.getRepository(Match);
-        const match = await matchRepository.findOne({ where: { id: matchId } });
-        
-        if (!match || !match.matchPda) {
-          return {
-            success: false,
-            error: 'Match not found or not properly initialized with smart contract'
-          };
-        }
-        
-        // For timeout refunds, we'll need to implement the refund_timeout instruction
-        // For now, return a placeholder response
-        enhancedLogger.info('✅ Timeout refund instruction prepared', { matchId });
-        
-        return {
-          success: true,
-          transactionId: `timeout-refund-${matchId}-${Date.now()}`
-        };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error processing timeout refund', { error: errorMessage });
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
-    },
-
-    async refundPartialDeposit(matchId: string): Promise<{ success: boolean; transactionId?: string; error?: string }> {
-      try {
-        enhancedLogger.info('🔄 Processing partial deposit refund on smart contract', { matchId });
-        
-        // Get match from database to get PDA address
-        const matchRepository = AppDataSource.getRepository(Match);
-        const match = await matchRepository.findOne({ where: { id: matchId } });
-        
-        if (!match || !match.matchPda) {
-          return {
-            success: false,
-            error: 'Match not found or not properly initialized with smart contract'
-          };
-        }
-        
-        // For partial deposit refunds, we'll need to implement the refund_partial_deposit instruction
-        // For now, return a placeholder response
-        enhancedLogger.info('✅ Partial deposit refund instruction prepared', { matchId });
-        
-        return {
-          success: true,
-          transactionId: `partial-refund-${matchId}-${Date.now()}`
-        };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error processing partial deposit refund', { error: errorMessage });
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
-    },
-
-    async calculateDeadlineSlot(bufferSlots: number): Promise<number> {
-      try {
-        enhancedLogger.info('⏰ Calculating deadline slot', { bufferSlots });
-        
-        const currentSlot = await connection.getSlot();
-        const deadlineSlot = currentSlot + bufferSlots;
-        
-        enhancedLogger.info('✅ Deadline slot calculated', {
-          currentSlot,
-          bufferSlots,
-          deadlineSlot
-        });
-        
-        return deadlineSlot;
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error calculating deadline slot', { error: errorMessage });
-        // Fallback to timestamp-based calculation
-        return Date.now() + bufferSlots;
-      }
-    },
-
-    async getMatchStatus(matchId: string): Promise<{ success: boolean; onChainStatus?: string; vaultBalance?: number; player1Deposited?: boolean; player2Deposited?: boolean; error?: string }> {
-      try {
-        enhancedLogger.info('🔍 Getting match status from smart contract', { matchId });
-        
-        // Get match from database to get PDA address
-        const matchRepository = AppDataSource.getRepository(Match);
-        const match = await matchRepository.findOne({ where: { id: matchId } });
-        
-        if (!match || !match.matchPda) {
-          return {
-            success: false,
-            error: 'Match not found or not properly initialized with smart contract'
-          };
-        }
-        
-        // Get on-chain data
-        const matchData = await anchorService.getMatchData(new PublicKey(match.matchPda));
-        const vaultData = await anchorService.getVaultData(new PublicKey(match.matchPda));
-        
-        if (!matchData || !vaultData) {
-          return {
-            success: false,
-            error: 'Failed to fetch on-chain data'
-          };
-        }
-        
-        enhancedLogger.info('✅ Match status retrieved from smart contract', {
-          matchId,
-          onChainStatus: matchData.status,
-          vaultBalance: vaultData.balance,
-          player1Deposited: vaultData.player1Deposited,
-          player2Deposited: vaultData.player2Deposited
-        });
-        
-        return {
-          success: true,
-          onChainStatus: matchData.status,
-          vaultBalance: vaultData.balance,
-          player1Deposited: vaultData.player1Deposited,
-          player2Deposited: vaultData.player2Deposited
-        };
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        enhancedLogger.error('❌ Error getting match status', { error: errorMessage });
-        return {
-          success: false,
-          error: errorMessage
-        };
-      }
+      console.log('✅ SmartContractService initialized successfully');
+    } catch (error) {
+      console.error('❌ SmartContractService initialization failed:', error);
+      throw error;
     }
-  };
+  }
+
+  isInitialized(): boolean {
+    return this.manualClient !== null;
+  }
+
+  // Create a match on the smart contract
+  async createMatch(
+    player1: PublicKey,
+    player2: PublicKey,
+    stakeAmount: number,
+    feeBps: number = 500, // 5% default
+    deadlineSlot?: number
+  ): Promise<{ signature: string; matchAccount: PublicKey; vaultAccount: PublicKey }> {
+    try {
+      // Calculate deadline slot if not provided (24 hours from now)
+      if (!deadlineSlot) {
+        const currentSlot = await connection.getSlot();
+        deadlineSlot = currentSlot + (24 * 60 * 60 * 2); // 24 hours in slots (assuming 0.5s per slot)
+      }
+
+      // Generate match and vault account PDAs
+      const matchAccount = this.manualClient.getMatchAccountPDA(player1, player2, stakeAmount);
+      const [vaultAccount] = this.manualClient.getVaultAccountPDA(matchAccount);
+
+      // Create the match
+      const signature = await this.manualClient.createMatch(
+        player1,
+        player2,
+        stakeAmount,
+        feeBps,
+        deadlineSlot,
+        this.feeWallet
+      );
+
+      console.log('✅ Match created successfully:', {
+        signature,
+        matchAccount: matchAccount.toString(),
+        vaultAccount: vaultAccount.toString(),
+        stakeAmount,
+        feeBps,
+        deadlineSlot
+      });
+
+      return {
+        signature,
+        matchAccount,
+        vaultAccount
+      };
+    } catch (error) {
+      console.error('❌ Create match failed:', error);
+      throw error;
+    }
+  }
+
+  // Player deposits their stake
+  async deposit(
+    matchAccount: PublicKey,
+    player: Keypair,
+    amount: number
+  ): Promise<string> {
+    try {
+      const signature = await this.manualClient.deposit(
+        matchAccount,
+        player,
+        amount
+      );
+
+      console.log('✅ Deposit successful:', {
+        signature,
+        matchAccount: matchAccount.toString(),
+        player: player.publicKey.toString(),
+        amount
+      });
+
+      return signature;
+    } catch (error) {
+      console.error('❌ Deposit failed:', error);
+      throw error;
+    }
+  }
+
+  // Settle a match
+  async settleMatch(
+    matchAccount: PublicKey,
+    result: number, // MatchResult enum value
+    player1: PublicKey,
+    player2: PublicKey
+  ): Promise<string> {
+    try {
+      const [vaultAccount] = this.manualClient.getVaultAccountPDA(matchAccount);
+      
+      const signature = await this.manualClient.settleMatch(
+        matchAccount,
+        vaultAccount,
+        result,
+        this.feeWallet
+      );
+
+      console.log('✅ Match settled successfully:', {
+        signature,
+        matchAccount: matchAccount.toString(),
+        result
+      });
+
+      return signature;
+    } catch (error) {
+      console.error('❌ Settle match failed:', error);
+      throw error;
+    }
+  }
+
+  // Get match data
+  async getMatchData(matchAccount: PublicKey): Promise<any> {
+    try {
+      const matchData = await this.manualClient.getMatchData(matchAccount);
+      return matchData;
+    } catch (error) {
+      console.error('❌ Get match data failed:', error);
+      throw error;
+    }
+  }
+
+  // Get vault data
+  async getVaultData(vaultAccount: PublicKey): Promise<any> {
+    try {
+      const vaultData = await this.manualClient.getVaultData(vaultAccount);
+      return vaultData;
+    } catch (error) {
+      console.error('❌ Get vault data failed:', error);
+      throw error;
+    }
+  }
+
+  // Generate match account PDA
+  getMatchAccountPDA(player1: PublicKey, player2: PublicKey, stakeAmount: number): PublicKey {
+    return this.manualClient.getMatchAccountPDA(player1, player2, stakeAmount);
+  }
+
+  // Generate vault account PDA
+  getVaultAccountPDA(matchAccount: PublicKey): [PublicKey, number] {
+    return this.manualClient.getVaultAccountPDA(matchAccount);
+  }
+
+  // Utility function to convert SOL to lamports
+  solToLamports(sol: number): number {
+    return Math.floor(sol * LAMPORTS_PER_SOL);
+  }
+
+  // Utility function to convert lamports to SOL
+  lamportsToSol(lamports: number): number {
+    return lamports / LAMPORTS_PER_SOL;
+  }
+
+  // Get connection for external use
+  getConnection(): Connection {
+    return connection;
+  }
+
+  // Get program ID
+  getProgramId(): PublicKey {
+    return PROGRAM_ID;
+  }
 }
+
+// Export a singleton instance
+export const smartContractService = new SmartContractService();

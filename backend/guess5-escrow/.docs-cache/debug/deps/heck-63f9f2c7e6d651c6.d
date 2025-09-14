@@ -1,0 +1,12 @@
+/mnt/c/Users/henry/OneDrive/Desktop/Guess5/backend/guess5-escrow/.docs-cache/debug/deps/heck-63f9f2c7e6d651c6.d: /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/lib.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/camel.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/kebab.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/mixed.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/shouty_kebab.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/shouty_snake.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/snake.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/title.rs
+
+/mnt/c/Users/henry/OneDrive/Desktop/Guess5/backend/guess5-escrow/.docs-cache/debug/deps/libheck-63f9f2c7e6d651c6.rmeta: /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/lib.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/camel.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/kebab.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/mixed.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/shouty_kebab.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/shouty_snake.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/snake.rs /home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/title.rs
+
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/lib.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/camel.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/kebab.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/mixed.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/shouty_kebab.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/shouty_snake.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/snake.rs:
+/home/four1five/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/heck-0.3.3/src/title.rs:

@@ -3,9 +3,10 @@ import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import bs58 from 'bs58';
+import { ManualSolanaClient } from './manualSolanaClient.js';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
-const PROGRAM_ID = new PublicKey("65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H");
+const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
 const RESULTS_ATTESTOR_ADDRESS = new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt");
 
 // Create connection to Solana network
@@ -44,8 +45,12 @@ export const getVaultPda = (matchPda: PublicKey): PublicKey => {
 export class SmartContractService {
   private program: Program | null = null;
   private provider!: AnchorProvider;
+  private manualClient: ManualSolanaClient;
 
   constructor() {
+    // Initialize manual client as fallback
+    this.manualClient = new ManualSolanaClient(connection);
+    
     // Initialize provider in constructor, program will be initialized in initializeProgram()
     try {
       // Create a dummy wallet for the provider (we'll use the fee wallet)
@@ -99,39 +104,34 @@ export class SmartContractService {
     }
 
     try {
-      // Try to fetch IDL from blockchain first
-      console.log('🔍 Attempting to fetch IDL from blockchain...');
-      const onChainIdl = await Program.fetchIdl(PROGRAM_ID, this.provider);
+      // Use embedded IDL directly since on-chain IDL is missing types section
+      console.log('🔍 Using embedded IDL directly (on-chain IDL missing types)...');
+      this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
+      console.log('✅ Program initialized with embedded IDL successfully');
+    } catch (embeddedIdlError) {
+      console.error('❌ Embedded IDL parsing failed:', embeddedIdlError);
+      console.log('🔄 Falling back to raw Solana client...');
       
-      if (onChainIdl) {
-        console.log('✅ IDL fetched from blockchain successfully');
-        this.program = new Program(onChainIdl, PROGRAM_ID, this.provider);
-        console.log('✅ Program initialized with on-chain IDL successfully');
-      } else {
-        throw new Error('Failed to fetch IDL from blockchain');
-      }
-    } catch (onChainError) {
-      console.warn('⚠️ Failed to fetch on-chain IDL, trying embedded IDL:', onChainError);
-      try {
-        // Fallback to embedded IDL
-        this.program = new Program(IDL as any, PROGRAM_ID, this.provider);
-        console.log('✅ Program initialized with embedded IDL successfully');
-      } catch (embeddedIdlError) {
-        console.error('❌ Both on-chain and embedded IDL parsing failed:', embeddedIdlError);
-        // Don't create a program with empty IDL - this will cause issues
-        throw new Error(`Failed to initialize program with IDL: ${embeddedIdlError instanceof Error ? embeddedIdlError.message : String(embeddedIdlError)}`);
-      }
+            // Test manual client connection
+            const manualClientWorks = await this.manualClient.testConnection();
+            if (manualClientWorks) {
+              console.log('✅ Manual Solana client fallback initialized successfully');
+              // Keep program as null, we'll use manual client methods
+            } else {
+              throw new Error(`Both IDL parsing and manual client failed: ${embeddedIdlError instanceof Error ? embeddedIdlError.message : String(embeddedIdlError)}`);
+            }
     }
     
-    console.log('✅ SmartContractService program initialized successfully:', {
+    console.log('✅ SmartContractService initialized successfully:', {
       program: !!this.program,
       provider: !!this.provider,
-      programAccount: !!this.program?.account
+      programAccount: !!this.program?.account,
+      rawClientFallback: !this.program
     });
   }
 
   isProgramInitialized(): boolean {
-    return this.program !== null;
+    return this.program !== null || this.manualClient !== null;
   }
 
 
@@ -265,35 +265,60 @@ export class SmartContractService {
 
   // Get match data from smart contract
   async getMatchData(matchPda: PublicKey): Promise<any> {
-    if (!this.program) {
-      console.error('❌ Smart contract program not initialized');
-      return null;
+    if (this.program) {
+      try {
+        const matchAccount = await (this.program.account as any).Match.fetch(matchPda);
+        return matchAccount;
+      } catch (error) {
+        console.error('❌ Error fetching match data with Anchor:', error);
+        // Fall through to raw client
+      }
     }
     
-    try {
-      const matchAccount = await (this.program.account as any).Match.fetch(matchPda);
-      return matchAccount;
-    } catch (error) {
-      console.error('❌ Error fetching match data:', error);
-      return null;
+    // Use raw client as fallback
+    if (this.rawClient) {
+      try {
+        console.log('🔄 Using raw client to fetch match data...');
+        const matchData = await this.rawClient.getMatchAccount(matchPda.toString());
+        return matchData;
+      } catch (error) {
+        console.error('❌ Error fetching match data with raw client:', error);
+        return null;
+      }
     }
+    
+    console.error('❌ No smart contract client available');
+    return null;
   }
 
   // Get vault data from smart contract
   async getVaultData(matchPda: PublicKey): Promise<any> {
-    if (!this.program) {
-      console.error('❌ Smart contract program not initialized');
-      return null;
+    if (this.program) {
+      try {
+        const vaultPda = getVaultPda(matchPda);
+        const vaultAccount = await (this.program.account as any).Vault.fetch(vaultPda);
+        return vaultAccount;
+      } catch (error) {
+        console.error('❌ Error fetching vault data with Anchor:', error);
+        // Fall through to raw client
+      }
     }
     
-    try {
-      const vaultPda = getVaultPda(matchPda);
-      const vaultAccount = await (this.program.account as any).Vault.fetch(vaultPda);
-      return vaultAccount;
-    } catch (error) {
-      console.error('❌ Error fetching vault data:', error);
-      return null;
+    // Use raw client as fallback
+    if (this.rawClient) {
+      try {
+        console.log('🔄 Using raw client to fetch vault data...');
+        const vaultPda = getVaultPda(matchPda);
+        const vaultData = await this.rawClient.getVaultAccount(vaultPda.toString());
+        return vaultData;
+      } catch (error) {
+        console.error('❌ Error fetching vault data with raw client:', error);
+        return null;
+      }
     }
+    
+    console.error('❌ No smart contract client available');
+    return null;
   }
 }
 
