@@ -11,7 +11,7 @@ const {
 const borsh = require('borsh');
 
 // Program ID for our deployed smart contract
-const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
+const PROGRAM_ID = new PublicKey("G2jH6KvaQQbGcKt8FBGzvkUJjAfyDwqzPPmn3uevSqJi");
 
 // Instruction discriminators (8-byte hashes for each instruction)
 const INSTRUCTION_DISCRIMINATORS = {

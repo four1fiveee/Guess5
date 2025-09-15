@@ -12,8 +12,7 @@
     "emitDecoratorMetadata": true,
     "allowJs": true,
     "noImplicitAny": true,
-    "moduleResolution": "node",
-    "resolveJsonModule": true
+    "moduleResolution": "node"
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist"]

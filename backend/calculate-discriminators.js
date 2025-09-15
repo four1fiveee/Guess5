@@ -42,3 +42,4 @@ instructions.forEach(instruction => {
 });
 
 console.log('};');
+

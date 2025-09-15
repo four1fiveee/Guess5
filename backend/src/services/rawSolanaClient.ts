@@ -343,3 +343,4 @@ export class RawSolanaClient {
     return hash.digest().slice(0, 8);
   }
 }
+

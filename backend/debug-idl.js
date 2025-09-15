@@ -71,3 +71,4 @@ if (matchResultDefIndex < matchResultUseIndex) {
 } else {
   console.log('❌ MatchResult is used before it\'s defined');
 }
+
