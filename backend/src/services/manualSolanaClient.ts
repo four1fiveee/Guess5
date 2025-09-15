@@ -11,7 +11,7 @@ import {
 import * as borsh from 'borsh';
 
 // Program ID for our deployed smart contract
-const PROGRAM_ID = new PublicKey("G2jH6KvaQQbGcKt8FBGzvkUJjAfyDwqzPPmn3uevSqJi");
+const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
 
 // Instruction discriminators (8-byte hashes for each instruction)
 const INSTRUCTION_DISCRIMINATORS = {
