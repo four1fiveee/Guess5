@@ -11,7 +11,7 @@ const {
 const borsh = require('borsh');
 
 // Program ID for our deployed smart contract
-const PROGRAM_ID = new PublicKey("G2jH6KvaQQbGcKt8FBGzvkUJjAfyDwqzPPmn3uevSqJi");
+const PROGRAM_ID = new PublicKey("FvCDUQZYqZz3GqgpKjW81X1x6e7jGPhKhppBMWdEjGeL");
 
 // Instruction discriminators (8-byte hashes for each instruction)
 const INSTRUCTION_DISCRIMINATORS = {
@@ -138,12 +138,15 @@ class ManualSolanaClient {
   ) {
     try {
       // Generate match account PDA
+      const stakeAmountBuffer = Buffer.alloc(8);
+      stakeAmountBuffer.writeBigUInt64LE(BigInt(stakeAmount), 0);
+      
       const [matchAccount] = PublicKey.findProgramAddressSync(
         [
           Buffer.from('match'),
           player1.toBuffer(),
           player2.toBuffer(),
-          Buffer.from(stakeAmount.toString()),
+          stakeAmountBuffer,
         ],
         PROGRAM_ID
       );
@@ -154,9 +157,7 @@ class ManualSolanaClient {
         PROGRAM_ID
       );
 
-      // Serialize instruction data manually
-      const stakeAmountBuffer = Buffer.alloc(8);
-      stakeAmountBuffer.writeBigUInt64LE(BigInt(stakeAmount), 0);
+      // Serialize instruction data manually (reuse stakeAmountBuffer from PDA generation)
       
       const feeBpsBuffer = Buffer.alloc(2);
       feeBpsBuffer.writeUInt16LE(feeBps, 0);
@@ -171,14 +172,14 @@ class ManualSolanaClient {
         deadlineSlotBuffer
       ]);
 
-      // Create instruction
+      // Create instruction with correct account structure (6 accounts total)
       const instruction = new TransactionInstruction({
         keys: [
           { pubkey: matchAccount, isSigner: false, isWritable: true },
           { pubkey: vaultAccount, isSigner: false, isWritable: true },
-          { pubkey: player1, isSigner: true, isWritable: true },
-          { pubkey: player2, isSigner: false, isWritable: true },
-          { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+          { pubkey: player1, isSigner: false, isWritable: false },
+          { pubkey: player2, isSigner: false, isWritable: false },
+          { pubkey: payer.publicKey, isSigner: true, isWritable: true }, // payer
           { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
         ],
         programId: PROGRAM_ID,
@@ -190,7 +191,7 @@ class ManualSolanaClient {
       const signature = await sendAndConfirmTransaction(
         this.connection,
         transaction,
-        [payer, player1],
+        [payer],
         { commitment: 'confirmed' }
       );
 
@@ -342,12 +343,16 @@ class ManualSolanaClient {
    * Generate match account PDA
    */
   getMatchAccountPDA(player1, player2, stakeAmount) {
+    // Convert stakeAmount to 8-byte little-endian buffer
+    const stakeAmountBuffer = Buffer.alloc(8);
+    stakeAmountBuffer.writeBigUInt64LE(BigInt(stakeAmount), 0);
+    
     const [matchAccount] = PublicKey.findProgramAddressSync(
       [
         Buffer.from('match'),
         player1.toBuffer(),
         player2.toBuffer(),
-        Buffer.from(stakeAmount.toString()),
+        stakeAmountBuffer,
       ],
       PROGRAM_ID
     );

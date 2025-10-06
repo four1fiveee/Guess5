@@ -6,7 +6,7 @@ import bs58 from 'bs58';
 import { ManualSolanaClient } from './manualSolanaClient';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
-const PROGRAM_ID = new PublicKey("rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X");
+const PROGRAM_ID = new PublicKey("FvCDUQZYqZz3GqgpKjW81X1x6e7jGPhKhppBMWdEjGeL");
 const RESULTS_ATTESTOR_ADDRESS = new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt");
 
 // Create connection to Solana network
