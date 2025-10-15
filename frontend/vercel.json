@@ -3,7 +3,7 @@
   "env": {
     "NEXT_PUBLIC_API_URL": "https://guess5.onrender.com",
     "NEXT_PUBLIC_SOLANA_NETWORK": "https://api.devnet.solana.com",
-    "NEXT_PUBLIC_PROGRAM_ID": "bmUnEvC6W4JDLG6vdqbTJX73wECTeUZAWgptmNuabd1",
+        "NEXT_PUBLIC_PROGRAM_ID": "3fBZMW3gfwvi9zEkMyqriofGARUpC44kvVf2FiJXJ7fP",
     "NEXT_PUBLIC_FEE_WALLET_ADDRESS": "AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A"
   },
   "functions": {

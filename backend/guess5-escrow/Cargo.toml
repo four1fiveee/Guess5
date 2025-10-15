@@ -1,6 +1,6 @@
 [workspace]
 members = [
-    "programs/*"
+    "programs/guess5-escrow"
 ]
 resolver = "2"
 

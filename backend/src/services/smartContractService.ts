@@ -3,7 +3,7 @@ import { ManualSolanaClient } from './manualSolanaClient';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 
 // Program ID for our deployed smart contract
-const PROGRAM_ID = new PublicKey("FvCDUQZYqZz3GqgpKjW81X1x6e7jGPhKhppBMWdEjGeL");
+const PROGRAM_ID = new PublicKey("3fBZMW3gfwvi9zEkMyqriofGARUpC44kvVf2FiJXJ7fP");
 
 // Create connection to Solana network
 const connection = new Connection(

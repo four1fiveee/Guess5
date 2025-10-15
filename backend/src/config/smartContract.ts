@@ -3,7 +3,7 @@ import { PublicKey } from '@solana/web3.js';
 // Smart contract configuration
 export const SMART_CONTRACT_CONFIG = {
   // Program ID for the deployed smart contract
-  PROGRAM_ID: process.env.SMART_CONTRACT_PROGRAM_ID || 'Guess5Escrow1111111111111111111111111111111',
+  PROGRAM_ID: process.env.SMART_CONTRACT_PROGRAM_ID || '3fBZMW3gfwvi9zEkMyqriofGARUpC44kvVf2FiJXJ7fP',
   
   // Results attestor public key (who can settle matches)
   RESULTS_ATTESTOR_PUBKEY: process.env.RESULTS_ATTESTOR_PUBKEY || '',
@@ -81,6 +81,8 @@ export const calculateWinnerAmount = (totalPotLamports: number, feeBps: number):
   const feeAmount = calculateFeeAmount(totalPotLamports, feeBps);
   return totalPotLamports - feeAmount;
 };
+
+
 
 
 
