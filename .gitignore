@@ -86,3 +86,11 @@ jspm_packages/
 # Solana
 .anchor/
 test-ledger/
+
+# Large files and archives
+*.tar.bz2
+*.tar.gz
+*.zip
+*.rar
+*.7z
+solana-release-*
