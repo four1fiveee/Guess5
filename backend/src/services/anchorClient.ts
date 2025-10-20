@@ -103,6 +103,12 @@ export class SmartContractService {
     }
 
     try {
+      console.log('🔍 Initializing program with IDL...', {
+        programId: PROGRAM_ID.toString(),
+        network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+        idlAddress: IDL.address
+      });
+      
       // Use embedded IDL directly since on-chain IDL is missing types section
       console.log('🔍 Using embedded IDL directly (on-chain IDL missing types)...');
       this.program = new Program(IDL as any, this.provider);
