@@ -198,7 +198,7 @@ export class NonCustodialMatchService {
       if (!depositResult.success) {
         return {
           success: false,
-          error: `Deposit failed: ${depositResult.error}`
+          error: `Deposit failed: Transaction pending frontend completion`
         };
       }
 
