@@ -1,1 +1,0 @@
-{"rustc":12013579709055016942,"features":"[\"alloc\"]","declared_features":"[\"alloc\", \"cb58\", \"check\", \"default\", \"sha2\", \"smallvec\", \"std\", \"tinyvec\"]","target":2243021261112611720,"profile":9102090753619238930,"path":3759529831739755193,"deps":[],"local":[{"Precalculated":"0.5.1"}],"rustflags":[],"config":2069994364910194474,"compile_kind":0}

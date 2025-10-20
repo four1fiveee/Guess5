@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"constant":["HASH_BYTES"],"enum":["ParseHashError"],"fn":["hash","hashv"],"struct":["Hash","Hasher"]};

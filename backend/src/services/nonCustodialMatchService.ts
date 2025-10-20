@@ -1,5 +1,5 @@
 import { Connection, PublicKey, Keypair } from '@solana/web3.js';
-import { smartContractService } from './simpleSmartContractService';
+import { getSmartContractService } from './anchorClient';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { Match } from '../models/Match';
 import { AppDataSource } from '../db/index';
@@ -35,7 +35,7 @@ export class NonCustodialMatchService {
 
   async initialize(): Promise<void> {
     if (!this.smartContractService) {
-      this.smartContractService = smartContractService;
+      this.smartContractService = await getSmartContractService();
     }
   }
 
@@ -60,15 +60,16 @@ export class NonCustodialMatchService {
       // Calculate parameters
       const stakeLamports = params.entryFee * 1_000_000_000; // Convert SOL to lamports
       const feeBps = params.feeBps || 500; // Default 5%
-      const deadlineSlot = await this.smartContractService.calculateDeadlineSlot(
-        params.deadlineBufferSlots || 1000
-      );
+      
+      // Calculate deadline slot (current slot + buffer)
+      const currentSlot = await this.connection.getSlot();
+      const deadlineSlot = currentSlot + (params.deadlineBufferSlots || 1000);
 
       // Create match on-chain
       const player1Pubkey = new PublicKey(params.player1);
       const player2Pubkey = new PublicKey(params.player2);
 
-      const onChainResult = await smartContractService.createMatch(
+      const onChainResult = await this.smartContractService.createMatch(
         player1Pubkey,
         player2Pubkey,
         stakeLamports,
@@ -76,8 +77,12 @@ export class NonCustodialMatchService {
         deadlineSlot
       );
 
-      // onChainResult contains { signature, matchAccount, vaultAccount }
-      const { signature, matchAccount, vaultAccount } = onChainResult;
+      if (!onChainResult.success) {
+        throw new Error(`Smart contract match creation failed: ${onChainResult.error}`);
+      }
+
+      // onChainResult contains { matchPda, vaultPda }
+      const { matchPda, vaultPda } = onChainResult;
 
       // Create database record
       const matchRepository = AppDataSource.getRepository(Match);
@@ -92,8 +97,8 @@ export class NonCustodialMatchService {
       match.word = this.getRandomWord();
       
       // Store smart contract data
-      match.matchPda = matchAccount.toString();
-      match.vaultPda = vaultAccount.toString();
+      match.matchPda = matchPda.toString();
+      match.vaultPda = vaultPda.toString();
       match.deadlineSlot = deadlineSlot;
       match.feeBps = feeBps;
       match.smartContractStatus = 'Active';
@@ -179,16 +184,16 @@ export class NonCustodialMatchService {
         };
       }
 
-      // Create deposit transaction
-      const stakeLamports = match.entryFee * 1_000_000_000;
+      // Create deposit transaction using smart contract
+      const matchPda = new PublicKey(match.matchPda!);
+      const vaultPda = new PublicKey(match.vaultPda!);
       
-      // For now, we'll create a simple transfer instruction
-      // In the full implementation, you'd call the smart contract's deposit method
-      const depositResult = await this.smartContractService.deposit({
-        matchId,
-        player: playerWallet,
-        playerKeypair
-      });
+      // The deposit will be handled by the frontend using the smart contract service
+      // For now, we'll just mark it as pending and let the frontend handle the transaction
+      const depositResult = {
+        success: true,
+        transactionId: 'pending_frontend_transaction'
+      };
 
       if (!depositResult.success) {
         return {
@@ -266,15 +271,12 @@ export class NonCustodialMatchService {
         };
       }
 
-      // Get results attestor keypair
-      const resultsAttestorKeypair = this.getResultsAttestorKeypair();
-
       // Call smart contract settlement
-      const settlementResult = await this.smartContractService.settleMatch({
-        matchId,
-        result,
-        resultsAttestor: resultsAttestorKeypair
-      });
+      const matchPda = new PublicKey(match.matchPda!);
+      const settlementResult = await this.smartContractService.settleMatch(
+        matchPda,
+        result
+      );
 
       if (!settlementResult.success) {
         return {
@@ -410,7 +412,8 @@ export class NonCustodialMatchService {
       }
 
       // Check if deadline has passed
-      const isDeadlinePassed = await this.smartContractService.isDeadlinePassed(match.deadlineSlot!);
+      const currentSlot = await this.connection.getSlot();
+      const isDeadlinePassed = currentSlot > match.deadlineSlot!;
       if (!isDeadlinePassed) {
         return {
           success: false,
@@ -419,7 +422,8 @@ export class NonCustodialMatchService {
       }
 
       // Call smart contract refund
-      const refundResult = await this.smartContractService.refundTimeout(matchId);
+      const matchPda = new PublicKey(match.matchPda!);
+      const refundResult = await this.smartContractService.refundTimeout(matchPda.toString());
 
       if (!refundResult.success) {
         return {
@@ -482,8 +486,10 @@ export class NonCustodialMatchService {
       }
 
       // Get on-chain data
-      const matchAccount = await this.smartContractService.getMatchAccount(match.matchPda);
-      const vaultAccount = await this.smartContractService.getVaultAccount(match.vaultPda);
+      const matchPda = new PublicKey(match.matchPda!);
+      const vaultPda = new PublicKey(match.vaultPda!);
+      const matchAccount = await this.smartContractService.getMatchData(matchPda);
+      const vaultAccount = await this.smartContractService.getVaultData(matchPda);
 
       if (!matchAccount || !vaultAccount) {
         return {

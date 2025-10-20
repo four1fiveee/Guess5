@@ -3,10 +3,10 @@ import { PublicKey } from '@solana/web3.js';
 // Smart contract configuration
 export const SMART_CONTRACT_CONFIG = {
   // Program ID for the deployed smart contract
-  PROGRAM_ID: process.env.SMART_CONTRACT_PROGRAM_ID || '3fBZMW3gfwvi9zEkMyqriofGARUpC44kvVf2FiJXJ7fP',
+  PROGRAM_ID: process.env.SMART_CONTRACT_PROGRAM_ID || 'ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4',
   
   // Results attestor public key (who can settle matches)
-  RESULTS_ATTESTOR_PUBKEY: process.env.RESULTS_ATTESTOR_PUBKEY || '',
+  RESULTS_ATTESTOR_PUBKEY: process.env.RESULTS_ATTESTOR_PUBKEY || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
   
   // Default fee in basis points (500 = 5%)
   DEFAULT_FEE_BPS: parseInt(process.env.DEFAULT_FEE_BPS || '500'),

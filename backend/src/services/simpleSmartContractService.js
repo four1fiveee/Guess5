@@ -1,0 +1,208 @@
+const { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+const { ManualSolanaClient } = require('./manualSolanaClient.js');
+
+// Program ID for our deployed smart contract
+const PROGRAM_ID = new PublicKey("FvCDUQZYqZz3GqgpKjW81X1x6e7jGPhKhppBMWdEjGeL");
+
+// Create connection to Solana network
+const connection = new Connection(
+  process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+  'confirmed'
+);
+
+// Simple fee wallet (for testing - in production this should be properly configured)
+const feeWallet = Keypair.generate();
+
+// Smart contract service class using manual client
+class SmartContractService {
+  constructor() {
+    this.manualClient = new ManualSolanaClient(connection);
+    this.feeWallet = feeWallet;
+    
+    console.log('🔧 Initializing SmartContractService:', {
+      programId: PROGRAM_ID.toString(),
+      network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      feeWallet: this.feeWallet.publicKey.toString()
+    });
+  }
+
+  async initialize() {
+    try {
+      const isConnected = await this.manualClient.testConnection();
+      if (!isConnected) {
+        throw new Error('Failed to connect to smart contract');
+      }
+      console.log('✅ SmartContractService initialized successfully');
+    } catch (error) {
+      console.error('❌ SmartContractService initialization failed:', error);
+      throw error;
+    }
+  }
+
+  isInitialized() {
+    return this.manualClient !== null;
+  }
+
+  // Create a match on the smart contract
+  async createMatch(
+    player1,
+    player2,
+    stakeAmount,
+    feeBps = 500, // 5% default
+    deadlineSlot
+  ) {
+    try {
+      // Calculate deadline slot if not provided (24 hours from now)
+      if (!deadlineSlot) {
+        const currentSlot = await connection.getSlot();
+        deadlineSlot = currentSlot + (24 * 60 * 60 * 2); // 24 hours in slots (assuming 0.5s per slot)
+      }
+
+      // Generate match and vault account PDAs
+      const matchAccount = this.manualClient.getMatchAccountPDA(player1, player2, stakeAmount);
+      const [vaultAccount] = this.manualClient.getVaultAccountPDA(matchAccount);
+
+      // Create the match
+      const signature = await this.manualClient.createMatch(
+        player1,
+        player2,
+        stakeAmount,
+        feeBps,
+        deadlineSlot,
+        this.feeWallet
+      );
+
+      console.log('✅ Match created successfully:', {
+        signature,
+        matchAccount: matchAccount.toString(),
+        vaultAccount: vaultAccount.toString(),
+        stakeAmount,
+        feeBps,
+        deadlineSlot
+      });
+
+      return {
+        signature,
+        matchAccount,
+        vaultAccount
+      };
+    } catch (error) {
+      console.error('❌ Create match failed:', error);
+      throw error;
+    }
+  }
+
+  // Player deposits their stake
+  async deposit(
+    matchAccount,
+    player,
+    amount
+  ) {
+    try {
+      const signature = await this.manualClient.deposit(
+        matchAccount,
+        player,
+        amount
+      );
+
+      console.log('✅ Deposit successful:', {
+        signature,
+        matchAccount: matchAccount.toString(),
+        player: player.publicKey.toString(),
+        amount
+      });
+
+      return signature;
+    } catch (error) {
+      console.error('❌ Deposit failed:', error);
+      throw error;
+    }
+  }
+
+  // Settle a match
+  async settleMatch(
+    matchAccount,
+    result, // MatchResult enum value
+    player1,
+    player2
+  ) {
+    try {
+      const [vaultAccount] = this.manualClient.getVaultAccountPDA(matchAccount);
+      
+      const signature = await this.manualClient.settleMatch(
+        matchAccount,
+        vaultAccount,
+        result,
+        this.feeWallet
+      );
+
+      console.log('✅ Match settled successfully:', {
+        signature,
+        matchAccount: matchAccount.toString(),
+        result
+      });
+
+      return signature;
+    } catch (error) {
+      console.error('❌ Settle match failed:', error);
+      throw error;
+    }
+  }
+
+  // Get match data
+  async getMatchData(matchAccount) {
+    try {
+      const matchData = await this.manualClient.getMatchData(matchAccount);
+      return matchData;
+    } catch (error) {
+      console.error('❌ Get match data failed:', error);
+      throw error;
+    }
+  }
+
+  // Get vault data
+  async getVaultData(vaultAccount) {
+    try {
+      const vaultData = await this.manualClient.getVaultData(vaultAccount);
+      return vaultData;
+    } catch (error) {
+      console.error('❌ Get vault data failed:', error);
+      throw error;
+    }
+  }
+
+  // Generate match account PDA
+  getMatchAccountPDA(player1, player2, stakeAmount) {
+    return this.manualClient.getMatchAccountPDA(player1, player2, stakeAmount);
+  }
+
+  // Generate vault account PDA
+  getVaultAccountPDA(matchAccount) {
+    return this.manualClient.getVaultAccountPDA(matchAccount);
+  }
+
+  // Utility function to convert SOL to lamports
+  solToLamports(sol) {
+    return Math.floor(sol * LAMPORTS_PER_SOL);
+  }
+
+  // Utility function to convert lamports to SOL
+  lamportsToSol(lamports) {
+    return lamports / LAMPORTS_PER_SOL;
+  }
+
+  // Get connection for external use
+  getConnection() {
+    return connection;
+  }
+
+  // Get program ID
+  getProgramId() {
+    return PROGRAM_ID;
+  }
+}
+
+// Export a singleton instance
+const smartContractService = new SmartContractService();
+
+module.exports = { SmartContractService, smartContractService };

@@ -10,8 +10,11 @@ import { Program, AnchorProvider, BN } from '@project-serum/anchor';
 import { IDL } from '../types/guess5';
 
 // Smart contract configuration
-export const SOLANA_PROGRAM_ID = new PublicKey('65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H');
-export const RESULTS_ATTESTOR_ADDRESS = new PublicKey('2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
+export const SOLANA_PROGRAM_ID = new PublicKey(process.env.NEXT_PUBLIC_SMART_CONTRACT_PROGRAM_ID || 'ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4');
+export const RESULTS_ATTESTOR_ADDRESS = new PublicKey(process.env.NEXT_PUBLIC_RESULTS_ATTESTOR_PUBKEY || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
+
+// Fee wallet address
+export const FEE_WALLET_ADDRESS = new PublicKey(process.env.NEXT_PUBLIC_FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
 
 // Smart contract instruction types
 export enum InstructionType {
@@ -95,7 +98,7 @@ export const createMatchInstruction = async (
       player1: player1,
       player2: player2,
       resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
-      feeWallet: RESULTS_ATTESTOR_ADDRESS, // The fee wallet signs the transaction
+      feeWallet: FEE_WALLET_ADDRESS, // The fee wallet receives the fees
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -156,7 +159,7 @@ export const settleMatchInstruction = async (
       resultsAttestor: RESULTS_ATTESTOR_ADDRESS,
       player1: player1,
       player2: player2,
-      feeWallet: RESULTS_ATTESTOR_ADDRESS,
+      feeWallet: FEE_WALLET_ADDRESS,
       systemProgram: SystemProgram.programId,
     })
     .instruction();
@@ -177,7 +180,7 @@ export const refundTimeoutInstruction = async (
       vault: vaultPda,
       player1: player1,
       player2: player2,
-      feeWallet: RESULTS_ATTESTOR_ADDRESS,
+      feeWallet: FEE_WALLET_ADDRESS,
       systemProgram: SystemProgram.programId,
     })
     .instruction();

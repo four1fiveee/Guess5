@@ -5,112 +5,85 @@ A Wordle-style, head-to-head staking game built with Next.js, Express, and Solan
 
 ---
 
-## 🚀 Quick Start
+## Monorepo Structure
 
-### Prerequisites
+- `/frontend` — Next.js app (TypeScript, Tailwind CSS)
+- `/backend` — Express API (TypeScript, PostgreSQL, Anchor client)
+- `/contract` — Solana smart contract (Anchor, Rust)
 
-- Node.js 18+
-- PostgreSQL
-- Redis
-- Solana CLI
-- Anchor CLI
+---
+
+## Quick Start
 
 ### 1. Clone & Install
 
 ```bash
 git clone <your-repo-url>
 cd Guess5
-
-# Install dependencies
+# Install all dependencies
 cd frontend && npm install && cd ..
 cd backend && npm install && cd ..
+cd contract && npm install && cd ..
 ```
 
-### 2. Environment Setup
+### 2. Environment Variables
 
-```bash
-# Copy environment template
-cp backend/env.example backend/.env
+- Copy `.env.example` in each folder to `.env` and fill in values as needed.
 
-# Edit backend/.env with your configuration
-# - Database URL
-# - Redis URL  
-# - Fee wallet private key
-```
+### 3. Database
 
-### 3. Deploy Smart Contract
+- Start PostgreSQL locally (see backend/.env.example for config).
+- Run migrations:
+  ```bash
+  cd backend
+  npm run migrate
+  ```
 
-```bash
-cd backend/guess5-escrow
-anchor build
-anchor deploy --provider.cluster devnet
-```
+### 4. Start All Services
 
-### 4. Test Integration
-
-```bash
-cd backend
-node test-smart-contract.js
-```
-
-### 5. Start Development
-
-```bash
-# Backend
-cd backend
-npm run dev
-
-# Frontend (new terminal)
-cd frontend
-npm run dev
-```
+- **Contract (local test validator):**
+  ```bash
+  cd contract
+  anchor test
+  ```
+- **Backend:**
+  ```bash
+  cd backend
+  npm run dev
+  ```
+- **Frontend:**
+  ```bash
+  cd frontend
+  npm run dev
+  ```
 
 ---
 
-## 📋 Project Structure
+## How to Play
 
-- `/frontend` — Next.js app (TypeScript, Tailwind CSS)
-- `/backend` — Express API (TypeScript, PostgreSQL, Redis)
-- `/backend/guess5-escrow` — Solana smart contract (Anchor, Rust)
-
----
-
-## 🎮 How to Play
-
-1. Connect your Phantom wallet
-2. Choose a lobby ($1, $5, $20)
-3. Wait for an opponent
-4. Play Guess5 (Wordle-style, 5-letter words, 7 tries, 15s per guess)
-5. Winner takes 95% of the pot, house takes 5%. Tie = refund.
+1. Connect your Phantom wallet.
+2. Choose a lobby ($1, $5, $20).
+3. Wait for an opponent.
+4. Play Guess5 (Wordle-style, 5-letter words, 7 tries, 15s per guess).
+5. Winner takes 90% of the pot, loser 10%. Tie = refund.
 
 ---
 
-## 🛠 Tech Stack
+## Tech Stack
 
 - **Frontend:** Next.js, TypeScript, Tailwind CSS, @solana/wallet-adapter
-- **Backend:** Express, TypeScript, PostgreSQL, Redis, Socket.IO
+- **Backend:** Express, TypeScript, PostgreSQL, Socket.IO, Anchor client
 - **Smart Contract:** Solana, Anchor (Rust)
-- **Deployment:** Render (backend), Vercel (frontend)
 
 ---
 
-## 🚀 Production Deployment
+## Logo & Theme
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for detailed deployment instructions.
-
-**Current Program ID:** `F2Bvxq5bucMFdxAXrwRQd2vGoXdJuddgdPkHwmU3wVx4`
+- The UI uses colors from `/logo/logo.png`.
 
 ---
 
-## 🔧 Development
+## For Developers
 
-- All code is commented for clarity
-- Smart contract uses non-custodial escrow system
-- Backend handles matchmaking and game state
-- Frontend provides real-time game interface
-
----
-
-## 📄 License
-
-MIT License - see LICENSE file for details 
+- All code is commented for clarity.
+- See each folder’s README for more details. 

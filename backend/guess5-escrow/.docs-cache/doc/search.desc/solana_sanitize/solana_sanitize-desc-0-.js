@@ -1,1 +1,0 @@
-searchState.loadedDescShard("solana_sanitize", 0, "A trait for sanitizing values and members of over the wire …\nA trait for sanitizing values and members of over-the-wire …\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.")

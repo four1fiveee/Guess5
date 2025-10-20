@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["sol_log"],"macro":["msg"]};

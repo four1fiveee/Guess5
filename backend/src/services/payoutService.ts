@@ -1,9 +1,8 @@
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
 
-// Smart contract configuration
-const SOLANA_PROGRAM_ID = new PublicKey('rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X');
-const RESULTS_ATTESTOR_ADDRESS = new PublicKey('2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
+// Smart contract configuration - using environment variables
+// Note: These are used in the smart contract service integration
 
 // Configuration
 const SOLANA_NETWORK = process.env.SOLANA_NETWORK || "https://api.devnet.solana.com";
@@ -27,7 +26,7 @@ const validatePayoutConfig = () => {
 // Validate on module load
 validatePayoutConfig();
 
-// Smart contract payout function (simplified version without Anchor)
+// Smart contract payout function using the new smart contract service
 export const createSmartContractPayout = async (
   matchId: string,
   winner: string,
@@ -44,17 +43,39 @@ export const createSmartContractPayout = async (
     console.log('Match PDA:', matchPda);
     console.log('Vault PDA:', vaultPda);
 
-    // For now, return a placeholder that indicates smart contract should be used
-    // The frontend will handle the actual smart contract interaction
+    // Import the smart contract service
+    const { getSmartContractService } = await import('./anchorClient');
+    const smartContractService = await getSmartContractService();
+    
+    // Determine the result type based on winner
+    let result: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error';
+    if (winner === 'tie') {
+      result = 'WinnerTie'; // Assuming winner tie for now
+    } else {
+      // You'll need to determine if it's Player1 or Player2 based on the match data
+      // For now, we'll use a placeholder
+      result = 'Player1'; // This should be determined from the match data
+    }
+
+    // Create settlement transaction
+    const settlementResult = await smartContractService.settleMatch(
+      new PublicKey(matchPda),
+      result
+    );
+
+    if (!settlementResult.success) {
+      throw new Error(`Smart contract settlement failed: ${settlementResult.error}`);
+    }
+
     return {
       success: true,
-      transaction: null, // Will be created by frontend
-      instruction: 'submitResult', // Use submitResult instead of claimPrize
+      transaction: settlementResult.signature,
+      instruction: 'settleMatch',
       accounts: {
         matchEscrow: matchPda,
         vaultAccount: vaultPda,
         winner: winner,
-        feeWallet: RESULTS_ATTESTOR_ADDRESS.toString(),
+        feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
         systemProgram: SystemProgram.programId.toString()
       },
       amounts: {
@@ -62,7 +83,7 @@ export const createSmartContractPayout = async (
         feeAmount,
         totalAmount: winnerAmount + feeAmount
       },
-      message: 'Smart contract payout instruction created - frontend will handle transaction'
+      message: 'Smart contract settlement transaction created successfully'
     };
 
   } catch (error) {

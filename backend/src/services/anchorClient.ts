@@ -1,13 +1,12 @@
-import { Connection, PublicKey, Keypair, Transaction, VersionedTransaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, Transaction, VersionedTransaction, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
 import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
-import bs58 from 'bs58';
 import { ManualSolanaClient } from './manualSolanaClient';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
-const PROGRAM_ID = new PublicKey("FvCDUQZYqZz3GqgpKjW81X1x6e7jGPhKhppBMWdEjGeL");
-const RESULTS_ATTESTOR_ADDRESS = new PublicKey("2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt");
+const PROGRAM_ID = new PublicKey(process.env.SMART_CONTRACT_PROGRAM_ID || "ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4");
+const RESULTS_ATTESTOR_ADDRESS = new PublicKey(process.env.RESULTS_ATTESTOR_PUBKEY || "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt");
 
 // Create connection to Solana network
 const connection = new Connection(

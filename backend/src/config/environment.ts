@@ -12,6 +12,14 @@ export const config = {
     feeWalletPrivateKey: process.env.FEE_WALLET_PRIVATE_KEY,
   },
   
+  // Smart Contract
+  smartContract: {
+    programId: process.env.SMART_CONTRACT_PROGRAM_ID || 'ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4',
+    resultsAttestorPubkey: process.env.RESULTS_ATTESTOR_PUBKEY || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
+    defaultFeeBps: parseInt(process.env.DEFAULT_FEE_BPS || '500'),
+    defaultDeadlineBufferSlots: parseInt(process.env.DEFAULT_DEADLINE_BUFFER_SLOTS || '1000'),
+  },
+  
   // Security
   security: {
     recaptchaSecret: process.env.RECAPTCHA_SECRET,

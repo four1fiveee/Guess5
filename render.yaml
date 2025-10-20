@@ -15,8 +15,8 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://guess5.vercel.app
-          - key: PROGRAM_ID
-            value: 3fBZMW3gfwvi9zEkMyqriofGARUpC44kvVf2FiJXJ7fP
+      - key: PROGRAM_ID
+        value: rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X
       - key: FEE_WALLET_ADDRESS
         value: AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
       - key: SOLANA_NETWORK

@@ -352,13 +352,18 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       // Create smart contract match - wrap in try-catch to handle IDL errors
       let smartContractResult;
       try {
-        const { getSmartContractService } = require('../services/smartContractService');
+        const { getSmartContractService } = require('../services/anchorClient');
         
         const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
         
         console.log('🔧 Creating smart contract match...');
         const smartContractService = await getSmartContractService();
-        const deadlineSlot = await smartContractService.calculateDeadlineSlot(1000); // 1000 slots buffer
+        
+        // Calculate deadline slot (current slot + buffer)
+        const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com', 'confirmed');
+        const currentSlot = await connection.getSlot();
+        const deadlineSlot = currentSlot + 1000; // 1000 slots buffer
+        
         smartContractResult = await smartContractService.createMatch(
           new PublicKey(matchData.player1),
           new PublicKey(matchData.player2),

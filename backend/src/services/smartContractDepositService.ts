@@ -6,7 +6,7 @@ import { AppDataSource } from '../db/index';
 import { Match } from '../models/Match';
 
 // Program ID for the Guess5 escrow program
-const PROGRAM_ID = new PublicKey("65sXkqxqChJhLAZ1PvsvvMzPd2NfYm2EZ1PPN4RX3q8H");
+const PROGRAM_ID = new PublicKey(process.env.SMART_CONTRACT_PROGRAM_ID || "ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4");
 
 // Create connection to Solana network
 const connection = new Connection(

@@ -1,1 +1,0 @@
-searchState.loadedDescShard("solana_msg", 0, "Print a message to the log.\nPrint a string to the log.")

@@ -1,1 +1,0 @@
-searchState.loadedDescShard("five8_core", 0, "five8_core\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.")

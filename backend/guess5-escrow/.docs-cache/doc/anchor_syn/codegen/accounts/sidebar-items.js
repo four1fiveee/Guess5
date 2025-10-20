@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["generate"],"mod":["__client_accounts","__cpi_client_accounts"]};

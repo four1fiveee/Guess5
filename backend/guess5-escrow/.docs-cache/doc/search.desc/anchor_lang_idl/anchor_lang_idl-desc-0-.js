@@ -1,1 +1,0 @@
-searchState.loadedDescShard("anchor_lang_idl", 0, "Anchor IDL.\nCreate an <code>Idl</code> value with additional support for older …")

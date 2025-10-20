@@ -1,1 +1,0 @@
-window.SIDEBAR_ITEMS = {"fn":["from_reader","from_slice"],"mod":["hashes"],"trait":["BorshDeserialize","EnumExt"]};

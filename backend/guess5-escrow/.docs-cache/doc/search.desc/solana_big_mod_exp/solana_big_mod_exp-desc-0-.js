@@ -1,1 +1,0 @@
-searchState.loadedDescShard("solana_big_mod_exp", 0, "Big integer modular exponentiation\nReturns the argument unchanged.\nCalls <code>U::from(self)</code>.")

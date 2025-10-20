@@ -1,249 +1,334 @@
-import { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { ManualSolanaClient } from './manualSolanaClient';
-import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
+import { Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Program, AnchorProvider, Wallet } from '@coral-xyz/anchor';
+import { Guess5Escrow } from '../../smart-contract/target/types/guess5_escrow';
+import IDL from '../../smart-contract/target/idl/guess5_escrow.json';
 
-// Program ID for our deployed smart contract
-const PROGRAM_ID = new PublicKey("3fBZMW3gfwvi9zEkMyqriofGARUpC44kvVf2FiJXJ7fP");
+export interface SmartContractConfig {
+  programId: string;
+  resultsAttestorPubkey: string;
+  feeWalletPubkey: string;
+  defaultFeeBps: number;
+  defaultDeadlineBufferSlots: number;
+}
 
-// Create connection to Solana network
-const connection = new Connection(
-  process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-  'confirmed'
-);
+export interface MatchCreationParams {
+  player1: string;
+  player2: string;
+  stakeAmount: number; // in SOL
+  feeBps?: number;
+  deadlineBufferSlots?: number;
+}
 
-// Smart contract service class using manual client
+export interface DepositParams {
+  matchId: string;
+  player: string;
+  stakeAmount: number; // in SOL
+}
+
+export interface SettlementParams {
+  matchId: string;
+  result: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Error';
+}
+
 export class SmartContractService {
-  private manualClient: ManualSolanaClient;
-  private feeWallet: Keypair;
+  private connection: Connection;
+  private program: Program<Guess5Escrow>;
+  private config: SmartContractConfig;
 
   constructor() {
-    this.manualClient = new ManualSolanaClient(connection);
-    this.feeWallet = getFeeWalletKeypair();
-    
-    console.log('🔧 Initializing SmartContractService:', {
-      programId: PROGRAM_ID.toString(),
-      network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-      feeWallet: this.feeWallet.publicKey.toString()
-    });
+    this.connection = new Connection(
+      process.env.SOLANA_RPC_URL || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+
+    this.config = {
+      programId: process.env.SMART_CONTRACT_PROGRAM_ID || 'ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4',
+      resultsAttestorPubkey: process.env.RESULTS_ATTESTOR_PUBKEY || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
+      feeWalletPubkey: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
+      defaultFeeBps: parseInt(process.env.DEFAULT_FEE_BPS || '500'),
+      defaultDeadlineBufferSlots: parseInt(process.env.DEFAULT_DEADLINE_BUFFER_SLOTS || '1000'),
+    };
+
+    // Initialize Anchor program
+    const provider = new AnchorProvider(
+      this.connection,
+      new Wallet(Keypair.generate()), // Dummy wallet for read operations
+      { commitment: 'confirmed' }
+    );
+
+    this.program = new Program(
+      IDL as any,
+      new PublicKey(this.config.programId),
+      provider
+    );
   }
 
-  async initialize(): Promise<void> {
+  /**
+   * Create a new match with smart contract escrow
+   */
+  async createMatch(params: MatchCreationParams): Promise<{
+    matchPda: string;
+    vaultPda: string;
+    transaction: string;
+  }> {
     try {
-      const isConnected = await this.manualClient.testConnection();
-      if (!isConnected) {
-        throw new Error('Failed to connect to smart contract');
-      }
-      console.log('✅ SmartContractService initialized successfully');
-    } catch (error) {
-      console.error('❌ SmartContractService initialization failed:', error);
-      throw error;
-    }
-  }
+      const stakeAmountLamports = Math.floor(params.stakeAmount * LAMPORTS_PER_SOL);
+      const feeBps = params.feeBps || this.config.defaultFeeBps;
+      const deadlineBufferSlots = params.deadlineBufferSlots || this.config.defaultDeadlineBufferSlots;
+      
+      // Get current slot and add buffer
+      const currentSlot = await this.connection.getSlot();
+      const deadlineSlot = currentSlot + deadlineBufferSlots;
 
-  isInitialized(): boolean {
-    return this.manualClient !== null;
-  }
-
-  // Create a match on the smart contract
-  async createMatch(
-    player1: PublicKey,
-    player2: PublicKey,
-    stakeAmount: number,
-    feeBps: number = 500, // 5% default
-    deadlineSlot?: number
-  ): Promise<{ signature: string; matchAccount: PublicKey; vaultAccount: PublicKey }> {
-    try {
-      // Calculate deadline slot if not provided (24 hours from now)
-      if (!deadlineSlot) {
-        const currentSlot = await connection.getSlot();
-        deadlineSlot = currentSlot + (24 * 60 * 60 * 2); // 24 hours in slots (assuming 0.5s per slot)
-      }
-
-      // Generate match and vault account PDAs
-      const matchAccount = this.manualClient.getMatchAccountPDA(player1, player2, stakeAmount);
-      const [vaultAccount] = this.manualClient.getVaultAccountPDA(matchAccount);
-
-      // Create the match
-      const signature = await this.manualClient.createMatch(
-        player1,
-        player2,
-        stakeAmount,
-        feeBps,
-        deadlineSlot,
-        this.feeWallet
+      // Derive PDAs
+      const [matchPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('match'),
+          new PublicKey(params.player1).toBuffer(),
+          new PublicKey(params.player2).toBuffer(),
+          Buffer.from(stakeAmountLamports.toString().padStart(8, '0'), 'hex')
+        ],
+        new PublicKey(this.config.programId)
       );
 
-      console.log('✅ Match created successfully:', {
-        signature,
-        matchAccount: matchAccount.toString(),
-        vaultAccount: vaultAccount.toString(),
-        stakeAmount,
-        feeBps,
-        deadlineSlot
-      });
-
-      return {
-        signature,
-        matchAccount,
-        vaultAccount
-      };
-    } catch (error) {
-      console.error('❌ Create match failed:', error);
-      throw error;
-    }
-  }
-
-  // Player deposits their stake
-  async deposit(
-    matchAccount: PublicKey,
-    player: Keypair,
-    amount: number
-  ): Promise<string> {
-    try {
-      const signature = await this.manualClient.deposit(
-        matchAccount,
-        player,
-        amount
+      const [vaultPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), matchPda.toBuffer()],
+        new PublicKey(this.config.programId)
       );
 
-      console.log('✅ Deposit successful:', {
-        signature,
-        matchAccount: matchAccount.toString(),
-        player: player.publicKey.toString(),
-        amount
-      });
+      // Create transaction
+      const transaction = new Transaction();
 
-      return signature;
+      const createMatchIx = await this.program.methods
+        .createMatch(
+          new anchor.BN(stakeAmountLamports),
+          feeBps,
+          new anchor.BN(deadlineSlot)
+        )
+        .accounts({
+          matchAccount: matchPda,
+          vault: vaultPda,
+          player1: new PublicKey(params.player1),
+          player2: new PublicKey(params.player2),
+          feeWallet: new PublicKey(this.config.feeWalletPubkey),
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      transaction.add(createMatchIx);
+
+      return {
+        matchPda: matchPda.toString(),
+        vaultPda: vaultPda.toString(),
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      };
     } catch (error) {
-      console.error('❌ Deposit failed:', error);
-      throw error;
+      console.error('Error creating match:', error);
+      throw new Error(`Failed to create match: ${error.message}`);
     }
   }
 
-  // Settle a match
-  async settleMatch(
-    matchAccount: PublicKey,
-    result: number, // MatchResult enum value
-    player1: PublicKey,
-    player2: PublicKey
-  ): Promise<string> {
+  /**
+   * Player deposits stake into match vault
+   */
+  async deposit(params: DepositParams): Promise<{
+    transaction: string;
+  }> {
     try {
-      const [vaultAccount] = this.manualClient.getVaultAccountPDA(matchAccount);
+      const stakeAmountLamports = Math.floor(params.stakeAmount * LAMPORTS_PER_SOL);
       
-      const signature = await this.manualClient.settleMatch(
-        matchAccount,
-        vaultAccount,
-        result,
-        this.feeWallet
+      // Derive PDAs (same logic as createMatch)
+      const matchPda = new PublicKey(params.matchId);
+      const [vaultPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), matchPda.toBuffer()],
+        new PublicKey(this.config.programId)
       );
 
-      console.log('✅ Match settled successfully:', {
-        signature,
-        matchAccount: matchAccount.toString(),
-        result
-      });
+      // Create transaction
+      const transaction = new Transaction();
 
-      return signature;
-    } catch (error) {
-      console.error('❌ Settle match failed:', error);
-      throw error;
-    }
-  }
+      const depositIx = await this.program.methods
+        .deposit(new anchor.BN(stakeAmountLamports))
+        .accounts({
+          matchAccount: matchPda,
+          vault: vaultPda,
+          player: new PublicKey(params.player),
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
 
-  // Get match data
-  async getMatchData(matchAccount: PublicKey): Promise<any> {
-    try {
-      const matchData = await this.manualClient.getMatchData(matchAccount);
-      return matchData;
-    } catch (error) {
-      console.error('❌ Get match data failed:', error);
-      throw error;
-    }
-  }
+      transaction.add(depositIx);
 
-  // Get vault data
-  async getVaultData(vaultAccount: PublicKey): Promise<any> {
-    try {
-      const vaultData = await this.manualClient.getVaultData(vaultAccount);
-      return vaultData;
-    } catch (error) {
-      console.error('❌ Get vault data failed:', error);
-      throw error;
-    }
-  }
-
-  // Generate match account PDA
-  getMatchAccountPDA(player1: PublicKey, player2: PublicKey, stakeAmount: number): PublicKey {
-    return this.manualClient.getMatchAccountPDA(player1, player2, stakeAmount);
-  }
-
-  // Generate vault account PDA
-  getVaultAccountPDA(matchAccount: PublicKey): [PublicKey, number] {
-    return this.manualClient.getVaultAccountPDA(matchAccount);
-  }
-
-  // Utility function to convert SOL to lamports
-  solToLamports(sol: number): number {
-    return Math.floor(sol * LAMPORTS_PER_SOL);
-  }
-
-  // Utility function to convert lamports to SOL
-  lamportsToSol(lamports: number): number {
-    return lamports / LAMPORTS_PER_SOL;
-  }
-
-  // Get connection for external use
-  getConnection(): Connection {
-    return connection;
-  }
-
-  // Get program ID
-  getProgramId(): PublicKey {
-    return PROGRAM_ID;
-  }
-
-  // Calculate deadline slot (current slot + buffer)
-  async calculateDeadlineSlot(bufferSlots: number = 1000): Promise<number> {
-    try {
-      const currentSlot = await connection.getSlot();
-      const deadlineSlot = currentSlot + bufferSlots;
-      
-      console.log('📅 Calculated deadline slot:', {
-        currentSlot,
-        bufferSlots,
-        deadlineSlot
-      });
-      
-      return deadlineSlot;
-    } catch (error) {
-      console.error('❌ Calculate deadline slot failed:', error);
-      throw error;
-    }
-  }
-
-  // Get match status (alias for getMatchData for backward compatibility)
-  async getMatchStatus(matchAccount: PublicKey): Promise<any> {
-    try {
-      const matchData = await this.getMatchData(matchAccount);
       return {
-        success: true,
-        data: matchData
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
       };
     } catch (error) {
-      console.error('❌ Get match status failed:', error);
+      console.error('Error creating deposit transaction:', error);
+      throw new Error(`Failed to create deposit transaction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Settle match with result (only results attestor can call)
+   */
+  async settleMatch(params: SettlementParams): Promise<{
+    transaction: string;
+  }> {
+    try {
+      const matchPda = new PublicKey(params.matchId);
+      const [vaultPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), matchPda.toBuffer()],
+        new PublicKey(this.config.programId)
+      );
+
+      // Get match data to find players
+      const matchData = await this.program.account.matchAccount.fetch(matchPda);
+
+      // Create transaction
+      const transaction = new Transaction();
+
+      const settleIx = await this.program.methods
+        .settleMatch({ [params.result.toLowerCase()]: {} })
+        .accounts({
+          matchAccount: matchPda,
+          vault: vaultPda,
+          player1: matchData.player1,
+          player2: matchData.player2,
+          feeWallet: new PublicKey(this.config.feeWalletPubkey),
+          resultsAttestor: new PublicKey(this.config.resultsAttestorPubkey),
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      transaction.add(settleIx);
+
       return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error)
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
       };
+    } catch (error) {
+      console.error('Error creating settlement transaction:', error);
+      throw new Error(`Failed to create settlement transaction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Refund timeout (anyone can call after deadline)
+   */
+  async refundTimeout(matchId: string): Promise<{
+    transaction: string;
+  }> {
+    try {
+      const matchPda = new PublicKey(matchId);
+      const [vaultPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), matchPda.toBuffer()],
+        new PublicKey(this.config.programId)
+      );
+
+      // Get match data to find players
+      const matchData = await this.program.account.matchAccount.fetch(matchPda);
+
+      // Create transaction
+      const transaction = new Transaction();
+
+      const refundIx = await this.program.methods
+        .refundTimeout()
+        .accounts({
+          matchAccount: matchPda,
+          vault: vaultPda,
+          player1: matchData.player1,
+          player2: matchData.player2,
+          systemProgram: SystemProgram.programId,
+        })
+        .instruction();
+
+      transaction.add(refundIx);
+
+      return {
+        transaction: transaction.serialize({ requireAllSignatures: false }).toString('base64'),
+      };
+    } catch (error) {
+      console.error('Error creating refund transaction:', error);
+      throw new Error(`Failed to create refund transaction: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get match account data
+   */
+  async getMatchData(matchId: string): Promise<any> {
+    try {
+      const matchPda = new PublicKey(matchId);
+      const matchData = await this.program.account.matchAccount.fetch(matchPda);
+      
+      return {
+        player1: matchData.player1.toString(),
+        player2: matchData.player2.toString(),
+        stakeAmount: matchData.stakeAmount.toString(),
+        feeBps: matchData.feeBps,
+        deadlineSlot: matchData.deadlineSlot.toString(),
+        status: matchData.status,
+        result: matchData.result,
+        player1Deposited: matchData.player1Deposited.toString(),
+        player2Deposited: matchData.player2Deposited.toString(),
+      };
+    } catch (error) {
+      console.error('Error fetching match data:', error);
+      throw new Error(`Failed to fetch match data: ${error.message}`);
+    }
+  }
+
+  /**
+   * Get vault account data
+   */
+  async getVaultData(matchId: string): Promise<any> {
+    try {
+      const matchPda = new PublicKey(matchId);
+      const [vaultPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('vault'), matchPda.toBuffer()],
+        new PublicKey(this.config.programId)
+      );
+
+      const vaultData = await this.program.account.vaultAccount.fetch(vaultPda);
+      
+      return {
+        matchAccount: vaultData.matchAccount.toString(),
+        totalDeposited: vaultData.totalDeposited.toString(),
+      };
+    } catch (error) {
+      console.error('Error fetching vault data:', error);
+      throw new Error(`Failed to fetch vault data: ${error.message}`);
+    }
+  }
+
+  /**
+   * Check if match is ready for settlement
+   */
+  async isMatchReadyForSettlement(matchId: string): Promise<boolean> {
+    try {
+      const matchData = await this.getMatchData(matchId);
+      return matchData.status === 'Active' && 
+             matchData.player1Deposited > 0 && 
+             matchData.player2Deposited > 0;
+    } catch (error) {
+      console.error('Error checking match settlement readiness:', error);
+      return false;
+    }
+  }
+
+  /**
+   * Check if match has timed out
+   */
+  async isMatchTimedOut(matchId: string): Promise<boolean> {
+    try {
+      const matchData = await this.getMatchData(matchId);
+      const currentSlot = await this.connection.getSlot();
+      return currentSlot > parseInt(matchData.deadlineSlot);
+    } catch (error) {
+      console.error('Error checking match timeout:', error);
+      return false;
     }
   }
 }
 
-// Export a singleton instance
+// Export singleton instance
 export const smartContractService = new SmartContractService();
-
-// Export a function to get the service (for backward compatibility)
-export const getSmartContractService = async () => {
-  await smartContractService.initialize();
-  return smartContractService;
-};

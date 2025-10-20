@@ -1,1 +1,0 @@
-searchState.loadedDescShard("solana_sdk_macro", 0, "Convenience macro to declare a static public key and …")
