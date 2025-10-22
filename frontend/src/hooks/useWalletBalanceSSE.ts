@@ -37,7 +37,10 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
 
     // Create new SSE connection
     const sseUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`;
-
+    
+    // Debug logging
+    console.log('🔍 SSE URL:', sseUrl);
+    console.log('🔍 NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
     
     const eventSource = new EventSource(sseUrl);
     eventSourceRef.current = eventSource;
