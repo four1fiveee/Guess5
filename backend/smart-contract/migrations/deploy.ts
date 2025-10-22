@@ -8,3 +8,4 @@ module.exports = async function (provider) {
   console.log("Deploying Guess5 Escrow smart contract...");
 };
 
+

@@ -168,8 +168,59 @@ export class SmartContractService {
     feeBps: number = 500, // 5% default fee
     deadlineSlot?: number
   ): Promise<{ success: boolean; matchPda?: PublicKey; vaultPda?: PublicKey; error?: string }> {
+    // If program is not available, try manual client fallback
     if (!this.program) {
-      return { success: false, error: 'Smart contract program not initialized' };
+      if (this.manualClient) {
+        console.log('🔄 Using manual client fallback for createMatch');
+        try {
+          // Calculate deadline if not provided (24 hours from now)
+          if (!deadlineSlot) {
+            const currentSlot = await connection.getSlot();
+            const slotsPerSecond = 2; // Approximate slots per second
+            const slotsPerDay = slotsPerSecond * 60 * 60 * 24; // 24 hours
+            deadlineSlot = currentSlot + slotsPerDay;
+          }
+
+          // Generate PDAs
+          const matchPda = getMatchPda(player1, player2, stakeLamports);
+          const vaultPda = getVaultPda(matchPda);
+
+          console.log('🔧 Creating smart contract match with manual client:', {
+            matchPda: matchPda.toString(),
+            vaultPda: vaultPda.toString(),
+            player1: player1.toString(),
+            player2: player2.toString(),
+            stakeLamports,
+            feeBps,
+            deadlineSlot
+          });
+
+          // Use manual client to create match
+          const signature = await this.manualClient.createMatch(
+            player1,
+            player2,
+            stakeLamports,
+            feeBps,
+            deadlineSlot,
+            getFeeWalletKeypair()
+          );
+
+          console.log('✅ Smart contract match created with manual client:', signature);
+          return { 
+            success: true, 
+            matchPda, 
+            vaultPda 
+          };
+        } catch (error) {
+          console.error('❌ Manual client createMatch failed:', error);
+          return { 
+            success: false, 
+            error: `Manual client createMatch failed: ${error instanceof Error ? error.message : String(error)}` 
+          };
+        }
+      } else {
+        return { success: false, error: 'Smart contract program not initialized and no manual client available' };
+      }
     }
     
     try {
