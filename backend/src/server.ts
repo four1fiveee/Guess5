@@ -35,10 +35,20 @@ async function startServer() {
     enhancedLogger.info('🔌 Initializing smart contract service...');
     try {
       const { getSmartContractService } = require('./services/anchorClient');
-      await getSmartContractService();
-      enhancedLogger.info('✅ Smart contract service initialized successfully');
+      const smartContractService = await getSmartContractService();
+      
+      // Verify the service is properly initialized
+      if (smartContractService.isProgramInitialized()) {
+        enhancedLogger.info('✅ Smart contract service initialized successfully');
+      } else {
+        throw new Error('Smart contract service failed to initialize properly');
+      }
     } catch (error) {
       enhancedLogger.error('❌ Failed to initialize smart contract service:', error);
+      enhancedLogger.error('❌ Smart contract initialization details:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       enhancedLogger.warn('⚠️ Smart contract features will be disabled');
     }
 
