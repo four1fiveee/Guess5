@@ -356,11 +356,20 @@ export const getSmartContractService = async (): Promise<SmartContractService> =
   // Initialize the program if not already done
   if (!smartContractServiceInstance.isProgramInitialized()) {
     try {
+      console.log('🔍 Smart contract service not initialized, initializing now...');
       await smartContractServiceInstance.initializeProgram();
+      console.log('✅ Smart contract service program initialized successfully');
     } catch (error) {
       console.error('❌ Failed to initialize program:', error);
+      console.error('❌ Program initialization error details:', {
+        name: error instanceof Error ? error.name : 'Unknown',
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
       throw new Error(`Failed to initialize program with IDL: ${error instanceof Error ? error.message : String(error)}`);
     }
+  } else {
+    console.log('✅ Smart contract service already initialized, reusing instance');
   }
   
   return smartContractServiceInstance;
