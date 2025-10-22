@@ -111,10 +111,23 @@ export class SmartContractService {
       
       // Use embedded IDL directly since on-chain IDL is missing types section
       console.log('🔍 Using embedded IDL directly (on-chain IDL missing types)...');
+      console.log('🔍 IDL structure:', {
+        hasAddress: !!IDL.address,
+        hasTypes: !!IDL.types,
+        hasInstructions: !!IDL.instructions,
+        typesCount: IDL.types?.length || 0,
+        instructionsCount: IDL.instructions?.length || 0
+      });
+      
       this.program = new Program(IDL as any, this.provider);
       console.log('✅ Program initialized with embedded IDL successfully');
     } catch (embeddedIdlError) {
       console.error('❌ Embedded IDL parsing failed:', embeddedIdlError);
+      console.error('❌ IDL Error details:', {
+        name: embeddedIdlError instanceof Error ? embeddedIdlError.name : 'Unknown',
+        message: embeddedIdlError instanceof Error ? embeddedIdlError.message : String(embeddedIdlError),
+        stack: embeddedIdlError instanceof Error ? embeddedIdlError.stack : undefined
+      });
       console.log('🔄 Falling back to raw Solana client...');
       
             // Test manual client connection

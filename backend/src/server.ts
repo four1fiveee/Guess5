@@ -31,6 +31,17 @@ async function startServer() {
     await initializeRedis();
     enhancedLogger.info('✅ Redis initialized successfully');
 
+    // Initialize smart contract service
+    enhancedLogger.info('🔌 Initializing smart contract service...');
+    try {
+      const { getSmartContractService } = require('./services/anchorClient');
+      await getSmartContractService();
+      enhancedLogger.info('✅ Smart contract service initialized successfully');
+    } catch (error) {
+      enhancedLogger.error('❌ Failed to initialize smart contract service:', error);
+      enhancedLogger.warn('⚠️ Smart contract features will be disabled');
+    }
+
     // Start cleanup scheduler for Redis matchmaking
     setInterval(async () => {
       try {
