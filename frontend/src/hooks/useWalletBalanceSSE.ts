@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { config } from '../config/environment';
 
 interface BalanceUpdate {
   type: 'balance_update' | 'connected' | 'error';
@@ -36,11 +37,11 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
     reconnectAttemptsRef.current = 0;
 
     // Create new SSE connection
-    const sseUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`;
+    const sseUrl = `${config.API_URL}/api/match/wallet-balance/${walletAddress}`;
     
     // Debug logging
     console.log('🔍 SSE Debug:', {
-      NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+      API_URL: config.API_URL,
       sseUrl: sseUrl,
       walletAddress: walletAddress
     });
@@ -141,7 +142,7 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
       
       try {
         const response = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`
+          `${config.API_URL}/api/match/wallet-balance/${walletAddress}`
         );
         if (response.ok) {
           const reader = response.body?.getReader();
