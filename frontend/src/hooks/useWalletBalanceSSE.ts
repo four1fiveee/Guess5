@@ -39,8 +39,12 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
     const sseUrl = `${process.env.NEXT_PUBLIC_API_URL}/api/match/wallet-balance/${walletAddress}`;
     
     // Debug logging
-    console.log('🔍 SSE URL:', sseUrl);
-    console.log('🔍 NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
+    console.log('🔍 SSE Debug:', {
+      NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+      sseUrl: sseUrl,
+      walletAddress: walletAddress
+    });
+
     
     const eventSource = new EventSource(sseUrl);
     eventSourceRef.current = eventSource;

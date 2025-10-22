@@ -4,8 +4,11 @@ import { errorHandler, apiCallWithRetry } from './errorHandler';
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com';
 
 // Debug logging for environment variables
-console.log('🔍 API_BASE_URL:', API_BASE_URL);
-console.log('🔍 NEXT_PUBLIC_API_URL:', process.env.NEXT_PUBLIC_API_URL);
+console.log('🔍 Environment Variables Debug:', {
+  NEXT_PUBLIC_API_URL: process.env.NEXT_PUBLIC_API_URL,
+  NODE_ENV: process.env.NODE_ENV,
+  API_BASE_URL: API_BASE_URL
+});
 
 // Get ReCaptcha token for API requests
 const getReCaptchaToken = async (action: string): Promise<string | null> => {
