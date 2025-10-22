@@ -4901,6 +4901,22 @@ const verifyBlockchainDataHandler = async (req: any, res: any) => {
   }
 };
 
+// Track active SSE connections
+const activeSSEConnections = new Map<string, { count: number; lastActivity: number }>();
+
+// Cleanup stale connections every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  const staleThreshold = 5 * 60 * 1000; // 5 minutes
+  
+  for (const [wallet, connection] of activeSSEConnections.entries()) {
+    if (now - connection.lastActivity > staleThreshold) {
+      console.log('🧹 Cleaning up stale SSE connection for wallet:', wallet);
+      activeSSEConnections.delete(wallet);
+    }
+  }
+}, 5 * 60 * 1000); // Run every 5 minutes
+
 // Server-Sent Events endpoint for real-time wallet balance updates
 const walletBalanceSSEHandler = async (req: any, res: any) => {
   try {
@@ -4910,7 +4926,20 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Wallet address required' });
     }
     
-    console.log('🔌 SSE connection requested for wallet:', wallet);
+    // Check connection limits (max 3 connections per wallet)
+    const walletConnections = activeSSEConnections.get(wallet) || { count: 0, lastActivity: Date.now() };
+    if (walletConnections.count >= 3) {
+      console.log('⚠️ Too many SSE connections for wallet:', wallet, 'count:', walletConnections.count);
+      return res.status(429).json({ error: 'Too many connections for this wallet' });
+    }
+    
+    // Update connection count
+    activeSSEConnections.set(wallet, { 
+      count: walletConnections.count + 1, 
+      lastActivity: Date.now() 
+    });
+    
+    console.log('🔌 SSE connection requested for wallet:', wallet, 'active connections:', walletConnections.count + 1);
     
     // Set SSE headers with proper CORS and connection keep-alive
     res.writeHead(200, {
@@ -4922,7 +4951,9 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Credentials': 'true',
-      'X-Accel-Buffering': 'no' // Disable nginx buffering
+      'X-Accel-Buffering': 'no', // Disable nginx buffering
+      'X-Content-Type-Options': 'nosniff',
+      'X-Frame-Options': 'DENY'
     });
     
     // Send initial connection message
@@ -5010,6 +5041,17 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       console.log('🔌 SSE connection closed for wallet:', wallet);
       clearInterval(balanceInterval);
       clearInterval(heartbeatInterval);
+      
+      // Decrement connection count
+      const walletConnections = activeSSEConnections.get(wallet);
+      if (walletConnections) {
+        walletConnections.count = Math.max(0, walletConnections.count - 1);
+        if (walletConnections.count === 0) {
+          activeSSEConnections.delete(wallet);
+        } else {
+          activeSSEConnections.set(wallet, walletConnections);
+        }
+      }
     });
     
     // Handle server shutdown
@@ -5017,6 +5059,27 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       console.error('❌ SSE connection error:', error);
       clearInterval(balanceInterval);
       clearInterval(heartbeatInterval);
+      
+      // Decrement connection count
+      const walletConnections = activeSSEConnections.get(wallet);
+      if (walletConnections) {
+        walletConnections.count = Math.max(0, walletConnections.count - 1);
+        if (walletConnections.count === 0) {
+          activeSSEConnections.delete(wallet);
+        } else {
+          activeSSEConnections.set(wallet, walletConnections);
+        }
+      }
+    });
+    
+    // Handle connection timeout
+    req.setTimeout(300000, () => { // 5 minutes timeout
+      console.log('⏰ SSE connection timeout for wallet:', wallet);
+      clearInterval(balanceInterval);
+      clearInterval(heartbeatInterval);
+      if (!res.headersSent) {
+        res.status(408).end();
+      }
     });
     
   } catch (error: unknown) {
