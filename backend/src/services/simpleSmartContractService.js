@@ -2,7 +2,7 @@ const { Connection, PublicKey, Keypair, LAMPORTS_PER_SOL } = require('@solana/we
 const { ManualSolanaClient } = require('./manualSolanaClient.js');
 
 // Program ID for our deployed smart contract
-const PROGRAM_ID = new PublicKey("FvCDUQZYqZz3GqgpKjW81X1x6e7jGPhKhppBMWdEjGeL");
+const PROGRAM_ID = new PublicKey(process.env.SMART_CONTRACT_PROGRAM_ID || "ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4");
 
 // Create connection to Solana network
 const connection = new Connection(
