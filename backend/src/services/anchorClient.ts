@@ -421,7 +421,8 @@ export const getSmartContractService = async (): Promise<SmartContractService> =
       console.log('✅ Program initialized for SmartContractService');
     } catch (error) {
       console.error('❌ Failed to initialize program:', error);
-      throw new Error(`Failed to initialize program with IDL: ${error instanceof Error ? error.message : String(error)}`);
+      console.log('⚠️ Continuing with manual client fallback...');
+      // Don't throw - allow the service to use the manual client fallback
     }
   } else {
     console.log('✅ Program already initialized for SmartContractService');
