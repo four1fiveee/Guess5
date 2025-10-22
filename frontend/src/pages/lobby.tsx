@@ -143,8 +143,8 @@ export default function Lobby() {
       if (!publicKey) return;
       
       try {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/check-player-match/${publicKey.toString()}`);
+        const { config } = await import('../config/environment');
+        const response = await fetch(`${config.API_URL}/api/match/check-player-match/${publicKey.toString()}`);
         
         if (response.ok) {
           const data = await response.json();
