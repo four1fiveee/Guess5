@@ -1,6 +1,7 @@
 const expressRouter = require('express');
 const router = expressRouter.Router();
 const matchController = require('../controllers/matchController');
+const { getSolPriceHandler } = require('../services/solPriceService');
 const { 
   validateMatchRequest: validateMatch, 
   validateSubmitResult: validateResult, 
@@ -45,7 +46,7 @@ router.post('/confirm-payment',
 
 // SOL price endpoint to avoid CORS issues
 router.get('/sol-price', 
-  asyncHandlerWrapper(matchController.getSolPriceHandler)
+  asyncHandlerWrapper(getSolPriceHandler)
 );
 
 // Less critical endpoints (still rate limited but no ReCaptcha for testing)
