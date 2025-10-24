@@ -1,6 +1,7 @@
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
+const { getSolPriceHandler } = require('../services/solPriceService');
 const RESULTS_ATTESTOR_ADDRESS = '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt';
 const { Not, LessThan, Between, IsNull } = require('typeorm');
 const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
@@ -5497,6 +5498,9 @@ module.exports = {
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,
+
+  // SOL price handler to avoid CORS issues
+  getSolPriceHandler,
 
   // Smart contract integration handlers
   depositToSmartContractHandler,

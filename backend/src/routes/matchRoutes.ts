@@ -43,6 +43,11 @@ router.post('/confirm-payment',
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
 );
 
+// SOL price endpoint to avoid CORS issues
+router.get('/sol-price', 
+  asyncHandlerWrapper(matchController.getSolPriceHandler)
+);
+
 // Less critical endpoints (still rate limited but no ReCaptcha for testing)
 router.get('/status/:matchId', 
   // Removed rate limiting for match status - ReCaptcha provides sufficient protection
