@@ -131,8 +131,8 @@ export class SmartContractService {
       
       // Create a clean IDL object
       const cleanIdl = {
-        version: IDL.version || "0.1.0",
-        name: IDL.name || "guess5_escrow",
+        version: IDL.metadata?.version || "0.1.0",
+        name: IDL.metadata?.name || "guess5_escrow",
         instructions: IDL.instructions || [],
         accounts: IDL.accounts || [],
         types: IDL.types || [],
