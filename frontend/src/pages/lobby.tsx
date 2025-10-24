@@ -9,58 +9,35 @@ import logo from '../../public/logo.png'
 
 const ENTRY_FEES_USD = [1, 5, 20];
 
-// Fetch live SOL/USD price with fallback
+// Fetch live SOL/USD price from backend (avoids CORS issues)
 const fetchSolPrice = async () => {
-  console.log('🔍 Fetching live SOL price...');
+  console.log('🔍 Fetching live SOL price from backend...');
   
   try {
-    // Try CoinGecko first
-    console.log('📡 Trying CoinGecko API...');
-    const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+    const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com';
+    const response = await fetch(`${API_URL}/api/match/sol-price`);
     
     if (!response.ok) {
-      throw new Error(`CoinGecko API returned ${response.status}: ${response.statusText}`);
+      throw new Error(`Backend SOL price API returned ${response.status}: ${response.statusText}`);
     }
     
     const data = await response.json();
-    console.log('📊 CoinGecko response:', data);
+    console.log('📊 Backend SOL price response:', data);
     
-    if (data.solana?.usd && typeof data.solana.usd === 'number' && data.solana.usd > 0) {
-      console.log('✅ CoinGecko SOL price:', data.solana.usd);
-      return data.solana.usd;
+    if (data.price && typeof data.price === 'number' && data.price > 0) {
+      console.log('✅ SOL price from backend:', data.price);
+      return data.price;
+    } else if (data.fallback) {
+      console.warn('⚠️ Backend returned fallback price:', data.fallback);
+      return data.fallback;
     } else {
-      throw new Error('Invalid SOL price data from CoinGecko');
+      throw new Error('Invalid SOL price data from backend');
     }
   } catch (e) {
-    console.error('❌ CoinGecko failed:', e);
-    console.log('🔄 Trying Binance fallback...');
+    console.error('❌ Backend SOL price fetch failed:', e);
+    console.warn('⚠️ Using client-side fallback price: $180');
+    return 180; // Reasonable fallback
   }
-  
-  try {
-    // Fallback to alternative API
-    const response = await fetch('https://api.binance.com/api/v3/ticker/price?symbol=SOLUSDT');
-    
-    if (!response.ok) {
-      throw new Error(`Binance API returned ${response.status}: ${response.statusText}`);
-    }
-    
-    const data = await response.json();
-    console.log('📊 Binance response:', data);
-    
-    if (data.price && typeof data.price === 'string' && parseFloat(data.price) > 0) {
-      const price = parseFloat(data.price);
-      console.log('✅ Binance SOL price:', price);
-      return price;
-    } else {
-      throw new Error('Invalid SOL price data from Binance');
-    }
-  } catch (e) {
-    console.error('❌ Binance fallback failed:', e);
-  }
-  
-  // Final fallback to a reasonable estimate
-  console.warn('⚠️ All SOL price APIs failed, using fallback price: $100');
-  return 100;
 };
 
 // Lobby: choose entry fee
