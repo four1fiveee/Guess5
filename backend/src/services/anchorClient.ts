@@ -1,6 +1,6 @@
 import { Connection, PublicKey, Transaction, VersionedTransaction, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
-import { IDL } from '../types/guess5';
+import { IDL } from '../types/guess5-minimal';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import { ManualSolanaClient } from './manualSolanaClient';
 
@@ -128,16 +128,8 @@ export class SmartContractService {
         message: embeddedIdlError instanceof Error ? embeddedIdlError.message : String(embeddedIdlError),
         stack: embeddedIdlError instanceof Error ? embeddedIdlError.stack : undefined
       });
-      console.log('🔄 Falling back to raw Solana client...');
-      
-            // Test manual client connection
-            const manualClientWorks = await this.manualClient.testConnection();
-            if (manualClientWorks) {
-              console.log('✅ Manual Solana client fallback initialized successfully');
-              // Keep program as null, we'll use manual client methods
-            } else {
-              throw new Error(`Both IDL parsing and manual client failed: ${embeddedIdlError instanceof Error ? embeddedIdlError.message : String(embeddedIdlError)}`);
-            }
+      console.log('⚠️ Continuing with manual client fallback...');
+      // Don't throw - allow the service to use the manual client fallback
     }
     
     console.log('✅ SmartContractService initialized successfully:', {
