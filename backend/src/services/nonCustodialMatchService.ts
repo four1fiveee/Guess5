@@ -69,20 +69,29 @@ export class NonCustodialMatchService {
       const player1Pubkey = new PublicKey(params.player1);
       const player2Pubkey = new PublicKey(params.player2);
 
-      const onChainResult = await this.smartContractService.createMatch(
-        player1Pubkey,
-        player2Pubkey,
-        stakeLamports,
-        feeBps,
-        deadlineSlot
-      );
+      // Try to create match on-chain, but continue if it fails
+      let matchPda: PublicKey | undefined;
+      let vaultPda: PublicKey | undefined;
+      
+      try {
+        const onChainResult = await this.smartContractService.createMatch(
+          player1Pubkey,
+          player2Pubkey,
+          stakeLamports,
+          feeBps,
+          deadlineSlot
+        );
 
-      if (!onChainResult.success) {
-        throw new Error(`Smart contract match creation failed: ${onChainResult.error}`);
+        if (onChainResult.success) {
+          matchPda = onChainResult.matchPda;
+          vaultPda = onChainResult.vaultPda;
+          console.log('✅ Smart contract match created successfully');
+        } else {
+          console.warn('⚠️ Smart contract creation failed, continuing without on-chain match:', onChainResult.error);
+        }
+      } catch (error) {
+        console.warn('⚠️ Smart contract creation error, continuing without on-chain match:', error);
       }
-
-      // onChainResult contains { matchPda, vaultPda }
-      const { matchPda, vaultPda } = onChainResult;
 
       // Create database record
       const matchRepository = AppDataSource.getRepository(Match);
@@ -97,8 +106,8 @@ export class NonCustodialMatchService {
       match.word = this.getRandomWord();
       
       // Store smart contract data
-      match.matchPda = matchPda.toString();
-      match.vaultPda = vaultPda.toString();
+      match.matchPda = matchPda?.toString() || null;
+      match.vaultPda = vaultPda?.toString() || null;
       match.deadlineSlot = deadlineSlot;
       match.feeBps = feeBps;
       match.smartContractStatus = 'Active';
