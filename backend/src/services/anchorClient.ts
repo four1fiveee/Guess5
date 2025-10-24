@@ -1,9 +1,8 @@
 import { Connection, PublicKey, Transaction, VersionedTransaction, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
-import { IDL } from '../types/guess5-minimal';
+import { IDL } from '../types/guess5';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import { ManualSolanaClient } from './manualSolanaClient';
-import { MockSmartContractService } from './mockSmartContractService';
 
 // Program ID for the Guess5 escrow program - must match the deployed contract
 const PROGRAM_ID = new PublicKey(process.env.SMART_CONTRACT_PROGRAM_ID || "ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4");
@@ -46,13 +45,10 @@ export class SmartContractService {
   private program: Program | null = null;
   private provider!: AnchorProvider;
   private manualClient: ManualSolanaClient;
-  private mockClient: MockSmartContractService;
 
   constructor() {
     // Initialize manual client as fallback
     this.manualClient = new ManualSolanaClient(connection);
-    // Initialize mock client as final fallback
-    this.mockClient = new MockSmartContractService();
     
     // Initialize provider in constructor, program will be initialized in initializeProgram()
     try {
@@ -123,7 +119,35 @@ export class SmartContractService {
         instructionsCount: IDL.instructions?.length || 0
       });
       
-      this.program = new Program(IDL as any, this.provider);
+      // Try to parse the IDL more carefully
+      console.log('🔍 IDL structure analysis:', {
+        hasAddress: !!IDL.address,
+        hasTypes: !!IDL.types,
+        hasInstructions: !!IDL.instructions,
+        typesCount: IDL.types?.length || 0,
+        instructionsCount: IDL.instructions?.length || 0,
+        firstInstruction: IDL.instructions?.[0]?.name || 'none'
+      });
+      
+      // Create a clean IDL object
+      const cleanIdl = {
+        version: IDL.version || "0.1.0",
+        name: IDL.name || "guess5_escrow",
+        instructions: IDL.instructions || [],
+        accounts: IDL.accounts || [],
+        types: IDL.types || [],
+        errors: IDL.errors || []
+      };
+      
+      console.log('🔍 Clean IDL structure:', {
+        version: cleanIdl.version,
+        name: cleanIdl.name,
+        instructionsCount: cleanIdl.instructions.length,
+        accountsCount: cleanIdl.accounts.length,
+        typesCount: cleanIdl.types.length
+      });
+      
+      this.program = new Program(cleanIdl as any, this.provider);
       console.log('✅ Program initialized with embedded IDL successfully');
     } catch (embeddedIdlError) {
       console.error('❌ Embedded IDL parsing failed:', embeddedIdlError);
@@ -209,54 +233,10 @@ export class SmartContractService {
           };
         } catch (error) {
           console.error('❌ Manual client createMatch failed:', error);
-          console.log('🔄 Trying mock client fallback...');
-          
-          try {
-            // Calculate deadline if not provided (24 hours from now)
-            if (!deadlineSlot) {
-              const currentSlot = await connection.getSlot();
-              const slotsPerSecond = 2; // Approximate slots per second
-              const slotsPerDay = slotsPerSecond * 60 * 60 * 24; // 24 hours
-              deadlineSlot = currentSlot + slotsPerDay;
-            }
-
-            // Generate PDAs
-            const matchPda = getMatchPda(player1, player2, stakeLamports);
-            const vaultPda = getVaultPda(matchPda);
-
-            console.log('🔧 Creating smart contract match with mock client:', {
-              matchPda: matchPda.toString(),
-              vaultPda: vaultPda.toString(),
-              player1: player1.toString(),
-              player2: player2.toString(),
-              stakeLamports,
-              feeBps,
-              deadlineSlot
-            });
-
-            // Use mock client to create match
-            const signature = await this.mockClient.createMatch(
-              player1,
-              player2,
-              stakeLamports,
-              feeBps,
-              deadlineSlot,
-              getFeeWalletKeypair()
-            );
-
-            console.log('✅ Smart contract match created with mock client:', signature);
-            return { 
-              success: true, 
-              matchPda, 
-              vaultPda 
-            };
-          } catch (mockError) {
-            console.error('❌ Mock client createMatch failed:', mockError);
-            return { 
-              success: false, 
-              error: `All smart contract clients failed: Manual: ${error instanceof Error ? error.message : String(error)}, Mock: ${mockError instanceof Error ? mockError.message : String(mockError)}` 
-            };
-          }
+          return { 
+            success: false, 
+            error: `Manual client createMatch failed: ${error instanceof Error ? error.message : String(error)}` 
+          };
         }
       } else {
         return { success: false, error: 'Smart contract program not initialized and no manual client available' };
