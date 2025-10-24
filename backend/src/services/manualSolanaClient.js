@@ -188,6 +188,20 @@ class ManualSolanaClient {
 
       // Create and send transaction
       const transaction = new Transaction().add(instruction);
+      
+      // First simulate the transaction to get better error information
+      try {
+        const simulation = await this.connection.simulateTransaction(transaction, [payer]);
+        if (simulation.value.err) {
+          console.error('Transaction simulation failed:', simulation.value.err);
+          throw new Error(`Simulation failed: ${JSON.stringify(simulation.value.err)}`);
+        }
+        console.log('Transaction simulation successful');
+      } catch (simError) {
+        console.error('Simulation error:', simError);
+        throw new Error(`Simulation failed: ${simError.message}`);
+      }
+      
       const signature = await sendAndConfirmTransaction(
         this.connection,
         transaction,
