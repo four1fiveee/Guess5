@@ -1,6 +1,6 @@
 import { Connection, PublicKey, Transaction, VersionedTransaction, SystemProgram } from '@solana/web3.js';
 import { Program, AnchorProvider, BN } from '@coral-xyz/anchor';
-import { IDL } from '../types/guess5';
+import { IDL } from '../types/guess5-simple';
 import { FEE_WALLET_ADDRESS, getFeeWalletKeypair } from '../config/wallet';
 import { ManualSolanaClient } from './manualSolanaClient';
 
