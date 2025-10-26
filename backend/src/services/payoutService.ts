@@ -27,6 +27,8 @@ const validatePayoutConfig = () => {
 validatePayoutConfig();
 
 // Smart contract payout function using the new smart contract service
+// DEPRECATED: This function has been replaced by multisig vault payouts
+// Use multisigVaultService.processPayout() instead
 export const createSmartContractPayout = async (
   matchId: string,
   winner: string,
@@ -35,64 +37,11 @@ export const createSmartContractPayout = async (
   matchPda: string,
   vaultPda: string
 ) => {
-  try {
-    console.log('🔗 Creating smart contract payout for match:', matchId);
-    console.log('Winner:', winner);
-    console.log('Winner amount:', winnerAmount, 'SOL');
-    console.log('Fee amount:', feeAmount, 'SOL');
-    console.log('Match PDA:', matchPda);
-    console.log('Vault PDA:', vaultPda);
-
-    // Import the smart contract service
-    const { getSmartContractService } = await import('./anchorClient');
-    const smartContractService = await getSmartContractService();
-    
-    // Determine the result type based on winner
-    let result: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error';
-    if (winner === 'tie') {
-      result = 'WinnerTie'; // Assuming winner tie for now
-    } else {
-      // You'll need to determine if it's Player1 or Player2 based on the match data
-      // For now, we'll use a placeholder
-      result = 'Player1'; // This should be determined from the match data
-    }
-
-    // Create settlement transaction
-    const settlementResult = await smartContractService.settleMatch(
-      new PublicKey(matchPda),
-      result
-    );
-
-    if (!settlementResult.success) {
-      throw new Error(`Smart contract settlement failed: ${settlementResult.error}`);
-    }
-
-    return {
-      success: true,
-      transaction: settlementResult.signature,
-      instruction: 'settleMatch',
-      accounts: {
-        matchEscrow: matchPda,
-        vaultAccount: vaultPda,
-        winner: winner,
-        feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
-        systemProgram: SystemProgram.programId.toString()
-      },
-      amounts: {
-        winnerAmount,
-        feeAmount,
-        totalAmount: winnerAmount + feeAmount
-      },
-      message: 'Smart contract settlement transaction created successfully'
-    };
-
-  } catch (error) {
-    console.error('❌ Smart contract payout creation failed:', error);
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Unknown error'
-    };
-  }
+  console.warn('⚠️ createSmartContractPayout is deprecated - use multisig vault instead');
+  return {
+    success: false,
+    error: 'This function has been replaced by the multisig vault system'
+  };
 };
 
 export const createEscrowAccount = async (matchId: string, player1: string, player2: string, entryFee: number) => {

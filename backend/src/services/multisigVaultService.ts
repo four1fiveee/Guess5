@@ -140,7 +140,9 @@ export class MultisigVaultService {
         };
       }
 
-      const vaultPublicKey = new PublicKey(match.vaultAddress);
+      // TypeScript assertion after null check
+      const vaultAddress: string = match.vaultAddress as string;
+      const vaultPublicKey = new PublicKey(vaultAddress);
 
       // Check vault balance on Solana
       const balance = await this.connection.getBalance(vaultPublicKey);
@@ -248,7 +250,7 @@ export class MultisigVaultService {
       }
 
       // TypeScript assertion after null check
-      const vaultAddress = match.vaultAddress;
+      const vaultAddress: string = match.vaultAddress as string;
 
       // Calculate payout amounts
       const totalStakeLamports = Math.floor(attestation.stake_lamports * 2); // Both players' stakes
@@ -357,13 +359,16 @@ export class MultisigVaultService {
         };
       }
 
+      // TypeScript assertion after null check
+      const vaultAddress: string = match.vaultAddress as string;
+
       // Refund both players their entry fee
       const refundAmountLamports = Math.floor(match.entryFee * LAMPORTS_PER_SOL);
 
       // Generate vault keypair
       const vaultSeed = Buffer.from(`vault_${match.id}`);
       const vaultKeypair = Keypair.fromSeed(vaultSeed.subarray(0, 32));
-      const vaultPublicKey = new PublicKey(match.vaultAddress);
+      const vaultPublicKey = new PublicKey(vaultAddress);
 
       // Create refund transaction
       const transaction = new Transaction().add(
