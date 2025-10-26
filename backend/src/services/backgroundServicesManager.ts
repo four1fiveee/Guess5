@@ -1,7 +1,7 @@
 import { depositWatcherService } from './depositWatcherService';
 import { timeoutScannerService } from './timeoutScannerService';
 import { reconciliationWorkerService } from './reconciliationWorkerService';
-import { enhancedLogger } from '../utils/logger';
+import { enhancedLogger } from '../utils/enhancedLogger';
 
 export class BackgroundServicesManager {
   private isRunning: boolean = false;

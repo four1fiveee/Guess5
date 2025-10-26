@@ -1,5 +1,5 @@
 import { Connection, PublicKey, Keypair, Transaction, SystemProgram, LAMPORTS_PER_SOL, sendAndConfirmTransaction } from '@solana/web3.js';
-import { enhancedLogger } from '../utils/logger';
+import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { MatchAttestation } from '../models/MatchAttestation';
@@ -168,7 +168,7 @@ export class MultisigVaultService {
       await matchRepository.save(match);
 
       // Both deposits confirmed
-      if (match.depositAConfirmations >= 1 && match.depositBConfirmations >= 1) {
+      if ((match.depositAConfirmations ?? 0) >= 1 && (match.depositBConfirmations ?? 0) >= 1) {
         match.matchStatus = 'READY';
         await matchRepository.save(match);
         
@@ -247,6 +247,9 @@ export class MultisigVaultService {
         };
       }
 
+      // TypeScript assertion after null check
+      const vaultAddress = match.vaultAddress;
+
       // Calculate payout amounts
       const totalStakeLamports = Math.floor(attestation.stake_lamports * 2); // Both players' stakes
       const feeLamports = Math.floor(totalStakeLamports * 0.05); // 5% fee
@@ -255,7 +258,7 @@ export class MultisigVaultService {
       const feeWalletAddress = process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt';
 
       // Create real Solana transaction for payout
-      const vaultPublicKey = new PublicKey(match.vaultAddress);
+      const vaultPublicKey = new PublicKey(vaultAddress);
       const winnerPublicKey = new PublicKey(attestation.winner_address);
       const feeWalletPublicKey = new PublicKey(feeWalletAddress);
 

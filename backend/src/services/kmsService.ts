@@ -1,6 +1,6 @@
 import { KMSClient, SignCommand } from '@aws-sdk/client-kms';
 import { createHash } from 'crypto';
-import { enhancedLogger } from '../utils/logger';
+import { enhancedLogger } from '../utils/enhancedLogger';
 
 export interface AttestationData {
   match_id: string;

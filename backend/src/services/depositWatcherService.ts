@@ -2,7 +2,7 @@ import { Connection, PublicKey } from '@solana/web3.js';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { MatchAuditLog } from '../models/MatchAuditLog';
-import { enhancedLogger } from '../utils/logger';
+import { enhancedLogger } from '../utils/enhancedLogger';
 import { multisigVaultService } from './multisigVaultService';
 
 export class DepositWatcherService {
@@ -93,8 +93,8 @@ export class DepositWatcherService {
           const updatedMatch = await matchRepository.findOne({ where: { id: match.id } });
           
           if (updatedMatch && 
-              updatedMatch.depositAConfirmations >= 1 && 
-              updatedMatch.depositBConfirmations >= 1 &&
+              (updatedMatch.depositAConfirmations ?? 0) >= 1 && 
+              (updatedMatch.depositBConfirmations ?? 0) >= 1 &&
               updatedMatch.matchStatus !== 'READY') {
             
             updatedMatch.matchStatus = 'READY';

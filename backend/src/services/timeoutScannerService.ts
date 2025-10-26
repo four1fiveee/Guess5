@@ -2,7 +2,7 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { multisigVaultService } from './multisigVaultService';
-import { enhancedLogger } from '../utils/logger';
+import { enhancedLogger } from '../utils/enhancedLogger';
 
 export class TimeoutScannerService {
   private isRunning: boolean = false;

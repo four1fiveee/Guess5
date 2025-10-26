@@ -5,7 +5,7 @@ import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { multisigVaultService } from '../services/multisigVaultService';
 import { AttestationData } from '../services/kmsService';
-import { enhancedLogger } from '../utils/logger';
+import { enhancedLogger } from '../utils/enhancedLogger';
 import { LAMPORTS_PER_SOL } from '@solana/web3.js';
 
 /**
