@@ -6,6 +6,7 @@ import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { useMemo, useEffect } from 'react';
+import { BotIdClient } from 'botid/client';
 
 function MyApp({ Component, pageProps }: AppProps) {
   const network = WalletAdapterNetwork.Devnet;
@@ -45,10 +46,19 @@ function MyApp({ Component, pageProps }: AppProps) {
     };
   }, []);
 
+  // Define protected routes for BotID
+  const protectedRoutes = [
+    {
+      path: '/api/match/request-match',
+      method: 'POST',
+    },
+  ];
+
   return (
     <ConnectionProvider endpoint={endpoint}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
+          <BotIdClient protect={protectedRoutes} />
           <Component {...pageProps} />
         </WalletModalProvider>
       </WalletProvider>

@@ -5,9 +5,9 @@ const { getSolPriceHandler } = require('../services/solPriceService');
 const { 
   validateMatchRequest: validateMatch, 
   validateSubmitResult: validateResult, 
-  validateConfirmPayment: validateConfirmPaymentData,
-  validateReCaptcha
+  validateConfirmPayment: validateConfirmPaymentData
 } = require('../middleware/validation');
+const { validateBotId } = require('../middleware/botidValidation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
 // Rate limiting removed - ReCaptcha provides sufficient protection
@@ -17,30 +17,29 @@ const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandle
 
 // Production routes with enhanced security
 router.post('/request-match', 
-  // Removed rate limiting for match request - ReCaptcha provides sufficient protection
+  // BotID provides bot protection without user friction
   validateMatch, 
-  // validateReCaptcha, // TEMPORARILY DISABLED FOR TESTING
+  validateBotId,
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
 router.post('/submit-result', 
-  // Removed rate limiting for result submission - ReCaptcha provides sufficient protection
+  // BotID provides bot protection without user friction
   validateResult, 
-  validateReCaptcha,
+  validateBotId,
   asyncHandlerWrapper(matchController.submitResultHandler)
 );
 
 router.post('/submit-guess', 
-  // Removed rate limiting for guess submission - ReCaptcha provides sufficient protection
-  // Temporarily removed ReCaptcha to avoid conflicts during testing
-  // validateReCaptcha,
+  // BotID provides bot protection without user friction
+  validateBotId,
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
 );
 
 router.post('/confirm-payment', 
-  // Removed rate limiting for payment confirmation - ReCaptcha provides sufficient protection
+  // BotID provides bot protection without user friction
   validateConfirmPaymentData,
-  validateReCaptcha,
+  validateBotId,
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
 );
 
