@@ -1,6 +1,6 @@
-import { getRedisMM } from '../config/redis';
-import { enhancedLogger } from '../utils/enhancedLogger';
-import { v4 as uuidv4 } from 'uuid';
+const { getRedisMM } = require('../config/redis');
+const { enhancedLogger } = require('../utils/enhancedLogger');
+const { v4: uuidv4 } = require('uuid');
 
 interface WaitingPlayer {
   wallet: string;
@@ -334,4 +334,5 @@ export class RedisMatchmakingService {
 }
 
 // Export singleton instance
-export const redisMatchmakingService = new RedisMatchmakingService();
+const redisMatchmakingService = new RedisMatchmakingService();
+module.exports = { redisMatchmakingService };
