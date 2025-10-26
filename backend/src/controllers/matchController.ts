@@ -4355,39 +4355,25 @@ const generateReportHandler = async (req: any, res: any) => {
           WHEN "isCompleted" = true THEN word 
           ELSE '***PROTECTED***' 
         END as word,
-        "feeWalletAddress",
+        "vaultAddress",
+        "depositATx",
+        "depositBTx",
+        "depositAConfirmations",
+        "depositBConfirmations",
         "gameStartTime",
         "gameStartTimeUtc",
         "gameEndTime",
         "gameEndTimeUtc",
-        "player1EntryConfirmed",
-        "player2EntryConfirmed",
-        "player1EntrySignature",
-        "player2EntrySignature",
-        "player1EntrySlot",
-        "player1EntryBlockTime",
-        "player1EntryFinalized",
-        "player2EntrySlot",
-        "player2EntryBlockTime",
-        "player2EntryFinalized",
         "player1Paid",
         "player2Paid",
         "player1Result",
         "player2Result",
         winner,
         "payoutResult",
-        "winnerPayoutSignature",
-        "winnerPayoutSlot",
-        "winnerPayoutBlockTime",
-        "winnerPayoutFinalized",
+        "payoutTxHash",
+        "refundTxHash",
         "player1RefundSignature",
-        "player1RefundSlot",
-        "player1RefundBlockTime",
-        "player1RefundFinalized",
         "player2RefundSignature",
-        "player2RefundSlot",
-        "player2RefundBlockTime",
-        "player2RefundFinalized",
         "matchOutcome",
         "totalFeesCollected",
         "platformFee",
@@ -4405,10 +4391,10 @@ const generateReportHandler = async (req: any, res: any) => {
           (status = 'completed' AND "isCompleted" = true)
           OR 
           -- Include cancelled matches that have refund signatures
-          (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL))
+          (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "refundTxHash" IS NOT NULL))
           OR
           -- Include any matches with refund signatures (covers losing ties and other refund scenarios)
-          ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL)
+          ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "refundTxHash" IS NOT NULL)
           OR
           -- Include matches with player results (covers timeout scenarios and other completed games)
           ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
@@ -4467,6 +4453,10 @@ const generateReportHandler = async (req: any, res: any) => {
       'Platform Fee (SOL)',
       'Game Completed',
       'Target Word',
+      '🔗 MULTISIG VAULT 🔗',
+      'Vault Address',
+      'Player 1 Deposit TX',
+      'Player 2 Deposit TX',
       '🔗 GAME RESULTS 🔗',
       'Player 1 Solved',
       'Player 1 Guesses',
@@ -4480,16 +4470,17 @@ const generateReportHandler = async (req: any, res: any) => {
       'Match Created (EST)',
       'Game Started (EST)',
       'Game Ended (EST)',
-      '🔗 BLOCKCHAIN TRANSACTIONS 🔗',
-      'Player 1 Entry TX',
-      'Player 2 Entry TX',
-      'Winner Payout TX',
+      '🔗 PAYOUT TRANSACTIONS 🔗',
+      'Payout TX Hash',
+      'Refund TX Hash',
       'Player 1 Refund TX',
       'Player 2 Refund TX',
       '🔗 EXPLORER LINKS 🔗',
-      'Player 1 Entry Link',
-      'Player 2 Entry Link',
-      'Winner Payout Link',
+      'Vault Link',
+      'Player 1 Deposit Link',
+      'Player 2 Deposit Link',
+      'Payout Link',
+      'Refund Link',
       'Player 1 Refund Link',
       'Player 2 Refund Link'
     ];
@@ -4537,6 +4528,10 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(platformFee),
         sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
         sanitizeCsvValue(match.status === 'completed' ? match.word : 'GAME_CANCELLED'),
+        '', // 🔗 MULTISIG VAULT 🔗
+        sanitizeCsvValue(match.vaultAddress),
+        sanitizeCsvValue(match.depositATx),
+        sanitizeCsvValue(match.depositBTx),
         '', // 🔗 GAME RESULTS 🔗
         sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
         sanitizeCsvValue(player1Result && player1Result.numGuesses ? player1Result.numGuesses : ''),
@@ -4550,44 +4545,17 @@ const generateReportHandler = async (req: any, res: any) => {
         convertToEST(match.createdAt),
         convertToEST(match.gameStartTimeUtc),
         convertToEST(match.gameEndTimeUtc),
-        '', // 🔗 BLOCKCHAIN TRANSACTIONS 🔗
-        sanitizeCsvValue(match.player1EntrySignature),
-        sanitizeCsvValue(match.player2EntrySignature),
-        sanitizeCsvValue((() => {
-          // Try multiple sources for payout signature
-          if (payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) {
-            return payoutResult.transactions[0].signature;
-          }
-          if (match.winnerPayoutSignature) {
-            return match.winnerPayoutSignature;
-          }
-          if (payoutResult && payoutResult.payoutSignature) {
-            return payoutResult.payoutSignature;
-          }
-          if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.payoutSignature) {
-            return payoutResult.paymentInstructions.payoutSignature;
-          }
-          return '';
-        })()),
+        '', // 🔗 PAYOUT TRANSACTIONS 🔗
+        sanitizeCsvValue(match.payoutTxHash),
+        sanitizeCsvValue(match.refundTxHash),
         sanitizeCsvValue(match.player1RefundSignature),
         sanitizeCsvValue(match.player2RefundSignature),
         '', // 🔗 EXPLORER LINKS 🔗
-        match.player1EntrySignature ? `https://explorer.solana.com/tx/${match.player1EntrySignature}?cluster=${network}` : '',
-        match.player2EntrySignature ? `https://explorer.solana.com/tx/${match.player2EntrySignature}?cluster=${network}` : '',
-        (() => {
-          // Try multiple sources for payout signature
-          let signature = '';
-          if (payoutResult && payoutResult.transactions && payoutResult.transactions[0] && payoutResult.transactions[0].signature) {
-            signature = payoutResult.transactions[0].signature;
-          } else if (match.winnerPayoutSignature) {
-            signature = match.winnerPayoutSignature;
-          } else if (payoutResult && payoutResult.payoutSignature) {
-            signature = payoutResult.payoutSignature;
-          } else if (payoutResult && payoutResult.paymentInstructions && payoutResult.paymentInstructions.payoutSignature) {
-            signature = payoutResult.paymentInstructions.payoutSignature;
-          }
-          return signature ? `https://explorer.solana.com/tx/${signature}?cluster=${network}` : '';
-        })(),
+        match.vaultAddress ? `https://explorer.solana.com/address/${match.vaultAddress}?cluster=${network}` : '',
+        match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
+        match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
+        match.payoutTxHash ? `https://explorer.solana.com/tx/${match.payoutTxHash}?cluster=${network}` : '',
+        match.refundTxHash ? `https://explorer.solana.com/tx/${match.refundTxHash}?cluster=${network}` : '',
         match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
         match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
       ];
