@@ -431,6 +431,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   
   // Use raw SQL to avoid TypeORM column issues - only select existing columns
   // Don't cleanup matches created in the last 30 seconds to avoid race conditions
+  // Also, don't cleanup payment_required, escrow, or active matches (these are in progress)
   const thirtySecondsAgo = new Date(Date.now() - 30 * 1000);
   const oldPlayerMatches = await matchRepository.query(`
     SELECT 
@@ -441,9 +442,11 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       "player1Paid",
       "player2Paid"
     FROM "match" 
-    WHERE (("player1" = $1 AND "status" NOT IN ($2, $3)) OR ("player2" = $4 AND "status" NOT IN ($5, $6)))
-      AND "createdAt" < $7
-  `, [wallet, 'escrow', 'completed', wallet, 'escrow', 'completed', thirtySecondsAgo]);
+    WHERE (("player1" = $1 AND "status" NOT IN ($2, $3, $4, $5)) OR ("player2" = $6 AND "status" NOT IN ($7, $8, $9, $10)))
+      AND "createdAt" < $11
+  `, [wallet, 'escrow', 'completed', 'active', 'payment_required', 
+      wallet, 'escrow', 'completed', 'active', 'payment_required', 
+      thirtySecondsAgo]);
   
   if (oldPlayerMatches.length > 0) {
 
@@ -455,12 +458,14 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       }
     }
     
-    // Remove old matches using raw SQL - EXCLUDE completed matches
+    // Remove old matches using raw SQL - EXCLUDE completed, active, escrow, and payment_required matches
         await matchRepository.query(`
       DELETE FROM "match" 
-      WHERE (("player1" = $1 AND "status" NOT IN ($2, $3)) OR ("player2" = $4 AND "status" NOT IN ($5, $6)))
-        AND "createdAt" < $7
-    `, [wallet, 'escrow', 'completed', wallet, 'escrow', 'completed', thirtySecondsAgo]);
+      WHERE (("player1" = $1 AND "status" NOT IN ($2, $3, $4, $5)) OR ("player2" = $6 AND "status" NOT IN ($7, $8, $9, $10)))
+        AND "createdAt" < $11
+    `, [wallet, 'escrow', 'completed', 'active', 'payment_required', 
+        wallet, 'escrow', 'completed', 'active', 'payment_required', 
+        thirtySecondsAgo]);
   }
   
   // Also cleanup any stale waiting entries older than 5 minutes

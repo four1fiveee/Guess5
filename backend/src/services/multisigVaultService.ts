@@ -160,26 +160,50 @@ export class MultisigVaultService {
       const expectedLamports = expectedAmount * LAMPORTS_PER_SOL;
       const expectedTotalLamports = expectedAmount * 2 * LAMPORTS_PER_SOL;
       
-      // Determine which player's deposit to confirm
-      // Use the playerWallet parameter to identify the correct player
-      if (isPlayer1) {
-        // Player 1 deposit confirmed when we have at least expectedAmount
+      // Get current confirmation status to avoid overwriting
+      const currentDepositA = match.depositAConfirmations ?? 0;
+      const currentDepositB = match.depositBConfirmations ?? 0;
+      
+      // Determine which player's deposit to confirm based on who is calling
+      // We can only confirm the player who actually sent the deposit verification request
+      if (isPlayer1 && currentDepositA === 0) {
+        // Only confirm Player 1's deposit if they made the request and haven't been confirmed yet
         if (balance >= expectedLamports) {
           match.depositAConfirmations = 1;
-          enhancedLogger.info('✅ Player 1 deposit confirmed', { matchId, balanceSOL });
+          enhancedLogger.info('✅ Player 1 deposit confirmed', { 
+            matchId, 
+            balanceSOL,
+            playerWallet,
+            isPlayer1: true
+          });
         }
-      } else {
-        // Player 2 deposit confirmed when we have the full amount (both deposits)
+      } else if (!isPlayer1 && currentDepositB === 0) {
+        // Only confirm Player 2's deposit if they made the request and haven't been confirmed yet
         if (balance >= expectedTotalLamports) {
           match.depositBConfirmations = 1;
-          enhancedLogger.info('✅ Player 2 deposit confirmed', { matchId, balanceSOL });
+          enhancedLogger.info('✅ Player 2 deposit confirmed', { 
+            matchId, 
+            balanceSOL,
+            playerWallet,
+            isPlayer1: false
+          });
           
-          // Also confirm Player 1 if not already confirmed
-          if ((match.depositAConfirmations ?? 0) === 0) {
+          // If Player 2 deposited and we have full balance, Player 1 must have also deposited
+          // But only update Player 1 if they haven't been confirmed yet
+          if (currentDepositA === 0 && balance >= expectedTotalLamports) {
             match.depositAConfirmations = 1;
-            enhancedLogger.info('✅ Player 1 deposit also confirmed', { matchId });
+            enhancedLogger.info('✅ Player 1 deposit also confirmed (both players deposited)', { matchId });
           }
         }
+      } else {
+        // Deposit already confirmed for this player, just log it
+        enhancedLogger.info('✅ Deposit already confirmed for player', { 
+          matchId,
+          playerWallet,
+          isPlayer1,
+          currentDepositA,
+          currentDepositB
+        });
       }
 
       await matchRepository.save(match);
