@@ -48,86 +48,12 @@ const confirmPaymentSchema = Joi.object({
   paymentSignature: Joi.string().required()
 });
 
-// ReCaptcha3 validation middleware
-export const validateReCaptcha = async (req: RequestWithHeaders, res: Response, next: any) => {
-  console.log('🔄 ReCaptcha validation started');
-  console.log('🔍 Request headers:', Object.keys(req.headers));
-  
-  const recaptchaToken = req.headers['x-recaptcha-token'] as string;
-  
-  if (!recaptchaToken) {
-    console.error('❌ ReCaptcha validation failed: No token provided');
-    console.error('❌ Available headers:', req.headers);
-    return res.status(400).json({ error: 'ReCaptcha token required' });
-  }
-
-  // TEMPORARY BYPASS: Allow bypass tokens for development/testing
-  if (recaptchaToken === 'dev-bypass-token' || recaptchaToken === 'fallback-bypass-token') {
-    console.log('🚧 TEMPORARY: Allowing bypass token for ReCaptcha validation');
-    return next();
-  }
-
-  if (typeof recaptchaToken !== 'string' || recaptchaToken.length < 10) {
-    console.error('❌ ReCaptcha validation failed: Invalid token format');
-    console.error('❌ Token:', recaptchaToken);
-    return res.status(400).json({ error: 'Invalid ReCaptcha token format' });
-  }
-
-  console.log('✅ ReCaptcha token found in headers:', recaptchaToken.substring(0, 20) + '...');
-
-  try {
-    const recaptchaSecret = process.env.RECAPTCHA_SECRET;
-    if (!recaptchaSecret) {
-      console.error('❌ RECAPTCHA_SECRET not configured');
-      return res.status(500).json({ error: 'ReCaptcha configuration error' });
-    }
-    
-    console.log('🔍 ReCaptcha secret configured:', recaptchaSecret ? 'Yes' : 'No');
-
-    console.log('🔄 Verifying ReCaptcha token with Google...');
-    
-    // Verify ReCaptcha token with Google
-    const response = await fetch('https://www.google.com/recaptcha/api/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: `secret=${recaptchaSecret}&response=${recaptchaToken}&remoteip=${req.ip || req.connection?.remoteAddress || 'unknown'}`
-    });
-
-    const data = await response.json();
-    console.log('📥 ReCaptcha verification response:', data);
-    
-    if (!data.success) {
-      console.error('❌ ReCaptcha validation failed: Invalid token');
-      console.error('❌ ReCaptcha error codes:', data['error-codes']);
-      
-      // Provide more specific error messages based on error codes
-      const errorCodes = data['error-codes'] || [];
-      let errorMessage = 'Invalid ReCaptcha token';
-      
-      if (errorCodes.includes('timeout-or-duplicate')) {
-        errorMessage = 'ReCaptcha token expired or already used';
-      } else if (errorCodes.includes('invalid-input-secret')) {
-        errorMessage = 'ReCaptcha configuration error';
-      } else if (errorCodes.includes('invalid-input-response')) {
-        errorMessage = 'Invalid ReCaptcha token';
-      } else if (errorCodes.includes('bad-request')) {
-        errorMessage = 'ReCaptcha request malformed';
-      }
-      
-      return res.status(400).json({ error: errorMessage });
-    }
-
-    console.log('✅ ReCaptcha validation successful');
-    next();
-  } catch (error) {
-    console.error('❌ ReCaptcha validation error:', error);
-    console.error('❌ ReCaptcha error details:', {
-      message: error instanceof Error ? error.message : String(error),
-      stack: error instanceof Error ? error.stack : undefined,
-      name: error instanceof Error ? error.name : undefined
-    });
-    return res.status(500).json({ error: 'ReCaptcha validation failed' });
-  }
+// ReCaptcha/BotID validation middleware - TEMPORARILY DISABLED
+// Bot protection is now handled by Vercel BotID on the frontend
+export const validateReCaptcha = async (req: any, res: any, next: any) => {
+  // TEMPORARILY ALLOW ALL REQUESTS - Bot protection handled by Vercel BotID
+  console.log('⚠️ Bot protection temporarily disabled - Vercel BotID handles it on the frontend');
+  return next();
 };
 
 // Validation middleware
