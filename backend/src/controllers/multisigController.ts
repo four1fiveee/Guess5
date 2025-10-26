@@ -146,7 +146,7 @@ exports.getMatchStatusHandler = async (req: any, res: any): Promise<void> => {
 exports.submitAttestationHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId } = req.params;
-    const attestationData: AttestationData = req.body;
+    const attestationData: any = req.body;
 
     if (!matchId) {
       res.status(400).json({
