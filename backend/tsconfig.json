@@ -18,7 +18,8 @@
     "forceConsistentCasingInFileNames": false,
     "resolveJsonModule": false,
     "noEmitOnError": false,
-    "noImplicitReturns": false
+    "noImplicitReturns": false,
+    "isolatedModules": false
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
