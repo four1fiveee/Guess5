@@ -45,17 +45,7 @@ const escrowSchema = Joi.object({
 const confirmPaymentSchema = Joi.object({
   matchId: Joi.string().required(),
   wallet: Joi.string().pattern(/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).required(),
-  paymentSignature: Joi.string().required(),
-  smartContractData: Joi.object({
-    matchPda: Joi.string().optional(),
-    vaultPda: Joi.string().optional(),
-    player1: Joi.string().optional(),
-    player2: Joi.string().optional(),
-    stakeLamports: Joi.number().optional(),
-    matchId: Joi.string().optional(),
-    smartContractVerified: Joi.boolean().optional(),
-    verificationDetails: Joi.object().optional()
-  }).optional()
+  paymentSignature: Joi.string().required()
 });
 
 // ReCaptcha3 validation middleware

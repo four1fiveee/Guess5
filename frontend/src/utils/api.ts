@@ -264,33 +264,24 @@ export const submitGuess = async (matchId: string, wallet: string, guess: string
 export const confirmPayment = async (
   matchId: string, 
   wallet: string, 
-  paymentSignature: string, 
-  smartContractData?: {
-    matchPda: string;
-    vaultPda: string;
-    player1?: string;
-    player2?: string;
-    stakeLamports?: number;
-    matchId?: string;
-    smartContractVerified: boolean;
-    verificationDetails?: any;
-  }
+  paymentSignature: string
 ) => {
   return apiRequest('/api/match/confirm-payment', {
     method: 'POST',
     body: JSON.stringify({ 
       matchId, 
       wallet, 
-      paymentSignature,
-      smartContractData 
+      paymentSignature
     }),
   }, true, 'confirm_payment');
 };
 
 // Non-critical endpoints (no ReCaptcha required)
 export const getMatchStatus = async (matchId: string, wallet?: string) => {
-  const url = wallet ? `/api/match/status/${matchId}?wallet=${wallet}` : `/api/match/status/${matchId}`;
-  return apiRequest(url, {
+  // Use multisig endpoint for vault-based matches
+  const url = `/api/multisig/matches/${matchId}/status`;
+  const params = wallet ? `?wallet=${wallet}` : '';
+  return apiRequest(url + params, {
     method: 'GET',
   }, false);
 };
@@ -315,12 +306,6 @@ export const getGameState = async (matchId: string, wallet: string) => {
   }, false);
 };
 
-export const getMatchPda = async (matchId: string) => {
-  return apiRequest(`/api/match/get-match-pda/${matchId}`, {
-    method: 'GET',
-  }, false, 'get_match_pda');
-};
-
 const api = {
   requestMatch,
   submitResult,
@@ -329,7 +314,6 @@ const api = {
   getMatchStatus,
   checkPlayerMatch,
   getGameState,
-  getMatchPda,
 };
 
 export default api; 

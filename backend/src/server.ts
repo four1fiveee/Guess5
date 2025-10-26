@@ -9,6 +9,7 @@ const { initializeRedis, closeRedis, checkRedisHealth } = require('./config/redi
 const { queueService } = require('./services/queueService');
 const { redisMatchmakingService } = require('./services/redisMatchmakingService');
 const { enhancedLogger } = require('./utils/enhancedLogger');
+const { backgroundServicesManager } = require('./services/backgroundServicesManager');
 
 // Initialize database and Redis before starting server
 async function startServer() {
@@ -60,6 +61,11 @@ async function startServer() {
         enhancedLogger.error('❌ Error during Redis cleanup:', error);
       }
     }, 60000); // Run cleanup every minute
+
+    // Start background services for multisig deposits and timeouts
+    enhancedLogger.info('🚀 Starting background services...');
+    backgroundServicesManager.start();
+    enhancedLogger.info('✅ Background services started');
 
     // Create HTTP server for WebSocket support
     const server = createServer(app);

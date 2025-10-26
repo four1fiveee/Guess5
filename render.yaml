@@ -11,16 +11,50 @@ services:
         value: production
       - key: PORT
         value: 40000
+      # Database
       - key: DATABASE_URL
         sync: false
+      # Frontend URL
       - key: FRONTEND_URL
         value: https://guess5.vercel.app
-      - key: PROGRAM_ID
-        value: rnJUt7xoxQvZpPqvY5LeQ3qUYSBnYfLKa5B8K5SWh6X
-      - key: FEE_WALLET_ADDRESS
-        value: AdujK4E4Rme8sza8ZTrbX2HHGnde31NTUjRk5MErxf3A
+      # AWS KMS Configuration
+      - key: AWS_REGION
+        value: us-east-1
+      - key: AWS_ACCESS_KEY_ID
+        sync: false
+      - key: AWS_SECRET_ACCESS_KEY
+        sync: false
+      - key: AWS_KMS_KEY_ID
+        sync: false
+      - key: KMS_KEY_ID
+        sync: false
+      # Multisig Configuration
+      - key: AUTOMATED_SIGNER_PUBKEY
+        value: 2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      - key: CO_SIGNER_PUBKEY
+        value: 3R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      - key: RECOVERY_KEY_PUBKEY
+        value: 4R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      # Multisig Program ID
+      - key: MULTISIG_PROGRAM_ID
+        value: SMPLMyo5fcsJzWz8c4KfgQoD2V2t2A2A2A2A2A2A2A2
+      # Solana Configuration
       - key: SOLANA_NETWORK
         value: https://api.devnet.solana.com
+      - key: FEE_WALLET_ADDRESS
+        value: 2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      # Security
+      - key: RECAPTCHA_SECRET
+        sync: false
+      # Redis Configuration (for matchmaking and game state)
+      - key: REDIS_MM_HOST
+        sync: false
+      - key: REDIS_MM_PORT
+        value: 6379
+      - key: REDIS_OPS_HOST
+        sync: false
+      - key: REDIS_OPS_PORT
+        value: 6379
     autoDeploy: true
     region: oregon
 
@@ -34,4 +68,16 @@ services:
       - key: NEXT_PUBLIC_API_URL
         value: https://guess5.onrender.com
       - key: NEXT_PUBLIC_SOLANA_NETWORK
-        value: https://api.devnet.solana.com 
+        value: https://api.devnet.solana.com
+      - key: NEXT_PUBLIC_MULTISIG_PROGRAM_ID
+        value: SMPLMyo5fcsJzWz8c4KfgQoD2V2t2A2A2A2A2A2A2A2
+      - key: NEXT_PUBLIC_AUTOMATED_SIGNER_PUBKEY
+        value: 2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      - key: NEXT_PUBLIC_CO_SIGNER_PUBKEY
+        value: 3R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      - key: NEXT_PUBLIC_RECOVERY_KEY_PUBKEY
+        value: 4R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      - key: NEXT_PUBLIC_FEE_WALLET_ADDRESS
+        value: 2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
+      - key: NEXT_PUBLIC_RECAPTCHA_SITE_KEY
+        value: 6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI 

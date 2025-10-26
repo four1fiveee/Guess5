@@ -20,67 +20,24 @@ export class Match {
   @Column({ nullable: true })
   word?: string;
 
-  // Legacy escrow fields (for backward compatibility) - REMOVED @Column definitions
-  // These fields are kept for TypeScript compatibility but columns were renamed
-  escrowAddress?: string;
-  player1EscrowConfirmed?: boolean;
-  player2EscrowConfirmed?: boolean;
-  player1EscrowSignature?: string;
-  player2EscrowSignature?: string;
+  // Legacy escrow fields removed - now using multisig vaults
 
-  // Smart contract fields
+  // Multisig vault fields (replaces old PDA system)
   @Column({ nullable: true })
-  matchPda?: string;
+  vaultAddress?: string;
+
+  // Multisig deposit tracking fields
+  @Column({ nullable: true })
+  depositATx?: string;
 
   @Column({ nullable: true })
-  vaultPda?: string;
+  depositBTx?: string;
 
-  @Column({ nullable: true })
-  resultsAttestor?: string;
+  @Column({ default: 0 })
+  depositAConfirmations?: number;
 
-  @Column({ type: 'bigint', nullable: true })
-  deadlineSlot?: number;
-
-  @Column({ type: 'int', nullable: true })
-  feeBps?: number;
-
-  @Column({ nullable: true })
-  smartContractStatus?: string; // Active, Deposited, Settled, Refunded
-
-  // Legacy fee wallet fields (for backward compatibility)
-  @Column({ nullable: true })
-  feeWalletAddress?: string;
-
-  @Column({ nullable: true })
-  player1EntryConfirmed?: boolean;
-
-  @Column({ nullable: true })
-  player2EntryConfirmed?: boolean;
-
-  @Column({ nullable: true })
-  player1EntrySignature?: string;
-
-  @Column({ nullable: true })
-  player2EntrySignature?: string;
-
-  // Blockchain verification fields for entry payments
-  @Column({ nullable: true })
-  player1EntrySlot?: number;
-
-  @Column({ nullable: true })
-  player1EntryBlockTime?: Date;
-
-  @Column({ default: false })
-  player1EntryFinalized?: boolean;
-
-  @Column({ nullable: true })
-  player2EntrySlot?: number;
-
-  @Column({ nullable: true })
-  player2EntryBlockTime?: Date;
-
-  @Column({ default: false })
-  player2EntryFinalized?: boolean;
+  @Column({ default: 0 })
+  depositBConfirmations?: number;
 
   // UTC timestamp fields for dual timezone support
   @Column({ nullable: true })
@@ -108,50 +65,19 @@ export class Match {
   @Column({ default: false })
   player2Paid?: boolean;
 
-  // Legacy payment signatures (for backward compatibility)
+  // Multisig transaction tracking
   @Column({ nullable: true })
-  player1PaymentSignature?: string;
-
-  @Column({ nullable: true })
-  player2PaymentSignature?: string;
-
-  // New payout signature fields with blockchain verification
-  @Column({ nullable: true })
-  winnerPayoutSignature?: string;
+  payoutTxHash?: string;
 
   @Column({ nullable: true })
-  winnerPayoutSlot?: number;
+  refundTxHash?: string;
+
+  // Match status tracking for multisig system
+  @Column({ default: 'PENDING' })
+  matchStatus?: string; // PENDING, VAULT_CREATED, READY, ACTIVE, SETTLED, REFUNDED
 
   @Column({ nullable: true })
-  winnerPayoutBlockTime?: Date;
-
-  @Column({ default: false })
-  winnerPayoutFinalized?: boolean;
-
-  // Refund signature fields with blockchain verification
-  @Column({ nullable: true })
-  player1RefundSignature?: string;
-
-  @Column({ nullable: true })
-  player1RefundSlot?: number;
-
-  @Column({ nullable: true })
-  player1RefundBlockTime?: Date;
-
-  @Column({ default: false })
-  player1RefundFinalized?: boolean;
-
-  @Column({ nullable: true })
-  player2RefundSignature?: string;
-
-  @Column({ nullable: true })
-  player2RefundSlot?: number;
-
-  @Column({ nullable: true })
-  player2RefundBlockTime?: Date;
-
-  @Column({ default: false })
-  player2RefundFinalized?: boolean;
+  attestationHash?: string;
 
   // Financial tracking fields
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })

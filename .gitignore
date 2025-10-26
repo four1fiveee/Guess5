@@ -122,6 +122,11 @@ tmp/
 *.deb
 *.rpm
 
+# AWS credentials and sensitive files
+AWS_CREDENTIALS_SUMMARY.md
+backend/vercel.json
+frontend/vercel.json
+
 # Solana toolchain (if downloaded)
 solana-*/
 rustup-init*

@@ -211,6 +211,10 @@ app.get('/', (req: any, res: any) => {
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
 
+// Multisig routes
+const multisigRoutes = require('./routes/multisigRoutes');
+app.use('/api/multisig', multisigRoutes);
+
 // Debug endpoints only in development
 if (process.env.NODE_ENV === 'development') {
   // Debug routes only in development

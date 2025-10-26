@@ -349,48 +349,25 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         throw new Error('Match data not found in Redis after creation');
       }
       
-      // Create smart contract match - wrap in try-catch to handle IDL errors
-      let smartContractResult;
-      try {
-        const { getSmartContractService } = require('../services/anchorClient');
-        
-        const stakeLamports = Math.floor(matchData.entryFee * 1000000000); // Convert SOL to lamports
-        
-        console.log('🔧 Creating smart contract match...');
-        const smartContractService = await getSmartContractService();
-        
-        // Calculate deadline slot (current slot + buffer)
-        const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com', 'confirmed');
-        const currentSlot = await connection.getSlot();
-        const deadlineSlot = currentSlot + 1000; // 1000 slots buffer
-        
-        smartContractResult = await smartContractService.createMatch(
-          new PublicKey(matchData.player1),
-          new PublicKey(matchData.player2),
-          stakeLamports,
-          500, // 5% fee
-          deadlineSlot
-        );
-      } catch (smartContractError) {
-        console.error('❌ Smart contract service error (including IDL errors):', smartContractError);
-        // Continue without smart contract for now - create match in database only
-        smartContractResult = { success: false, error: smartContractError instanceof Error ? smartContractError.message : String(smartContractError) };
+      // Create multisig vault for fund custody
+      console.log('🔧 Creating multisig vault for fund custody...');
+      const { multisigVaultService } = require('../services/multisigVaultService');
+      
+      const vaultResult = await multisigVaultService.createVault(
+        matchData.matchId,
+        matchData.player1,
+        matchData.player2,
+        matchData.entryFee
+      );
+      
+      if (!vaultResult.success) {
+        console.error('❌ Failed to create multisig vault:', vaultResult.error);
+        throw new Error(`Multisig vault creation failed: ${vaultResult.error}`);
       }
       
-      if (!smartContractResult.success) {
-        console.error('❌ Failed to create smart contract match:', smartContractResult.error);
-        console.log('❌ Smart contract creation is mandatory - cannot proceed without proper fund custody');
-        throw new Error(`Smart contract initialization failed: ${smartContractResult.error}`);
-      }
-      
-      if (smartContractResult.success) {
-        console.log('✅ Smart contract match created:', {
-          matchPda: smartContractResult.matchPda?.toString(),
-          vaultPda: smartContractResult.vaultPda?.toString()
-        });
-      } else {
-        console.log('⚠️ Smart contract creation failed, creating database-only match');
-      }
+      console.log('✅ Multisig vault created:', {
+        vaultAddress: vaultResult.vaultAddress
+      });
 
       // Create database record for the match
       const newMatch = new Match();
@@ -399,18 +376,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       newMatch.player2 = matchData.player2;
       newMatch.entryFee = matchData.entryFee;
       newMatch.status = 'payment_required';
+      newMatch.matchStatus = 'VAULT_CREATED';
       newMatch.word = getRandomWord();
+      newMatch.vaultAddress = vaultResult.vaultAddress;
       newMatch.createdAt = new Date(matchData.createdAt);
       newMatch.updatedAt = new Date();
-      
-      // Add smart contract data only if successful
-      if (smartContractResult.success) {
-        newMatch.matchPda = smartContractResult.matchPda?.toString();
-        newMatch.vaultPda = smartContractResult.vaultPda?.toString();
-        newMatch.smartContractCreated = true;
-      } else {
-        newMatch.smartContractCreated = false;
-      }
       
       await matchRepository.save(newMatch);
       console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
@@ -421,6 +391,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         player1: matchData.player1,
         player2: matchData.player2,
         entryFee: matchData.entryFee,
+        vaultAddress: vaultResult.vaultAddress,
         message: 'Match created - both players must pay entry fee to start game'
       };
     } else if (redisResult.status === 'waiting') {
@@ -1060,82 +1031,22 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
     const feeAmount = totalPot * 0.05; // 5% fee from total pot
 
-    // Check if this match used smart contract
-    const hasSmartContract = match.matchPda && match.vaultPda;
-    
-    if (hasSmartContract) {
-      console.log('🔗 Creating smart contract payout for match:', match.id);
-      
-      // Import smart contract payout service
-      const { createSmartContractPayout } = require('../services/payoutService');
-      
-      const smartContractPayout = await createSmartContractPayout(
-        match.id,
-        winnerWallet,
-        winnerAmount,
-        feeAmount,
-        match.matchPda,
-        match.vaultPda
-      );
-      
-      if (smartContractPayout.success) {
-        payoutResult = {
-          winner: winnerWallet,
-          winnerAmount: winnerAmount,
-          feeAmount: feeAmount,
-          feeWallet: RESULTS_ATTESTOR_ADDRESS.toString(),
-          smartContract: true,
-          matchPda: match.matchPda,
-          vaultPda: match.vaultPda,
-          transactions: [
-            {
-              from: match.vaultPda,
-              to: winnerWallet,
-              amount: winnerAmount,
-              description: 'Smart contract winner payout (95% of total pot)',
-              instruction: 'submitResult',
-              transaction: smartContractPayout.transaction
-            }
-          ]
-        };
-        console.log('✅ Smart contract payout created successfully');
-      } else {
-        console.warn('⚠️ Smart contract payout failed, falling back to manual:', smartContractPayout.error);
-        // Fallback to manual payout
-        payoutResult = {
-          winner: winnerWallet,
-          winnerAmount: winnerAmount,
-          feeAmount: feeAmount,
-          feeWallet: FEE_WALLET_ADDRESS,
-          smartContract: false,
-          transactions: [
-            {
-              from: FEE_WALLET_ADDRESS,
-              to: winnerWallet,
-              amount: winnerAmount,
-              description: 'Manual winner payout (95% of total pot) - smart contract failed'
-            }
-          ]
-        };
-      }
-    } else {
-      // Legacy payout system
-      payoutResult = {
-        winner: winnerWallet,
-        winnerAmount: winnerAmount,
-        feeAmount: feeAmount,
-        feeWallet: FEE_WALLET_ADDRESS,
-        smartContract: false,
-        transactions: [
-          {
-            from: FEE_WALLET_ADDRESS,
-            to: winnerWallet,
-            amount: winnerAmount,
-            description: 'Winner payout (95% of total pot)'
-          }
-        ]
-      };
-    }
+    // Use multisig vault for payout
+    payoutResult = {
+      winner: winnerWallet,
+      winnerAmount: winnerAmount,
+      feeAmount: feeAmount,
+      feeWallet: FEE_WALLET_ADDRESS,
+      smartContract: false, // Using multisig vault instead
+      transactions: [
+        {
+          from: 'Multisig Vault',
+          to: winnerWallet,
+          amount: winnerAmount,
+          description: 'Winner payout (95% of total pot) from vault'
+        }
+      ]
+    };
 
     console.log('💰 Payout calculated:', payoutResult);
   } else if (winner === 'tie') {
@@ -1447,258 +1358,38 @@ const submitResultHandler = async (req: any, res: any) => {
           const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
           const feeAmount = totalPot * 0.05; // 5% fee from total pot
           
-          // Try smart contract settlement first if match has smart contract data
-          if (updatedMatch.matchPda && updatedMatch.vaultPda) {
-            try {
-              console.log('🔗 Attempting smart contract settlement...');
-              const { getSmartContractService } = require('../services/smartContractService');
-              
-              // Determine the result enum for smart contract
-              let resultEnum: 'Player1' | 'Player2' | 'WinnerTie' | 'LosingTie' | 'Timeout' | 'Error';
-              
-              if (winner === 'tie') {
-                // Check if it's a winning tie (both solved) or losing tie (neither solved)
-                const player1Result = updatedMatch.getPlayer1Result();
-                const player2Result = updatedMatch.getPlayer2Result();
-                
-                if (player1Result?.won && player2Result?.won) {
-                  resultEnum = 'WinnerTie';
-                } else {
-                  resultEnum = 'LosingTie';
-                }
-              } else if (winner === updatedMatch.player1) {
-                resultEnum = 'Player1';
-              } else if (winner === updatedMatch.player2) {
-                resultEnum = 'Player2';
-              } else {
-                resultEnum = 'Error';
+          // Multisig vault will handle payout automatically
+          console.log('🔗 Multisig vault will process payout automatically');
+          
+          const paymentInstructions = {
+            winner,
+            loser,
+            winnerAmount,
+            feeAmount,
+            feeWallet: FEE_WALLET_ADDRESS,
+            automatedPayout: true,
+            vaultPayout: true,
+            transactions: [
+              {
+                from: 'Multisig Vault',
+                to: winner,
+                amount: winnerAmount,
+                description: 'Vault payout to winner (95% of pot)'
+              },
+              {
+                from: 'Multisig Vault',
+                to: FEE_WALLET_ADDRESS,
+                amount: feeAmount,
+                description: 'Vault fee payment (5% of pot)'
               }
-              
-              console.log('🔗 Settling smart contract with result:', resultEnum);
-              
-              const smartContractService = await getSmartContractService();
-              // Get match data to extract player addresses
-              const matchData = await smartContractService.getMatchData(new PublicKey(matchId));
-              const settlementResult = await smartContractService.settleMatch(
-                new PublicKey(matchId),
-                resultEnum,
-                matchData.player1,
-                matchData.player2
-              );
-              
-              if (settlementResult.success) {
-                console.log('✅ Smart contract settlement successful:', settlementResult.transactionId);
-                
-                // Create payment instructions for display
-                const paymentInstructions = {
-                  winner,
-                  loser,
-                  winnerAmount,
-                  feeAmount,
-                  smartContractSettlement: true,
-                  settlementSignature: settlementResult.transactionId,
-                  matchPda: updatedMatch.matchPda,
-                  vaultPda: updatedMatch.vaultPda,
-                  transactions: [
-                    {
-                      from: 'Smart Contract Vault',
-                      to: winner,
-                      amount: winnerAmount,
-                      description: 'Smart contract settlement to winner',
-                      signature: settlementResult.transactionId
-                    }
-                  ]
-                };
-                
-                (payoutResult as any).paymentInstructions = paymentInstructions;
-                (payoutResult as any).paymentSuccess = true;
-                (payoutResult as any).smartContractSettlement = true;
-                
-                // Update the database column with the settlement signature
-                updatedMatch.winnerPayoutSignature = settlementResult.transactionId;
-                updatedMatch.smartContractStatus = 'Settled';
-                
-                console.log('✅ Smart contract settlement completed');
-              } else {
-                throw new Error(`Smart contract settlement failed: ${settlementResult.error}`);
-              }
-              
-            } catch (error: unknown) {
-              console.error('❌ Smart contract settlement failed, falling back to legacy payout:', error);
-              
-              // Fall back to legacy payout system
-              try {
-                const { getFeeWalletKeypair } = require('../config/wallet');
-                const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
-                
-                const feeWalletKeypair = getFeeWalletKeypair();
-                const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
-                
-                // Create payout transaction
-                const payoutTransaction = new Transaction().add(
-                  SystemProgram.transfer({
-                    fromPubkey: feeWalletKeypair.publicKey,
-                    toPubkey: new PublicKey(winner),
-                    lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
-                  })
-                );
-                
-                // Get recent blockhash
-                const { blockhash } = await connection.getLatestBlockhash();
-                payoutTransaction.recentBlockhash = blockhash;
-                payoutTransaction.feePayer = feeWalletKeypair.publicKey;
-                
-                // Sign and send transaction
-                const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
-                await connection.confirmTransaction(signature);
-                
-                console.log('✅ Legacy payout successful:', signature);
-                
-                // Create payment instructions for display
-                const paymentInstructions = {
-                  winner,
-                  loser,
-                  winnerAmount,
-                  feeAmount,
-                  feeWallet: FEE_WALLET_ADDRESS,
-                  automatedPayout: true,
-                  payoutSignature: signature,
-                  transactions: [
-                    {
-                      from: FEE_WALLET_ADDRESS,
-                      to: winner,
-                      amount: winnerAmount,
-                      description: 'Legacy payout to winner',
-                      signature: signature
-                    }
-                  ]
-                };
-                
-                (payoutResult as any).paymentInstructions = paymentInstructions;
-                (payoutResult as any).paymentSuccess = true;
-                (payoutResult as any).automatedPayout = true;
-                
-                // Update the database column with the payout signature
-                updatedMatch.winnerPayoutSignature = signature;
-                
-                console.log('✅ Legacy payout completed');
-                
-              } catch (legacyError: unknown) {
-                const errorMessage = legacyError instanceof Error ? legacyError.message : String(legacyError);
-                console.warn('⚠️ Legacy payout failed, falling back to manual instructions:', errorMessage);
-                
-                // Fallback to manual payment instructions
-                const paymentInstructions = {
-                  winner,
-                  loser,
-                  winnerAmount,
-                  feeAmount,
-                  feeWallet: FEE_WALLET_ADDRESS,
-                  automatedPayout: false,
-                  transactions: [
-                    {
-                      from: FEE_WALLET_ADDRESS,
-                      to: winner,
-                      amount: winnerAmount,
-                      description: 'Manual payout to winner (contact support)'
-                    }
-                  ]
-                };
-                
-                (payoutResult as any).paymentInstructions = paymentInstructions;
-                (payoutResult as any).paymentSuccess = false;
-                (payoutResult as any).paymentError = 'Both smart contract and legacy payouts failed - contact support';
-                
-                console.log('⚠️ Manual payment instructions created');
-              }
-            }
-          } else {
-            // No smart contract data - use legacy payout system
-            try {
-              const { getFeeWalletKeypair } = require('../config/wallet');
-              const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
-              
-              const feeWalletKeypair = getFeeWalletKeypair();
-              const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
-              
-              // Create payout transaction
-              const payoutTransaction = new Transaction().add(
-                SystemProgram.transfer({
-                  fromPubkey: feeWalletKeypair.publicKey,
-                  toPubkey: new PublicKey(winner),
-                  lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
-                })
-              );
-              
-              // Get recent blockhash
-              const { blockhash } = await connection.getLatestBlockhash();
-              payoutTransaction.recentBlockhash = blockhash;
-              payoutTransaction.feePayer = feeWalletKeypair.publicKey;
-              
-              // Sign and send transaction
-              const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
-              await connection.confirmTransaction(signature);
-              
-              console.log('✅ Legacy payout successful:', signature);
-              
-              // Create payment instructions for display
-              const paymentInstructions = {
-                winner,
-                loser,
-                winnerAmount,
-                feeAmount,
-                feeWallet: FEE_WALLET_ADDRESS,
-                automatedPayout: true,
-                payoutSignature: signature,
-                transactions: [
-                  {
-                    from: FEE_WALLET_ADDRESS,
-                    to: winner,
-                    amount: winnerAmount,
-                    description: 'Legacy payout to winner',
-                    signature: signature
-                  }
-                ]
-              };
-              
-              (payoutResult as any).paymentInstructions = paymentInstructions;
-              (payoutResult as any).paymentSuccess = true;
-              (payoutResult as any).automatedPayout = true;
-              
-              // Update the database column with the payout signature
-              updatedMatch.winnerPayoutSignature = signature;
-              
-              console.log('✅ Legacy payout completed');
-              
-            } catch (error: unknown) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
-              console.warn('⚠️ Legacy payout failed, falling back to manual instructions:', errorMessage);
-              
-              // Fallback to manual payment instructions
-              const paymentInstructions = {
-                winner,
-                loser,
-                winnerAmount,
-                feeAmount,
-                feeWallet: FEE_WALLET_ADDRESS,
-                automatedPayout: false,
-                transactions: [
-                {
-                  from: FEE_WALLET_ADDRESS,
-                  to: winner,
-                  amount: winnerAmount,
-                  description: 'Manual payout to winner (contact support)'
-                }
-              ]
-            };
-            
-            (payoutResult as any).paymentInstructions = paymentInstructions;
-            (payoutResult as any).paymentSuccess = false;
-            (payoutResult as any).paymentError = 'Automated payout failed - contact support';
-            
-            console.log('⚠️ Manual payment instructions created');
-          }
-            }
+            ]
+          };
+          
+          (payoutResult as any).paymentInstructions = paymentInstructions;
+          (payoutResult as any).paymentSuccess = true;
+          (payoutResult as any).automatedPayout = true;
+          
+          console.log('✅ Multisig vault payout instructions created');
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
@@ -5106,87 +4797,31 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
   }
 };
 
-// Get match PDA endpoint for smart contract integration
-const getMatchPdaHandler = async (req: any, res: any) => {
-  try {
-    const { matchId } = req.params;
-    
-    if (!matchId) {
-      return res.status(400).json({ error: 'Match ID is required' });
-    }
-
-    console.log('🔍 Getting match PDA for matchId:', matchId);
-
-    const { AppDataSource } = require('../db/index');
-    const matchRepository = AppDataSource.getRepository(Match);
-    
-    // Find the match
-    const match = await matchRepository.findOne({ where: { id: matchId } });
-    
-    if (!match) {
-      return res.status(404).json({ error: 'Match not found' });
-    }
-
-    // Check if match has smart contract data
-    if (!match.matchPda || !match.vaultPda) {
-      return res.status(400).json({ 
-        error: 'Match does not have smart contract data',
-        message: 'This match was created before smart contract integration'
-      });
-    }
-
-    console.log('✅ Found match with smart contract data:', {
-      matchId,
-      matchPda: match.matchPda,
-      vaultPda: match.vaultPda
-    });
-
-    res.json({
-      success: true,
-      matchPda: match.matchPda,
-      vaultPda: match.vaultPda,
-      player1: match.player1,
-      player2: match.player2,
-      entryFee: match.entryFee,
-      status: match.status
-    });
-
-  } catch (error: unknown) {
-    console.error('❌ Error getting match PDA:', error);
-    res.status(500).json({ error: 'Internal server error' });
-  }
-};
-
-// Smart contract integration handlers
+// Multisig vault integration handlers
 
 /**
- * Handle player deposit to smart contract vault
+ * Handle player deposit to multisig vault
  */
-const depositToSmartContractHandler = async (req: any, res: any) => {
+const depositToMultisigVaultHandler = async (req: any, res: any) => {
   try {
-    const { matchId, playerWallet, stakeAmount } = req.body;
+    const { matchId, playerWallet, amount } = req.body;
 
-    if (!matchId || !playerWallet) {
+    if (!matchId || !playerWallet || !amount) {
       return res.status(400).json({ 
-        error: 'Missing required fields: matchId and playerWallet' 
+        error: 'Missing required fields: matchId, playerWallet, and amount' 
       });
     }
 
-    console.log('💰 Processing smart contract deposit request:', { matchId, playerWallet });
+    console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount });
 
-    // Get smart contract service
-    const { getSmartContractService } = require('../services/smartContractService');
-    const smartContractService = getSmartContractService();
+    // Get multisig vault service
+    const { multisigVaultService } = require('../services/multisigVaultService');
 
-    // Process deposit
-    const result = await smartContractService.deposit(
-      new PublicKey(matchId),
-      playerWallet,
-      stakeAmount
-    );
+    // Verify deposit on Solana
+    const result = await multisigVaultService.verifyDeposit(matchId, playerWallet, amount);
 
     if (result.success) {
-      console.log('✅ Smart contract deposit processed successfully:', {
+      console.log('✅ Multisig vault deposit verified successfully:', {
         matchId,
         playerWallet,
         transactionId: result.transactionId
@@ -5194,13 +4829,13 @@ const depositToSmartContractHandler = async (req: any, res: any) => {
 
       res.json({
         success: true,
-        message: 'Deposit instruction prepared for frontend',
+        message: 'Deposit verified successfully',
         transactionId: result.transactionId,
         matchId,
         playerWallet
       });
     } else {
-      console.error('❌ Smart contract deposit failed:', result.error);
+      console.error('❌ Multisig vault deposit failed:', result.error);
       res.status(500).json({
         success: false,
         error: result.error
@@ -5208,7 +4843,7 @@ const depositToSmartContractHandler = async (req: any, res: any) => {
     }
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Error in depositToSmartContractHandler:', error);
+    console.error('❌ Error in depositToMultisigVaultHandler:', error);
     res.status(500).json({ 
       success: false,
       error: errorMessage 
@@ -5493,15 +5128,10 @@ module.exports = {
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,
-  getMatchPdaHandler,
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,
 
-  // Smart contract integration handlers
-  depositToSmartContractHandler,
-  settleMatchHandler,
-  getSmartContractStatusHandler,
-  verifyDepositHandler,
-  getDepositStatusHandler,
+  // Multisig vault integration handlers
+  depositToMultisigVaultHandler,
 };
