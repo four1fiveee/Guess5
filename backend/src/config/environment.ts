@@ -44,7 +44,8 @@ export const config = {
 export const validateConfig = () => {
   const required = [
     'DATABASE_URL',
-    'FEE_WALLET_ADDRESS'
+    'FEE_WALLET_ADDRESS',
+    'FEE_WALLET_PRIVATE_KEY'
   ];
   
   const missing = required.filter(key => !process.env[key]);

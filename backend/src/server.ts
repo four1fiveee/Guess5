@@ -9,7 +9,6 @@ const { initializeRedis, closeRedis, checkRedisHealth } = require('./config/redi
 const { queueService } = require('./services/queueService');
 const { redisMatchmakingService } = require('./services/redisMatchmakingService');
 const { enhancedLogger } = require('./utils/enhancedLogger');
-const { backgroundServicesManager } = require('./services/backgroundServicesManager');
 
 // Initialize database and Redis before starting server
 async function startServer() {
@@ -32,8 +31,26 @@ async function startServer() {
     await initializeRedis();
     enhancedLogger.info('✅ Redis initialized successfully');
 
-    // Smart contract service removed - using multisig vault instead
-    enhancedLogger.info('✅ Using multisig vault architecture (no legacy smart contract)');
+    // Initialize smart contract service
+    enhancedLogger.info('🔌 Initializing smart contract service...');
+    try {
+      const { getSmartContractService } = require('./services/anchorClient');
+      const smartContractService = await getSmartContractService();
+      
+      // Verify the service is properly initialized
+      if (smartContractService.isProgramInitialized()) {
+        enhancedLogger.info('✅ Smart contract service initialized successfully');
+      } else {
+        throw new Error('Smart contract service failed to initialize properly');
+      }
+    } catch (error) {
+      enhancedLogger.error('❌ Failed to initialize smart contract service:', error);
+      enhancedLogger.error('❌ Smart contract initialization details:', {
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined
+      });
+      enhancedLogger.warn('⚠️ Smart contract features will be disabled');
+    }
 
     // Start cleanup scheduler for Redis matchmaking
     setInterval(async () => {
@@ -43,11 +60,6 @@ async function startServer() {
         enhancedLogger.error('❌ Error during Redis cleanup:', error);
       }
     }, 60000); // Run cleanup every minute
-
-    // Start background services for multisig deposits and timeouts
-    enhancedLogger.info('🚀 Starting background services...');
-    backgroundServicesManager.start();
-    enhancedLogger.info('✅ Background services started');
 
     // Create HTTP server for WebSocket support
     const server = createServer(app);

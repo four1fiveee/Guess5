@@ -124,46 +124,19 @@ export default function Lobby() {
         const response = await fetch(`${config.API_URL}/api/match/check-player-match/${publicKey.toString()}`);
         
         if (response.ok) {
-                  const data = await response.json();
-        if (data.matched && data.status === 'active') {
-          console.log('🎮 Found active match, verifying it\'s not stale...');
-          
-          // Check match status to ensure it's actually active and recent
-          try {
-            const statusResponse = await fetch(`${config.API_URL}/api/multisig/matches/${data.matchId}/status?wallet=${publicKey.toString()}`);
-            if (statusResponse.ok) {
-              const statusData = await statusResponse.json();
-              const match = statusData.match;
-              
-              // Check if match was created more than 10 minutes ago (stale active match)
-              const matchCreated = new Date(match.createdAt);
-              const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
-              
-              if (matchCreated < tenMinutesAgo) {
-                console.log('⚠️ Match is stale (older than 10 minutes), ignoring:', data.matchId);
-                // Clear localStorage and continue to lobby
-                localStorage.removeItem('matchId');
-                localStorage.removeItem('word');
-                localStorage.removeItem('entryFee');
-                return;
-              }
-              
-              console.log('✅ Match is recent, redirecting to game:', data.matchId);
-              localStorage.setItem('matchId', data.matchId);
-              if (data.word) {
-                localStorage.setItem('word', data.word);
-              }
-              if (data.entryFee) {
-                localStorage.setItem('entryFee', data.entryFee.toString());
-              }
-              router.push(`/game?matchId=${data.matchId}`);
-              return;
+          const data = await response.json();
+          if (data.matched && data.status === 'active') {
+            console.log('🎮 Found active match, redirecting to game:', data.matchId);
+            localStorage.setItem('matchId', data.matchId);
+            if (data.word) {
+              localStorage.setItem('word', data.word);
             }
-          } catch (statusError) {
-            console.error('❌ Error checking match status:', statusError);
-            // If we can't check status, don't redirect - let user start fresh
+            if (data.entryFee) {
+              localStorage.setItem('entryFee', data.entryFee.toString());
+            }
+            router.push(`/game?matchId=${data.matchId}`);
+            return;
           }
-        }
         }
       } catch (error) {
         console.error('❌ Error checking for active match:', error);

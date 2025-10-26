@@ -5,9 +5,9 @@ const { getSolPriceHandler } = require('../services/solPriceService');
 const { 
   validateMatchRequest: validateMatch, 
   validateSubmitResult: validateResult, 
-  validateConfirmPayment: validateConfirmPaymentData
+  validateConfirmPayment: validateConfirmPaymentData,
+  validateReCaptcha
 } = require('../middleware/validation');
-const { validateBotId } = require('../middleware/botidValidation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
 // Rate limiting removed - ReCaptcha provides sufficient protection
@@ -17,29 +17,30 @@ const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandle
 
 // Production routes with enhanced security
 router.post('/request-match', 
-  // BotID provides bot protection without user friction
+  // Removed rate limiting for match request - ReCaptcha provides sufficient protection
   validateMatch, 
-  validateBotId,
+  validateReCaptcha,
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
 router.post('/submit-result', 
-  // BotID provides bot protection without user friction
+  // Removed rate limiting for result submission - ReCaptcha provides sufficient protection
   validateResult, 
-  validateBotId,
+  validateReCaptcha,
   asyncHandlerWrapper(matchController.submitResultHandler)
 );
 
 router.post('/submit-guess', 
-  // BotID provides bot protection without user friction
-  validateBotId,
+  // Removed rate limiting for guess submission - ReCaptcha provides sufficient protection
+  // Temporarily removed ReCaptcha to avoid conflicts during testing
+  // validateReCaptcha,
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
 );
 
 router.post('/confirm-payment', 
-  // BotID provides bot protection without user friction
+  // Removed rate limiting for payment confirmation - ReCaptcha provides sufficient protection
   validateConfirmPaymentData,
-  validateBotId,
+  validateReCaptcha,
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
 );
 
@@ -84,9 +85,34 @@ router.get('/game-state',
   asyncHandlerWrapper(matchController.getGameStateHandler)
 );
 
-// Multisig vault integration endpoints
-router.post('/deposit-to-multisig-vault', 
-  asyncHandlerWrapper(matchController.depositToMultisigVaultHandler)
+// Smart contract integration endpoints
+router.get('/get-match-pda/:matchId', 
+  asyncHandlerWrapper(matchController.getMatchPdaHandler)
+);
+
+// Smart contract deposit endpoint
+router.post('/deposit-to-smart-contract', 
+  asyncHandlerWrapper(matchController.depositToSmartContractHandler)
+);
+
+// Smart contract settlement endpoint
+router.post('/settle-match', 
+  asyncHandlerWrapper(matchController.settleMatchHandler)
+);
+
+// Smart contract status endpoint
+router.get('/smart-contract-status/:matchId', 
+  asyncHandlerWrapper(matchController.getSmartContractStatusHandler)
+);
+
+// Smart contract deposit verification endpoint
+router.post('/verify-deposit', 
+  asyncHandlerWrapper(matchController.verifyDepositHandler)
+);
+
+// Smart contract deposit status endpoint
+router.get('/deposit-status/:matchId', 
+  asyncHandlerWrapper(matchController.getDepositStatusHandler)
 );
 
 
