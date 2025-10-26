@@ -160,21 +160,26 @@ export class MultisigVaultService {
       const expectedLamports = expectedAmount * LAMPORTS_PER_SOL;
       const expectedTotalLamports = expectedAmount * 2 * LAMPORTS_PER_SOL;
       
-      // Determine which player deposited based on current balance
-      // Player 1 deposits first (balance = 1x entry fee)
-      // Player 2 deposits second (balance = 2x entry fee)
-      if (balance >= expectedLamports && balance < expectedTotalLamports) {
-        // Only one deposit - must be Player 1
-        match.depositAConfirmations = 1;
-        enhancedLogger.info('✅ Player 1 deposit confirmed', { matchId, balanceSOL });
-      } else if (balance >= expectedTotalLamports) {
-        // Both deposits complete - confirm both players
-        if ((match.depositAConfirmations ?? 0) === 0) {
+      // Determine which player's deposit to confirm
+      // Use the playerWallet parameter to identify the correct player
+      if (isPlayer1) {
+        // Player 1 deposit confirmed when we have at least expectedAmount
+        if (balance >= expectedLamports) {
           match.depositAConfirmations = 1;
-          enhancedLogger.info('✅ Player 1 deposit confirmed (both deposited)', { matchId });
+          enhancedLogger.info('✅ Player 1 deposit confirmed', { matchId, balanceSOL });
         }
-        match.depositBConfirmations = 1;
-        enhancedLogger.info('✅ Player 2 deposit confirmed', { matchId, balanceSOL });
+      } else {
+        // Player 2 deposit confirmed when we have the full amount (both deposits)
+        if (balance >= expectedTotalLamports) {
+          match.depositBConfirmations = 1;
+          enhancedLogger.info('✅ Player 2 deposit confirmed', { matchId, balanceSOL });
+          
+          // Also confirm Player 1 if not already confirmed
+          if ((match.depositAConfirmations ?? 0) === 0) {
+            match.depositAConfirmations = 1;
+            enhancedLogger.info('✅ Player 1 deposit also confirmed', { matchId });
+          }
+        }
       }
 
       await matchRepository.save(match);
@@ -183,11 +188,24 @@ export class MultisigVaultService {
       if ((match.depositAConfirmations ?? 0) >= 1 && (match.depositBConfirmations ?? 0) >= 1) {
         match.matchStatus = 'READY';
         match.status = 'active'; // Set status to active so frontend can redirect to game
+        
+        // Ensure word is set if not already present
+        if (!match.word) {
+          const { getRandomWord } = require('../wordList');
+          match.word = getRandomWord();
+        }
+        
+        // Set game start time if not already set
+        if (!match.gameStartTime) {
+          match.gameStartTime = new Date();
+        }
+        
         await matchRepository.save(match);
         
         enhancedLogger.info('✅ Both deposits confirmed, match ready to start', {
           matchId,
           totalBalance: balanceSOL,
+          word: match.word,
         });
       }
 
