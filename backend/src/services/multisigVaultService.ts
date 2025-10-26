@@ -261,6 +261,12 @@ export class MultisigVaultService {
 
       // Create real Solana transaction for payout
       const vaultPublicKey = new PublicKey(vaultAddress);
+      
+      // Validate winner address (should not be null for payout)
+      if (!attestation.winner_address) {
+        throw new Error('Winner address is required for payout');
+      }
+      
       const winnerPublicKey = new PublicKey(attestation.winner_address);
       const feeWalletPublicKey = new PublicKey(feeWalletAddress);
 
