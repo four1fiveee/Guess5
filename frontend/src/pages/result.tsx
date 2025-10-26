@@ -248,7 +248,7 @@ const Result: React.FC = () => {
                        <div className="text-green-700">
                          <p>You won {payoutData.winnerAmount?.toFixed(4)} SOL!</p>
                          <p className="text-sm text-green-600 mt-1">
-                           Payment has been sent to your wallet automatically by the fee wallet.
+                           Payment has been sent to your wallet automatically from the multisig vault.
                          </p>
                        </div>
                      ) : payoutData.isTie ? (
@@ -261,7 +261,7 @@ const Result: React.FC = () => {
                               Both players solved the puzzle with the same moves and time! You get a full refund of your entry fee: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
                             </p>
                             <p className="text-sm text-yellow-500 mt-1">
-                              Full refund processed automatically by the fee wallet.
+                              Full refund processed automatically from the multisig vault.
                             </p>
                           </>
                         ) : (
@@ -272,7 +272,7 @@ const Result: React.FC = () => {
                               Neither player solved the puzzle. You get a 95% refund of your entry fee: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL.
                             </p>
                             <p className="text-sm text-yellow-500 mt-1">
-                              Refund processed automatically by the fee wallet.
+                              Refund processed automatically from the multisig vault.
                             </p>
                           </>
                         )}
@@ -282,7 +282,7 @@ const Result: React.FC = () => {
                         {/* Regular loss */}
                         <p>Better luck next time!</p>
                         <p className="text-sm text-gray-600 mt-1">
-                          The winner has been paid automatically by the fee wallet.
+                          The winner has been paid automatically from the multisig vault.
                         </p>
                       </div>
                     )}
