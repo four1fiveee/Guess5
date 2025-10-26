@@ -490,8 +490,8 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       "player1",
       "player2",
       "entryFee",
-      "feeWalletAddress",
-      status
+      status,
+      "vaultAddress"
     FROM "match" 
     WHERE (("player1" = $1 AND "status" IN ($2, $3)) OR ("player2" = $4 AND "status" IN ($5, $6)))
     LIMIT 1
@@ -506,7 +506,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       player1: existingMatch.player1,
       player2: existingMatch.player2,
       entryFee: existingMatch.entryFee,
-      feeWalletAddress: existingMatch.feeWalletAddress || existingMatch.escrowAddress,
+      vaultAddress: existingMatch.vaultAddress,
       matchStatus: existingMatch.status,
       message: existingMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
     };
@@ -2063,7 +2063,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
           "player1Paid",
           "player2Paid",
           word,
-          "feeWalletAddress",
+          "vaultAddress",
           "entryFee"
         FROM "match" 
         WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6))
@@ -2147,7 +2147,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         player1Paid: activeMatch.player1Paid,
         player2Paid: activeMatch.player2Paid,
         word: activeMatch.word,
-        feeWalletAddress: activeMatch.feeWalletAddress || activeMatch.escrowAddress,
+        vaultAddress: activeMatch.vaultAddress,
         entryFee: activeMatch.entryFee,
         message: message
       });
