@@ -6,14 +6,6 @@ import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
 import api from '../utils/api';
-import { 
-  initializeProgram, 
-  createMatchInstruction, 
-  createDepositInstruction,
-  calculateDeadlineSlot,
-  verifySmartContractTransaction,
-  SOLANA_PROGRAM_ID
-} from '../utils/smartContract';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
@@ -59,7 +51,7 @@ const Matchmaking: React.FC = () => {
     }
 
     try {
-      console.log('💰 Starting payment...');
+      console.log('💰 Starting payment to multisig vault...');
 
       // Create connection to Solana network
       const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
@@ -73,56 +65,21 @@ const Matchmaking: React.FC = () => {
         throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
       }
       
-      // Initialize smart contract program
-      const wallet = {
-        publicKey: publicKey,
-        signTransaction: signTransaction!,
-        signAllTransactions: async (txs: any[]) => {
-          const signedTxs = [];
-          for (const tx of txs) {
-            signedTxs.push(await signTransaction!(tx));
-          }
-          return signedTxs;
-        }
-      };
-
-      console.log('🔧 Initializing smart contract program...');
-      const program = await initializeProgram(connection, wallet);
-      console.log('✅ Smart contract program initialized');
-      
-      // Use matchId for smart contract
-      const matchId = matchData.matchId;
-      
-      // Get match PDA and vault PDA from backend
-      console.log('🔧 Getting match PDA from backend...');
-      const matchPdaResponse = await api.getMatchPda(matchId);
-      if (!matchPdaResponse.success) {
-        throw new Error('Failed to get match PDA from backend');
+      if (!matchData.vaultAddress) {
+        throw new Error('Vault address not found. Please refresh the page and try again.');
       }
       
-      const matchPda = new PublicKey(matchPdaResponse.matchPda);
-      const vaultPda = new PublicKey(matchPdaResponse.vaultPda);
-      
-      console.log('✅ Got match PDAs:', {
-        matchPda: matchPda.toString(),
-        vaultPda: vaultPda.toString()
-      });
-
-      // Create deposit instruction for existing match
-      console.log('🔧 Creating deposit instruction...');
-      const instruction = await createDepositInstruction(
-        program,
-        publicKey,
-        matchPda,
-        vaultPda
+      // Create transaction to send SOL to vault
+      const transaction = new Transaction().add(
+        SystemProgram.transfer({
+          fromPubkey: publicKey,
+          toPubkey: new PublicKey(matchData.vaultAddress),
+          lamports: requiredAmount,
+        })
       );
-      console.log('✅ Deposit instruction created');
-
-      // Create transaction with smart contract instruction
-      const transaction = new Transaction().add(instruction);
 
       // Get recent blockhash
-      const { blockhash } = await connection.getLatestBlockhash();
+      const { blockhash } = await connection.getRecentBlockhash();
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
@@ -142,54 +99,30 @@ const Matchmaking: React.FC = () => {
       }
       console.log('✅ Transaction confirmed successfully');
 
-  
+      // Notify backend of deposit with transaction signature
+      const depositResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/multisig/deposits`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId: matchData.matchId,
+          playerWallet: publicKey.toString(),
+          amount: entryFee,
+          depositTxSignature: signature,
+        }),
+      });
 
-      // Verify smart contract transaction
-      const verificationResult = await verifySmartContractTransaction(
-        connection,
-        signature,
-        SOLANA_PROGRAM_ID
-      );
-
-      if (!verificationResult.verified) {
-        throw new Error(`Smart contract verification failed: ${verificationResult.error}`);
+      if (!depositResponse.ok) {
+        throw new Error('Failed to notify backend of deposit');
       }
 
-      console.log('✅ Smart contract transaction verified:', verificationResult.details);
+      const depositData = await depositResponse.json();
+      console.log('✅ Deposit confirmed by backend:', depositData);
 
-      // Confirm payment with backend with smart contract data
-      let confirmData;
-      let retryCount = 0;
-      const maxRetries = 3;
-      
-      while (retryCount < maxRetries) {
-        try {
-          confirmData = await api.confirmPayment(
-            matchData.matchId, 
-            publicKey.toString(), 
-            signature,
-            {
-              matchPda: matchPda.toString(),
-              vaultPda: vaultPda.toString(),
-              matchId: matchId,
-              smartContractVerified: true,
-              verificationDetails: verificationResult.details
-            }
-          );
-      
-          break; // Success, exit retry loop
-        } catch (error) {
-          retryCount++;
-          console.warn(`⚠️ Payment confirmation attempt ${retryCount} failed:`, error);
-          
-          if (retryCount >= maxRetries) {
-            throw new Error(`Payment confirmation failed after ${maxRetries} attempts: ${error instanceof Error ? error.message : 'Unknown error'}`);
-          }
-          
-          // Wait before retrying
-          await new Promise(resolve => setTimeout(resolve, 1000 * retryCount));
-        }
-      }
+      // Fetch updated match status
+      const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/multisig/matches/${matchData.matchId}/status`);
+      const confirmData = await statusResponse.json();
 
       // Update match data with payment status
       setMatchData((prev: any) => ({
