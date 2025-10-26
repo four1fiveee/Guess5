@@ -1,17 +1,15 @@
-import { Request, Response } from 'express';
-import { AppDataSource } from '../db';
-import { Match } from '../models/Match';
-import { MatchAttestation } from '../models/MatchAttestation';
-import { MatchAuditLog } from '../models/MatchAuditLog';
-import { multisigVaultService } from '../services/multisigVaultService';
-import { AttestationData } from '../services/kmsService';
-import { enhancedLogger } from '../utils/enhancedLogger';
-import { LAMPORTS_PER_SOL } from '@solana/web3.js';
+const { AppDataSource } = require('../db');
+const { Match } = require('../models/Match');
+const { MatchAttestation } = require('../models/MatchAttestation');
+const { MatchAuditLog } = require('../models/MatchAuditLog');
+const { multisigVaultService } = require('../services/multisigVaultService');
+const { enhancedLogger } = require('../utils/enhancedLogger');
+const { LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
 /**
  * Create a new match with multisig vault
  */
-export const createMatchHandler = async (req: Request, res: Response): Promise<void> => {
+exports.createMatchHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { player1Wallet, player2Wallet, entryFee } = req.body;
 
@@ -82,7 +80,7 @@ export const createMatchHandler = async (req: Request, res: Response): Promise<v
 /**
  * Get match status including vault information
  */
-export const getMatchStatusHandler = async (req: Request, res: Response): Promise<void> => {
+exports.getMatchStatusHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId } = req.params;
 
@@ -145,7 +143,7 @@ export const getMatchStatusHandler = async (req: Request, res: Response): Promis
 /**
  * Submit attestation for match settlement
  */
-export const submitAttestationHandler = async (req: Request, res: Response): Promise<void> => {
+exports.submitAttestationHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId } = req.params;
     const attestationData: AttestationData = req.body;
@@ -207,7 +205,7 @@ export const submitAttestationHandler = async (req: Request, res: Response): Pro
 /**
  * Process refund for timeout scenarios
  */
-export const refundTimeoutHandler = async (req: Request, res: Response): Promise<void> => {
+exports.refundTimeoutHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId } = req.params;
     const { reason } = req.body;
@@ -263,7 +261,7 @@ export const refundTimeoutHandler = async (req: Request, res: Response): Promise
 /**
  * Get attestations for a match
  */
-export const getAttestationsHandler = async (req: Request, res: Response): Promise<void> => {
+exports.getAttestationsHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId } = req.params;
 
@@ -306,7 +304,7 @@ export const getAttestationsHandler = async (req: Request, res: Response): Promi
 /**
  * Get audit logs for a match
  */
-export const getAuditLogsHandler = async (req: Request, res: Response): Promise<void> => {
+exports.getAuditLogsHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId } = req.params;
 
@@ -347,7 +345,7 @@ export const getAuditLogsHandler = async (req: Request, res: Response): Promise<
 /**
  * Process deposit to vault
  */
-export const processDepositHandler = async (req: Request, res: Response): Promise<void> => {
+exports.processDepositHandler = async (req: any, res: any): Promise<void> => {
   try {
     const { matchId, playerWallet, amount } = req.body;
 
