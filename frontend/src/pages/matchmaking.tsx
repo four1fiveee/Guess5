@@ -283,7 +283,7 @@ const Matchmaking: React.FC = () => {
         {/* Show MatchStatusDisplay when we have a vault address */}
         {matchData && matchData.vaultAddress && (
           <div className="max-w-2xl w-full">
-            <MatchStatusDisplay matchId={matchData.matchId} />
+            <MatchStatusDisplay matchId={matchData.matchId} playerWallet={publicKey?.toString() || ''} />
           </div>
         )}
 
