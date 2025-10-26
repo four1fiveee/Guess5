@@ -78,27 +78,40 @@ const Matchmaking: React.FC = () => {
             } catch (error) {
               console.error('❌ Error checking for match:', error);
             }
-          } else if (currentMatchData && currentMatchData.matchId) {
+                      } else if (currentMatchData && currentMatchData.matchId) {
             // Check match status for existing match
             try {
-              const data = await api.getMatchStatus(currentMatchData.matchId, publicKey?.toString());
+              const response = await api.getMatchStatus(currentMatchData.matchId, publicKey?.toString());
+              
+              // The API returns { success, match: {...}, vaultStatus }
+              // Extract match data from the response
+              const matchData = response.match || response;
+              const matchStatus = matchData.matchStatus;
+              const status = matchData.status;
+              const depositAConfirmations = matchData.depositAConfirmations || 0;
+              const depositBConfirmations = matchData.depositBConfirmations || 0;
+              
+              console.log('📊 Match status update:', {
+                status,
+                matchStatus,
+                depositAConfirmations,
+                depositBConfirmations
+              });
               
               // Update match data with latest status
               setMatchData((prev: any) => {
                 const updated = {
                   ...prev,
-                  ...data, // Merge all new data
-                  player1Paid: data.player1Paid || prev.player1Paid,
-                  player2Paid: data.player2Paid || prev.player2Paid,
-                  status: data.status,
-                  matchStatus: data.matchStatus || prev.matchStatus
+                  ...matchData, // Merge all new data
+                  status,
+                  matchStatus
                 };
                 matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
               });
 
               // Check if match was cancelled
-              if (data.status === 'cancelled') {
+              if (status === 'cancelled') {
                 setStatus('cancelled');
                 clearInterval(pollInterval);
                 setIsPolling(false);
@@ -118,20 +131,27 @@ const Matchmaking: React.FC = () => {
               }
               
               // Check if both deposits confirmed and match is ready
-              if (data.matchStatus === 'READY' || (data.depositAConfirmations > 0 && data.depositBConfirmations > 0)) {
+              if (matchStatus === 'READY' || (depositAConfirmations > 0 && depositBConfirmations > 0)) {
+                console.log('✅ Both deposits confirmed, waiting for game start...', {
+                  matchStatus,
+                  depositAConfirmations,
+                  depositBConfirmations,
+                  status
+                });
                 setStatus('waiting_for_game');
                 
                 // Transition to active when backend confirms
-                if (data.status === 'active') {
+                if (status === 'active') {
+                  console.log('🎮 Match is active! Redirecting to game...');
                   setStatus('active');
                   
                   // Store match data and redirect to game
                   localStorage.setItem('matchId', currentMatchData.matchId);
-                  if (data.word) {
-                    localStorage.setItem('word', data.word);
+                  if (matchData.word) {
+                    localStorage.setItem('word', matchData.word);
                   }
-                  if (data.entryFee) {
-                    localStorage.setItem('entryFee', data.entryFee.toString());
+                  if (matchData.entryFee) {
+                    localStorage.setItem('entryFee', matchData.entryFee.toString());
                   }
                   
                   // Stop polling and redirect immediately

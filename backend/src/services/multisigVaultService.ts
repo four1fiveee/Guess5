@@ -210,6 +210,13 @@ export class MultisigVaultService {
 
       // Both deposits confirmed - set match to active for game start
       if ((match.depositAConfirmations ?? 0) >= 1 && (match.depositBConfirmations ?? 0) >= 1) {
+        enhancedLogger.info('🎮 Both deposits confirmed, activating match', {
+          matchId,
+          depositA: match.depositAConfirmations,
+          depositB: match.depositBConfirmations,
+          currentStatus: match.status,
+        });
+        
         match.matchStatus = 'READY';
         match.status = 'active'; // Set status to active so frontend can redirect to game
         
@@ -226,10 +233,14 @@ export class MultisigVaultService {
         
         await matchRepository.save(match);
         
-        enhancedLogger.info('✅ Both deposits confirmed, match ready to start', {
+        // Reload match to verify it was saved correctly
+        const reloadedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        enhancedLogger.info('✅ Match activated and saved successfully', {
           matchId,
-          totalBalance: balanceSOL,
-          word: match.word,
+          status: reloadedMatch?.status,
+          matchStatus: reloadedMatch?.matchStatus,
+          word: reloadedMatch?.word,
+          gameStartTime: reloadedMatch?.gameStartTime,
         });
       }
 
