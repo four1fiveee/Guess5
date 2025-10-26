@@ -349,7 +349,22 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         throw new Error('Match data not found in Redis after creation');
       }
       
-      // Create multisig vault for fund custody
+      // Create database record for the match FIRST
+      const newMatch = new Match();
+      newMatch.id = matchData.matchId;
+      newMatch.player1 = matchData.player1;
+      newMatch.player2 = matchData.player2;
+      newMatch.entryFee = matchData.entryFee;
+      newMatch.status = 'payment_required';
+      newMatch.matchStatus = 'PENDING';
+      newMatch.word = getRandomWord();
+      newMatch.createdAt = new Date(matchData.createdAt);
+      newMatch.updatedAt = new Date();
+      
+      await matchRepository.save(newMatch);
+      console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
+      
+      // Create multisig vault for fund custody AFTER database record exists
       console.log('🔧 Creating multisig vault for fund custody...');
       const { multisigVaultService } = require('../services/multisigVaultService');
       
@@ -369,21 +384,10 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         vaultAddress: vaultResult.vaultAddress
       });
 
-      // Create database record for the match
-      const newMatch = new Match();
-      newMatch.id = matchData.matchId;
-      newMatch.player1 = matchData.player1;
-      newMatch.player2 = matchData.player2;
-      newMatch.entryFee = matchData.entryFee;
-      newMatch.status = 'payment_required';
-      newMatch.matchStatus = 'VAULT_CREATED';
-      newMatch.word = getRandomWord();
+      // Update match with vault address
       newMatch.vaultAddress = vaultResult.vaultAddress;
-      newMatch.createdAt = new Date(matchData.createdAt);
-      newMatch.updatedAt = new Date();
-      
+      newMatch.matchStatus = 'VAULT_CREATED';
       await matchRepository.save(newMatch);
-      console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
       
       return {
         status: 'matched',
