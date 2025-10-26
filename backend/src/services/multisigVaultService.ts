@@ -155,26 +155,37 @@ export class MultisigVaultService {
         balanceSOL,
       });
 
-      // Check if we've reached the expected total (both players' stakes)
-      const expectedTotalLamports = expectedAmount * 2 * LAMPORTS_PER_SOL;
-      
       // Track which player's deposit we're verifying
       const isPlayer1 = playerWallet === match.player1;
+      const expectedLamports = expectedAmount * LAMPORTS_PER_SOL;
+      const expectedTotalLamports = expectedAmount * 2 * LAMPORTS_PER_SOL;
       
-      if (isPlayer1) {
-        match.depositAConfirmations = balance >= (expectedAmount * LAMPORTS_PER_SOL) ? 1 : 0;
-      } else {
-        match.depositBConfirmations = balance >= expectedTotalLamports ? 1 : 0;
+      // Determine which player deposited based on current balance
+      // Player 1 deposits first (balance = 1x entry fee)
+      // Player 2 deposits second (balance = 2x entry fee)
+      if (balance >= expectedLamports && balance < expectedTotalLamports) {
+        // Only one deposit - must be Player 1
+        match.depositAConfirmations = 1;
+        enhancedLogger.info('✅ Player 1 deposit confirmed', { matchId, balanceSOL });
+      } else if (balance >= expectedTotalLamports) {
+        // Both deposits complete - confirm both players
+        if ((match.depositAConfirmations ?? 0) === 0) {
+          match.depositAConfirmations = 1;
+          enhancedLogger.info('✅ Player 1 deposit confirmed (both deposited)', { matchId });
+        }
+        match.depositBConfirmations = 1;
+        enhancedLogger.info('✅ Player 2 deposit confirmed', { matchId, balanceSOL });
       }
 
       await matchRepository.save(match);
 
-      // Both deposits confirmed
+      // Both deposits confirmed - set match to active for game start
       if ((match.depositAConfirmations ?? 0) >= 1 && (match.depositBConfirmations ?? 0) >= 1) {
         match.matchStatus = 'READY';
+        match.status = 'active'; // Set status to active so frontend can redirect to game
         await matchRepository.save(match);
         
-        enhancedLogger.info('✅ Both deposits confirmed', {
+        enhancedLogger.info('✅ Both deposits confirmed, match ready to start', {
           matchId,
           totalBalance: balanceSOL,
         });
