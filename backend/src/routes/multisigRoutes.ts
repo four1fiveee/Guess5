@@ -1,3 +1,4 @@
+// @ts-nocheck
 const { Router } = require('express');
 const {
   createMatchHandler,

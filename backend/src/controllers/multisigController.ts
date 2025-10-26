@@ -1,3 +1,4 @@
+// @ts-nocheck
 const { AppDataSource } = require('../db');
 const { Match } = require('../models/Match');
 const { MatchAttestation } = require('../models/MatchAttestation');

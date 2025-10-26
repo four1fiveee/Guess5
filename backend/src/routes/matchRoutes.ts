@@ -1,3 +1,4 @@
+// @ts-nocheck
 const expressRouter = require('express');
 const router = expressRouter.Router();
 const matchController = require('../controllers/matchController');

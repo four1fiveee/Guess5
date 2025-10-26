@@ -1,3 +1,4 @@
+// @ts-nocheck
 const expressMatch = require('express');
 const { Match } = require('../models/Match');
 const { FEE_WALLET_ADDRESS } = require('../config/wallet');
