@@ -16,7 +16,9 @@
     "declaration": false,
     "declarationMap": false,
     "forceConsistentCasingInFileNames": false,
-    "resolveJsonModule": false
+    "resolveJsonModule": false,
+    "noEmitOnError": false,
+    "noImplicitReturns": false
   },
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
