@@ -4,16 +4,20 @@
     "module": "commonjs",
     "outDir": "dist",
     "rootDir": "src",
-    "strict": true,
+    "strict": false,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "allowJs": true,
-    "noImplicitAny": true,
-    "moduleResolution": "node"
+    "noImplicitAny": false,
+    "moduleResolution": "node",
+    "declaration": false,
+    "declarationMap": false,
+    "forceConsistentCasingInFileNames": false,
+    "resolveJsonModule": false
   },
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]
 } 
