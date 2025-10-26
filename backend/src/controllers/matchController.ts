@@ -4418,7 +4418,7 @@ const generateReportHandler = async (req: any, res: any) => {
     // Helper function to generate row hash for integrity
     const generateRowHash = (match: any) => {
       const crypto = require('crypto');
-      const data = `${match.id}${match.player1}${match.player2}${match.winner}${match.totalFeesCollected}${match.winnerPayoutSignature}${match.updatedAt}`;
+      const data = `${match.id}${match.player1}${match.player2}${match.winner}${match.totalFeesCollected}${match.payoutTxHash || match.refundTxHash || ''}${match.updatedAt}`;
       return crypto.createHash('sha256').update(data).digest('hex');
     };
     
