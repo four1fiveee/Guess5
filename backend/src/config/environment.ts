@@ -44,8 +44,7 @@ export const config = {
 export const validateConfig = () => {
   const required = [
     'DATABASE_URL',
-    'FEE_WALLET_ADDRESS',
-    'FEE_WALLET_PRIVATE_KEY'
+    'FEE_WALLET_ADDRESS'
   ];
   
   const missing = required.filter(key => !process.env[key]);
@@ -53,6 +52,11 @@ export const validateConfig = () => {
   if (missing.length > 0) {
     console.error('❌ Missing required environment variables:', missing);
     throw new Error(`Missing required environment variables: ${missing.join(', ')}`);
+  }
+  
+  // FEE_WALLET_PRIVATE_KEY is optional - we use AWS KMS for signing in multisig architecture
+  if (!process.env.FEE_WALLET_PRIVATE_KEY) {
+    console.warn('⚠️ FEE_WALLET_PRIVATE_KEY not set - using AWS KMS for automated signing');
   }
   
   // Only require ReCaptcha secret in production
