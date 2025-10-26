@@ -482,6 +482,70 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     `, ['waiting', fiveMinutesAgo]);
   }
   
+  // Clean up stale payment_required matches (e.g., stuck in deposit screen for too long)
+  // After 10 minutes, refund any deposits and cancel the match
+  const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
+  const stalePaymentMatches = await matchRepository.query(`
+    SELECT 
+      id,
+      "player1",
+      "player2",
+      status,
+      "player1Paid",
+      "player2Paid",
+      "vaultAddress"
+    FROM "match" 
+    WHERE "status" = $1 AND "createdAt" < $2
+      AND (("player1" = $3) OR ("player2" = $4))
+  `, ['payment_required', tenMinutesAgo, wallet, wallet]);
+  
+  if (stalePaymentMatches.length > 0) {
+    console.log(`⏰ Found ${stalePaymentMatches.length} stale payment_required matches for ${wallet}, processing refunds...`);
+    for (const match of stalePaymentMatches) {
+      // Process refunds if players have deposited
+      if ((match.player1Paid || match.player2Paid) || match.vaultAddress) {
+        console.log(`💰 Processing refund for stale match ${match.id} (players may have deposited)`);
+        await processAutomatedRefunds(match, 'payment_timeout');
+      }
+      
+      // Delete the stale match
+      await matchRepository.query(`
+        DELETE FROM "match" WHERE id = $1
+      `, [match.id]);
+      console.log(`✅ Cleaned up stale payment_required match ${match.id}`);
+    }
+  }
+  
+  // Clean up stale active matches (e.g., game started but player left)
+  // After 30 minutes, cancel and refund
+  const thirtyMinutesAgo = new Date(Date.now() - 30 * 60 * 1000);
+  const staleActiveMatches = await matchRepository.query(`
+    SELECT 
+      id,
+      "player1",
+      "player2",
+      status,
+      "vaultAddress"
+    FROM "match" 
+    WHERE "status" = $1 AND "createdAt" < $2
+      AND (("player1" = $3) OR ("player2" = $4))
+  `, ['active', thirtyMinutesAgo, wallet, wallet]);
+  
+  if (staleActiveMatches.length > 0) {
+    console.log(`⏰ Found ${staleActiveMatches.length} stale active matches for ${wallet}, processing refunds...`);
+    for (const match of staleActiveMatches) {
+      if (match.vaultAddress) {
+        console.log(`💰 Processing refund for stale active match ${match.id}`);
+        await processAutomatedRefunds(match, 'game_abandoned');
+      }
+      
+      await matchRepository.query(`
+        DELETE FROM "match" WHERE id = $1
+      `, [match.id]);
+      console.log(`✅ Cleaned up stale active match ${match.id}`);
+    }
+  }
+  
   // CRITICAL: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
   // Only clean up incomplete/stale matches that are blocking the system
   // Completed matches (status = 'completed') are NEVER deleted by cleanup functions
@@ -493,6 +557,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
   await cleanupOldMatches(matchRepository, wallet);
   
   // Now check if there are any remaining active matches using raw SQL
+  // Include payment_required, active, and escrow as existing matches
   const existingMatches = await matchRepository.query(`
     SELECT 
       id,
@@ -502,9 +567,9 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       status,
       "vaultAddress"
     FROM "match" 
-    WHERE (("player1" = $1 AND "status" IN ($2, $3)) OR ("player2" = $4 AND "status" IN ($5, $6)))
+    WHERE (("player1" = $1 AND "status" IN ($2, $3, $4)) OR ("player2" = $5 AND "status" IN ($6, $7, $8)))
     LIMIT 1
-  `, [wallet, 'active', 'escrow', wallet, 'active', 'escrow']);
+  `, [wallet, 'active', 'escrow', 'payment_required', wallet, 'active', 'escrow', 'payment_required']);
   
   if (existingMatches.length > 0) {
     const existingMatch = existingMatches[0];
