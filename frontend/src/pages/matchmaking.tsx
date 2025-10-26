@@ -280,15 +280,15 @@ const Matchmaking: React.FC = () => {
       <div className="flex flex-col items-center">
         <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-8" />
         
-        {/* Show MatchStatusDisplay when we have a vault address */}
-        {matchData && matchData.vaultAddress && (
-          <div className="max-w-2xl w-full">
+        {/* Show MatchStatusDisplay when we have a match ID and are in payment status */}
+        {matchData && matchData.matchId && (status === 'payment_required' || status === 'waiting_for_game' || matchData.status === 'payment_required') && (
+          <div className="max-w-4xl w-full">
             <MatchStatusDisplay matchId={matchData.matchId} playerWallet={publicKey?.toString() || ''} />
           </div>
         )}
 
         {/* Status Display for other states */}
-        {(!matchData || !matchData.vaultAddress) && (
+        {(!matchData || !matchData.matchId || (status !== 'payment_required' && status !== 'waiting_for_game' && matchData.status !== 'payment_required')) && (
           <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-center shadow">
             {status === 'waiting' && (
               <div>
