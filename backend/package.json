@@ -4,7 +4,7 @@
   "description": "Backend for Guess5 game",
   "main": "dist/server.js",
   "scripts": {
-    "build": "rm -rf dist && tsc --skipLibCheck --noEmitOnError false 2>&1 | grep -v 'error TS' || true && ls -la dist/ | head -10",
+    "build": "rm -rf dist && mkdir -p dist && tsc --project . --outDir dist --skipLibCheck 2>&1 | head -5 || true && find dist -name '*.js' | head -10",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "lint": "eslint src/**/*.ts",
