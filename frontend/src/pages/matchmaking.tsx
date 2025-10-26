@@ -28,6 +28,50 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
+    // Check for stale match in localStorage and verify it exists
+    const storedMatchId = localStorage.getItem('matchId');
+    if (storedMatchId) {
+      console.log('🔍 Found stored matchId:', storedMatchId);
+      
+      // Async check if match exists on backend
+      (async () => {
+        try {
+          const response = await api.getMatchStatus(storedMatchId, publicKey?.toString());
+          
+          // If match is cancelled or doesn't exist, clear stale data
+          if (!response.match || response.match.status === 'cancelled') {
+            console.log('🧹 Clearing stale match data:', storedMatchId);
+            localStorage.removeItem('matchId');
+            localStorage.removeItem('word');
+            localStorage.removeItem('entryFee');
+            
+            // Clear URL parameters
+            router.replace('/matchmaking', undefined, { shallow: true });
+            return;
+          }
+          
+          // If match is active, redirect to game
+          if (response.match.status === 'active') {
+            console.log('🎮 Match is active, redirecting to game:', storedMatchId);
+            router.push(`/game?matchId=${storedMatchId}`);
+            return;
+          }
+          
+          // If match is payment_required, continue with match flow
+          if (response.match.status === 'payment_required') {
+            console.log('💳 Match requires payment, continuing with flow');
+            return;
+          }
+        } catch (error) {
+          console.log('❌ Error checking stored match, clearing stale data:', error);
+          localStorage.removeItem('matchId');
+          localStorage.removeItem('word');
+          localStorage.removeItem('entryFee');
+          router.replace('/matchmaking', undefined, { shallow: true });
+        }
+      })();
+    }
+
     // Prevent multiple initializations
     if (isMatchmakingInProgress) {
       return;
