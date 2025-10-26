@@ -30,6 +30,12 @@ interface MatchStatus {
   } | null;
 }
 
+// Helper function to truncate addresses
+const truncateAddress = (address: string, startLength: number = 6, endLength: number = 4): string => {
+  if (address.length <= startLength + endLength) return address;
+  return `${address.slice(0, startLength)}...${address.slice(-endLength)}`;
+};
+
 export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
   matchId,
   playerWallet,
@@ -102,153 +108,98 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
     );
   }
 
+  // Calculate total pot
+  const totalPot = match.entryFee * 2;
+
+  // Check if current player has deposited
+  const currentPlayerHasDeposited = isPlayer1 ? match.depositAConfirmations > 0 : match.depositBConfirmations > 0;
+  const opponentHasDeposited = isPlayer1 ? match.depositBConfirmations > 0 : match.depositAConfirmations > 0;
+
   return (
-    <div className="space-y-6">
-      {/* Match Info */}
-      <div className="bg-secondary bg-opacity-10 rounded-lg p-6">
-        <h2 className="text-2xl font-bold text-accent mb-4">Match Status</h2>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Match ID:</p>
-            <p className="text-xs font-mono text-accent break-all">{match.id}</p>
+    <div className="space-y-6 max-w-4xl w-full">
+      {/* Main Status Card */}
+      <div className="bg-secondary bg-opacity-20 rounded-lg p-6 border border-accent/30">
+        <div className="flex items-center justify-between mb-6">
+          <h2 className="text-3xl font-bold text-accent">Match Ready</h2>
+          <div className="flex items-center space-x-2">
+            <div className={`w-3 h-3 rounded-full ${match.matchStatus === 'READY' ? 'bg-green-500' : 'bg-yellow-500'}`} />
+            <span className="text-sm text-white">{match.matchStatus === 'READY' ? 'Ready to Play' : 'Waiting for Deposits'}</span>
           </div>
+        </div>
 
-          <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Status:</p>
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${
-                match.matchStatus === 'READY' ? 'bg-green-500' :
-                match.matchStatus === 'ACTIVE' ? 'bg-blue-500' :
-                match.matchStatus === 'SETTLED' ? 'bg-purple-500' :
-                match.matchStatus === 'REFUNDED' ? 'bg-yellow-500' :
-                'bg-gray-500'
-              }`} />
-              <span className="text-sm text-white">{match.matchStatus}</span>
+        {/* Total Pot */}
+        <div className="bg-accent/20 rounded-lg p-4 mb-6">
+          <p className="text-sm text-white/80 mb-1">Total Pot</p>
+          <p className="text-4xl font-bold text-accent">{totalPot.toFixed(4)} SOL</p>
+          <p className="text-sm text-white/60 mt-1">{match.entryFee} SOL per player</p>
+        </div>
+
+        {/* Player Deposits */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {/* Current Player */}
+          <div className={`rounded-lg p-4 border-2 ${currentPlayerHasDeposited ? 'bg-green-500/20 border-green-500' : 'bg-white/5 border-white/20'}`}>
+            <p className="text-sm text-white/80 mb-2">You {isPlayer1 ? '(Player 1)' : '(Player 2)'}</p>
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-xs text-white/60">{truncateAddress(playerWallet)}</p>
+              {currentPlayerHasDeposited ? (
+                <span className="text-green-400 text-sm font-semibold">✓ Deposited</span>
+              ) : (
+                <span className="text-yellow-400 text-sm font-semibold">Pending</span>
+              )}
             </div>
           </div>
 
-          <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Entry Fee:</p>
-            <p className="text-lg font-bold text-accent">{match.entryFee} SOL</p>
-          </div>
-
-          <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Vault Address:</p>
-            <p className="text-xs font-mono text-accent break-all">{match.vaultAddress}</p>
+          {/* Opponent */}
+          <div className={`rounded-lg p-4 border-2 ${opponentHasDeposited ? 'bg-green-500/20 border-green-500' : 'bg-white/5 border-white/20'}`}>
+            <p className="text-sm text-white/80 mb-2">Opponent {isPlayer1 ? '(Player 2)' : '(Player 1)'}</p>
+            <div className="flex items-center justify-between">
+              <p className="font-mono text-xs text-white/60">{truncateAddress(isPlayer1 ? match.player2 : match.player1)}</p>
+              {opponentHasDeposited ? (
+                <span className="text-green-400 text-sm font-semibold">✓ Deposited</span>
+              ) : (
+                <span className="text-yellow-400 text-sm font-semibold">Waiting</span>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Deposit Component - Only show if current player hasn't deposited */}
+        {match.matchStatus === 'VAULT_CREATED' && match.vaultAddress && !currentPlayerHasDeposited && (
+          <div className="mt-6">
+            <MultisigVaultDeposit
+              matchId={match.id}
+              vaultAddress={match.vaultAddress}
+              entryFee={match.entryFee}
+              onDepositComplete={handleDepositComplete}
+              onError={handleDepositError}
+            />
+          </div>
+        )}
+
+        {/* Waiting message if both players have deposited */}
+        {currentPlayerHasDeposited && opponentHasDeposited && match.matchStatus !== 'READY' && (
+          <div className="mt-6 bg-blue-500/20 border border-blue-500/50 rounded-lg p-4">
+            <p className="text-blue-300 text-center">Both players have deposited! Waiting for game to start...</p>
+          </div>
+        )}
       </div>
 
-      {/* Vault Status */}
-      {vaultStatus && (
-        <div className="bg-secondary bg-opacity-10 rounded-lg p-6">
-          <h3 className="text-xl font-bold text-accent mb-4">Vault Status</h3>
-          
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="bg-white bg-opacity-5 rounded-lg p-4">
-              <p className="text-sm text-white/80 mb-2">Balance:</p>
-              <p className="text-lg font-bold text-accent">
-                {(vaultStatus.balance / 1000000000).toFixed(6)} SOL
-              </p>
-            </div>
-
-            <div className="bg-white bg-opacity-5 rounded-lg p-4">
-              <p className="text-sm text-white/80 mb-2">Confirmations:</p>
-              <p className="text-lg font-bold text-accent">{vaultStatus.confirmations}</p>
-            </div>
-
-            <div className="bg-white bg-opacity-5 rounded-lg p-4">
-              <p className="text-sm text-white/80 mb-2">Ready:</p>
-              <div className="flex items-center space-x-2">
-                <div className={`w-3 h-3 rounded-full ${vaultStatus.isReady ? 'bg-green-500' : 'bg-red-500'}`} />
-                <span className="text-sm text-white">{vaultStatus.isReady ? 'Yes' : 'No'}</span>
-              </div>
-            </div>
+      {/* Vault Info - Compact */}
+      {match.vaultAddress && (
+        <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+          <p className="text-xs text-white/60 mb-2">Vault Address</p>
+          <div className="flex items-center space-x-2">
+            <p className="text-xs font-mono text-accent">{truncateAddress(match.vaultAddress, 8, 8)}</p>
+            <button
+              onClick={() => navigator.clipboard.writeText(match.vaultAddress)}
+              className="text-xs text-accent hover:text-yellow-400"
+            >
+              📋 Copy
+            </button>
           </div>
-        </div>
-      )}
-
-      {/* Deposit Status */}
-      <div className="bg-secondary bg-opacity-10 rounded-lg p-6">
-        <h3 className="text-xl font-bold text-accent mb-4">Deposit Status</h3>
-        
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Player 1 ({match.player1}):</p>
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${
-                match.depositAConfirmations > 0 ? 'bg-green-500' : 'bg-red-500'
-              }`} />
-              <span className="text-sm text-white">
-                {match.depositAConfirmations > 0 ? 'Deposited' : 'Pending'}
-              </span>
-            </div>
-            {match.depositATx && (
-              <p className="text-xs font-mono text-accent break-all mt-2">{match.depositATx}</p>
-            )}
-          </div>
-
-          <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Player 2 ({match.player2}):</p>
-            <div className="flex items-center space-x-2">
-              <div className={`w-3 h-3 rounded-full ${
-                match.depositBConfirmations > 0 ? 'bg-green-500' : 'bg-red-500'
-              }`} />
-              <span className="text-sm text-white">
-                {match.depositBConfirmations > 0 ? 'Deposited' : 'Pending'}
-              </span>
-            </div>
-            {match.depositBTx && (
-              <p className="text-xs font-mono text-accent break-all mt-2">{match.depositBTx}</p>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Deposit Component */}
-      {match.matchStatus === 'VAULT_CREATED' && match.vaultAddress && (
-        <MultisigVaultDeposit
-          matchId={match.id}
-          vaultAddress={match.vaultAddress}
-          entryFee={match.entryFee}
-          onDepositComplete={handleDepositComplete}
-          onError={handleDepositError}
-        />
-      )}
-
-      {/* Payout/Refund Status */}
-      {(match.payoutTxHash || match.refundTxHash) && (
-        <div className="bg-secondary bg-opacity-10 rounded-lg p-6">
-          <h3 className="text-xl font-bold text-accent mb-4">Transaction Status</h3>
-          
-          {match.payoutTxHash && (
-            <div className="bg-white bg-opacity-5 rounded-lg p-4 mb-4">
-              <p className="text-sm text-white/80 mb-2">Payout Transaction:</p>
-              <p className="text-xs font-mono text-accent break-all">{match.payoutTxHash}</p>
-              <a
-                href={`https://explorer.solana.com/tx/${match.payoutTxHash}?cluster=devnet`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-accent hover:text-yellow-400 text-sm underline"
-              >
-                View on Solana Explorer
-              </a>
-            </div>
-          )}
-
-          {match.refundTxHash && (
-            <div className="bg-white bg-opacity-5 rounded-lg p-4">
-              <p className="text-sm text-white/80 mb-2">Refund Transaction:</p>
-              <p className="text-xs font-mono text-accent break-all">{match.refundTxHash}</p>
-              <a
-                href={`https://explorer.solana.com/tx/${match.refundTxHash}?cluster=devnet`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-accent hover:text-yellow-400 text-sm underline"
-              >
-                View on Solana Explorer
-              </a>
+          {vaultStatus && (
+            <div className="mt-2 text-xs text-white/60">
+              Balance: <span className="text-accent">{(vaultStatus.balance / 1000000000).toFixed(6)} SOL</span>
             </div>
           )}
         </div>
@@ -256,8 +207,8 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
 
       {/* Error Display */}
       {error && (
-        <div className="bg-red-500 bg-opacity-10 rounded-lg p-6 border border-red-500">
-          <p className="text-red-400">Error: {error}</p>
+        <div className="bg-red-500 bg-opacity-10 rounded-lg p-4 border border-red-500">
+          <p className="text-red-400 text-sm">Error: {error}</p>
         </div>
       )}
     </div>
