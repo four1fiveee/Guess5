@@ -121,7 +121,7 @@ export class MultisigVaultService {
    * Verify a deposit transaction on Solana
    * This checks if a player has actually sent money to the vault
    */
-  async verifyDeposit(matchId: string, playerWallet: string, expectedAmount: number): Promise<DepositResult> {
+  async verifyDeposit(matchId: string, playerWallet: string, expectedAmount: number, depositTxSignature?: string): Promise<DepositResult> {
     try {
       enhancedLogger.info('🔍 Verifying deposit on Solana', {
         matchId,
@@ -164,35 +164,54 @@ export class MultisigVaultService {
       const currentDepositA = match.depositAConfirmations ?? 0;
       const currentDepositB = match.depositBConfirmations ?? 0;
       
-      // Determine which player's deposit to confirm based on who is calling
-      // We can only confirm the player who actually sent the deposit verification request
+      // Save deposit transaction signature if provided
+      if (depositTxSignature) {
+        if (isPlayer1 && !match.depositATx) {
+          match.depositATx = depositTxSignature;
+          enhancedLogger.info('💾 Saved Player 1 deposit TX', { matchId, tx: depositTxSignature });
+        } else if (!isPlayer1 && !match.depositBTx) {
+          match.depositBTx = depositTxSignature;
+          enhancedLogger.info('💾 Saved Player 2 deposit TX', { matchId, tx: depositTxSignature });
+        }
+      }
+      
+      // Determine which player's deposit to confirm based on who is calling AND balance changes
+      // Use transaction signatures as the source of truth if available
+      const hasExistingTx = isPlayer1 ? !!match.depositATx : !!match.depositBTx;
+      
+      // Only confirm deposits if we have sufficient balance AND either:
+      // 1. This is the first verification for this player (balance changed from 0 to expected)
+      // 2. OR we have a transaction signature confirming the deposit
       if (isPlayer1 && currentDepositA === 0) {
-        // Only confirm Player 1's deposit if they made the request and haven't been confirmed yet
-        if (balance >= expectedLamports) {
+        // Player 1: Confirm if balance is at least one full deposit
+        if (balance >= expectedLamports && (hasExistingTx || depositTxSignature)) {
           match.depositAConfirmations = 1;
           enhancedLogger.info('✅ Player 1 deposit confirmed', { 
             matchId, 
             balanceSOL,
             playerWallet,
-            isPlayer1: true
+            depositTx: depositTxSignature || match.depositATx
           });
         }
       } else if (!isPlayer1 && currentDepositB === 0) {
-        // Only confirm Player 2's deposit if they made the request and haven't been confirmed yet
-        if (balance >= expectedTotalLamports) {
+        // Player 2: Confirm if balance is at full pot AND we have a signature
+        if (balance >= expectedTotalLamports && (hasExistingTx || depositTxSignature)) {
           match.depositBConfirmations = 1;
           enhancedLogger.info('✅ Player 2 deposit confirmed', { 
             matchId, 
             balanceSOL,
             playerWallet,
-            isPlayer1: false
+            depositTx: depositTxSignature || match.depositBTx
           });
           
           // If Player 2 deposited and we have full balance, Player 1 must have also deposited
           // But only update Player 1 if they haven't been confirmed yet
-          if (currentDepositA === 0 && balance >= expectedTotalLamports) {
+          if (currentDepositA === 0 && balance >= expectedTotalLamports && match.depositATx) {
             match.depositAConfirmations = 1;
-            enhancedLogger.info('✅ Player 1 deposit also confirmed (both players deposited)', { matchId });
+            enhancedLogger.info('✅ Player 1 deposit also confirmed (both players deposited, found TX)', { 
+              matchId,
+              player1Tx: match.depositATx
+            });
           }
         }
       } else {

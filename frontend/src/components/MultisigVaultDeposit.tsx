@@ -69,7 +69,7 @@ export const MultisigVaultDeposit: React.FC<MultisigVaultDepositProps> = ({
       setDepositStatus('confirmed');
       onDepositComplete(signature);
 
-      // Notify backend of deposit
+      // Notify backend of deposit with transaction signature for proper attribution
       await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/multisig/deposits`, {
         method: 'POST',
         headers: {
@@ -79,7 +79,7 @@ export const MultisigVaultDeposit: React.FC<MultisigVaultDepositProps> = ({
           matchId,
           playerWallet: publicKey.toString(),
           amount: entryFee,
-          transactionSignature: signature,
+          depositTxSignature: signature, // Use depositTxSignature for consistency with backend
         }),
       });
 

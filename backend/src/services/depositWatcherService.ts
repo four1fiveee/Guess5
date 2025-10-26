@@ -82,11 +82,11 @@ export class DepositWatcherService {
         try {
           // Verify deposits using multisigVaultService
           if (match.player1 && !match.depositAConfirmations) {
-            await multisigVaultService.verifyDeposit(match.id, match.player1, match.entryFee);
+            await multisigVaultService.verifyDeposit(match.id, match.player1, match.entryFee, match.depositATx || undefined);
           }
 
           if (match.player2 && !match.depositBConfirmations) {
-            await multisigVaultService.verifyDeposit(match.id, match.player2, match.entryFee);
+            await multisigVaultService.verifyDeposit(match.id, match.player2, match.entryFee, match.depositBTx || undefined);
           }
 
           // Reload match to get updated confirmations

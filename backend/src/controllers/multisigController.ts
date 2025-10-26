@@ -347,7 +347,7 @@ exports.getAuditLogsHandler = async (req: any, res: any): Promise<void> => {
  */
 exports.processDepositHandler = async (req: any, res: any): Promise<void> => {
   try {
-    const { matchId, playerWallet, amount } = req.body;
+    const { matchId, playerWallet, amount, depositTxSignature } = req.body;
 
     if (!matchId || !playerWallet || !amount) {
       res.status(400).json({
@@ -361,10 +361,11 @@ exports.processDepositHandler = async (req: any, res: any): Promise<void> => {
       matchId,
       playerWallet,
       amount,
+      depositTxSignature,
     });
 
-    // Verify deposit on Solana
-    const depositResult = await multisigVaultService.verifyDeposit(matchId, playerWallet, amount);
+    // Verify deposit on Solana - pass transaction signature for attribution
+    const depositResult = await multisigVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
 
     if (!depositResult.success) {
       res.status(500).json({
