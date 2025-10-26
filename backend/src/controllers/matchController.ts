@@ -496,8 +496,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       "vaultAddress"
     FROM "match" 
     WHERE "status" = $1 AND "createdAt" < $2
-      AND (("player1" = $3) OR ("player2" = $4))
-  `, ['payment_required', threeMinutesAgo, wallet, wallet]);
+  `, ['payment_required', threeMinutesAgo]);
   
   if (stalePaymentMatches.length > 0) {
     console.log(`⏰ Found ${stalePaymentMatches.length} stale payment_required matches for ${wallet}, processing refunds...`);
@@ -528,8 +527,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       "vaultAddress"
     FROM "match" 
     WHERE "status" = $1 AND "createdAt" < $2
-      AND (("player1" = $3) OR ("player2" = $4))
-  `, ['active', tenMinutesAgo, wallet, wallet]);
+  `, ['active', tenMinutesAgo]);
   
   if (staleActiveMatches.length > 0) {
     console.log(`⏰ Found ${staleActiveMatches.length} stale active matches for ${wallet}, processing refunds...`);
