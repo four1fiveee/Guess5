@@ -1,11 +1,10 @@
-import { Request, Response, NextFunction } from 'express';
-import { checkBotId } from 'botid/server';
+const { checkBotId } = require('botid/server');
 
 /**
  * Middleware to validate BotID for bot protection
  * This replaces ReCaptcha validation
  */
-export const validateBotId = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
+exports.validateBotId = async (req: any, res: any, next: any): Promise<void> => {
   try {
     // Check if the request is from a bot
     const verification = await checkBotId();
