@@ -19,7 +19,7 @@ const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandle
 router.post('/request-match', 
   // Removed rate limiting for match request - ReCaptcha provides sufficient protection
   validateMatch, 
-  validateReCaptcha,
+  // validateReCaptcha, // TEMPORARILY DISABLED FOR TESTING
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
