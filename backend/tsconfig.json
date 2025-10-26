@@ -5,6 +5,7 @@
     "outDir": "dist",
     "rootDir": "src",
     "strict": false,
+    "isolatedModules": false,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
@@ -12,7 +13,12 @@
     "emitDecoratorMetadata": true,
     "allowJs": true,
     "noImplicitAny": false,
-    "moduleResolution": "node"
+    "moduleResolution": "node",
+    "skipDefaultLibCheck": true,
+    "forceConsistentCasingInFileNames": false
+  },
+  "ts-node": {
+    "transpileOnly": true
   },
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "src/tests/**/*"]
