@@ -90,7 +90,7 @@ export class SquadsClient {
       // In a real implementation, we would query the blockchain
       return {
         address: vaultAddress,
-        members: [],
+        members: [] as string[],
         threshold: 2,
         configAuthority: '',
       };
@@ -108,7 +108,7 @@ export class SquadsClient {
       const details = await this.getMultisigDetails(vaultAddress);
       if (!details) return false;
 
-      return details.members.some(member => member.toString() === walletAddress);
+      return details.members.includes(walletAddress);
     } catch (error) {
       console.error('❌ Failed to check multisig membership', error);
       return false;
