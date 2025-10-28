@@ -5,12 +5,12 @@ const rateLimit = require('express-rate-limit');
  * Uses wallet addresses and IP addresses as keys
  */
 
-// Matchmaking: 1 request per 30 seconds per wallet
-// This prevents bots from spamming match requests
+// Matchmaking: 5 requests per minute per wallet
+// Allows for legitimate retries while preventing bot abuse
 export const matchmakingLimiter = rateLimit({
-  windowMs: 30 * 1000, // 30 seconds
-  max: 1,
-  message: 'Too many matchmaking requests. Please wait 30 seconds before requesting another match.',
+  windowMs: 60 * 1000, // 1 minute
+  max: 5, // Allow up to 5 requests per minute (covers retries)
+  message: 'Too many matchmaking requests. Please wait before requesting another match.',
   keyGenerator: (req) => {
     // Rate limit by wallet address (from request body)
     const wallet = (req.body && req.body.wallet) ? req.body.wallet : req.ip;
@@ -26,8 +26,8 @@ export const matchmakingLimiter = rateLimit({
     });
     res.status(429).json({
       error: 'Too many matchmaking requests',
-      message: 'Please wait 30 seconds before requesting another match.',
-      retryAfter: 30
+      message: 'You have exceeded the matchmaking request limit. Please wait a minute before trying again.',
+      retryAfter: 60
     });
   }
 });
