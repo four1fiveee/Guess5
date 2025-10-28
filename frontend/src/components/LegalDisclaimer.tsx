@@ -13,166 +13,193 @@ export const LegalDisclaimer: React.FC<LegalDisclaimerProps> = ({ isOpen, onAcce
     <div className="fixed inset-0 bg-black bg-opacity-75 flex items-center justify-center z-50 p-4">
       <div className="bg-primary border border-accent rounded-lg max-w-4xl max-h-[90vh] overflow-y-auto p-6 shadow-2xl">
         <h2 className="text-2xl font-bold text-accent mb-4 text-center">
-          ⚖️ LEGAL DISCLAIMER & TERMS OF SERVICE
+          Guess5.io – Terms of Use and Disclaimers
         </h2>
+        <p className="text-xs text-white/60 text-center mb-4">
+          <strong>Last Updated:</strong> October 28, 2025
+        </p>
         
         <div className="text-sm text-white/90 space-y-4 max-h-[60vh] overflow-y-auto pr-2">
           <div className="bg-secondary bg-opacity-20 rounded p-3">
-            <h3 className="text-accent font-bold mb-2">IMPORTANT: PLEASE READ CAREFULLY</h3>
             <p className="text-white/80">
-              By connecting your wallet and using Guess5, you acknowledge that you have read, understood, and agree to be bound by these terms and disclaimers. IF YOU DO NOT AGREE, DO NOT USE THIS SERVICE.
+              By connecting your wallet, clicking "I Accept," or otherwise using Guess5.io ("Guess5," "we," "our," or "us"), you acknowledge that you have read, understood, and agree to be bound by these Terms of Use and Disclaimers (the "Terms").
+            </p>
+            <p className="text-white/80 mt-2">
+              <strong>Acceptance of these Terms requires affirmative consent through a clear "I Accept" action prior to gameplay or wallet connection.</strong>
+            </p>
+            <p className="text-white/80 mt-2">
+              If you do not agree, do not connect your wallet, access, or use Guess5.
             </p>
           </div>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">1. NON-CUSTODIAL SERVICE & FUND CONTROL</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>YOU RETAIN FULL CONTROL:</strong> Guess5 is a fully non-custodial platform. All match funds are held in a 2-of-3 multisig vault (Squads Protocol) where YOU, YOUR OPPONENT, and the SYSTEM are co-signers.</li>
-              <li><strong>NO CUSTODY:</strong> Guess5 NEVER has unilateral custody or control of your funds. We cannot access, freeze, seize, or move your funds without your cryptographic signature.</li>
-              <li><strong>YOU CONTROL PAYOUTS:</strong> When you win or a tie occurs, YOU must sign the payout transaction. The system cannot pay you without your active approval and signature.</li>
-              <li><strong>BLOCKCHAIN IMMUTABILITY:</strong> All transactions are executed via Solana blockchain smart contracts and are irreversible once confirmed.</li>
-              <li><strong>SQUADS PROTOCOL:</strong> By using this service, you acknowledge reliance on third-party smart contract infrastructure (Squads Protocol) which Guess5 does not control or guarantee.</li>
+            <h4 className="text-accent font-bold mb-2">1. Non-Custodial Service & User Control</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>1.1 Non-Custodial Platform.</strong> Guess5 is a fully non-custodial platform built on the Solana blockchain. All match funds are held in a 2-of-3 multisignature vault (via Squads Protocol), in which you, your opponent, and the system are co-signers.</li>
+              <li><strong>1.2 No Custody or Access.</strong> Guess5 never has unilateral control or custody of user funds and cannot transfer, freeze, seize, or move funds without your cryptographic signature.</li>
+              <li><strong>1.3 User-Controlled Payouts.</strong> Match payouts require your active signature. The system cannot process any payout without your participation.</li>
+              <li><strong>1.4 Third-Party Smart Contract Infrastructure.</strong> Guess5 relies on smart contracts and infrastructure provided by third parties, including Squads Protocol. Guess5 does not control or guarantee the operation or security of those systems.</li>
+              <li><strong>1.5 Blockchain Immutability.</strong> Transactions on Solana are public, immutable, and irreversible once confirmed.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">2. LEGAL COMPLIANCE & AGE RESTRICTIONS</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>AGE REQUIREMENT:</strong> You must be at least 18 years old (or the age of majority in your jurisdiction, whichever is higher) to use this service.</li>
-              <li><strong>YOUR RESPONSIBILITY:</strong> You are solely responsible for ensuring compliance with all applicable gaming, gambling, and financial laws in your jurisdiction.</li>
-              <li><strong>SKILL-BASED GAME:</strong> Guess5 is marketed as a skill-based word game. However, legal interpretations vary by jurisdiction.</li>
-              <li><strong>PROHIBITED JURISDICTIONS:</strong> This service is not intended for use in jurisdictions where online gaming for money is prohibited. Use of VPNs or location-masking to evade restrictions is strictly prohibited.</li>
-              <li><strong>NO LEGAL ADVICE:</strong> Guess5 does not provide legal advice. Consult your own legal counsel regarding the legality of participation.</li>
+            <h4 className="text-accent font-bold mb-2">2. Legal Compliance & Eligibility</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>2.1 Age Restriction.</strong> You must be at least 18 years old or the age of majority in your jurisdiction (whichever is greater).</li>
+              <li><strong>2.2 Legal Responsibility.</strong> You are solely responsible for ensuring that your participation complies with all applicable gaming, gambling, financial, and digital asset laws in your jurisdiction.</li>
+              <li><strong>2.3 Skill-Based Game.</strong> Guess5 is marketed and operated as a skill-based game of knowledge and logic, not chance. Legal interpretations of "skill" may vary by jurisdiction.</li>
+              <li><strong>2.4 Prohibited Jurisdictions.</strong> Guess5 is not available in jurisdictions where skill-based, staked, or online gaming for money is prohibited. Use of VPNs, proxies, or location-masking to evade restrictions is strictly prohibited.</li>
+              <li><strong>2.5 Sanctions & OFAC Compliance.</strong> Guess5 does not permit access or use by individuals or entities:</li>
+              <li className="pl-4">• Located in, or ordinarily resident of, any jurisdiction subject to U.S. sanctions (including Cuba, Iran, North Korea, Syria, or the Crimea, Donetsk, or Luhansk regions of Ukraine);</li>
+              <li className="pl-4">• Listed on any OFAC, EU, UN, or similar sanctions list.</li>
+              <li>By using Guess5, you represent that you are not subject to such restrictions.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">3. FINANCIAL RISKS & CRYPTOCURRENCY VOLATILITY</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>RISK OF LOSS:</strong> You acknowledge and accept that you may lose 100% of the funds you commit to any match.</li>
-              <li><strong>IRREVERSIBLE TRANSACTIONS:</strong> All blockchain transactions are final and irreversible. There are no refunds, chargebacks, or reversals.</li>
-              <li><strong>PRICE VOLATILITY:</strong> Cryptocurrency values (SOL) fluctuate significantly. Your winnings or losses may change in fiat value before you can convert them.</li>
-              <li><strong>NETWORK FEES:</strong> You are responsible for all Solana network transaction fees (gas), which may vary and are beyond Guess5's control.</li>
-              <li><strong>TAX LIABILITY:</strong> You are solely responsible for reporting and paying all applicable taxes on winnings, losses, and transactions.</li>
-              <li><strong>NO FINANCIAL ADVICE:</strong> Nothing in this service constitutes financial, investment, or tax advice.</li>
+            <h4 className="text-accent font-bold mb-2">3. Financial Risks & Digital Asset Disclaimers</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>3.1 Risk of Loss.</strong> You acknowledge that participation in any match involves risk of losing 100% of your staked funds.</li>
+              <li><strong>3.2 Volatility.</strong> The value of SOL and other digital assets is highly volatile. Guess5 has no responsibility for market fluctuations.</li>
+              <li><strong>3.3 Irreversible Transactions.</strong> ALL TRANSACTIONS ARE FINAL — NO REFUNDS OR REVERSALS.</li>
+              <li><strong>3.4 Network Fees.</strong> You are responsible for Solana network fees (gas) associated with your transactions.</li>
+              <li><strong>3.5 Taxes.</strong> You are solely responsible for determining and paying all taxes that apply to your activities, winnings, or losses.</li>
+              <li><strong>3.6 No Financial Advice.</strong> Guess5 provides no financial, investment, or tax advice.</li>
+              <li><strong>3.7 Regulatory Classification.</strong> Guess5 is not a bank, money transmitter, broker-dealer, or financial institution. All transactions occur directly between users via decentralized smart contracts.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">4. WALLET SECURITY & USER RESPONSIBILITIES</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>YOUR KEYS, YOUR RESPONSIBILITY:</strong> You are solely responsible for securing your wallet, private keys, seed phrases, and authentication credentials.</li>
-              <li><strong>NO RECOVERY:</strong> Guess5 CANNOT recover lost, stolen, or forgotten private keys, seed phrases, or wallet access. Lost access means permanent loss of funds.</li>
-              <li><strong>VERIFY TRANSACTIONS:</strong> Always verify transaction details, recipient addresses, and amounts before signing.</li>
-              <li><strong>PHISHING PROTECTION:</strong> Guess5 will NEVER ask for your private keys or seed phrases. Beware of phishing attempts.</li>
-              <li><strong>DEVICE SECURITY:</strong> Use secure devices and trusted wallet software. Compromised devices may result in theft of funds.</li>
+            <h4 className="text-accent font-bold mb-2">4. Wallet Security & User Responsibilities</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>4.1 Your Keys, Your Responsibility.</strong> You are solely responsible for safeguarding your private keys, seed phrases, and wallet credentials.</li>
+              <li><strong>4.2 No Key Recovery.</strong> Guess5 cannot recover lost, stolen, or forgotten wallet access.</li>
+              <li><strong>4.3 Verify Transactions.</strong> Always confirm wallet addresses and transaction details before signing.</li>
+              <li><strong>4.4 Phishing & Device Security.</strong> Guess5 will never request your private keys or seed phrases. Use secure, trusted devices and wallet software only.</li>
+              <li><strong>4.5 User Negligence.</strong> Losses arising from compromised wallets, phishing, malware, or device breaches are solely your responsibility.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">5. SERVICE DISCLAIMERS & "AS IS" PROVISION</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>AS IS, WHERE IS:</strong> Guess5 is provided strictly "AS IS" and "AS AVAILABLE" without warranties of any kind, express or implied, including but not limited to warranties of merchantability, fitness for a particular purpose, or non-infringement.</li>
-              <li><strong>NO GUARANTEE:</strong> We do not guarantee error-free, uninterrupted, secure, or timely service.</li>
-              <li><strong>TECHNICAL FAILURES:</strong> Service may be affected by bugs, network outages, blockchain congestion, smart contract failures, or third-party infrastructure issues.</li>
-              <li><strong>MATCH OUTCOMES:</strong> Game results are determined by automated logic and are FINAL. We do not manually intervene or reverse outcomes.</li>
-              <li><strong>RIGHT TO MODIFY:</strong> We reserve the right to modify, suspend, or discontinue the service (or any part thereof) at any time without notice or liability.</li>
+            <h4 className="text-accent font-bold mb-2">5. Service Disclaimers</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>5.1 "As Is" Service.</strong> Guess5 is provided "AS IS" and "AS AVAILABLE", without warranties of any kind—express, implied, or statutory—including but not limited to merchantability, fitness for a particular purpose, and non-infringement.</li>
+              <li><strong>5.2 No Guarantee of Uptime.</strong> Guess5 does not warrant uninterrupted, error-free, or secure operation.</li>
+              <li><strong>5.3 Third-Party & Blockchain Dependencies.</strong> We are not liable for disruptions, failures, or bugs caused by Solana, Squads Protocol, wallet software, or any third-party provider.</li>
+              <li><strong>5.4 Match Results.</strong> All outcomes are final, automated, and non-reviewable. No manual intervention or reversal will occur.</li>
+              <li><strong>5.5 Modification or Suspension.</strong> We may modify, suspend, or discontinue Guess5 at any time without prior notice or liability.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">6. LIMITATION OF LIABILITY & DAMAGES WAIVER</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>MAXIMUM EXCLUSION:</strong> TO THE MAXIMUM EXTENT PERMITTED BY LAW, GUESS5 AND ITS OPERATORS, AFFILIATES, PARTNERS, AND SERVICE PROVIDERS SHALL NOT BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, PUNITIVE, OR EXEMPLARY DAMAGES.</li>
-              <li><strong>LIABILITY CAP:</strong> Our total aggregate liability for all claims shall NOT exceed $100 USD or the equivalent in SOL at the time of claim, whichever is less.</li>
-              <li><strong>NO LIABILITY FOR:</strong> Lost profits, lost data, lost funds, business interruption, wallet compromise, smart contract failures, blockchain errors, network congestion, third-party service failures, or any losses arising from your use or inability to use the service.</li>
-              <li><strong>THIRD-PARTY RISKS:</strong> We are not responsible for failures, hacks, or vulnerabilities in Squads Protocol, Solana blockchain, wallet providers, or any third-party infrastructure.</li>
-              <li><strong>USER ERROR:</strong> We are not liable for losses due to user error, misunderstanding of the service, incorrect transactions, or failure to read these terms.</li>
+            <h4 className="text-accent font-bold mb-2">6. Limitation of Liability</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>6.1 Maximum Liability Cap.</strong> To the maximum extent permitted by law, the total aggregate liability of Guess5 and its affiliates shall not exceed the greater of USD $100 or the total amount of SOL you staked in the match giving rise to the claim (capped at USD $250).</li>
+              <li><strong>6.2 Exclusion of Damages.</strong> Guess5 shall not be liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, including loss of data, profits, or funds.</li>
+              <li><strong>6.3 No Responsibility for Third-Party Failures.</strong> Guess5 disclaims all liability for errors or losses arising from:</li>
+              <li className="pl-4">• Squads Protocol or Solana network failures;</li>
+              <li className="pl-4">• Wallet vulnerabilities;</li>
+              <li className="pl-4">• Smart contract exploits;</li>
+              <li className="pl-4">• Network congestion or downtime;</li>
+              <li className="pl-4">• User error or misunderstanding.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">7. INDEMNIFICATION & HOLD HARMLESS</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>YOU INDEMNIFY US:</strong> You agree to indemnify, defend, and hold harmless Guess5, its operators, officers, employees, contractors, affiliates, and agents from any claims, damages, losses, liabilities, costs, or expenses (including attorney fees) arising from:</li>
-              <li>(a) Your use or misuse of the service</li>
-              <li>(b) Your violation of these terms</li>
-              <li>(c) Your violation of any applicable laws or regulations</li>
-              <li>(d) Your infringement of third-party rights</li>
-              <li>(e) Any disputes between you and other users</li>
-              <li>(f) Any tax liabilities arising from your participation</li>
+            <h4 className="text-accent font-bold mb-2">7. Indemnification</h4>
+            <p className="text-white/80 pl-4">
+              You agree to indemnify, defend, and hold harmless Guess5, its affiliates, officers, contractors, and agents from and against any claims, damages, liabilities, or expenses (including attorneys' fees) arising out of or related to:
+            </p>
+            <ul className="list-none space-y-1 text-white/80 pl-8">
+              <li>(a) your use or misuse of Guess5;</li>
+              <li>(b) violation of these Terms or any applicable laws;</li>
+              <li>(c) disputes between you and other users;</li>
+              <li>(d) tax obligations from your activities; or</li>
+              <li>(e) infringement of third-party rights.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">8. PROHIBITED CONDUCT & ANTI-CHEATING</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>NO BOTS OR AUTOMATION:</strong> Use of automated tools, bots, scripts, or AI to play games is strictly prohibited.</li>
-              <li><strong>NO EXPLOITATION:</strong> Attempting to exploit bugs, vulnerabilities, or game mechanics is prohibited.</li>
-              <li><strong>NO COLLUSION:</strong> Coordinating with opponents to manipulate outcomes is prohibited.</li>
-              <li><strong>NO SYBIL ATTACKS:</strong> Creating multiple accounts or using the same account on multiple devices to gain unfair advantage is prohibited.</li>
-              <li><strong>CONSEQUENCES:</strong> Violation may result in immediate account termination, forfeiture of all funds (including winnings), and legal action.</li>
-              <li><strong>DETECTION:</strong> We employ bot protection, rate limiting, and monitoring. Suspected cheating will be investigated.</li>
+            <h4 className="text-accent font-bold mb-2">8. Prohibited Conduct</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li>• Use of bots, scripts, automation, or AI to play or influence outcomes;</li>
+              <li>• Exploitation of bugs, vulnerabilities, or match logic;</li>
+              <li>• Collusion or coordinated manipulation with other players;</li>
+              <li>• Creation of multiple or Sybil accounts for advantage.</li>
+            </ul>
+            <p className="text-white/80 pl-4 mt-2">
+              Violations may result in immediate termination, forfeiture of staked funds, and referral to authorities.
+            </p>
+          </section>
+
+          <section>
+            <h4 className="text-accent font-bold mb-2">9. Privacy, Cookies & Data Use</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>9.1 Blockchain Transparency.</strong> Transactions and wallet addresses are public and permanently recorded on the Solana blockchain.</li>
+              <li><strong>9.2 Data Collection.</strong> We may collect limited technical data (IP, browser type, device, match performance, and behavioral analytics) to ensure platform integrity and compliance.</li>
+              <li><strong>9.3 Cookies.</strong> Guess5 uses cookies and analytics tools for functionality, security, and usage analytics. Continued use constitutes consent to such use.</li>
+              <li><strong>9.4 Third-Party Services.</strong> We rely on third-party infrastructure (e.g., Vercel, Render, Redis, PostgreSQL) subject to their own privacy policies.</li>
+              <li><strong>9.5 No Private Key Access.</strong> Guess5 never collects or stores private keys or seed phrases.</li>
+              <li><strong>9.6 Privacy Rights.</strong> Depending on your jurisdiction, you may have rights to access, correct, or delete personal data. Requests may be directed to privacy@guess5.io. Guess5 complies with applicable data-protection laws to the extent required.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">9. PRIVACY, DATA COLLECTION & BLOCKCHAIN TRANSPARENCY</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>PUBLIC BLOCKCHAIN:</strong> All transactions are recorded on the Solana blockchain and are publicly visible and permanent.</li>
-              <li><strong>NO ANONYMITY:</strong> Your wallet address and transaction history are public and can be linked to your identity.</li>
-              <li><strong>DATA COLLECTION:</strong> We may collect match data, IP addresses, browser information, and user behavior for service operation, fraud prevention, and compliance.</li>
-              <li><strong>NO PRIVATE KEYS:</strong> We never collect, store, or have access to your private keys or seed phrases.</li>
-              <li><strong>THIRD-PARTY SERVICES:</strong> We use third-party services (Vercel, Render, Redis, PostgreSQL) which have their own privacy policies.</li>
+            <h4 className="text-accent font-bold mb-2">10. Dispute Resolution & Arbitration</h4>
+            <ul className="list-none space-y-1 text-white/80 pl-4">
+              <li><strong>10.1 Mutual Binding Arbitration.</strong> You and Guess5 mutually agree that any dispute or claim arising out of or relating to these Terms shall be resolved exclusively through binding arbitration administered by the American Arbitration Association (AAA) under its Commercial Arbitration Rules.</li>
+              <li><strong>10.2 Location & Governing Law.</strong> Arbitration shall take place in Wilmington, Delaware, USA, or remotely at the arbitrator's discretion, under Delaware law, excluding conflict-of-law principles.</li>
+              <li><strong>10.3 Individual Basis.</strong> All disputes must be brought individually. No class actions or representative proceedings are permitted.</li>
+              <li><strong>10.4 Jury Waiver.</strong> You expressly waive any right to a jury trial.</li>
+              <li><strong>10.5 Opt-Out.</strong> You may opt out of arbitration within 30 days of first acceptance by notifying us in writing at legal@guess5.io.</li>
+              <li><strong>10.6 Costs.</strong> Each party bears its own arbitration costs and fees unless otherwise determined by the arbitrator.</li>
+              <li><strong>10.7 Severability.</strong> If any provision is unenforceable, the remainder shall remain in effect.</li>
             </ul>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">10. DISPUTE RESOLUTION, ARBITRATION & CLASS ACTION WAIVER</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>BINDING ARBITRATION:</strong> Any dispute, claim, or controversy arising from or relating to this service shall be resolved by BINDING ARBITRATION administered by the American Arbitration Association (AAA) in accordance with its Commercial Arbitration Rules.</li>
-              <li><strong>INDIVIDUAL BASIS ONLY:</strong> Arbitration shall be conducted on an individual basis only. YOU WAIVE YOUR RIGHT TO PARTICIPATE IN A CLASS ACTION, CLASS ARBITRATION, OR ANY REPRESENTATIVE PROCEEDING.</li>
-              <li><strong>JURY TRIAL WAIVER:</strong> YOU WAIVE YOUR RIGHT TO A JURY TRIAL.</li>
-              <li><strong>GOVERNING LAW:</strong> These terms are governed by the laws of the State of Delaware, United States, without regard to conflict of law principles.</li>
-              <li><strong>VENUE:</strong> Arbitration shall take place in Wilmington, Delaware or remotely at the arbitrator's discretion.</li>
-              <li><strong>COSTS:</strong> Each party shall bear their own arbitration costs and attorney fees unless awarded by the arbitrator.</li>
-              <li><strong>SEVERABILITY:</strong> If any provision of these terms is found unenforceable, the remaining provisions shall remain in full force and effect.</li>
-            </ul>
+            <h4 className="text-accent font-bold mb-2">11. Intellectual Property</h4>
+            <p className="text-white/80 pl-4">
+              All software, content, logos, and materials on Guess5 are owned by Guess5 or its licensors. You are granted a limited, revocable, non-exclusive, non-transferable license to use Guess5 for personal, non-commercial purposes only. You may not copy, modify, reverse engineer, or redistribute the platform or its components.
+            </p>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">11. INTELLECTUAL PROPERTY & LICENSE</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>OUR PROPERTY:</strong> All content, software, logos, trademarks, and intellectual property related to Guess5 are owned by Guess5 or its licensors.</li>
-              <li><strong>LIMITED LICENSE:</strong> You are granted a limited, non-exclusive, non-transferable, revocable license to use the service for personal, non-commercial purposes only.</li>
-              <li><strong>NO REVERSE ENGINEERING:</strong> You may not copy, modify, reverse engineer, decompile, or create derivative works of the service.</li>
-              <li><strong>FEEDBACK:</strong> Any feedback or suggestions you provide may be used by Guess5 without compensation or attribution.</li>
-            </ul>
+            <h4 className="text-accent font-bold mb-2">12. Force Majeure</h4>
+            <p className="text-white/80 pl-4">
+              Guess5 shall not be liable for any failure or delay caused by events beyond reasonable control, including but not limited to acts of God, natural disasters, war, terrorism, pandemics, regulatory actions, blockchain network outages, failures of underlying blockchain consensus mechanisms, cyberattacks, or third-party infrastructure failures.
+            </p>
           </section>
 
           <section>
-            <h4 className="text-accent font-bold mb-2">12. FORCE MAJEURE & UNCONTROLLABLE EVENTS</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li>Guess5 shall not be liable for failure or delay in performance due to events beyond our reasonable control, including but not limited to: acts of God, natural disasters, war, terrorism, pandemics, government actions, blockchain network failures, internet outages, cyberattacks, smart contract vulnerabilities, or failures of third-party infrastructure.</li>
-            </ul>
-          </section>
-
-          <section>
-            <h4 className="text-accent font-bold mb-2">13. ENTIRE AGREEMENT & MODIFICATIONS</h4>
-            <ul className="list-disc list-inside space-y-1 text-white/80">
-              <li><strong>ENTIRE AGREEMENT:</strong> These terms constitute the entire agreement between you and Guess5 and supersede all prior agreements or understandings.</li>
-              <li><strong>MODIFICATIONS:</strong> We may modify these terms at any time. Continued use after modifications constitutes acceptance of the new terms.</li>
-              <li><strong>NO WAIVER:</strong> Our failure to enforce any right or provision does not constitute a waiver of that right or provision.</li>
-            </ul>
+            <h4 className="text-accent font-bold mb-2">13. Modifications & Entire Agreement</h4>
+            <p className="text-white/80 pl-4">
+              We may update these Terms at any time by posting a revised version at Guess5.io. Continued use constitutes acceptance. These Terms represent the entire agreement between you and Guess5 and supersede any prior understandings.
+            </p>
+            <p className="text-white/80 pl-4 mt-2">
+              No waiver of any provision is deemed a waiver of any other.
+            </p>
           </section>
 
           <div className="bg-red-900 bg-opacity-20 border border-red-500 rounded p-3">
-            <h4 className="text-red-400 font-bold mb-2">⚠️ ACKNOWLEDGMENT</h4>
-            <p className="text-white/90">
-              By clicking "I Accept", you confirm that you have read and understood all terms above, 
-              are of legal age, and agree to be bound by these terms. If you do not agree, please click "Decline" 
-              and do not use this service.
+            <h4 className="text-red-400 font-bold mb-2">⚠️ Acceptance & Acknowledgment</h4>
+            <p className="text-white/90 mb-2">
+              By clicking "I Accept" or connecting your wallet, you confirm that:
             </p>
+            <ul className="list-disc list-inside text-white/90 space-y-1">
+              <li>You have read and understood these Terms;</li>
+              <li>You are of legal age and authority to agree;</li>
+              <li>You accept and agree to be bound by all provisions above.</li>
+            </ul>
+            <p className="text-white/90 mt-2">
+              If you do not agree, do not use Guess5.
+            </p>
+          </div>
+
+          <div className="text-center text-xs text-white/50 mt-4 border-t border-accent/30 pt-3">
+            <p>© 2025 Guess5.io. All rights reserved.</p>
+            <p className="mt-1"><strong>Last Updated:</strong> October 28, 2025</p>
           </div>
         </div>
 
