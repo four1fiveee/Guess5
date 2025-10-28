@@ -108,7 +108,7 @@ export class SquadsClient {
       const details = await this.getMultisigDetails(vaultAddress);
       if (!details) return false;
 
-      return details.members.includes(walletAddress);
+      return details.members.some(member => member.toString() === walletAddress);
     } catch (error) {
       console.error('❌ Failed to check multisig membership', error);
       return false;
