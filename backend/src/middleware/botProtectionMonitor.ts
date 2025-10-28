@@ -1,11 +1,9 @@
-import { Request } from 'express';
-
 /**
  * Bot Protection Monitoring and Logging
  * Tracks bot protection events for security analysis
  */
 
-export const logBotProtection = (req: Request, blocked: boolean, reason: string): void => {
+export const logBotProtection = (req: any, blocked: boolean, reason: string): void => {
   const logEntry = {
     timestamp: new Date().toISOString(),
     event: blocked ? 'BOT_BLOCKED' : 'REQUEST_ALLOWED',
