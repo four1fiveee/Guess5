@@ -16,7 +16,7 @@ export default function Home() {
             Play Now
           </button>
         </Link>
-        <p className="text-sm text-white/80 mb-4 text-center">Compete in word games for real SOL rewards</p>
+        <p className="text-sm text-white/80 mb-4 text-center">Stake your skill, win with words</p>
 
         {/* How to Play - Simplified */}
         <div className="bg-secondary bg-opacity-10 rounded-lg p-4 max-w-4xl w-full text-accent shadow">

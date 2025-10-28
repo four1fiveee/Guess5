@@ -10,7 +10,7 @@ export default function Info() {
         {/* Header */}
         <div className="w-full mb-8">
           <Link href="/">
-            <button className="bg-secondary text-white text-sm font-bold px-4 py-2 rounded-lg shadow hover:bg-opacity-80 transition">
+            <button className="bg-accent text-primary text-sm font-bold px-4 py-2 rounded-lg shadow hover:bg-yellow-400 transition">
               ← Back to Home
             </button>
           </Link>
