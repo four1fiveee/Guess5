@@ -5,16 +5,6 @@ import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { LegalDisclaimer } from './LegalDisclaimer';
 import { useWalletBalanceSSE } from '../hooks/useWalletBalanceSSE';
 
-declare global {
-  interface Window {
-    grecaptcha: {
-      enterprise: {
-        execute(siteKey: string, options: { action: string }): Promise<string>;
-      };
-    };
-  }
-}
-
 export const WalletConnectButton: React.FC = () => {
   const { publicKey, connect, disconnect, connected }: WalletContextState = useWallet();
   const { setVisible } = useWalletModal();
@@ -50,43 +40,14 @@ export const WalletConnectButton: React.FC = () => {
         return;
       }
 
-      // Check if reCAPTCHA is available
-      if (!window.grecaptcha || !window.grecaptcha.enterprise) {
-        console.error('reCAPTCHA not available');
-        alert('reCAPTCHA not loaded. Please refresh the page and try again.');
-        return;
-      }
-
-      try {
-        console.log('Executing reCAPTCHA...');
-        const token = await window.grecaptcha.enterprise.execute(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', { action: 'connect_wallet' });
-        console.log('reCAPTCHA token received:', token ? 'Success' : 'Failed');
-        
-        if (token) {
-          console.log('reCAPTCHA passed successfully');
-          // Show wallet selection modal
-          console.log('Opening wallet selection modal...');
-          setVisible(true);
-        } else {
-          console.error('No token received from reCAPTCHA');
-          alert('reCAPTCHA verification failed. Please try again.');
-        }
-      } catch (err) {
-        console.error('reCAPTCHA failed:', err);
-        // More graceful error handling
-        if (err instanceof Error && err.message.includes('timeout')) {
-          alert('reCAPTCHA timed out. Please try again.');
-        } else if (err instanceof Error && err.message.includes('network')) {
-          alert('Network error with reCAPTCHA. Please check your connection and try again.');
-        } else {
-          alert('reCAPTCHA verification failed. Please try again.');
-        }
-      }
+      // Directly show wallet selection modal (bot protection handled by backend)
+      console.log('Opening wallet selection modal...');
+      setVisible(true);
     } finally {
       // Reset the processing flag after a short delay
       setTimeout(() => {
         setIsProcessing(false);
-      }, 1000);
+      }, 500);
     }
   };
 
@@ -162,27 +123,12 @@ export const TopRightWallet: React.FC = () => {
         return;
       }
 
-      if (!window.grecaptcha || !window.grecaptcha.enterprise) {
-        alert('reCAPTCHA not loaded. Please refresh the page and try again.');
-        return;
-      }
-
-      try {
-        const token = await window.grecaptcha.enterprise.execute(process.env.NEXT_PUBLIC_RECAPTCHA_SITE_KEY || '6Lcq4JArAAAAAMzZI4o4TVaJANOpDBqqFtzBVqMI', { action: 'connect_wallet' });
-        
-        if (token) {
-          setVisible(true);
-        } else {
-          alert('reCAPTCHA verification failed. Please try again.');
-        }
-      } catch (err) {
-        console.error('reCAPTCHA failed:', err);
-        alert('reCAPTCHA verification failed. Please try again.');
-      }
+      // Directly show wallet selection modal (bot protection handled by backend)
+      setVisible(true);
     } finally {
       setTimeout(() => {
         setIsProcessing(false);
-      }, 1000);
+      }, 500);
     }
   };
 
