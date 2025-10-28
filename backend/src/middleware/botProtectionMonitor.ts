@@ -37,7 +37,7 @@ export const logBotProtection = (req: any, blocked: boolean, reason: string): vo
 /**
  * Middleware wrapper for logging rate limit events
  */
-export const rateLimitLogger = (req: Request, res: any, next: any): void => {
+export const rateLimitLogger = (req: any, res: any, next: any): void => {
   // Log rate limit headers if present
   const rateLimitRemaining = res.getHeader('RateLimit-Remaining');
   const rateLimitLimit = res.getHeader('RateLimit-Limit');

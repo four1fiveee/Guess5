@@ -1,0 +1,34 @@
+[33mcommit 3142df25e0d0f0f55fe994247927ae137f86c586[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/main[m[33m, [m[1;31morigin/HEAD[m[33m)[m
+Author: four1fiveee <four1fiveee@gmail.com>
+Date:   Tue Oct 28 13:16:54 2025 -0400
+
+    fix: Update matchmaking.tsx to use named imports from api.ts
+    
+    - Changed from default import to named imports (requestMatch, checkPlayerMatch, getMatchStatus)
+    - Updated all api.* calls to use imported functions directly
+    - Fixes Vercel TypeScript compilation error: no default export
+
+M	frontend/src/pages/matchmaking.tsx
+
+[33mcommit e7b82b08b08fd26cf90150cabeccef17bf2140e9[m
+Author: four1fiveee <four1fiveee@gmail.com>
+Date:   Tue Oct 28 11:29:16 2025 -0400
+
+    fix: Add missing getGameState export to api.ts
+    
+    - Restored getGameState function that was removed during reCAPTCHA cleanup
+    - Frontend game.tsx depends on this function
+    - Fixes Vercel TypeScript compilation error
+
+M	frontend/src/utils/api.ts
+
+[33mcommit 1032ef24800102853fe81181d269cc4846e6ca05[m
+Author: four1fiveee <four1fiveee@gmail.com>
+Date:   Tue Oct 28 11:28:01 2025 -0400
+
+    fix: TypeScript compilation errors in botProtectionMonitor
+    
+    - Changed Request type to any to match existing codebase patterns
+    - Fixes build failures in Render deployment
+
+M	backend/src/middleware/botProtectionMonitor.ts
