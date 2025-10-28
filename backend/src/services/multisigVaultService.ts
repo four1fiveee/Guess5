@@ -330,5 +330,6 @@ export class MultisigVaultService {
   }
 }
 
-// Export singleton instance
-export const multisigVaultService = new MultisigVaultService();
+// DEPRECATED: Do not instantiate this service
+// Use squadsVaultService instead for non-custodial Squads Protocol integration
+// export const multisigVaultService = new MultisigVaultService();
