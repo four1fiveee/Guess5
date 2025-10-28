@@ -82,14 +82,23 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
   };
 
   const handleSignProposal = async () => {
-    if (!matchStatus?.match.payoutProposalId) {
-      setError('No proposal to sign');
+    if (!matchStatus?.match.payoutProposalId || !matchStatus?.match.squadsVaultAddress) {
+      setError('No proposal or vault address to sign');
+      return;
+    }
+
+    if (!publicKey) {
+      setError('Wallet not connected');
       return;
     }
 
     setSigningProposal(true);
     try {
-      await squadsClient.signProposal(matchStatus.match.payoutProposalId);
+      await squadsClient.signProposal(
+        matchStatus.match.squadsVaultAddress,
+        matchStatus.match.payoutProposalId,
+        publicKey
+      );
       setError(null);
       fetchMatchStatus(); // Refresh status
     } catch (err) {
