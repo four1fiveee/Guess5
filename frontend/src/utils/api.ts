@@ -106,3 +106,9 @@ export const getSolPrice = async () => {
     method: 'GET',
   });
 };
+
+export const getGameState = async (matchId: string, wallet: string) => {
+  return apiRequest(`/api/match/game-state?matchId=${matchId}&wallet=${wallet}`, {
+    method: 'GET',
+  });
+};
