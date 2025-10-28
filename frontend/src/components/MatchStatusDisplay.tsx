@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MultisigVaultDeposit } from './MultisigVaultDeposit';
 import { SquadsClient } from '../utils/squadsClient';
+import { useWallet } from '@solana/wallet-adapter-react';
 
 interface MatchStatusDisplayProps {
   matchId: string;
@@ -49,6 +50,7 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
   const [depositComplete, setDepositComplete] = useState(false);
   const [signingProposal, setSigningProposal] = useState(false);
   const [squadsClient] = useState(() => new SquadsClient());
+  const { publicKey } = useWallet();
 
   useEffect(() => {
     fetchMatchStatus();
