@@ -6,42 +6,49 @@ const { getSolPriceHandler } = require('../services/solPriceService');
 const { 
   validateMatchRequest: validateMatch, 
   validateSubmitResult: validateResult, 
-  validateConfirmPayment: validateConfirmPaymentData,
-  validateReCaptcha
+  validateConfirmPayment: validateConfirmPaymentData
 } = require('../middleware/validation');
 const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
-// Rate limiting removed - ReCaptcha provides sufficient protection
-// const walletMatchmakingLimiter = createRateLimiter(30 * 1000, 1000);
-// const walletGameLimiter = createRateLimiter(60 * 1000, 2000);
-// const walletResultLimiter = createRateLimiter(60 * 1000, 500);
+// Import bot protection middleware
+const { validateVercelBotProtection } = require('../middleware/vercelBotProtection');
+const { 
+  ipLimiter,
+  matchmakingLimiter,
+  guessLimiter,
+  paymentLimiter,
+  resultLimiter
+} = require('../middleware/rateLimiter');
 
-// Production routes with enhanced security
+// Production routes with multi-layer bot protection
 router.post('/request-match', 
-  // Removed rate limiting for match request - ReCaptcha provides sufficient protection
+  ipLimiter, // Layer 1: IP-based rate limiting (20 req/min per IP)
+  validateVercelBotProtection, // Layer 2: Verify request came through Vercel
+  matchmakingLimiter, // Layer 3: Wallet-based rate limiting (1 req/30sec per wallet)
   validateMatch, 
-  validateReCaptcha,
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
 router.post('/submit-result', 
-  // Removed rate limiting for result submission - ReCaptcha provides sufficient protection
+  ipLimiter,
+  validateVercelBotProtection,
+  resultLimiter, // 2 results per minute per wallet
   validateResult, 
-  validateReCaptcha,
   asyncHandlerWrapper(matchController.submitResultHandler)
 );
 
 router.post('/submit-guess', 
-  // Removed rate limiting for guess submission - ReCaptcha provides sufficient protection
-  // Temporarily removed ReCaptcha to avoid conflicts during testing
-  // validateReCaptcha,
+  ipLimiter,
+  validateVercelBotProtection,
+  guessLimiter, // 10 guesses per minute per wallet
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
 );
 
 router.post('/confirm-payment', 
-  // Removed rate limiting for payment confirmation - ReCaptcha provides sufficient protection
+  ipLimiter,
+  validateVercelBotProtection,
+  paymentLimiter, // 5 payments per minute per wallet
   validateConfirmPaymentData,
-  validateReCaptcha,
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
 );
 

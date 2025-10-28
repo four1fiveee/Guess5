@@ -48,13 +48,8 @@ const confirmPaymentSchema = Joi.object({
   paymentSignature: Joi.string().required()
 });
 
-// ReCaptcha/BotID validation middleware - TEMPORARILY DISABLED
-// Bot protection is now handled by Vercel BotID on the frontend
-export const validateReCaptcha = async (req: any, res: any, next: any) => {
-  // TEMPORARILY ALLOW ALL REQUESTS - Bot protection handled by Vercel BotID
-  console.log('⚠️ Bot protection temporarily disabled - Vercel BotID handles it on the frontend');
-  return next();
-};
+// ReCaptcha validation removed - replaced with Vercel Bot Protection + rate limiting
+// See backend/src/middleware/vercelBotProtection.ts and rateLimiter.ts for new bot protection
 
 // Validation middleware
 export const validateMatchRequest = (req: Request, res: Response, next: any) => {
