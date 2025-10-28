@@ -9,6 +9,12 @@ const path = require('path');
 const wordListModule = require(path.join(__dirname, '../wordList'));
 const { getRandomWord } = wordListModule;
 
+// Import database connection for pending claims handler
+const { AppDataSource } = require('../db/index');
+
+// Import Squads service for non-custodial vault operations
+const { squadsVaultService } = require('../services/squadsVaultService');
+
 // Import Redis helpers to replace in-memory storage
 const { getGameState, setGameState, deleteGameState } = require('../utils/redisGameState');
 const { getMatchmakingLock, setMatchmakingLock, deleteMatchmakingLock } = require('../utils/redisMatchmakingLocks');
@@ -1635,8 +1641,7 @@ const submitResultHandler = async (req: any, res: any) => {
           
           // Create Squads proposal for winner payout
           try {
-            const { squadsVaultService } = require('../services/squadsVaultService');
-            const { PublicKey } = require('@solana/web3.js');
+            // squadsVaultService is now imported at the top of the file
             
             const proposalResult = await squadsVaultService.proposeWinnerPayout(
               updatedMatch.vaultAddress,
