@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MultisigVaultDeposit } from './MultisigVaultDeposit';
+import { SquadsClient } from '../utils/squadsClient';
 
 interface MatchStatusDisplayProps {
   matchId: string;
@@ -15,12 +16,20 @@ interface MatchStatus {
     status: string;
     matchStatus: string;
     vaultAddress: string;
+    squadsVaultAddress: string;
     depositATx: string;
     depositBTx: string;
     depositAConfirmations: number;
     depositBConfirmations: number;
     payoutTxHash: string;
     refundTxHash: string;
+    payoutProposalId: string;
+    proposalCreatedAt: string;
+    proposalStatus: string;
+    proposalSigners: string[];
+    needsSignatures: number;
+    proposalExecutedAt: string;
+    proposalTransactionId: string;
     createdAt: string;
   };
   vaultStatus: {
@@ -38,6 +47,8 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [depositComplete, setDepositComplete] = useState(false);
+  const [signingProposal, setSigningProposal] = useState(false);
+  const [squadsClient] = useState(() => new SquadsClient());
 
   useEffect(() => {
     fetchMatchStatus();
@@ -68,6 +79,24 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
 
   const handleDepositError = (error: string) => {
     setError(error);
+  };
+
+  const handleSignProposal = async () => {
+    if (!matchStatus?.match.payoutProposalId) {
+      setError('No proposal to sign');
+      return;
+    }
+
+    setSigningProposal(true);
+    try {
+      await squadsClient.signProposal(matchStatus.match.payoutProposalId);
+      setError(null);
+      fetchMatchStatus(); // Refresh status
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to sign proposal');
+    } finally {
+      setSigningProposal(false);
+    }
   };
 
   if (loading) {
@@ -134,8 +163,8 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
           </div>
 
           <div className="bg-white bg-opacity-5 rounded-lg p-4">
-            <p className="text-sm text-white/80 mb-2">Vault Address:</p>
-            <p className="text-xs font-mono text-accent break-all">{match.vaultAddress}</p>
+            <p className="text-sm text-white/80 mb-2">Squads Vault Address:</p>
+            <p className="text-xs font-mono text-accent break-all">{match.squadsVaultAddress || match.vaultAddress}</p>
           </div>
         </div>
       </div>
@@ -206,11 +235,86 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
         </div>
       </div>
 
+      {/* Proposal Status */}
+      {match.payoutProposalId && (
+        <div className="bg-secondary bg-opacity-10 rounded-lg p-6">
+          <h3 className="text-xl font-bold text-accent mb-4">Proposal Status</h3>
+          
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+            <div className="bg-white bg-opacity-5 rounded-lg p-4">
+              <p className="text-sm text-white/80 mb-2">Proposal ID:</p>
+              <p className="text-xs font-mono text-accent break-all">{match.payoutProposalId}</p>
+            </div>
+
+            <div className="bg-white bg-opacity-5 rounded-lg p-4">
+              <p className="text-sm text-white/80 mb-2">Status:</p>
+              <div className="flex items-center space-x-2">
+                <div className={`w-3 h-3 rounded-full ${
+                  match.proposalStatus === 'EXECUTED' ? 'bg-green-500' :
+                  match.proposalStatus === 'APPROVED' ? 'bg-blue-500' :
+                  match.proposalStatus === 'ACTIVE' ? 'bg-yellow-500' :
+                  'bg-gray-500'
+                }`} />
+                <span className="text-sm text-white">{match.proposalStatus}</span>
+              </div>
+            </div>
+
+            <div className="bg-white bg-opacity-5 rounded-lg p-4">
+              <p className="text-sm text-white/80 mb-2">Signatures Needed:</p>
+              <p className="text-lg font-bold text-accent">{match.needsSignatures}</p>
+            </div>
+
+            <div className="bg-white bg-opacity-5 rounded-lg p-4">
+              <p className="text-sm text-white/80 mb-2">Created:</p>
+              <p className="text-sm text-white">{new Date(match.proposalCreatedAt).toLocaleString()}</p>
+            </div>
+          </div>
+
+          {/* Signing Button */}
+          {match.proposalStatus === 'ACTIVE' && match.needsSignatures > 0 && (
+            <div className="bg-white bg-opacity-5 rounded-lg p-4">
+              <p className="text-sm text-white/80 mb-3">
+                {match.proposalSigners.includes(playerWallet) 
+                  ? 'You have already signed this proposal' 
+                  : 'Sign this proposal to execute the payout'
+                }
+              </p>
+              
+              {!match.proposalSigners.includes(playerWallet) && (
+                <button
+                  onClick={handleSignProposal}
+                  disabled={signingProposal}
+                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-4 rounded-lg transition-colors"
+                >
+                  {signingProposal ? 'Signing...' : 'Sign to Claim Winnings'}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Executed Transaction */}
+          {match.proposalTransactionId && (
+            <div className="bg-white bg-opacity-5 rounded-lg p-4 mt-4">
+              <p className="text-sm text-white/80 mb-2">Executed Transaction:</p>
+              <p className="text-xs font-mono text-accent break-all">{match.proposalTransactionId}</p>
+              <a
+                href={`https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=devnet`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent hover:text-yellow-400 text-sm underline"
+              >
+                View on Solana Explorer
+              </a>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Deposit Component */}
-      {match.matchStatus === 'VAULT_CREATED' && match.vaultAddress && (
+      {match.matchStatus === 'VAULT_CREATED' && (match.squadsVaultAddress || match.vaultAddress) && (
         <MultisigVaultDeposit
           matchId={match.id}
-          vaultAddress={match.vaultAddress}
+          vaultAddress={match.squadsVaultAddress || match.vaultAddress}
           entryFee={match.entryFee}
           onDepositComplete={handleDepositComplete}
           onError={handleDepositError}

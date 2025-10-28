@@ -28,3 +28,4 @@ export class MatchAttestation {
   @JoinColumn({ name: 'matchId' })
   match?: Match;
 }
+

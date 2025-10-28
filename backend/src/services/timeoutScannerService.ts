@@ -1,7 +1,7 @@
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { MatchAuditLog } from '../models/MatchAuditLog';
-import { multisigVaultService } from './multisigVaultService';
+import { squadsVaultService } from './squadsVaultService';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 export class TimeoutScannerService {
@@ -131,28 +131,31 @@ export class TimeoutScannerService {
       }
 
       // Process refund
-      const refundResult = await multisigVaultService.processRefund(match.id, timeoutReason);
+      const refundResult = await squadsVaultService.proposeTieRefund(match.id, timeoutReason);
 
       if (refundResult.success) {
         // Update match status
         match.matchStatus = 'REFUNDED';
-        match.refundTxHash = refundResult.transactionId;
+        match.payoutProposalId = refundResult.proposalId;
+        match.proposalStatus = 'ACTIVE';
+        match.proposalCreatedAt = new Date();
+        match.needsSignatures = 2; // 2-of-3 multisig
         await AppDataSource.getRepository(Match).save(match);
 
         // Log timeout event
-        await this.logAuditEvent(auditLogRepository, match.id, 'TIMEOUT_PROCESSED', {
+        await this.logAuditEvent(auditLogRepository, match.id, 'TIMEOUT_PROPOSAL_CREATED', {
           timeoutReason,
-          refundTxId: refundResult.transactionId,
+          proposalId: refundResult.proposalId,
           originalStatus: match.matchStatus,
         });
 
-        enhancedLogger.info('✅ Timeout match processed', {
+        enhancedLogger.info('✅ Timeout refund proposal created', {
           matchId: match.id,
           timeoutReason,
-          refundTxId: refundResult.transactionId,
+          proposalId: refundResult.proposalId,
         });
       } else {
-        enhancedLogger.error('❌ Failed to process timeout refund', {
+        enhancedLogger.error('❌ Failed to create timeout refund proposal', {
           matchId: match.id,
           error: refundResult.error,
         });
@@ -182,46 +185,52 @@ export class TimeoutScannerService {
       // Check if both players have paid
       if (match.player1Paid && match.player2Paid) {
         // Both players paid, but game didn't start - refund both
-        const refundResult = await multisigVaultService.processRefund(
+        const refundResult = await squadsVaultService.proposeTieRefund(
           match.id,
           'GAME_START_TIMEOUT'
         );
 
         if (refundResult.success) {
           match.matchStatus = 'REFUNDED';
-          match.refundTxHash = refundResult.transactionId;
+          match.payoutProposalId = refundResult.proposalId;
+          match.proposalStatus = 'ACTIVE';
+          match.proposalCreatedAt = new Date();
+          match.needsSignatures = 2; // 2-of-3 multisig
           await AppDataSource.getRepository(Match).save(match);
 
-          await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_TIMEOUT_PROCESSED', {
-            refundTxId: refundResult.transactionId,
+          await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_TIMEOUT_PROPOSAL_CREATED', {
+            proposalId: refundResult.proposalId,
             reason: 'GAME_START_TIMEOUT',
           });
 
-          enhancedLogger.info('✅ Deposit timeout processed', {
+          enhancedLogger.info('✅ Deposit timeout refund proposal created', {
             matchId: match.id,
-            refundTxId: refundResult.transactionId,
+            proposalId: refundResult.proposalId,
           });
         }
       } else {
         // One or both players didn't pay - refund those who did
-        const refundResult = await multisigVaultService.processRefund(
+        const refundResult = await squadsVaultService.proposeTieRefund(
           match.id,
           'DEPOSIT_TIMEOUT'
         );
 
         if (refundResult.success) {
           match.matchStatus = 'REFUNDED';
-          match.refundTxHash = refundResult.transactionId;
+          match.payoutProposalId = refundResult.proposalId;
+          match.proposalStatus = 'ACTIVE';
+          match.proposalCreatedAt = new Date();
+          match.needsSignatures = 2; // 2-of-3 multisig
           await AppDataSource.getRepository(Match).save(match);
 
-          await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_TIMEOUT_PROCESSED', {
-            refundTxId: refundResult.transactionId,
+          await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_TIMEOUT_PROPOSAL_CREATED', {
+            proposalId: refundResult.proposalId,
             reason: 'DEPOSIT_TIMEOUT',
           });
 
-          enhancedLogger.info('✅ Deposit timeout processed', {
+          enhancedLogger.info('✅ Deposit timeout refund proposal created', {
             matchId: match.id,
-            refundTxId: refundResult.transactionId,
+            proposalId: refundResult.proposalId,
           });
         }
       }

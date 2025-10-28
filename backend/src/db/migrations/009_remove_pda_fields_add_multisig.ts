@@ -86,3 +86,4 @@ export class RemovePdaFieldsAddMultisig1700000000009 implements MigrationInterfa
         console.log('✅ Migration reverted: Restored PDA fields and removed multisig fields');
     }
 }
+

@@ -61,6 +61,11 @@ router.get('/check-player-match/:walletAddress',
   asyncHandlerWrapper(matchController.checkPlayerMatchHandler)
 );
 
+router.get('/check-pending-claims/:wallet', 
+  // Check if player has pending winnings/refunds that need to be claimed
+  asyncHandlerWrapper(matchController.checkPendingClaimsHandler)
+);
+
 router.get('/check-match/:wallet', 
   // No rate limiting for polling endpoint to avoid 429 errors
   asyncHandlerWrapper(matchController.checkPlayerMatchHandler)

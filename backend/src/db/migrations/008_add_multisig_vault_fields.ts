@@ -97,3 +97,4 @@ export class AddMultisigVaultFields1700000000008 implements MigrationInterface {
         console.log('✅ Migration reverted: Removed multisig vault fields and tables');
     }
 }
+

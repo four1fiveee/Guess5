@@ -6,6 +6,7 @@ import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect } from 'react'
 import Image from 'next/image'
 import logo from '../../public/logo.png'
+import { usePendingClaims } from '../hooks/usePendingClaims'
 
 const ENTRY_FEES_USD = [1, 5, 20];
 
@@ -44,6 +45,7 @@ const fetchSolPrice = async () => {
 export default function Lobby() {
   const router = useRouter()
   const { publicKey } = useWallet()
+  const { pendingClaims, hasBlockingClaims, checkPendingClaims } = usePendingClaims()
   const [checkingBalance, setCheckingBalance] = useState(false)
   const [isMatchmaking, setIsMatchmaking] = useState(false)
   const [solPrice, setSolPrice] = useState<number | null>(null)
@@ -180,6 +182,31 @@ export default function Lobby() {
       return
     }
     
+    // Check for pending claims before allowing new matchmaking
+    if (hasBlockingClaims) {
+      console.log('🚫 Player has pending claims, preventing new matchmaking');
+      
+      if (pendingClaims?.hasPendingWinnings && pendingClaims.pendingWinnings.length > 0) {
+        const firstWinning = pendingClaims.pendingWinnings[0];
+        alert(`You have unclaimed winnings from a previous match! Please claim your ${firstWinning.entryFee.toFixed(4)} SOL winnings before starting a new game.`);
+        router.push(`/result?matchId=${firstWinning.matchId}`);
+        return;
+      }
+      
+      if (pendingClaims?.hasPendingRefunds && pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0) {
+        const firstRefund = pendingClaims.pendingRefunds[0];
+        alert(`You have an unclaimed refund from a previous match! Please claim your ${firstRefund.refundAmount?.toFixed(4) || firstRefund.entryFee.toFixed(4)} SOL refund before starting a new game.`);
+        router.push(`/result?matchId=${firstRefund.matchId}`);
+        return;
+      }
+      
+      // If there are pending refunds but they can't be executed yet, show different message
+      if (pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted) {
+        alert('You have pending refunds from previous matches. Please wait for the refund to become available or contact support.');
+        return;
+      }
+    }
+    
     // Prevent multiple clicks
     if (isMatchmaking) {
       console.log('⏳ Already matchmaking, ignoring click');
@@ -289,6 +316,24 @@ export default function Lobby() {
               </div>
             )}
             
+            {/* Pending Claims Warning */}
+            {hasBlockingClaims && (
+              <div className="bg-yellow-500 bg-opacity-20 border border-yellow-500 rounded-lg p-4 mb-4">
+                <div className="text-yellow-400 font-semibold mb-2">⚠️ You have unclaimed funds!</div>
+                <div className="text-white/80 text-sm mb-3">
+                  {pendingClaims?.hasPendingWinnings && pendingClaims.pendingWinnings.length > 0 && (
+                    <div>You have unclaimed winnings from {pendingClaims.pendingWinnings.length} previous match(es).</div>
+                  )}
+                  {pendingClaims?.hasPendingRefunds && pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
+                    <div>You have unclaimed refunds from {pendingClaims.pendingRefunds.length} previous match(es).</div>
+                  )}
+                </div>
+                <div className="text-white/60 text-xs">
+                  Please claim your funds before starting a new game.
+                </div>
+              </div>
+            )}
+            
             <div className="space-y-3">
               {ENTRY_FEES_USD.map((usdAmount, index) => {
                 const solAmount = solAmounts[index];
@@ -298,12 +343,12 @@ export default function Lobby() {
                   <button
                     key={usdAmount}
                     className={`w-full p-4 rounded-lg font-bold transition-colors shadow ${
-                      hasEnoughBalance
+                      hasEnoughBalance && !hasBlockingClaims
                         ? 'bg-accent text-primary hover:bg-yellow-400'
                         : 'bg-gray-600 text-gray-300 cursor-not-allowed'
                     } ${isMatchmaking ? 'opacity-50 cursor-not-allowed' : ''}`}
                     onClick={() => handleSelect(usdAmount, solAmount)}
-                    disabled={!hasEnoughBalance || isMatchmaking}
+                    disabled={!hasEnoughBalance || isMatchmaking || hasBlockingClaims}
                   >
                     <div className="text-lg">${usdAmount}</div>
                     <div className="text-sm opacity-80">
@@ -312,6 +357,11 @@ export default function Lobby() {
                     {!hasEnoughBalance && walletBalance !== null && (
                       <div className="text-xs text-red-400 mt-1">
                         Insufficient balance
+                      </div>
+                    )}
+                    {hasBlockingClaims && (
+                      <div className="text-xs text-yellow-400 mt-1">
+                        Claim pending funds first
                       </div>
                     )}
                   </button>

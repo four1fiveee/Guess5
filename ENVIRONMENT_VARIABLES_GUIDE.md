@@ -136,3 +136,4 @@ Your environment variables are now configured for the multisig architecture. You
 4. **Monitor logs** for any configuration issues
 
 The old PDA system is completely removed, and your environment is now configured for the new multisig vault architecture! 🎉
+

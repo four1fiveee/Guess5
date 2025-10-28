@@ -6,10 +6,12 @@ import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
 import api from '../utils/api';
+import { usePendingClaims } from '../hooks/usePendingClaims';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction } = useWallet();
+  const { hasBlockingClaims, pendingClaims } = usePendingClaims();
   const [status, setStatus] = useState<'waiting' | 'payment_required' | 'waiting_for_payment' | 'waiting_for_game' | 'active' | 'error' | 'cancelled'>('waiting');
   const [waitingCount, setWaitingCount] = useState(0);
   const [matchData, setMatchData] = useState<any>(null);
@@ -23,6 +25,25 @@ const Matchmaking: React.FC = () => {
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
   const statusRef = useRef<string>('waiting');
+
+  // Redirect players with pending claims
+  useEffect(() => {
+    if (hasBlockingClaims && publicKey) {
+      console.log('🚫 Player has pending claims, redirecting from matchmaking');
+      
+      if (pendingClaims?.hasPendingWinnings && pendingClaims.pendingWinnings.length > 0) {
+        const firstWinning = pendingClaims.pendingWinnings[0];
+        router.push(`/result?matchId=${firstWinning.matchId}`);
+        return;
+      }
+      
+      if (pendingClaims?.hasPendingRefunds && pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0) {
+        const firstRefund = pendingClaims.pendingRefunds[0];
+        router.push(`/result?matchId=${firstRefund.matchId}`);
+        return;
+      }
+    }
+  }, [hasBlockingClaims, pendingClaims, publicKey, router]);
 
   const handlePayment = async () => {
     if (isPaymentInProgress) {

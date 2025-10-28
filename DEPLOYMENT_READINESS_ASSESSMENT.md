@@ -124,3 +124,4 @@ useEffect(() => {
 2. Add polling for match status changes
 3. Test deposit flow on devnet
 4. Verify payouts work correctly
+

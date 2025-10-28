@@ -1620,10 +1620,9 @@ const submitResultHandler = async (req: any, res: any) => {
           return result;
         });
         
-        // Execute automated payment
-        // Calculate direct payment instructions
+        // Execute Squads proposal for winner payout (non-custodial)
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
-          console.log('💰 Calculating automated payout...');
+          console.log('💰 Creating Squads proposal for winner payout...');
           
           const winner = payoutResult.winner;
           const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
@@ -1634,68 +1633,61 @@ const submitResultHandler = async (req: any, res: any) => {
           const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
           const feeAmount = totalPot * 0.05; // 5% fee from total pot
           
-          // Try to execute automated payout if private key is available
+          // Create Squads proposal for winner payout
           try {
-            const { getFeeWalletKeypair } = require('../config/wallet');
-            const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+            const { squadsVaultService } = require('../services/squadsVaultService');
+            const { PublicKey } = require('@solana/web3.js');
             
-            const feeWalletKeypair = getFeeWalletKeypair();
-            const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
-            
-            // Create payout transaction
-            const payoutTransaction = new Transaction().add(
-              SystemProgram.transfer({
-                fromPubkey: feeWalletKeypair.publicKey,
-                toPubkey: new PublicKey(winner),
-                lamports: Math.floor(winnerAmount * LAMPORTS_PER_SOL)
-              })
+            const proposalResult = await squadsVaultService.proposeWinnerPayout(
+              updatedMatch.vaultAddress,
+              new PublicKey(winner),
+              winnerAmount,
+              new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+              feeAmount
             );
             
-            // Get recent blockhash
-            const { blockhash } = await connection.getLatestBlockhash();
-            payoutTransaction.recentBlockhash = blockhash;
-            payoutTransaction.feePayer = feeWalletKeypair.publicKey;
-            
-            // Sign and send transaction
-            const signature = await connection.sendTransaction(payoutTransaction, [feeWalletKeypair]);
-            await connection.confirmTransaction(signature);
-            
-            console.log('✅ Automated payout successful:', signature);
-            
-            // Create payment instructions for display
-            const paymentInstructions = {
-              winner,
-              loser,
-              winnerAmount,
-              feeAmount,
-              feeWallet: FEE_WALLET_ADDRESS,
-              automatedPayout: true,
-              payoutSignature: signature,
-              transactions: [
-                {
-                  from: FEE_WALLET_ADDRESS,
-                  to: winner,
-                  amount: winnerAmount,
-                  description: 'Automated payout to winner',
-                  signature: signature
-                }
-              ]
-            };
-            
-            (payoutResult as any).paymentInstructions = paymentInstructions;
-            (payoutResult as any).paymentSuccess = true;
-            (payoutResult as any).automatedPayout = true;
-            
-            // Update the database column with the payout signature
-            updatedMatch.winnerPayoutSignature = signature;
-            
-            console.log('✅ Automated payout completed');
+            if (proposalResult.success) {
+              console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
+              
+              // Update match with proposal information
+              updatedMatch.payoutProposalId = proposalResult.proposalId;
+              updatedMatch.proposalCreatedAt = new Date();
+              updatedMatch.matchStatus = 'PROPOSAL_CREATED';
+              
+              // Create payment instructions for display
+              const paymentInstructions = {
+                winner,
+                loser,
+                winnerAmount,
+                feeAmount,
+                feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
+                squadsProposal: true,
+                proposalId: proposalResult.proposalId,
+                transactions: [
+                  {
+                    from: 'Squads Vault',
+                    to: winner,
+                    amount: winnerAmount,
+                    description: 'Winner payout via Squads proposal (requires winner signature)',
+                    proposalId: proposalResult.proposalId
+                  }
+                ]
+              };
+              
+              (payoutResult as any).paymentInstructions = paymentInstructions;
+              (payoutResult as any).paymentSuccess = true;
+              (payoutResult as any).squadsProposal = true;
+              (payoutResult as any).proposalId = proposalResult.proposalId;
+              
+              console.log('✅ Squads winner payout proposal completed');
+              
+            } else {
+              throw new Error(`Squads proposal failed: ${proposalResult.error}`);
+            }
             
           } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      const errorName = error instanceof Error ? error.name : undefined;
-            console.warn('⚠️ Automated payout failed, falling back to manual instructions:', errorMessage);
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            console.warn('⚠️ Squads proposal failed, falling back to manual instructions:', errorMessage);
             
             // Fallback to manual payment instructions
             const paymentInstructions = {
@@ -1703,11 +1695,11 @@ const submitResultHandler = async (req: any, res: any) => {
               loser,
               winnerAmount,
               feeAmount,
-              feeWallet: FEE_WALLET_ADDRESS,
-              automatedPayout: false,
+              feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
+              squadsProposal: false,
               transactions: [
                 {
-                  from: FEE_WALLET_ADDRESS,
+                  from: 'Squads Vault',
                   to: winner,
                   amount: winnerAmount,
                   description: 'Manual payout to winner (contact support)'
@@ -1717,7 +1709,7 @@ const submitResultHandler = async (req: any, res: any) => {
             
             (payoutResult as any).paymentInstructions = paymentInstructions;
             (payoutResult as any).paymentSuccess = false;
-            (payoutResult as any).paymentError = 'Automated payout failed - contact support';
+            (payoutResult as any).paymentError = 'Squads proposal failed - contact support';
             
             console.log('⚠️ Manual payment instructions created');
           }
@@ -2095,6 +2087,87 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
   } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+};
+
+// Check for pending winnings/refunds for a player
+const checkPendingClaimsHandler = async (req: any, res: any) => {
+  try {
+    const { wallet } = req.params;
+    
+    if (!wallet || typeof wallet !== 'string') {
+      return res.status(400).json({ error: 'Valid wallet address required' });
+    }
+
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Find matches where player has pending winnings (won but proposal not executed)
+    const pendingWinnings = await matchRepository
+      .createQueryBuilder('match')
+      .where('match.matchStatus = :status', { status: 'SETTLED' })
+      .andWhere('match.payoutProposalId IS NOT NULL')
+      .andWhere('match.proposalStatus = :proposalStatus', { proposalStatus: 'ACTIVE' })
+      .andWhere('match.needsSignatures > 0')
+      .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
+      .andWhere('match.payoutProposalId IS NOT NULL')
+      .getMany();
+
+    // Find matches where player has pending refunds (tie/timeout but proposal not executed)
+    const pendingRefunds = await matchRepository
+      .createQueryBuilder('match')
+      .where('match.matchStatus = :status', { status: 'REFUNDED' })
+      .andWhere('match.payoutProposalId IS NOT NULL')
+      .andWhere('match.proposalStatus = :proposalStatus', { proposalStatus: 'ACTIVE' })
+      .andWhere('match.needsSignatures > 0')
+      .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
+      .andWhere('match.payoutProposalId IS NOT NULL')
+      .getMany();
+
+    // Check if player has any pending claims
+    const hasPendingWinnings = pendingWinnings.length > 0;
+    const hasPendingRefunds = pendingRefunds.length > 0;
+    const hasAnyPendingClaims = hasPendingWinnings || hasPendingRefunds;
+
+    // For refunds, check if ANY player has signed (refund can be executed by either player)
+    let refundCanBeExecuted = false;
+    if (hasPendingRefunds) {
+      for (const refundMatch of pendingRefunds) {
+        const signers = refundMatch.getProposalSigners();
+        if (signers.length > 0) {
+          refundCanBeExecuted = true;
+          break;
+        }
+      }
+    }
+
+    res.json({
+      hasPendingClaims: hasAnyPendingClaims,
+      hasPendingWinnings,
+      hasPendingRefunds,
+      refundCanBeExecuted,
+      pendingWinnings: pendingWinnings.map(match => ({
+        matchId: match.id,
+        entryFee: match.entryFee,
+        proposalId: match.payoutProposalId,
+        proposalCreatedAt: match.proposalCreatedAt,
+        needsSignatures: match.needsSignatures,
+        isWinner: match.payoutProposalId ? 
+          (match.player1 === wallet ? match.player1Result?.numGuesses < match.player2Result?.numGuesses :
+           match.player2 === wallet ? match.player2Result?.numGuesses < match.player1Result?.numGuesses : false) : false
+      })),
+      pendingRefunds: pendingRefunds.map(match => ({
+        matchId: match.id,
+        entryFee: match.entryFee,
+        proposalId: match.payoutProposalId,
+        proposalCreatedAt: match.proposalCreatedAt,
+        needsSignatures: match.needsSignatures,
+        refundAmount: match.entryFee * 0.95 // 95% refund for ties
+      }))
+    });
+
+  } catch (error: unknown) {
+    console.error('❌ Error checking pending claims:', error);
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -4344,7 +4417,7 @@ const generateReportHandler = async (req: any, res: any) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get all FINISHED matches (completed games, cancelled games with refunds, and any matches with refunds)
+    // Get all FINISHED matches with Squads data (completed games, cancelled games with refunds)
     const matches = await matchRepository.query(`
       SELECT 
         id,
@@ -4356,7 +4429,7 @@ const generateReportHandler = async (req: any, res: any) => {
           WHEN "isCompleted" = true THEN word 
           ELSE '***PROTECTED***' 
         END as word,
-        "vaultAddress",
+        "squadsVaultAddress",
         "depositATx",
         "depositBTx",
         "depositAConfirmations",
@@ -4371,8 +4444,8 @@ const generateReportHandler = async (req: any, res: any) => {
         "player2Result",
         winner,
         "payoutResult",
-        "payoutTxHash",
-        "refundTxHash",
+        "proposalTransactionId",
+        "proposalTransactionId" as "refundTxHash",
         "player1RefundSignature",
         "player2RefundSignature",
         "matchOutcome",
@@ -4384,18 +4457,25 @@ const generateReportHandler = async (req: any, res: any) => {
         "refundedAtUtc",
         "isCompleted",
         "createdAt",
-        "updatedAt"
+        "updatedAt",
+        "payoutProposalId",
+        "proposalStatus",
+        "proposalCreatedAt",
+        "needsSignatures",
+        "proposalSigners",
+        "proposalExecutedAt"
       FROM "match" 
       WHERE ${dateFilter}
+        AND "squadsVaultAddress" IS NOT NULL
         AND (
           -- Include all completed matches (winners, losers, ties, losing ties)
           (status = 'completed' AND "isCompleted" = true)
           OR 
           -- Include cancelled matches that have refund signatures
-          (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "refundTxHash" IS NOT NULL))
+          (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
           OR
           -- Include any matches with refund signatures (covers losing ties and other refund scenarios)
-          ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "refundTxHash" IS NOT NULL)
+          ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL)
           OR
           -- Include matches with player results (covers timeout scenarios and other completed games)
           ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
@@ -4454,8 +4534,8 @@ const generateReportHandler = async (req: any, res: any) => {
       'Platform Fee (SOL)',
       'Game Completed',
       'Target Word',
-      '🔗 MULTISIG VAULT 🔗',
-      'Vault Address',
+      '🔗 SQUADS VAULT 🔗',
+      'Squads Vault Address',
       'Player 1 Deposit TX',
       'Player 2 Deposit TX',
       '🔗 GAME RESULTS 🔗',
@@ -4472,18 +4552,23 @@ const generateReportHandler = async (req: any, res: any) => {
       'Game Started (EST)',
       'Game Ended (EST)',
       '🔗 PAYOUT TRANSACTIONS 🔗',
-      'Payout TX Hash',
-      'Refund TX Hash',
-      'Player 1 Refund TX',
-      'Player 2 Refund TX',
+      'Executed Transaction Hash',
+      'Refund Transaction Hash',
+      'Legacy Player 1 Refund TX',
+      'Legacy Player 2 Refund TX',
+      '🔗 SQUADS PROPOSAL INFO 🔗',
+      'Proposal ID',
+      'Proposal Status',
+      'Proposal Created At',
+      'Needs Signatures',
       '🔗 EXPLORER LINKS 🔗',
-      'Vault Link',
+      'Squads Vault Link',
       'Player 1 Deposit Link',
       'Player 2 Deposit Link',
-      'Payout Link',
-      'Refund Link',
-      'Player 1 Refund Link',
-      'Player 2 Refund Link'
+      'Executed Transaction Link',
+      'Refund Transaction Link',
+      'Legacy Player 1 Refund Link',
+      'Legacy Player 2 Refund Link'
     ];
     
     // Generate CSV rows with available data
@@ -4529,8 +4614,8 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(platformFee),
         sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
         sanitizeCsvValue(match.status === 'completed' ? match.word : 'GAME_CANCELLED'),
-        '', // 🔗 MULTISIG VAULT 🔗
-        sanitizeCsvValue(match.vaultAddress),
+        '', // 🔗 SQUADS VAULT 🔗
+        sanitizeCsvValue(match.squadsVaultAddress),
         sanitizeCsvValue(match.depositATx),
         sanitizeCsvValue(match.depositBTx),
         '', // 🔗 GAME RESULTS 🔗
@@ -4547,18 +4632,23 @@ const generateReportHandler = async (req: any, res: any) => {
         convertToEST(match.gameStartTimeUtc),
         convertToEST(match.gameEndTimeUtc),
         '', // 🔗 PAYOUT TRANSACTIONS 🔗
-        sanitizeCsvValue(match.payoutTxHash),
-        sanitizeCsvValue(match.refundTxHash),
-        sanitizeCsvValue(match.player1RefundSignature),
-        sanitizeCsvValue(match.player2RefundSignature),
+        sanitizeCsvValue(match.proposalTransactionId),
+        sanitizeCsvValue(match.proposalTransactionId),
+        sanitizeCsvValue(''), // No longer used - refunds go through proposals
+        sanitizeCsvValue(''), // No longer used - refunds go through proposals
+        '', // 🔗 SQUADS PROPOSAL INFO 🔗
+        sanitizeCsvValue(match.payoutProposalId || ''),
+        sanitizeCsvValue(match.proposalStatus || ''),
+        sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
+        sanitizeCsvValue(match.needsSignatures || ''),
         '', // 🔗 EXPLORER LINKS 🔗
-        match.vaultAddress ? `https://explorer.solana.com/address/${match.vaultAddress}?cluster=${network}` : '',
+        match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
         match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
         match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
-        match.payoutTxHash ? `https://explorer.solana.com/tx/${match.payoutTxHash}?cluster=${network}` : '',
-        match.refundTxHash ? `https://explorer.solana.com/tx/${match.refundTxHash}?cluster=${network}` : '',
-        match.player1RefundSignature ? `https://explorer.solana.com/tx/${match.player1RefundSignature}?cluster=${network}` : '',
-        match.player2RefundSignature ? `https://explorer.solana.com/tx/${match.player2RefundSignature}?cluster=${network}` : ''
+        match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : '',
+        match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : '',
+        '', // No longer used - refunds go through proposals
+        '' // No longer used - refunds go through proposals
       ];
     });
     
@@ -5175,4 +5265,5 @@ module.exports = {
 
   // Multisig vault integration handlers
   depositToMultisigVaultHandler,
+  checkPendingClaimsHandler,
 };

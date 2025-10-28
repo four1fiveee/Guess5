@@ -22,9 +22,30 @@ export class Match {
 
   // Legacy escrow fields removed - now using multisig vaults
 
-  // Multisig vault fields (replaces old PDA system)
+  // Squads Protocol fields (replaces old custodial vault system)
   @Column({ nullable: true })
-  vaultAddress?: string;
+  squadsVaultAddress?: string;
+
+  @Column({ nullable: true })
+  payoutProposalId?: string;
+
+  @Column({ nullable: true })
+  proposalCreatedAt?: Date;
+
+  @Column({ nullable: true, default: 'PENDING' })
+  proposalStatus?: string; // PENDING, APPROVED, EXECUTED, REJECTED
+
+  @Column({ type: 'text', nullable: true })
+  proposalSigners?: string; // JSON array of public keys
+
+  @Column({ nullable: true, default: 2 })
+  needsSignatures?: number;
+
+  @Column({ nullable: true })
+  proposalExecutedAt?: Date;
+
+  @Column({ nullable: true })
+  proposalTransactionId?: string;
 
   // Multisig deposit tracking fields
   @Column({ nullable: true })
@@ -195,22 +216,29 @@ export class Match {
     }
   }
 
-  setPayoutResult(result: {
-    winner: string;
-    winnerAmount: number;
-    feeAmount: number;
-    feeWallet: string;
-    transactions: Array<{
-      from: string;
-      to: string;
-      amount: number;
-      description: string;
-      signature?: string;
-    }>;
-    paymentSuccess?: boolean;
-    paymentError?: string;
-    transaction?: any;
-  } | null): void {
-    this.payoutResult = result ? JSON.stringify(result) : undefined;
+  // Helper methods for proposal signers
+  getProposalSigners(): string[] {
+    if (!this.proposalSigners) return [];
+    try {
+      return JSON.parse(this.proposalSigners);
+    } catch {
+      return [];
+    }
+  }
+
+  setProposalSigners(signers: string[]): void {
+    this.proposalSigners = JSON.stringify(signers);
+  }
+
+  addProposalSigner(signer: string): void {
+    const signers = this.getProposalSigners();
+    if (!signers.includes(signer)) {
+      signers.push(signer);
+      this.setProposalSigners(signers);
+    }
+  }
+
+  hasSignedProposal(signer: string): boolean {
+    return this.getProposalSigners().includes(signer);
   }
 } 

@@ -3,7 +3,7 @@ const { AppDataSource } = require('../db');
 const { Match } = require('../models/Match');
 const { MatchAttestation } = require('../models/MatchAttestation');
 const { MatchAuditLog } = require('../models/MatchAuditLog');
-const { multisigVaultService } = require('../services/multisigVaultService');
+const { squadsVaultService } = require('../services/squadsVaultService');
 const { enhancedLogger } = require('../utils/enhancedLogger');
 const { LAMPORTS_PER_SOL } = require('@solana/web3.js');
 
@@ -38,11 +38,11 @@ exports.createMatchHandler = async (req: any, res: any): Promise<void> => {
     match.matchStatus = 'PENDING';
     await matchRepository.save(match);
 
-    // Create multisig vault
-    const vaultResult = await multisigVaultService.createVault(
+    // Create Squads multisig vault
+    const vaultResult = await squadsVaultService.createMatchVault(
       match.id,
-      player1Wallet,
-      player2Wallet,
+      new (require('@solana/web3.js').PublicKey)(player1Wallet),
+      new (require('@solana/web3.js').PublicKey)(player2Wallet),
       entryFee
     );
 
@@ -107,7 +107,7 @@ exports.getMatchStatusHandler = async (req: any, res: any): Promise<void> => {
     // Check vault status if vault exists
     let vaultStatus = null;
     if (match.vaultAddress) {
-      vaultStatus = await multisigVaultService.checkVaultStatus(match.vaultAddress);
+      vaultStatus = await squadsVaultService.checkVaultStatus(match.vaultAddress);
     }
 
     res.json({
@@ -171,8 +171,14 @@ exports.submitAttestationHandler = async (req: any, res: any): Promise<void> => 
       attestationHash: attestationData.match_id,
     });
 
-    // Process payout based on attestation
-    const payoutResult = await multisigVaultService.processPayout(attestationData);
+    // Process payout via Squads proposal (non-custodial)
+    const payoutResult = await squadsVaultService.proposeWinnerPayout(
+      attestationData.vault_address,
+      new (require('@solana/web3.js').PublicKey)(attestationData.winner_address),
+      attestationData.stake_lamports * 0.95 / require('@solana/web3.js').LAMPORTS_PER_SOL, // Winner gets 95%
+      new (require('@solana/web3.js').PublicKey)(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+      attestationData.stake_lamports * 0.05 / require('@solana/web3.js').LAMPORTS_PER_SOL  // 5% fee
+    );
 
     if (!payoutResult.success) {
       res.status(500).json({
@@ -226,8 +232,13 @@ exports.refundTimeoutHandler = async (req: any, res: any): Promise<void> => {
       reason: refundReason,
     });
 
-    // Process refund
-    const refundResult = await multisigVaultService.processRefund(matchId, refundReason);
+    // Process refund via Squads proposal (non-custodial)
+    const refundResult = await squadsVaultService.proposeTieRefund(
+      match.vaultAddress,
+      new (require('@solana/web3.js').PublicKey)(match.player1),
+      new (require('@solana/web3.js').PublicKey)(match.player2),
+      match.entryFee
+    );
 
     if (!refundResult.success) {
       res.status(500).json({
@@ -366,7 +377,7 @@ exports.processDepositHandler = async (req: any, res: any): Promise<void> => {
     });
 
     // Verify deposit on Solana - pass transaction signature for attribution
-    const depositResult = await multisigVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
+    const depositResult = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
 
     if (!depositResult.success) {
       res.status(500).json({

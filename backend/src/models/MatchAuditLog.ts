@@ -22,3 +22,4 @@ export class MatchAuditLog {
   @JoinColumn({ name: 'matchId' })
   match?: Match;
 }
+

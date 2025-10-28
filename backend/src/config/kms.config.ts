@@ -12,16 +12,7 @@ export const kmsConfig: KmsConfig = {
   secretAccessKey: process.env.AWS_SECRET_ACCESS_KEY || '',
 };
 
-export interface MultisigConfig {
-  automatedSigner: string;
-  coSigner: string;
-  recoveryKey: string;
-  threshold: number;
-}
+// DEPRECATED: The multisig configuration below was fake and never used
+// The system used deterministic keypairs instead of real multisig
+// This will be replaced by Squads Protocol integration
 
-export const multisigConfig: MultisigConfig = {
-  automatedSigner: process.env.AUTOMATED_SIGNER_PUBKEY || '',
-  coSigner: process.env.CO_SIGNER_PUBKEY || '',
-  recoveryKey: process.env.RECOVERY_KEY_PUBKEY || '',
-  threshold: 2, // 2-of-3 multisig
-};
