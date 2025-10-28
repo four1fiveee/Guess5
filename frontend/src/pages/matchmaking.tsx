@@ -5,7 +5,7 @@ import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } f
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
-import api from '../utils/api';
+import { requestMatch, checkPlayerMatch, getMatchStatus } from '../utils/api';
 import { usePendingClaims } from '../hooks/usePendingClaims';
 
 const Matchmaking: React.FC = () => {
@@ -225,7 +225,7 @@ const Matchmaking: React.FC = () => {
           if (statusRef.current === 'waiting' || !currentMatchData || !currentMatchData.matchId) {
             // Check if we've been matched while waiting
             try {
-              const data = await api.checkPlayerMatch(publicKey.toString());
+              const data = await checkPlayerMatch(publicKey.toString());
               
               if (data.matched) {
                 // Stop current polling
@@ -258,7 +258,7 @@ const Matchmaking: React.FC = () => {
           } else if (currentMatchData && currentMatchData.matchId) {
             // Check payment status for existing match
             try {
-              const data = await api.getMatchStatus(currentMatchData.matchId, publicKey?.toString());
+              const data = await getMatchStatus(currentMatchData.matchId, publicKey?.toString());
               
               // Update match data with latest payment status
               setMatchData((prev: any) => {
@@ -353,7 +353,7 @@ const Matchmaking: React.FC = () => {
       setIsRequestInProgress(true);
       
       try {
-        const data = await api.requestMatch(publicKey.toString(), currentEntryFee);
+        const data = await requestMatch(publicKey.toString(), currentEntryFee);
 
         if (data.status === 'waiting') {
           setWaitingCount(data.waitingCount || 0);
