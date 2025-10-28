@@ -2133,10 +2133,14 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     let refundCanBeExecuted = false;
     if (hasPendingRefunds) {
       for (const refundMatch of pendingRefunds) {
-        const signers = refundMatch.getProposalSigners();
-        if (signers.length > 0) {
-          refundCanBeExecuted = true;
-          break;
+        try {
+          const signers = refundMatch.getProposalSigners ? refundMatch.getProposalSigners() : [];
+          if (signers.length > 0) {
+            refundCanBeExecuted = true;
+            break;
+          }
+        } catch (err) {
+          console.warn('Error getting proposal signers for match', refundMatch.id, err);
         }
       }
     }

@@ -22,15 +22,13 @@ const {
 
 // Production routes with multi-layer bot protection
 router.post('/request-match', 
-  ipLimiter, // Layer 1: IP-based rate limiting (20 req/min per IP)
-  validateVercelBotProtection, // Layer 2: Verify request came through Vercel
-  matchmakingLimiter, // Layer 3: Wallet-based rate limiting (1 req/30sec per wallet)
+  validateVercelBotProtection, // Layer 1: Verify request came through Vercel
+  matchmakingLimiter, // Layer 2: Wallet-based rate limiting (1 req/30sec per wallet)
   validateMatch, 
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
 router.post('/submit-result', 
-  ipLimiter,
   validateVercelBotProtection,
   resultLimiter, // 2 results per minute per wallet
   validateResult, 
@@ -38,14 +36,12 @@ router.post('/submit-result',
 );
 
 router.post('/submit-guess', 
-  ipLimiter,
   validateVercelBotProtection,
   guessLimiter, // 10 guesses per minute per wallet
   asyncHandlerWrapper(matchController.submitGameGuessHandler)
 );
 
 router.post('/confirm-payment', 
-  ipLimiter,
   validateVercelBotProtection,
   paymentLimiter, // 5 payments per minute per wallet
   validateConfirmPaymentData,
