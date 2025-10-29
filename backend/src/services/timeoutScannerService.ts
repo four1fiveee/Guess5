@@ -131,7 +131,12 @@ export class TimeoutScannerService {
       }
 
       // Process refund
-      const refundResult = await squadsVaultService.proposeTieRefund(match.id, timeoutReason);
+      const refundResult = await squadsVaultService.proposeTieRefund(
+        match.squadsVaultAddress!,
+        new (require('@solana/web3.js').PublicKey)(match.player1),
+        new (require('@solana/web3.js').PublicKey)(match.player2),
+        match.entryFee
+      );
 
       if (refundResult.success) {
         // Update match status

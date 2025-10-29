@@ -1,5 +1,4 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
-import { Squads } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -32,7 +31,6 @@ export interface ProposalStatus {
 }
 
 export class SquadsVaultService {
-  private squads: Squads;
   private connection: Connection;
   private config: SquadsVaultConfig;
 
@@ -42,8 +40,7 @@ export class SquadsVaultService {
       'confirmed'
     );
 
-    // Initialize Squads SDK
-    this.squads = new Squads(this.connection);
+    // Squads SDK initialized via direct imports (no class instantiation needed)
 
     // Get system public key from environment
     const systemPublicKey = process.env.SYSTEM_PUBLIC_KEY;
