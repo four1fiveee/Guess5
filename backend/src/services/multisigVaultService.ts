@@ -81,7 +81,7 @@ export class MultisigVaultService {
       const matchRepository = AppDataSource.getRepository(Match);
       const match = await matchRepository.findOne({ where: { id: matchId } });
 
-      if (!match || !match.vaultAddress) {
+      if (!match || !match.squadsVaultAddress) {
         return {
           success: false,
           error: 'Match or vault not found',
@@ -89,7 +89,7 @@ export class MultisigVaultService {
       }
 
       // TypeScript assertion after null check
-      const vaultAddress: string = match.vaultAddress as string;
+      const vaultAddress: string = match.squadsVaultAddress as string;
       const vaultPublicKey = new PublicKey(vaultAddress);
 
       // Check vault balance on Solana
@@ -98,7 +98,7 @@ export class MultisigVaultService {
 
       enhancedLogger.info('💰 Current vault balance', {
         matchId,
-        vaultAddress: match.vaultAddress,
+        vaultAddress: match.squadsVaultAddress,
         balanceLamports: balance,
         balanceSOL,
       });
