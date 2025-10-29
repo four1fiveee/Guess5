@@ -3,7 +3,7 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { enhancedLogger } from '../utils/enhancedLogger';
-import { multisigVaultService } from './multisigVaultService';
+import { squadsVaultService } from './squadsVaultService';
 
 export class DepositWatcherService {
   private connection: Connection;
@@ -77,16 +77,16 @@ export class DepositWatcherService {
       enhancedLogger.debug(`🔍 Checking ${pendingMatches.length} pending deposits`);
 
       for (const match of pendingMatches) {
-        if (!match.vaultAddress) continue;
+        if (!match.squadsVaultAddress) continue;
 
         try {
-          // Verify deposits using multisigVaultService
+          // Verify deposits using squadsVaultService
           if (match.player1 && !match.depositAConfirmations) {
-            await multisigVaultService.verifyDeposit(match.id, match.player1, match.entryFee, match.depositATx || undefined);
+            await squadsVaultService.verifyDeposit(match.id, match.player1, match.entryFee, match.depositATx || undefined);
           }
 
           if (match.player2 && !match.depositBConfirmations) {
-            await multisigVaultService.verifyDeposit(match.id, match.player2, match.entryFee, match.depositBTx || undefined);
+            await squadsVaultService.verifyDeposit(match.id, match.player2, match.entryFee, match.depositBTx || undefined);
           }
 
           // Reload match to get updated confirmations
@@ -102,20 +102,20 @@ export class DepositWatcherService {
 
             // Log deposit confirmation
             await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_CONFIRMED', {
-              vaultAddress: match.vaultAddress,
+              vaultAddress: match.squadsVaultAddress,
               depositAConfirmations: updatedMatch.depositAConfirmations,
               depositBConfirmations: updatedMatch.depositBConfirmations,
             });
 
             enhancedLogger.info('✅ Both deposits confirmed', {
               matchId: match.id,
-              vaultAddress: match.vaultAddress,
+              vaultAddress: match.squadsVaultAddress,
             });
           }
         } catch (error) {
           enhancedLogger.error('❌ Error verifying deposits', {
             matchId: match.id,
-            vaultAddress: match.vaultAddress,
+            vaultAddress: match.squadsVaultAddress,
             error,
           });
         }

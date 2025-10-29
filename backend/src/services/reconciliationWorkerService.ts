@@ -77,14 +77,14 @@ export class ReconciliationWorkerService {
       enhancedLogger.debug(`🔄 Reconciling ${activeMatches.length} active matches`);
 
       for (const match of activeMatches) {
-        if (!match.vaultAddress) continue;
+        if (!match.squadsVaultAddress) continue;
 
         try {
           await this.reconcileMatch(match, auditLogRepository);
         } catch (error) {
           enhancedLogger.error('❌ Error reconciling match', {
             matchId: match.id,
-            vaultAddress: match.vaultAddress,
+            vaultAddress: match.squadsVaultAddress,
             error,
           });
         }
@@ -103,7 +103,7 @@ export class ReconciliationWorkerService {
   ): Promise<void> {
     try {
       // Get on-chain vault balance
-      const onChainBalance = await this.getVaultBalance(match.vaultAddress!);
+      const onChainBalance = await this.getVaultBalance(match.squadsVaultAddress!);
       
       // Calculate expected balance based on match state
       const expectedBalance = this.calculateExpectedBalance(match);
@@ -114,7 +114,7 @@ export class ReconciliationWorkerService {
       if (discrepancy > this.MAX_DISCREPANCY_THRESHOLD) {
         enhancedLogger.warn('⚠️ Vault balance discrepancy detected', {
           matchId: match.id,
-          vaultAddress: match.vaultAddress,
+          vaultAddress: match.squadsVaultAddress,
           onChainBalance,
           expectedBalance,
           discrepancy,
@@ -122,7 +122,7 @@ export class ReconciliationWorkerService {
 
         // Log discrepancy event
         await this.logAuditEvent(auditLogRepository, match.id, 'BALANCE_DISCREPANCY', {
-          vaultAddress: match.vaultAddress,
+          vaultAddress: match.squadsVaultAddress,
           onChainBalance,
           expectedBalance,
           discrepancy,
@@ -134,7 +134,7 @@ export class ReconciliationWorkerService {
       } else {
         enhancedLogger.debug('✅ Vault balance reconciled', {
           matchId: match.id,
-          vaultAddress: match.vaultAddress,
+          vaultAddress: match.squadsVaultAddress,
           onChainBalance,
           expectedBalance,
         });

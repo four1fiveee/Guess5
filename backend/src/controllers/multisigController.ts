@@ -106,8 +106,8 @@ exports.getMatchStatusHandler = async (req: any, res: any): Promise<void> => {
 
     // Check vault status if vault exists
     let vaultStatus = null;
-    if (match.vaultAddress) {
-      vaultStatus = await squadsVaultService.checkVaultStatus(match.vaultAddress);
+    if (match.squadsVaultAddress) {
+      vaultStatus = await squadsVaultService.checkVaultStatus(match.squadsVaultAddress);
     }
 
     res.json({
@@ -119,7 +119,7 @@ exports.getMatchStatusHandler = async (req: any, res: any): Promise<void> => {
         entryFee: match.entryFee,
         status: match.status,
         matchStatus: match.matchStatus,
-        vaultAddress: match.vaultAddress,
+        vaultAddress: match.squadsVaultAddress,
         depositATx: match.depositATx,
         depositBTx: match.depositBTx,
         depositAConfirmations: match.depositAConfirmations,
@@ -234,7 +234,7 @@ exports.refundTimeoutHandler = async (req: any, res: any): Promise<void> => {
 
     // Process refund via Squads proposal (non-custodial)
     const refundResult = await squadsVaultService.proposeTieRefund(
-      match.vaultAddress,
+      match.squadsVaultAddress,
       new (require('@solana/web3.js').PublicKey)(match.player1),
       new (require('@solana/web3.js').PublicKey)(match.player2),
       match.entryFee

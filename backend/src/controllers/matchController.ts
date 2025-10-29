@@ -371,11 +371,10 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       await matchRepository.save(newMatch);
       console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
       
-      // Create multisig vault for fund custody AFTER database record exists
-      console.log('🔧 Creating multisig vault for fund custody...');
-      const { multisigVaultService } = require('../services/multisigVaultService');
+      // Create Squads vault for fund custody AFTER database record exists
+      console.log('🔧 Creating Squads vault for fund custody...');
       
-      const vaultResult = await multisigVaultService.createVault(
+      const vaultResult = await squadsVaultService.createMatchVault(
         matchData.matchId,
         matchData.player1,
         matchData.player2,
@@ -388,11 +387,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       }
       
       console.log('✅ Multisig vault created:', {
-        vaultAddress: vaultResult.vaultAddress
+        squadsVaultAddress: vaultResult.vaultAddress
       });
 
       // Update match with vault address
-      newMatch.vaultAddress = vaultResult.vaultAddress;
+      newMatch.squadsVaultAddress = vaultResult.vaultAddress;
       newMatch.matchStatus = 'VAULT_CREATED';
       await matchRepository.save(newMatch);
       
@@ -402,7 +401,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         player1: matchData.player1,
         player2: matchData.player2,
         entryFee: matchData.entryFee,
-        vaultAddress: vaultResult.vaultAddress,
+        squadsVaultAddress: vaultResult.vaultAddress,
         message: 'Match created - both players must pay entry fee to start game'
       };
     } else if (redisResult.status === 'waiting') {
@@ -500,7 +499,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       status,
       "player1Paid",
       "player2Paid",
-      "vaultAddress"
+      "squadsVaultAddress"
     FROM "match" 
     WHERE "status" = $1 AND "createdAt" < $2
   `, ['payment_required', threeMinutesAgo]);
@@ -509,7 +508,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     console.log(`⏰ Found ${stalePaymentMatches.length} stale payment_required matches for ${wallet}, processing refunds...`);
     for (const match of stalePaymentMatches) {
       // Process refunds if players have deposited
-      if ((match.player1Paid || match.player2Paid) || match.vaultAddress) {
+      if ((match.player1Paid || match.player2Paid) || match.squadsVaultAddress) {
         console.log(`💰 Processing refund for stale match ${match.id} (players may have deposited)`);
         await processAutomatedRefunds(match, 'payment_timeout');
       }
@@ -531,7 +530,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
       "player1",
       "player2",
       status,
-      "vaultAddress"
+      "squadsVaultAddress"
     FROM "match" 
     WHERE "status" = $1 AND "createdAt" < $2
   `, ['active', tenMinutesAgo]);
@@ -539,7 +538,7 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   if (staleActiveMatches.length > 0) {
     console.log(`⏰ Found ${staleActiveMatches.length} stale active matches for ${wallet}, processing refunds...`);
     for (const match of staleActiveMatches) {
-      if (match.vaultAddress) {
+      if (match.squadsVaultAddress) {
         console.log(`💰 Processing refund for stale active match ${match.id}`);
         await processAutomatedRefunds(match, 'game_abandoned');
       }
@@ -570,7 +569,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       "player2",
       "entryFee",
       status,
-      "vaultAddress"
+      "squadsVaultAddress"
     FROM "match" 
     WHERE (("player1" = $1 AND "status" IN ($2, $3, $4)) OR ("player2" = $5 AND "status" IN ($6, $7, $8)))
     LIMIT 1
@@ -585,7 +584,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       player1: existingMatch.player1,
       player2: existingMatch.player2,
       entryFee: existingMatch.entryFee,
-      vaultAddress: existingMatch.vaultAddress,
+      vaultAddress: existingMatch.squadsVaultAddress,
       matchStatus: existingMatch.status,
       message: existingMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
     };
@@ -1644,7 +1643,7 @@ const submitResultHandler = async (req: any, res: any) => {
             // squadsVaultService is now imported at the top of the file
             
             const proposalResult = await squadsVaultService.proposeWinnerPayout(
-              updatedMatch.vaultAddress,
+              updatedMatch.squadsVaultAddress,
               new PublicKey(winner),
               winnerAmount,
               new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
@@ -2218,7 +2217,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
           "player1Paid",
           "player2Paid",
           word,
-          "vaultAddress",
+          "squadsVaultAddress",
           "entryFee"
         FROM "match" 
         WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6))
@@ -2302,7 +2301,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         player1Paid: activeMatch.player1Paid,
         player2Paid: activeMatch.player2Paid,
         word: activeMatch.word,
-        vaultAddress: activeMatch.vaultAddress,
+        vaultAddress: activeMatch.squadsVaultAddress,
         entryFee: activeMatch.entryFee,
         message: message
       });
@@ -4954,11 +4953,8 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
 
     console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount });
 
-    // Get multisig vault service
-    const { multisigVaultService } = require('../services/multisigVaultService');
-
-    // Verify deposit on Solana
-    const result = await multisigVaultService.verifyDeposit(matchId, playerWallet, amount);
+    // Verify deposit on Solana using Squads service
+    const result = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount);
 
     if (result.success) {
       console.log('✅ Multisig vault deposit verified successfully:', {
