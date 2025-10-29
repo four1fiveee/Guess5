@@ -1,14 +1,12 @@
-import { Request, Response, NextFunction } from 'express';
-
 /**
  * Middleware to validate Vercel Bot Protection headers
  * Vercel adds X-Vercel-IP-* headers for legitimate traffic that passes through their edge network
  * This helps prevent bots from bypassing Vercel and calling Render backend directly
  */
 export const validateVercelBotProtection = async (
-  req: Request,
-  res: Response,
-  next: NextFunction
+  req: any,
+  res: any,
+  next: any
 ): Promise<void> => {
   // Check for Vercel Bot Protection headers
   const vercelIPCountry = req.headers['x-vercel-ip-country'];
