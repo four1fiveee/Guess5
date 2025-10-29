@@ -142,7 +142,7 @@ export class ReconciliationWorkerService {
     } catch (error) {
       enhancedLogger.error('❌ Error reconciling match', {
         matchId: match.id,
-        vaultAddress: match.vaultAddress,
+        vaultAddress: match.squadsVaultAddress,
         error,
       });
     }
@@ -214,7 +214,7 @@ export class ReconciliationWorkerService {
       // For now, we'll just log the alert
       enhancedLogger.error('🚨 ADMIN ALERT: Vault balance discrepancy', {
         matchId: match.id,
-        vaultAddress: match.vaultAddress,
+        vaultAddress: match.squadsVaultAddress,
         onChainBalance,
         expectedBalance,
         discrepancy,
