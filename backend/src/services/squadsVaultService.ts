@@ -247,10 +247,12 @@ export class SquadsVaultService {
         memo: `Winner payout: ${winner.toString()}`,
       });
       
-      const proposalId = signature; // Use transaction signature as proposal ID
+      // Generate a numeric proposal ID for frontend compatibility
+      const proposalId = transactionIndex.toString();
       
       enhancedLogger.info('📝 Created real Squads payout transaction', {
-        proposalId: signature,
+        proposalId,
+        transactionSignature: signature,
         multisigAddress: vaultAddress,
         winner: winner.toString(),
         winnerAmount,
@@ -361,10 +363,12 @@ export class SquadsVaultService {
         memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
       });
       
-      const proposalId = signature; // Use transaction signature as proposal ID
+      // Generate a numeric proposal ID for frontend compatibility
+      const proposalId = transactionIndex.toString();
       
       enhancedLogger.info('📝 Created real Squads refund transaction', {
-        proposalId: signature,
+        proposalId,
+        transactionSignature: signature,
         multisigAddress: vaultAddress,
         player1: player1.toString(),
         player2: player2.toString(),
@@ -411,63 +415,22 @@ export class SquadsVaultService {
       const multisigAddress = new PublicKey(vaultAddress);
       const transactionIndex = parseInt(proposalId);
 
-      // Check real Squads transaction status
-      try {
-        // Parse the proposal ID (which is the transaction signature)
-        const transactionSignature = proposalId;
-        
-        // Get transaction details from Solana
-        const transaction = await this.connection.getTransaction(transactionSignature, {
-          commitment: 'confirmed',
-          maxSupportedTransactionVersion: 0
-        });
+      // For now, return a simplified status that maintains frontend compatibility
+      // TODO: Implement full Squads transaction status checking with numeric proposal IDs
+      const signers: string[] = []; // No signers yet
+      const needsSignatures = this.config.threshold;
 
-        if (!transaction) {
-          return {
-            executed: false,
-            signers: [],
-            needsSignatures: this.config.threshold,
-          };
-        }
+      enhancedLogger.info('📊 Checked proposal status (simplified)', {
+        vaultAddress,
+        proposalId,
+        needsSignatures,
+      });
 
-        // Check if transaction is confirmed
-        const isExecuted = transaction.meta?.err === null;
-        
-        // For now, we'll assume no signatures yet (in a real implementation,
-        // we'd check the Squads multisig state for actual signers)
-        const signers: string[] = [];
-        const needsSignatures = isExecuted ? 0 : this.config.threshold;
-
-        enhancedLogger.info('📊 Checked real proposal status', {
-          vaultAddress,
-          proposalId,
-          isExecuted,
-          needsSignatures,
-        });
-
-        return {
-          executed: isExecuted,
-          signers,
-          needsSignatures: Math.max(0, needsSignatures),
-        };
-
-      } catch (statusError) {
-        enhancedLogger.warn('⚠️ Failed to check transaction status, using fallback', {
-          vaultAddress,
-          proposalId,
-          error: statusError instanceof Error ? statusError.message : String(statusError),
-        });
-
-        // Fallback to simplified status
-        const signers: string[] = [];
-        const needsSignatures = this.config.threshold;
-
-        return {
-          executed: false,
-          signers,
-          needsSignatures: Math.max(0, needsSignatures),
-        };
-      }
+      return {
+        executed: false,
+        signers,
+        needsSignatures: Math.max(0, needsSignatures),
+      };
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -505,46 +468,13 @@ export class SquadsVaultService {
         };
       }
 
-      // Sign the real Squads transaction
-      try {
-        // Parse the proposal ID (which is the transaction signature)
-        const transactionSignature = proposalId;
-        
-        // For system signatures, we need to use the system wallet
-        // In a real implementation, this would use the system's private key
-        // For now, we'll simulate the signing process
-        
-        enhancedLogger.info('📝 System signing real Squads transaction', {
-          vaultAddress,
-          proposalId: transactionSignature,
-          signer: signer.toString(),
-        });
-
-        // In a real implementation, we would:
-        // 1. Get the transaction from Squads
-        // 2. Sign it with the system wallet
-        // 3. Submit the signature to Squads
-        
-        // For now, we'll simulate success
-        enhancedLogger.info('✅ System signature submitted to Squads', {
-          vaultAddress,
-          proposalId: transactionSignature,
-          signer: signer.toString(),
-        });
-
-      } catch (signingError) {
-        enhancedLogger.error('❌ Failed to sign Squads transaction', {
-          vaultAddress,
-          proposalId,
-          signer: signer.toString(),
-          error: signingError instanceof Error ? signingError.message : String(signingError),
-        });
-        
-        return {
-          success: false,
-          error: 'Failed to sign transaction',
-        };
-      }
+      // For now, simulate signing to maintain frontend compatibility
+      // TODO: Implement full Squads transaction signing with numeric proposal IDs
+      enhancedLogger.info('📝 System signing proposal (simplified)', {
+        vaultAddress,
+        proposalId,
+        signer: signer.toString(),
+      });
 
       enhancedLogger.info('✅ Proposal signed by system', {
         vaultAddress,
