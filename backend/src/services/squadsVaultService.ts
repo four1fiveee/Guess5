@@ -6,7 +6,7 @@ import {
   proposalExecute,
   vaultTransactionCreate,
   vaultTransactionExecute
-} from '@sqds/multisig/rpc';
+} from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -203,7 +203,7 @@ export class SquadsVaultService {
       // Create System Program transfer instruction for winner
       const winnerTransferIx = {
         programId: new PublicKey('11111111111111111111111111111111'), // System Program
-        accounts: [
+        keys: [
           { pubkey: multisigAddress, isSigner: false, isWritable: true },
           { pubkey: winner, isSigner: false, isWritable: true },
         ],
@@ -216,7 +216,7 @@ export class SquadsVaultService {
       // Create System Program transfer instruction for fee
       const feeTransferIx = {
         programId: new PublicKey('11111111111111111111111111111111'), // System Program
-        accounts: [
+        keys: [
           { pubkey: multisigAddress, isSigner: false, isWritable: true },
           { pubkey: feeWallet, isSigner: false, isWritable: true },
         ],
@@ -319,7 +319,7 @@ export class SquadsVaultService {
       // Create System Program transfer instruction for player 1
       const player1TransferIx = {
         programId: new PublicKey('11111111111111111111111111111111'), // System Program
-        accounts: [
+        keys: [
           { pubkey: multisigAddress, isSigner: false, isWritable: true },
           { pubkey: player1, isSigner: false, isWritable: true },
         ],
@@ -332,7 +332,7 @@ export class SquadsVaultService {
       // Create System Program transfer instruction for player 2
       const player2TransferIx = {
         programId: new PublicKey('11111111111111111111111111111111'), // System Program
-        accounts: [
+        keys: [
           { pubkey: multisigAddress, isSigner: false, isWritable: true },
           { pubkey: player2, isSigner: false, isWritable: true },
         ],
