@@ -1,4 +1,5 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
+import { multisigCreate, multisigCreateV2, proposalCreate, proposalApprove, proposalExecute } from '@sqds/multisig/rpc';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -81,19 +82,40 @@ export class SquadsVaultService {
         player2Pubkey,
       ];
 
+      // Generate a unique create key for this multisig
+      const createKey = Keypair.generate();
+      
+      // Generate multisig PDA (Program Derived Address)
+      const [multisigPda] = PublicKey.findProgramAddressSync(
+        [Buffer.from('multisig'), createKey.publicKey.toBuffer()],
+        new PublicKey('SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pcf') // Squads Program ID
+      );
+
+      // Define the multisig members with proper structure
+      const squadsMembers = [
+        { key: this.config.systemPublicKey, permissions: { isSigner: true } },
+        { key: player1Pubkey, permissions: { isSigner: true } },
+        { key: player2Pubkey, permissions: { isSigner: true } },
+      ];
+
       // Create the multisig using Squads SDK
-      const multisig = await this.squads.createMultisig({
-        members,
-        threshold: this.config.threshold,
+      const signature = await multisigCreateV2({
+        connection: this.connection,
+        createKey,
+        creator: createKey, // The create key is also the creator
+        multisigPda,
         configAuthority: this.config.systemPublicKey, // System can manage the multisig
+        threshold: this.config.threshold,
+        members: squadsMembers,
         timeLock: 0, // No time lock for immediate execution
         memo: `Guess5 Match ${matchId}`,
       });
 
       enhancedLogger.info('✅ Squads multisig vault created', {
         matchId,
-        multisigAddress: multisig.multisigAddress.toString(),
-        vaultAddress: multisig.multisigAddress.toString(), // Same as multisig address
+        multisigAddress: multisigPda.toString(),
+        vaultAddress: multisigPda.toString(), // Same as multisig address
+        signature,
       });
 
       // Update match with vault information
@@ -107,13 +129,13 @@ export class SquadsVaultService {
         };
       }
 
-      match.squadsVaultAddress = multisig.multisigAddress.toString();
+      match.squadsVaultAddress = multisigPda.toString();
       match.matchStatus = 'VAULT_CREATED';
       await matchRepository.save(match);
 
       // Log vault creation
       await this.logAuditEvent(matchId, 'SQUADS_VAULT_CREATED', {
-        multisigAddress: multisig.multisigAddress.toString(),
+        multisigAddress: multisigPda.toString(),
         members: members.map(m => m.toString()),
         threshold: this.config.threshold,
         player1: player1Pubkey.toString(),
@@ -123,8 +145,8 @@ export class SquadsVaultService {
 
       return {
         success: true,
-        vaultAddress: multisig.multisigAddress.toString(),
-        multisigAddress: multisig.multisigAddress.toString(),
+        vaultAddress: multisigPda.toString(),
+        multisigAddress: multisigPda.toString(),
       };
 
     } catch (error: unknown) {
