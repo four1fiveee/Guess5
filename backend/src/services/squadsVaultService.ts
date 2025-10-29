@@ -1,12 +1,5 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
-import { 
-  multisigCreateV2, 
-  proposalCreate, 
-  proposalApprove, 
-  proposalExecute,
-  vaultTransactionCreate,
-  vaultTransactionExecute
-} from '@sqds/multisig';
+import { rpc } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -105,8 +98,8 @@ export class SquadsVaultService {
         { key: player2Pubkey, permissions: { isSigner: true } },
       ];
 
-      // Create the multisig using Squads SDK
-      const signature = await multisigCreateV2({
+            // Create the multisig using Squads SDK
+            const signature = await rpc.multisigCreateV2({
         connection: this.connection,
         createKey,
         creator: createKey, // The create key is also the creator
@@ -235,7 +228,7 @@ export class SquadsVaultService {
       });
       
       // Create the Squads vault transaction
-      const signature = await vaultTransactionCreate({
+      const signature = await rpc.vaultTransactionCreate({
         connection: this.connection,
         feePayer: this.config.systemPublicKey, // System pays for transaction creation
         multisigPda: multisigAddress,
@@ -351,7 +344,7 @@ export class SquadsVaultService {
       });
       
       // Create the Squads vault transaction
-      const signature = await vaultTransactionCreate({
+      const signature = await rpc.vaultTransactionCreate({
         connection: this.connection,
         feePayer: this.config.systemPublicKey, // System pays for transaction creation
         multisigPda: multisigAddress,
