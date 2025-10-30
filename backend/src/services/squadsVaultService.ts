@@ -73,6 +73,33 @@ export class SquadsVaultService {
     entryFee: number
   ): Promise<VaultCreationResult> {
     try {
+            // Preflight diagnostics and validations
+            const cluster = process.env.SQUADS_NETWORK || 'devnet';
+            const network = process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com';
+            const expectedProgramId = PROGRAM_ID?.toString?.() || 'unknown';
+
+            const allKeys = {
+              systemPublicKey: this.config.systemPublicKey?.toString?.(),
+              player1: player1Pubkey?.toString?.(),
+              player2: player2Pubkey?.toString?.(),
+              feePayer: getFeeWalletKeypair().publicKey?.toString?.(),
+              programId: expectedProgramId,
+              cluster,
+              network,
+            };
+            enhancedLogger.info('🔎 Preflight: env and key sanity', allKeys);
+
+            // Validate PublicKey instances
+            const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+            if (!isPk(this.config.systemPublicKey) || !isPk(player1Pubkey) || !isPk(player2Pubkey)) {
+              const details = {
+                systemOk: isPk(this.config.systemPublicKey),
+                player1Ok: isPk(player1Pubkey),
+                player2Ok: isPk(player2Pubkey),
+              };
+              enhancedLogger.error('❌ Invalid PublicKey inputs', details);
+              return { success: false, error: 'Invalid PublicKey inputs for multisig creation' };
+            }
             enhancedLogger.info('🏦 Creating Squads multisig vault', {
               matchId,
               player1: player1Pubkey.toString(),
@@ -108,10 +135,25 @@ export class SquadsVaultService {
         members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
         threshold: this.config.threshold,
         feePayer: createKey.publicKey.toString(),
-        creator: createKey.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
-        rentCollector: this.config.systemPublicKey.toString(),
+        rentCollector: null,
       });
+
+      // Extra strict parameter object (no undefined)
+      const paramsPreview = {
+        connection: '[Connection]',
+        programId: PROGRAM_ID.toString(),
+        createKey: '[Keypair]',
+        feePayer: createKey.publicKey.toString(),
+        configAuthority: this.config.systemPublicKey.toString(),
+        threshold: this.config.threshold,
+        members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
+        timeLock: 0,
+        rentCollector: null,
+        multisigPda: multisigPda.toString(),
+        memo: `Guess5 Match ${matchId}`,
+      };
+      enhancedLogger.info('🧾 Squads v2 param preview', paramsPreview);
 
       // Create the multisig using the current RPC (v2)
       let signature: string;
@@ -140,6 +182,9 @@ export class SquadsVaultService {
             multisigPda: multisigPda.toString(),
             members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
             threshold: this.config.threshold,
+            feePayer: createKey.publicKey.toString(),
+            configAuthority: this.config.systemPublicKey.toString(),
+            rentCollector: null,
           }
         });
         throw new Error(`Multisig vault creation failed: ${createErr?.message || String(createErr)}`);
