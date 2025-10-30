@@ -1,5 +1,5 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
-import { rpc, PROGRAM_ID } from '@sqds/multisig';
+import { rpc, PROGRAM_ID, getMultisigPda } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -86,10 +86,7 @@ export class SquadsVaultService {
       const createKey = Keypair.generate();
       
       // Generate multisig PDA (Program Derived Address)
-      const [multisigPda] = PublicKey.findProgramAddressSync(
-        [Buffer.from('multisig'), createKey.publicKey.toBuffer()],
-        PROGRAM_ID
-      );
+      const [multisigPda] = getMultisigPda({ createKey: createKey.publicKey, programId: PROGRAM_ID });
 
       // Define the multisig members with correct structure
       const squadsMembers = [
