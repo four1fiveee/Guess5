@@ -121,7 +121,7 @@ export class SquadsVaultService {
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
-          rentCollector: null,
+          rentCollector: this.config.systemPublicKey,
           treasury: multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
