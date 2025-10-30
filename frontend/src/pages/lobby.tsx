@@ -236,7 +236,7 @@ export default function Lobby() {
         console.log('⏳ Waiting for opponent, redirecting to matchmaking');
         router.push(`/matchmaking?entryFee=${solAmount}`)
       } else if (result.status === 'vault_pending') {
-        console.log('⏳ Vault pending, redirecting to matchmaking to continue polling');
+        console.log('⏳ Vault pending detected; redirecting to matchmaking to continue polling');
         router.push(`/matchmaking?matchId=${result.matchId}&entryFee=${solAmount}`);
       } else {
         console.log('❌ Unknown result status:', result.status);
