@@ -1656,45 +1656,45 @@ const submitResultHandler = async (req: any, res: any) => {
             
             if (proposalResult.success) {
               console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
-              
+            
               // Update match with proposal information
               updatedMatch.payoutProposalId = proposalResult.proposalId;
               updatedMatch.proposalCreatedAt = new Date();
               updatedMatch.matchStatus = 'PROPOSAL_CREATED';
-              
-              // Create payment instructions for display
-              const paymentInstructions = {
-                winner,
-                loser,
-                winnerAmount,
-                feeAmount,
+            
+            // Create payment instructions for display
+            const paymentInstructions = {
+              winner,
+              loser,
+              winnerAmount,
+              feeAmount,
                 feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
                 squadsProposal: true,
                 proposalId: proposalResult.proposalId,
-                transactions: [
-                  {
+              transactions: [
+                {
                     from: 'Squads Vault',
-                    to: winner,
-                    amount: winnerAmount,
+                  to: winner,
+                  amount: winnerAmount,
                     description: 'Winner payout via Squads proposal (requires winner signature)',
                     proposalId: proposalResult.proposalId
-                  }
-                ]
-              };
-              
-              (payoutResult as any).paymentInstructions = paymentInstructions;
-              (payoutResult as any).paymentSuccess = true;
+                }
+              ]
+            };
+            
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
               (payoutResult as any).squadsProposal = true;
               (payoutResult as any).proposalId = proposalResult.proposalId;
-              
+            
               console.log('✅ Squads winner payout proposal completed');
-              
+            
             } else {
               throw new Error(`Squads proposal failed: ${proposalResult.error}`);
             }
             
           } catch (error: unknown) {
-            const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
             console.warn('⚠️ Squads proposal failed, falling back to manual instructions:', errorMessage);
             
             // Fallback to manual payment instructions
@@ -2018,6 +2018,31 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         console.log('❌ Match not found in database or Redis');
         return res.status(404).json({ error: 'Match not found' });
       }
+    }
+
+    // Auto-create Squads vault if missing and match requires escrow
+    try {
+      if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
+        console.log('🏦 No vault on match yet; attempting on-demand creation...', { matchId: match.id });
+        const creation = await squadsVaultService.createMatchVault(
+          match.id,
+          new PublicKey(match.player1),
+          new PublicKey(match.player2),
+          match.entryFee
+        );
+        if (creation?.success && creation.vaultAddress) {
+          const { AppDataSource } = require('../db/index');
+          const matchRepository = AppDataSource.getRepository(Match);
+          (match as any).squadsVaultAddress = creation.vaultAddress;
+          await matchRepository.update({ id: match.id }, { squadsVaultAddress: creation.vaultAddress, matchStatus: 'VAULT_CREATED' });
+          console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress });
+        }
+      }
+    } catch (onDemandErr) {
+      console.warn('⚠️ On-demand vault creation failed (will retry on next poll)', {
+        matchId: match?.id,
+        error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr)
+      });
     }
 
     // Check if this match already has results for the requesting player
