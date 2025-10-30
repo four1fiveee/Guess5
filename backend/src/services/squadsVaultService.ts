@@ -159,6 +159,7 @@ export class SquadsVaultService {
       let signature: string;
       try {
         // Use fee wallet as payer; set explicit feePayer and creator public keys
+        // Note: treasury is derived automatically by the SDK, do not pass it explicitly
         signature = await rpc.multisigCreateV2({
           connection: this.connection,
           programId: PROGRAM_ID,
@@ -170,7 +171,6 @@ export class SquadsVaultService {
           members: squadsMembers,
           timeLock: 0,
           rentCollector: null,
-          treasury: multisigPda,
           multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
