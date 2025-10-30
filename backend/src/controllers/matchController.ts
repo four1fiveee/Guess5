@@ -580,12 +580,13 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
     const existingMatch = existingMatches[0];
     console.log('⚠️ Player still has an active/escrow match after cleanup');
     return {
-      status: 'matched',
+      status: existingMatch.squadsVaultAddress ? 'matched' : 'vault_pending',
       matchId: existingMatch.id,
       player1: existingMatch.player1,
       player2: existingMatch.player2,
       entryFee: existingMatch.entryFee,
-      vaultAddress: existingMatch.squadsVaultAddress,
+      squadsVaultAddress: existingMatch.squadsVaultAddress || null,
+      vaultAddress: existingMatch.squadsVaultAddress || null,
       matchStatus: existingMatch.status,
       message: existingMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
     };
@@ -729,11 +730,13 @@ const createMatch = async (matchRepository: any, waitingPlayer: any, wallet: str
     });
     
     return {
-      status: 'matched',
+    status: 'vault_pending',
       matchId: waitingPlayer.matchId,
       player1: waitingPlayer.wallet,
       player2: wallet,
       entryFee: waitingPlayer.entryFee,
+    squadsVaultAddress: null,
+    vaultAddress: null,
       message: 'Match created - both players must pay entry fee to start game'
     };
   } catch (error: unknown) {
@@ -3838,7 +3841,7 @@ const manualMatchHandler = async (req: any, res: any) => {
       player1: player1,
       player2: player2,
       entryFee: entryFee,
-      status: 'matched',
+    status: 'payment_required',
       createdAt: new Date(),
       updatedAt: new Date()
     });
@@ -3854,7 +3857,9 @@ const manualMatchHandler = async (req: any, res: any) => {
       player1: player1,
       player2: player2,
       entryFee: entryFee,
-      status: 'matched'
+    status: 'vault_pending',
+    squadsVaultAddress: null,
+    vaultAddress: null
     });
     
   } catch (error: unknown) {
