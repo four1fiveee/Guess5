@@ -67,13 +67,13 @@ export class SquadsVaultService {
     entryFee: number
   ): Promise<VaultCreationResult> {
     try {
-      enhancedLogger.info('🏦 Creating Squads multisig vault', {
-        matchId,
-        player1: player1Pubkey.toString(),
-        player2: player2Pubkey.toString(),
-        entryFee,
-        system: this.config.systemPublicKey.toString(),
-      });
+            enhancedLogger.info('🏦 Creating Squads multisig vault', {
+              matchId,
+              player1: player1Pubkey.toString(),
+              player2: player2Pubkey.toString(),
+              entryFee,
+              system: this.config.systemPublicKey.toString(),
+            });
 
       // Create 2-of-3 multisig: [system, player1, player2]
       const members = [
@@ -93,23 +93,47 @@ export class SquadsVaultService {
 
       // Define the multisig members with correct structure
       const squadsMembers = [
-        { key: this.config.systemPublicKey, permissions: { mask: 1 } }, // isSigner = 1
-        { key: player1Pubkey, permissions: { mask: 1 } }, // isSigner = 1
-        { key: player2Pubkey, permissions: { mask: 1 } }, // isSigner = 1
+        { key: this.config.systemPublicKey, permissions: { mask: 1 } },
+        { key: player1Pubkey, permissions: { mask: 1 } },
+        { key: player2Pubkey, permissions: { mask: 1 } },
       ];
 
-      // Create the multisig using stable RPC (v1) to avoid serialization issues
-      const signature = await rpc.multisigCreate({
-        connection: this.connection,
-        createKey,
-        creator: createKey,
-        multisigPda,
-        configAuthority: this.config.systemPublicKey,
+      // Diagnostics
+      enhancedLogger.info('🧪 Squads create diagnostics', {
+        programId: PROGRAM_ID.toString(),
+        multisigPda: multisigPda.toString(),
+        members: squadsMembers.map(m => ({ key: m.key.toString(), mask: m.permissions.mask })),
         threshold: this.config.threshold,
-        members: squadsMembers,
-        timeLock: 0,
-        memo: `Guess5 Match ${matchId}`,
       });
+
+      // Create the multisig using stable RPC (v1) to avoid serialization issues
+      let signature: string;
+      try {
+        signature = await rpc.multisigCreate({
+          connection: this.connection,
+          createKey,
+          creator: createKey,
+          multisigPda,
+          configAuthority: this.config.systemPublicKey,
+          threshold: this.config.threshold,
+          members: squadsMembers,
+          timeLock: 0,
+          memo: `Guess5 Match ${matchId}`,
+        });
+      } catch (createErr: any) {
+        enhancedLogger.error('❌ multisigCreate failed', {
+          matchId,
+          error: createErr?.message || String(createErr),
+          stack: createErr?.stack,
+          details: {
+            programId: PROGRAM_ID.toString(),
+            multisigPda: multisigPda.toString(),
+            members: squadsMembers.map(m => ({ key: m.key.toString(), mask: m.permissions.mask })),
+            threshold: this.config.threshold,
+          }
+        });
+        throw new Error(`Multisig vault creation failed: ${createErr?.message || String(createErr)}`);
+      }
 
       enhancedLogger.info('✅ Squads multisig vault created', {
         matchId,
