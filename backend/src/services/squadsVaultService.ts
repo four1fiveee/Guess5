@@ -122,12 +122,11 @@ export class SquadsVaultService {
           programId: PROGRAM_ID,
           createKey,
           feePayer: createKey.publicKey,
-          creator: createKey.publicKey,
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
-          rentCollector: this.config.systemPublicKey,
+          rentCollector: null,
           multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
