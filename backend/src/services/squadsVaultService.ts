@@ -109,18 +109,20 @@ export class SquadsVaultService {
         threshold: this.config.threshold,
       });
 
-      // Create the multisig using stable RPC (v1) to avoid serialization issues
+      // Create the multisig using the current RPC (v2)
       let signature: string;
       try {
-        signature = await rpc.multisigCreate({
+        signature = await rpc.multisigCreateV2({
           connection: this.connection,
+          programId: PROGRAM_ID,
           createKey,
-          creator: createKey,
-          multisigPda,
+          creator: createKey.publicKey,
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
+          rentCollector: null,
+          treasury: multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
       } catch (createErr: any) {
