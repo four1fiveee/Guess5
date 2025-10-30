@@ -1,6 +1,7 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
 import { rpc, PROGRAM_ID, getMultisigPda } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
+import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { MatchAttestation } from '../models/MatchAttestation';
@@ -43,8 +44,13 @@ export class SquadsVaultService {
 
     // Squads SDK initialized via direct imports (no class instantiation needed)
 
-    // Get system public key from environment
-    const systemPublicKey = process.env.SYSTEM_PUBLIC_KEY;
+    // Get system public key from environment, fallback to fee wallet address
+    let systemPublicKey = process.env.SYSTEM_PUBLIC_KEY;
+    if (!systemPublicKey) {
+      try {
+        systemPublicKey = getFeeWalletAddress();
+      } catch {}
+    }
     if (!systemPublicKey) {
       throw new Error('SYSTEM_PUBLIC_KEY environment variable is required');
     }
@@ -82,8 +88,8 @@ export class SquadsVaultService {
         player2Pubkey,
       ];
 
-      // Generate a unique create key for this multisig
-      const createKey = Keypair.generate();
+      // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
+      const createKey = getFeeWalletKeypair();
       
       // Generate multisig PDA (Program Derived Address)
       const [multisigPda] = getMultisigPda({ createKey: createKey.publicKey, programId: PROGRAM_ID });
