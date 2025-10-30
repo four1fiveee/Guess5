@@ -94,19 +94,23 @@ export class SquadsVaultService {
       // Generate multisig PDA (Program Derived Address)
       const [multisigPda] = getMultisigPda({ createKey: createKey.publicKey, programId: PROGRAM_ID });
 
-      // Define the multisig members with correct structure
+      // Define the multisig members with numeric permissions (mask = 1)
       const squadsMembers = [
-        { key: this.config.systemPublicKey, permissions: { mask: 1 } },
-        { key: player1Pubkey, permissions: { mask: 1 } },
-        { key: player2Pubkey, permissions: { mask: 1 } },
+        { key: this.config.systemPublicKey, permissions: 1 },
+        { key: player1Pubkey, permissions: 1 },
+        { key: player2Pubkey, permissions: 1 },
       ];
 
       // Diagnostics
       enhancedLogger.info('🧪 Squads create diagnostics', {
         programId: PROGRAM_ID.toString(),
         multisigPda: multisigPda.toString(),
-        members: squadsMembers.map(m => ({ key: m.key.toString(), mask: m.permissions.mask })),
+        members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
         threshold: this.config.threshold,
+        feePayer: createKey.publicKey.toString(),
+        creator: createKey.publicKey.toString(),
+        configAuthority: this.config.systemPublicKey.toString(),
+        rentCollector: this.config.systemPublicKey.toString(),
       });
 
       // Create the multisig using the current RPC (v2)
@@ -118,13 +122,13 @@ export class SquadsVaultService {
           programId: PROGRAM_ID,
           createKey,
           feePayer: createKey.publicKey,
-          creator: this.config.systemPublicKey,
+          creator: createKey.publicKey,
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
           rentCollector: this.config.systemPublicKey,
-          treasury: multisigPda,
+          multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
       } catch (createErr: any) {
@@ -135,7 +139,7 @@ export class SquadsVaultService {
           details: {
             programId: PROGRAM_ID.toString(),
             multisigPda: multisigPda.toString(),
-            members: squadsMembers.map(m => ({ key: m.key.toString(), mask: m.permissions.mask })),
+            members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
             threshold: this.config.threshold,
           }
         });
