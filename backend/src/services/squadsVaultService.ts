@@ -1,5 +1,5 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
-import { rpc } from '@sqds/multisig';
+import { rpc, PROGRAM_ID } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -88,7 +88,7 @@ export class SquadsVaultService {
       // Generate multisig PDA (Program Derived Address)
       const [multisigPda] = PublicKey.findProgramAddressSync(
         [Buffer.from('multisig'), createKey.publicKey.toBuffer()],
-        new PublicKey('SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pcf') // Squads Program ID
+        PROGRAM_ID
       );
 
       // Define the multisig members with correct structure
@@ -98,18 +98,16 @@ export class SquadsVaultService {
         { key: player2Pubkey, permissions: { mask: 1 } }, // isSigner = 1
       ];
 
-      // Create the multisig using Squads SDK
-      const signature = await rpc.multisigCreateV2({
+      // Create the multisig using stable RPC (v1) to avoid serialization issues
+      const signature = await rpc.multisigCreate({
         connection: this.connection,
-        treasury: multisigPda, // Use multisigPda as treasury
         createKey,
-        creator: createKey, // The create key is also the creator
+        creator: createKey,
         multisigPda,
-        configAuthority: this.config.systemPublicKey, // System can manage the multisig
+        configAuthority: this.config.systemPublicKey,
         threshold: this.config.threshold,
         members: squadsMembers,
-        timeLock: 0, // No time lock for immediate execution
-        rentCollector: null, // No rent collector
+        timeLock: 0,
         memo: `Guess5 Match ${matchId}`,
       });
 
