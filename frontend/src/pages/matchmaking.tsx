@@ -520,19 +520,33 @@ const Matchmaking: React.FC = () => {
               <div className="text-white/80 mb-4">
                 Entry Fee: {entryFee} SOL
               </div>
+              <div className="text-white/60 text-sm mb-2">
+                Vault: {(matchData.squadsVaultAddress || matchData.vaultAddress) ? (
+                  <span className="text-accent break-all">{matchData.squadsVaultAddress || matchData.vaultAddress}</span>
+                ) : (
+                  <span className="text-white/60">preparing vault…</span>
+                )}
+              </div>
               <div className="text-white/60 text-sm mb-4">
                 Match ID: {matchData.matchId}
               </div>
+              {!(matchData.squadsVaultAddress || matchData.vaultAddress) && (
+                <div className="text-white/70 text-sm mb-4">Please wait a moment while the vault is created. This usually takes a few seconds.</div>
+              )}
               <button
                 onClick={handlePayment}
-                disabled={isPaymentInProgress}
+                disabled={isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)}
                 className={`font-bold py-2 px-4 rounded transition-colors ${
-                  isPaymentInProgress 
+                  isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)
                     ? 'bg-gray-500 cursor-not-allowed text-gray-300' 
                     : 'bg-accent hover:bg-accent/80 text-white'
                 }`}
               >
-                {isPaymentInProgress ? 'Processing Payment...' : 'Pay Entry Fee'}
+                {isPaymentInProgress
+                  ? 'Processing Payment...'
+                  : (matchData.squadsVaultAddress || matchData.vaultAddress)
+                    ? 'Pay Entry Fee'
+                    : 'Waiting for Vault...'}
               </button>
             </div>
           )}
