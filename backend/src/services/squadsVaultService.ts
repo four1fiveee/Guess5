@@ -91,16 +91,17 @@ export class SquadsVaultService {
         new PublicKey('SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pcf') // Squads Program ID
       );
 
-      // Define the multisig members with proper structure
+      // Define the multisig members with correct structure
       const squadsMembers = [
-        { key: this.config.systemPublicKey, permissions: { isSigner: true } },
-        { key: player1Pubkey, permissions: { isSigner: true } },
-        { key: player2Pubkey, permissions: { isSigner: true } },
+        { key: this.config.systemPublicKey, permissions: { mask: 1 } }, // isSigner = 1
+        { key: player1Pubkey, permissions: { mask: 1 } }, // isSigner = 1
+        { key: player2Pubkey, permissions: { mask: 1 } }, // isSigner = 1
       ];
 
-            // Create the multisig using Squads SDK
-            const signature = await rpc.multisigCreateV2({
+      // Create the multisig using Squads SDK
+      const signature = await rpc.multisigCreateV2({
         connection: this.connection,
+        treasury: multisigPda, // Use multisigPda as treasury
         createKey,
         creator: createKey, // The create key is also the creator
         multisigPda,
@@ -108,6 +109,7 @@ export class SquadsVaultService {
         threshold: this.config.threshold,
         members: squadsMembers,
         timeLock: 0, // No time lock for immediate execution
+        rentCollector: null, // No rent collector
         memo: `Guess5 Match ${matchId}`,
       });
 
