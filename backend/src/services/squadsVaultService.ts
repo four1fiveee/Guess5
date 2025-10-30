@@ -170,6 +170,7 @@ export class SquadsVaultService {
           members: squadsMembers,
           timeLock: 0,
           rentCollector: null,
+          treasury: multisigPda,
           multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
