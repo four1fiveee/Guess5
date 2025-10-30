@@ -112,11 +112,13 @@ export class SquadsVaultService {
       // Create the multisig using the current RPC (v2)
       let signature: string;
       try {
+        // Use fee wallet as payer; set explicit feePayer and creator public keys
         signature = await rpc.multisigCreateV2({
           connection: this.connection,
           programId: PROGRAM_ID,
           createKey,
-          creator: createKey.publicKey,
+          feePayer: createKey.publicKey,
+          creator: this.config.systemPublicKey,
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
