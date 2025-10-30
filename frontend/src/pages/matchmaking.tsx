@@ -384,6 +384,26 @@ const Matchmaking: React.FC = () => {
           clearInterval(pollInterval);
           setIsPolling(false);
           setIsMatchmakingInProgress(false);
+        } else if (data.status === 'vault_pending') {
+          // Record basic match info and begin polling for vault readiness
+          const pending = {
+            matchId: data.matchId,
+            player1: data.player1,
+            player2: data.player2,
+            entryFee: currentEntryFee,
+            status: 'payment_required', // target state once vault appears
+            squadsVaultAddress: null,
+            vaultAddress: null,
+            player1Paid: false,
+            player2Paid: false,
+          } as any;
+          setMatchData(pending);
+          matchDataRef.current = pending;
+          // Ensure polling is running to pick up vault + payments
+          if (!isPolling) {
+            setIsPolling(true);
+            startPolling();
+          }
         } else if (data.error) {
           setStatus('error');
         }
