@@ -235,6 +235,36 @@ export default function Lobby() {
       } else if (result.status === 'waiting') {
         console.log('⏳ Waiting for opponent, redirecting to matchmaking');
         router.push(`/matchmaking?entryFee=${solAmount}`)
+      } else if (result.status === 'vault_pending') {
+        console.log('⏳ Vault pending, polling for vault readiness...');
+        const matchId = result.matchId;
+        const start = Date.now();
+        const poll = async () => {
+          try {
+            const status = await getMatchStatus(matchId) as any;
+            const vaultAddr = status?.squadsVaultAddress || status?.vaultAddress;
+            if (vaultAddr) {
+              console.log('✅ Vault ready, proceeding to matchmaking');
+              router.push(`/matchmaking?matchId=${matchId}&entryFee=${solAmount}`);
+              return;
+            }
+            if (Date.now() - start < 60000) {
+              setTimeout(poll, 2000);
+            } else {
+              alert('Failed to start matchmaking. Please try again.');
+              setIsMatchmaking(false);
+            }
+          } catch (e) {
+            console.warn('⚠️ Status poll failed, retrying...', e);
+            if (Date.now() - start < 60000) {
+              setTimeout(poll, 2000);
+            } else {
+              alert('Failed to start matchmaking. Please try again.');
+              setIsMatchmaking(false);
+            }
+          }
+        };
+        poll();
       } else {
         console.log('❌ Unknown result status:', result.status);
         alert('Failed to start matchmaking. Please try again.')
