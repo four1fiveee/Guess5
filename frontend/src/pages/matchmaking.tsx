@@ -86,15 +86,26 @@ const Matchmaking: React.FC = () => {
         throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
       }
       
-      if (!matchData.vaultAddress) {
-        throw new Error('Vault address not found. Please refresh the page and try again.');
+      let vaultAddress: string | null = matchData.squadsVaultAddress || matchData.vaultAddress || null;
+      if (!vaultAddress) {
+        // Try one quick status fetch to populate vault
+        try {
+          const latest = await getMatchStatus(matchData.matchId) as any;
+          vaultAddress = latest?.squadsVaultAddress || latest?.vaultAddress || null;
+          if (vaultAddress) {
+            setMatchData((prev: any) => ({ ...prev, squadsVaultAddress: vaultAddress, vaultAddress }));
+          }
+        } catch {}
+      }
+      if (!vaultAddress) {
+        throw new Error('Vault address not found. Please wait a moment and try again.');
       }
       
       // Create transaction to send SOL to vault
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(matchData.vaultAddress),
+          toPubkey: new PublicKey(vaultAddress),
           lamports: requiredAmount,
         })
       );
@@ -262,11 +273,14 @@ const Matchmaking: React.FC = () => {
               
               // Update match data with latest payment status
               setMatchData((prev: any) => {
+                const va = (data as any)?.squadsVaultAddress || (data as any)?.vaultAddress || prev?.vaultAddress || null;
                 const updated = {
                   ...prev,
                   player1Paid: data.player1Paid,
                   player2Paid: data.player2Paid,
-                  status: data.status
+                  status: data.status,
+                  squadsVaultAddress: (data as any)?.squadsVaultAddress ?? prev?.squadsVaultAddress ?? va,
+                  vaultAddress: va,
                 };
                 matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
