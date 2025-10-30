@@ -402,6 +402,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         player2: matchData.player2,
         entryFee: matchData.entryFee,
         squadsVaultAddress: vaultResult.vaultAddress,
+        vaultAddress: vaultResult.vaultAddress,
         message: 'Match created - both players must pay entry fee to start game'
       };
     } else if (redisResult.status === 'waiting') {
@@ -2079,6 +2080,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     status: playerSpecificStatus,
       player1: match.player1,
       player2: match.player2,
+      squadsVaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
+      vaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
       player1Paid: match.player1Paid,
       player2Paid: match.player2Paid,
       word: match.word,
