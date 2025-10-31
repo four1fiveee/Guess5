@@ -2402,28 +2402,34 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Valid wallet address required' });
     }
 
+    if (!AppDataSource || !AppDataSource.isInitialized) {
+      console.error('❌ AppDataSource not initialized in checkPendingClaimsHandler');
+      return res.status(500).json({ error: 'Database not initialized' });
+    }
+
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Find matches where player has pending winnings (won but proposal not executed)
+    // Find matches where player has pending winnings (completed matches with active proposals)
     const pendingWinnings = await matchRepository
       .createQueryBuilder('match')
-      .where('match.matchStatus = :status', { status: 'SETTLED' })
+      .where('match.isCompleted = :completed', { completed: true })
+      .andWhere('match.winner != :tie', { tie: 'tie' })
+      .andWhere('match.winner IS NOT NULL')
       .andWhere('match.payoutProposalId IS NOT NULL')
-      .andWhere('match.proposalStatus = :proposalStatus', { proposalStatus: 'ACTIVE' })
+      .andWhere('(match.proposalStatus = :proposalStatus OR match.proposalStatus IS NULL)', { proposalStatus: 'ACTIVE' })
       .andWhere('match.needsSignatures > 0')
       .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
-      .andWhere('match.payoutProposalId IS NOT NULL')
       .getMany();
 
     // Find matches where player has pending refunds (tie/timeout but proposal not executed)
     const pendingRefunds = await matchRepository
       .createQueryBuilder('match')
-      .where('match.matchStatus = :status', { status: 'REFUNDED' })
+      .where('match.isCompleted = :completed', { completed: true })
+      .andWhere('match.winner = :tie', { tie: 'tie' })
       .andWhere('match.payoutProposalId IS NOT NULL')
-      .andWhere('match.proposalStatus = :proposalStatus', { proposalStatus: 'ACTIVE' })
+      .andWhere('(match.proposalStatus = :proposalStatus OR match.proposalStatus IS NULL)', { proposalStatus: 'ACTIVE' })
       .andWhere('match.needsSignatures > 0')
       .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
-      .andWhere('match.payoutProposalId IS NOT NULL')
       .getMany();
 
     // Check if player has any pending claims
@@ -2452,16 +2458,30 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
       hasPendingWinnings,
       hasPendingRefunds,
       refundCanBeExecuted,
-      pendingWinnings: pendingWinnings.map(match => ({
-        matchId: match.id,
-        entryFee: match.entryFee,
-        proposalId: match.payoutProposalId,
-        proposalCreatedAt: match.proposalCreatedAt,
-        needsSignatures: match.needsSignatures,
-        isWinner: match.payoutProposalId ? 
-          (match.player1 === wallet ? match.player1Result?.numGuesses < match.player2Result?.numGuesses :
-           match.player2 === wallet ? match.player2Result?.numGuesses < match.player1Result?.numGuesses : false) : false
-      })),
+      pendingWinnings: pendingWinnings.map(match => {
+        let isWinner = false;
+        if (match.payoutProposalId) {
+          try {
+            const player1Result = match.getPlayer1Result();
+            const player2Result = match.getPlayer2Result();
+            if (match.player1 === wallet && player1Result && player2Result) {
+              isWinner = player1Result.numGuesses < player2Result.numGuesses;
+            } else if (match.player2 === wallet && player1Result && player2Result) {
+              isWinner = player2Result.numGuesses < player1Result.numGuesses;
+            }
+          } catch (err) {
+            console.warn('Error determining winner for match', match.id, err);
+          }
+        }
+        return {
+          matchId: match.id,
+          entryFee: match.entryFee,
+          proposalId: match.payoutProposalId,
+          proposalCreatedAt: match.proposalCreatedAt,
+          needsSignatures: match.needsSignatures,
+          isWinner
+        };
+      }),
       pendingRefunds: pendingRefunds.map(match => ({
         matchId: match.id,
         entryFee: match.entryFee,
