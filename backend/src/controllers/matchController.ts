@@ -2649,15 +2649,15 @@ const getGameStateHandler = async (req: any, res: any) => {
           completed: false
         };
         
-        // Use database helper for safe game start updates
-        const { updateMatchGameStart } = require('../utils/databaseHelper');
+        // Update match directly in database
+        if (!match.word) {
+          match.word = word;
+        }
+        if (!match.gameStartTime) {
+          match.gameStartTime = new Date();
+        }
+        await matchRepository.save(match);
         
-        await updateMatchGameStart(match, {
-          word: word,
-          gameStartTime: new Date(),
-          feeWalletAddress: process.env.FEE_WALLET_ADDRESS,
-          entryFee: match.entryFee
-        });
         await setGameState(matchId as string, newGameState);
         console.log(`✅ Reinitialized game state for match ${matchId}`);
         
@@ -3279,25 +3279,30 @@ const confirmPaymentHandler = async (req: any, res: any) => {
     });
 
     // Mark player as paid (preserve existing payment status)
-    // Use database helper for safe field updates
-    const { updateMatchPayment } = require('../utils/databaseHelper');
+    if (isPlayer1) {
+      match.player1Paid = true;
+      if (paymentSignature) {
+        match.player1PaymentSignature = paymentSignature;
+      }
+    } else {
+      match.player2Paid = true;
+      if (paymentSignature) {
+        match.player2PaymentSignature = paymentSignature;
+      }
+    }
     
-    const paymentData = {
-      paymentSignature,
-      slot: verificationResult.slot,
-      blockTime: verificationResult.timestamp,
-      finalized: true,
-      // Add smart contract data if present
-      ...(smartContractData && {
-        matchPda: smartContractData.matchPda,
-        vaultPda: smartContractData.vaultPda,
-        matchId: smartContractData.matchId,
-        smartContractVerified: smartContractData.smartContractVerified,
-        verificationDetails: smartContractData.verificationDetails
-      })
-    };
-    
-    await updateMatchPayment(match, isPlayer1, paymentData);
+    // Update smart contract fields if present
+    if (smartContractData) {
+      if (smartContractData.matchPda) {
+        match.matchPda = smartContractData.matchPda;
+      }
+      if (smartContractData.vaultPda) {
+        match.vaultPda = smartContractData.vaultPda;
+      }
+      if (smartContractData.smartContractVerified !== undefined) {
+        match.smartContractStatus = smartContractData.smartContractVerified ? 'verified' : 'unverified';
+      }
+    }
     
     // IMMEDIATELY save payment status to database so other player can see it
     await matchRepository.save(match);

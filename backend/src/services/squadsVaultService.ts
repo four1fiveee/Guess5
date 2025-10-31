@@ -7,6 +7,7 @@ import { Match } from '../models/Match';
 import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
+import { setGameState } from '../utils/redisGameState';
 
 export interface SquadsVaultConfig {
   systemPublicKey: PublicKey; // Your system's public key (non-custodial)
@@ -751,6 +752,35 @@ export class SquadsVaultService {
         }
         
         await matchRepository.save(match);
+        
+        // Initialize Redis game state for active gameplay
+        try {
+          const newGameState = {
+            startTime: Date.now(),
+            player1StartTime: Date.now(),
+            player2StartTime: Date.now(),
+            player1Guesses: [],
+            player2Guesses: [],
+            player1Solved: false,
+            player2Solved: false,
+            word: match.word,
+            matchId: matchId,
+            lastActivity: Date.now(),
+            completed: false
+          };
+          await setGameState(matchId, newGameState);
+          enhancedLogger.info('✅ Redis game state initialized for match', {
+            matchId,
+            word: match.word,
+          });
+        } catch (gameStateError: unknown) {
+          const errorMessage = gameStateError instanceof Error ? gameStateError.message : String(gameStateError);
+          enhancedLogger.error('❌ Failed to initialize Redis game state', {
+            matchId,
+            error: errorMessage,
+          });
+          // Continue anyway - game state can be reinitialized by getGameStateHandler if needed
+        }
         
         // Reload match to verify it was saved correctly
         const reloadedMatch = await matchRepository.findOne({ where: { id: matchId } });
