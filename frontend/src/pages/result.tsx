@@ -43,7 +43,7 @@ const Result: React.FC = () => {
               
               // Create payout data from match data
               const payoutData = {
-                won: matchData.winner === publicKey?.toString(),
+                won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
                 isTie: matchData.winner === 'tie',
                 winner: matchData.winner,
                 numGuesses: playerResult?.numGuesses || 0,

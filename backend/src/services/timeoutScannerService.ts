@@ -139,12 +139,30 @@ export class TimeoutScannerService {
           const player1Result = match.getPlayer1Result();
           const player2Result = match.getPlayer2Result();
           
+          // IMPORTANT: If match is already completed, skip (race condition)
+          if (match.isCompleted) {
+            continue;
+          }
+          
+          // If both players have submitted results, skip (normal completion path)
+          if (player1Result && player2Result) {
+            continue;
+          }
+          
           // Check if one player has submitted but the other hasn't
           const player1Finished = gameState.player1Solved || gameState.player1Guesses.length >= 7 || !!player1Result;
           const player2Finished = gameState.player2Solved || gameState.player2Guesses.length >= 7 || !!player2Result;
           
-          // If both finished or neither finished, skip
-          if ((player1Finished && player2Finished) || (!player1Finished && !player2Finished)) {
+          // If both finished in game state but results aren't saved yet, skip (wait for normal completion)
+          // Only process if exactly one player finished AND we're past the timeout
+          if ((player1Finished && player2Finished)) {
+            // Both finished in game state - wait for results to be saved normally
+            // Don't process as abandoned game
+            continue;
+          }
+          
+          // If neither finished, skip
+          if (!player1Finished && !player2Finished) {
             continue;
           }
 
