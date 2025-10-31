@@ -1418,8 +1418,22 @@ const submitResultHandler = async (req: any, res: any) => {
           
           const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
           
+          // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
+          const matchWithWinner = await manager.findOne(Match, { where: { id: matchId } });
+          if (matchWithWinner) {
+            updatedMatch.winner = matchWithWinner.winner;
+            updatedMatch.isCompleted = matchWithWinner.isCompleted;
+          }
+          
           return result;
         });
+        
+        // IMPORTANT: Reload match after transaction to ensure we have the latest winner
+        const matchRepository = AppDataSource.getRepository(Match);
+        updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        if (!updatedMatch) {
+          throw new Error('Match not found after transaction');
+        }
         
         // Clear Redis game state after completion
         try {
@@ -1619,15 +1633,30 @@ const submitResultHandler = async (req: any, res: any) => {
           
           const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
           
+          // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
+          const matchWithWinner = await manager.findOne(Match, { where: { id: matchId } });
+          if (matchWithWinner) {
+            updatedMatch.winner = matchWithWinner.winner;
+            updatedMatch.isCompleted = matchWithWinner.isCompleted;
+          }
+          
           console.log('🏆 Winner determination completed (non-solved case):', {
             matchId,
             winner: result?.winner,
+            updatedMatchWinner: updatedMatch.winner,
             player1Result: updatedMatch.getPlayer1Result(),
             player2Result: updatedMatch.getPlayer2Result()
           });
           
           return result;
         });
+        
+        // IMPORTANT: Reload match after transaction to ensure we have the latest winner
+        const matchRepository = AppDataSource.getRepository(Match);
+        updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        if (!updatedMatch) {
+          throw new Error('Match not found after transaction');
+        }
         
         // Execute Squads proposal for winner payout (non-custodial)
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
