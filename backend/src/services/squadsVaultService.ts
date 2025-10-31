@@ -564,7 +564,60 @@ export class SquadsVaultService {
   }
 
   /**
-   * Sign a proposal (for system signatures)
+   * Approve a Squads vault transaction proposal
+   * This allows players (multisig members) to sign proposals
+   */
+  async approveProposal(
+    vaultAddress: string,
+    proposalId: string,
+    signer: Keypair
+  ): Promise<{ success: boolean; signature?: string; error?: string }> {
+    try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const transactionIndex = BigInt(proposalId);
+
+      enhancedLogger.info('📝 Approving Squads proposal', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+      });
+
+      // Use rpc.vaultTransactionApprove to approve the transaction
+      const signature = await rpc.vaultTransactionApprove({
+        connection: this.connection,
+        feePayer: signer.publicKey,
+        multisigPda: multisigAddress,
+        transactionIndex,
+        member: signer,
+      });
+
+      enhancedLogger.info('✅ Proposal approved', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        signature,
+      });
+
+      return { success: true, signature };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to approve proposal', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Sign a proposal (for system signatures) - DEPRECATED, use approveProposal instead
    */
   async signProposal(
     vaultAddress: string,
@@ -572,32 +625,16 @@ export class SquadsVaultService {
     signer: PublicKey
   ): Promise<{ success: boolean; error?: string }> {
     try {
-      const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = parseInt(proposalId);
-
-      // Only allow system to sign proposals
+      // Only allow system to use this deprecated method
       if (!signer.equals(this.config.systemPublicKey)) {
         return {
           success: false,
-          error: 'Only system can sign proposals from backend',
+          error: 'Only system can sign proposals from backend. Use approveProposal for player signatures.',
         };
       }
 
-      // For now, simulate signing to maintain frontend compatibility
-      // TODO: Implement full Squads transaction signing with numeric proposal IDs
-      enhancedLogger.info('📝 System signing proposal (simplified)', {
-        vaultAddress,
-        proposalId,
-        signer: signer.toString(),
-      });
-
-      enhancedLogger.info('✅ Proposal signed by system', {
-        vaultAddress,
-        proposalId,
-        signer: signer.toString(),
-      });
-
-      return { success: true };
+      const feeWalletKeypair = getFeeWalletKeypair();
+      return await this.approveProposal(vaultAddress, proposalId, feeWalletKeypair);
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);

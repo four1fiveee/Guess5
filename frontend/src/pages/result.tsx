@@ -8,7 +8,7 @@ import { SquadsClient } from '../utils/squadsClient';
 
 const Result: React.FC = () => {
   const router = useRouter();
-  const { publicKey } = useWallet();
+  const { publicKey, signTransaction } = useWallet();
   const [payoutData, setPayoutData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,22 +143,79 @@ const Result: React.FC = () => {
   };
 
   const handleSignProposal = async () => {
-    if (!payoutData?.proposalId || !payoutData?.vaultAddress || !publicKey) {
+    if (!payoutData?.proposalId || !payoutData?.vaultAddress || !publicKey || !signTransaction) {
       setError('Missing required data for proposal signing');
       return;
     }
 
     setSigningProposal(true);
+    setError(null);
+    
     try {
-      await squadsClient.signProposal(payoutData.vaultAddress, payoutData.proposalId, publicKey);
-      setError(null);
-      // Refresh payout data to show updated status
+      // Build the approval transaction using Squads SDK
+      const { rpc, PROGRAM_ID } = await import('@sqds/multisig');
+      const { Connection, PublicKey, VersionedTransaction } = await import('@solana/web3.js');
+      
+      const connection = new Connection(
+        process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com',
+        'confirmed'
+      );
+      
+      const multisigAddress = new PublicKey(payoutData.vaultAddress);
+      const transactionIndex = BigInt(payoutData.proposalId);
+      
+      // Build the approval transaction
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      
+      // Build the approval transaction using Squads SDK
+      // vaultTransactionApprove returns a transaction builder that needs to be built
+      const approveTxBuilder = rpc.vaultTransactionApprove({
+        connection,
+        feePayer: publicKey,
+        multisigPda: multisigAddress,
+        transactionIndex,
+        member: publicKey, // The player signing
+      });
+      
+      // Build the transaction from the builder
+      const approveTx = await approveTxBuilder.toV0();
+      
+      // Sign the transaction with the wallet
+      const signedTx = await signTransaction(approveTx);
+      
+      // Serialize the signed transaction
+      const serialized = signedTx.serialize();
+      const base64Tx = Buffer.from(serialized).toString('base64');
+      
+      // Send to backend to submit
       const matchId = router.query.matchId as string;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      
+      const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          matchId,
+          wallet: publicKey.toString(),
+          signedTransaction: base64Tx,
+        }),
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || 'Failed to sign proposal');
+      }
+      
+      const result = await response.json();
+      console.log('✅ Proposal signed successfully:', result);
+      
+      // Refresh payout data
       if (matchId && publicKey) {
-        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
-        if (response.ok) {
-          const matchData = await response.json();
+        const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
+        if (statusResponse.ok) {
+          const matchData = await statusResponse.json();
           if (matchData.isCompleted) {
             const isPlayer1 = publicKey.toString() === matchData.player1;
             const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
@@ -195,6 +252,7 @@ const Result: React.FC = () => {
         }
       }
     } catch (err) {
+      console.error('❌ Error signing proposal:', err);
       setError(err instanceof Error ? err.message : 'Failed to sign proposal');
     } finally {
       setSigningProposal(false);
@@ -392,13 +450,34 @@ const Result: React.FC = () => {
                         <div className="text-white">
                           <p className="text-lg font-semibold text-red-400 mb-2">😔 You Lost</p>
                           <p className="text-sm text-white/80 mb-2">Better luck next time!</p>
-                          <p className="text-sm text-white/60">
+                          <p className="text-sm text-white/60 mb-3">
                             {payoutData.proposalStatus === 'EXECUTED' ? 
                               'The winner has been paid.' :
-                              'The winner needs to sign the proposal to claim their winnings.'
+                              'Sign the proposal to help process the payout and get back to playing faster.'
                             }
-                        </p>
-                      </div>
+                          </p>
+                          
+                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
+                            <div className="mt-4">
+                              <p className="text-sm text-white/60 mb-2">
+                                {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
+                                  ? 'You have already signed this proposal' 
+                                  : 'Signing helps process the payout (you can still sign even though you lost)'
+                                }
+                              </p>
+                              
+                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && (
+                                <button
+                                  onClick={handleSignProposal}
+                                  disabled={signingProposal}
+                                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                >
+                                  {signingProposal ? 'Signing...' : 'Sign Proposal'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
                     )}
                     {payoutData.payoutSignature && (
                       <div className="mt-3">

@@ -5439,10 +5439,102 @@ const voidMatchHandler = async (req: any, res: any) => {
   }
 };
 
+const signProposalHandler = async (req: any, res: any) => {
+  try {
+    const { matchId, wallet, signedTransaction } = req.body;
+    
+    if (!matchId || !wallet || !signedTransaction) {
+      return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
+    }
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Verify player is part of this match
+    const isPlayer1 = wallet === match.player1;
+    const isPlayer2 = wallet === match.player2;
+    
+    if (!isPlayer1 && !isPlayer2) {
+      return res.status(403).json({ error: 'You are not part of this match' });
+    }
+
+    // Check if match has a payout proposal
+    if (!(match as any).squadsVaultAddress || !(match as any).payoutProposalId) {
+      return res.status(400).json({ error: 'No payout proposal exists for this match' });
+    }
+
+    // Verify player hasn't already signed
+    const signers = match.getProposalSigners();
+    if (signers.includes(wallet)) {
+      return res.status(400).json({ error: 'You have already signed this proposal' });
+    }
+
+    // Submit the signed transaction
+    const { Connection, VersionedTransaction } = require('@solana/web3.js');
+    const connection = new Connection(
+      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+
+    // Deserialize the signed transaction
+    const transaction = VersionedTransaction.deserialize(Buffer.from(signedTransaction, 'base64'));
+    
+    // Send and confirm the transaction
+    const signature = await connection.sendRawTransaction(transaction.serialize(), {
+      skipPreflight: false,
+      maxRetries: 3,
+    });
+
+    await connection.confirmTransaction(signature, 'confirmed');
+
+    console.log('✅ Proposal signed successfully', {
+      matchId,
+      wallet,
+      signature,
+      proposalId: (match as any).payoutProposalId,
+    });
+
+    // Update match with new signer
+    match.addProposalSigner(wallet);
+    
+    // Update needsSignatures count
+    const currentNeedsSignatures = (match as any).needsSignatures || 2;
+    (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
+    
+    // If enough signatures, mark as ready to execute
+    if ((match as any).needsSignatures === 0) {
+      (match as any).proposalStatus = 'READY_TO_EXECUTE';
+    } else {
+      (match as any).proposalStatus = 'ACTIVE';
+    }
+
+    await matchRepository.save(match);
+
+    res.json({
+      success: true,
+      signature,
+      proposalId: (match as any).payoutProposalId,
+      needsSignatures: (match as any).needsSignatures,
+      proposalStatus: (match as any).proposalStatus,
+    });
+
+  } catch (error: unknown) {
+    console.error('❌ Error signing proposal:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ error: 'Failed to sign proposal', details: errorMessage });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
   getMatchStatusHandler,
+  signProposalHandler,
   checkPlayerMatchHandler,
   debugWaitingPlayersHandler,
   debugMatchesHandler,
