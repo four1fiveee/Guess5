@@ -318,7 +318,7 @@ const Game: React.FC = () => {
                 const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
                 
                 const payoutData = {
-                  won: matchData.winner === publicKey?.toString(),
+                  won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
                   isTie: matchData.winner === 'tie',
                   winner: matchData.winner,
                   numGuesses: playerResult?.numGuesses || 0,
@@ -326,12 +326,14 @@ const Game: React.FC = () => {
                   timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
                   opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
                   opponentGuesses: opponentResult?.numGuesses || 0,
-                                      winnerAmount: matchData.payout?.winnerAmount || 0,
+                  winnerAmount: matchData.payout?.winnerAmount || 0,
                   feeAmount: matchData.payout?.feeAmount || 0,
                   feeWallet: matchData.payout?.feeWallet || '',
                   transactions: matchData.payout?.transactions || [],
                   automatedPayout: matchData.payout?.paymentSuccess || false,
-                  payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
+                  payoutSignature: matchData.payout?.transactions?.[0]?.signature || null,
+                  proposalId: matchData.payoutProposalId,
+                  proposalStatus: matchData.proposalStatus
                 };
                 
                         // Store payout data in localStorage
