@@ -2124,6 +2124,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
 
   // If match is completed but winner is missing, recalculate and save it
+  // Also create payout proposal if it's missing
   if (match.isCompleted && !match.winner) {
     console.log('⚠️ Match is completed but winner is missing, recalculating...', { matchId: match.id });
     const player1Result = match.getPlayer1Result();
@@ -2139,6 +2140,39 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         if (reloadedMatch) {
           match.winner = reloadedMatch.winner;
           console.log('✅ Winner recalculated and saved:', { matchId: match.id, winner: match.winner });
+          
+          // If payout proposal is missing and there's a winner (not a tie), create it
+          if (!(match as any).payoutProposalId && match.winner && match.winner !== 'tie' && (match as any).squadsVaultAddress) {
+            console.log('⚠️ Payout proposal missing, creating now...', { matchId: match.id });
+            try {
+              const { PublicKey } = require('@solana/web3.js');
+              const winner = match.winner;
+              const entryFee = match.entryFee;
+              const totalPot = entryFee * 2;
+              const winnerAmount = totalPot * 0.95;
+              const feeAmount = totalPot * 0.05;
+
+              const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                (match as any).squadsVaultAddress,
+                new PublicKey(winner),
+                winnerAmount,
+                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                feeAmount
+              );
+
+              if (proposalResult.success) {
+                (match as any).payoutProposalId = proposalResult.proposalId;
+                (match as any).proposalCreatedAt = new Date();
+                (match as any).proposalStatus = 'ACTIVE';
+                (match as any).needsSignatures = 2; // 2-of-3 multisig
+                await matchRepository.save(match);
+                console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId });
+              }
+            } catch (proposalError: unknown) {
+              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+              console.error('❌ Error creating payout proposal:', errorMessage);
+            }
+          }
         }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
@@ -2172,7 +2206,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player2Result: match.getPlayer2Result(),
       winner: match.winner,
       payout: payoutResult,
-      isCompleted: match.isCompleted || !!existingResult
+      isCompleted: match.isCompleted || !!existingResult,
+      payoutProposalId: (match as any).payoutProposalId || null,
+      proposalStatus: (match as any).proposalStatus || null,
+      proposalCreatedAt: (match as any).proposalCreatedAt || null,
+      needsSignatures: (match as any).needsSignatures || 0,
+      proposalSigners: (match as any).proposalSigners || [],
+      proposalExecutedAt: (match as any).proposalExecutedAt || null,
+      proposalTransactionId: (match as any).proposalTransactionId || null
     });
 
   } catch (error: unknown) {
