@@ -160,6 +160,7 @@ export class SquadsVaultService {
       try {
         // Use fee wallet as payer; createKey serves as both creator and fee payer
         // Note: treasury is derived automatically by the SDK, do not pass it explicitly
+        // Note: rentCollector omitted - SDK will handle it internally if needed
         signature = await rpc.multisigCreateV2({
           connection: this.connection,
           programId: PROGRAM_ID,
@@ -169,7 +170,6 @@ export class SquadsVaultService {
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
-          rentCollector: null,
           multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
