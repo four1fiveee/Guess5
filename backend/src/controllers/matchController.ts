@@ -1570,8 +1570,9 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         }
         
-        // Mark match as completed
+        // Mark match as completed and ensure winner is set
         updatedMatch.isCompleted = true;
+        updatedMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
         updatedMatch.setPayoutResult(payoutResult);
         await matchRepository.save(updatedMatch);
         
@@ -1932,8 +1933,9 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         }
         
-        // Mark match as completed
+        // Mark match as completed and ensure winner is set
         updatedMatch.isCompleted = true;
+        updatedMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
         updatedMatch.setPayoutResult(payoutResult);
         await matchRepository.save(updatedMatch);
         
