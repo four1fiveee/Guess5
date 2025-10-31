@@ -136,7 +136,7 @@ export class SquadsVaultService {
         threshold: this.config.threshold,
         feePayer: createKey.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
-        rentCollector: null,
+        rentCollector: this.config.systemPublicKey.toString(),
       });
 
       // Extra strict parameter object (no undefined)
@@ -150,6 +150,7 @@ export class SquadsVaultService {
         threshold: this.config.threshold,
         members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
         timeLock: 0,
+        rentCollector: this.config.systemPublicKey.toString(),
         multisigPda: multisigPda.toString(),
         memo: `Guess5 Match ${matchId}`,
       };
