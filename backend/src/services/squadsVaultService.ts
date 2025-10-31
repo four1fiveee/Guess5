@@ -160,6 +160,7 @@ export class SquadsVaultService {
       try {
         // Use v1 API which has simpler parameter structure
         // Note: v1 API requires createKey to be a Keypair (for signing), and explicit feePayer and creator
+        // rentCollector must be a PublicKey (not null) to satisfy SDK account compilation
         signature = await rpc.multisigCreate({
           connection: this.connection,
           programId: PROGRAM_ID,
@@ -170,6 +171,7 @@ export class SquadsVaultService {
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
+          rentCollector: this.config.systemPublicKey, // SDK requires a PublicKey (not null) for account compilation
           memo: `Guess5 Match ${matchId}`,
         });
       } catch (createErr: any) {
