@@ -144,34 +144,28 @@ export class SquadsVaultService {
         connection: '[Connection]',
         programId: PROGRAM_ID.toString(),
         createKey: '[Keypair]',
-        feePayer: createKey.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
         threshold: this.config.threshold,
         members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
         timeLock: 0,
-        rentCollector: null,
         multisigPda: multisigPda.toString(),
         memo: `Guess5 Match ${matchId}`,
       };
-      enhancedLogger.info('🧾 Squads v2 param preview', paramsPreview);
+      enhancedLogger.info('🧾 Squads v1 param preview', paramsPreview);
 
-      // Create the multisig using the current RPC (v2)
+      // Create the multisig using v1 API (more stable, simpler params)
       let signature: string;
       try {
-        // Use fee wallet as payer; createKey serves as both creator and fee payer
-        // Note: treasury is derived automatically by the SDK, do not pass it explicitly
-        // Note: rentCollector omitted - SDK will handle it internally if needed
-        signature = await rpc.multisigCreateV2({
+        // Use v1 API which has simpler parameter structure
+        // Note: v1 API requires createKey to be a Keypair (for signing), and derives other accounts automatically
+        signature = await rpc.multisigCreate({
           connection: this.connection,
           programId: PROGRAM_ID,
           createKey,
-          feePayer: createKey.publicKey,
-          creator: createKey.publicKey, // SDK needs creator PublicKey for account derivation
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
           timeLock: 0,
-          multisigPda,
           memo: `Guess5 Match ${matchId}`,
         });
       } catch (createErr: any) {
