@@ -5463,4 +5463,5 @@ module.exports = {
   // Multisig vault integration handlers
   depositToMultisigVaultHandler,
   checkPendingClaimsHandler,
+  voidMatchHandler,
 };
