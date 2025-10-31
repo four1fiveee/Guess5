@@ -2126,11 +2126,19 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       match.isCompleted = true;
     }
 
-  // If match is completed but winner is missing, recalculate and save it
-  if (match.isCompleted && !match.winner) {
-    console.log('⚠️ Match is completed but winner is missing, recalculating...', { matchId: match.id });
-    const player1Result = match.getPlayer1Result();
-    const player2Result = match.getPlayer2Result();
+  // If match is completed but winner is missing, OR both players have results but match isn't marked completed, recalculate and save it
+  const player1Result = match.getPlayer1Result();
+  const player2Result = match.getPlayer2Result();
+  const bothHaveResults = !!player1Result && !!player2Result;
+  const shouldRecalculate = (match.isCompleted && !match.winner) || (bothHaveResults && (!match.isCompleted || !match.winner));
+  
+  if (shouldRecalculate) {
+    console.log('⚠️ Match needs winner calculation - recalculating...', { 
+      matchId: match.id,
+      isCompleted: match.isCompleted,
+      hasWinner: !!match.winner,
+      bothHaveResults
+    });
     
     if (player1Result && player2Result) {
       try {
