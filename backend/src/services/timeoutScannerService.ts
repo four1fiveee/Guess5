@@ -235,10 +235,80 @@ export class TimeoutScannerService {
       const payoutResult = await determineWinnerAndPayout(match.id, finalPlayer1Result, finalPlayer2Result);
 
       if (payoutResult) {
-        // Mark match as completed
-        freshMatch.isCompleted = true;
-        freshMatch.setPayoutResult(payoutResult);
-        await matchRepository.save(freshMatch);
+        // Reload match to get latest state after determineWinnerAndPayout
+        const updatedMatch = await matchRepository.findOne({ where: { id: match.id } });
+        if (!updatedMatch) {
+          enhancedLogger.error('❌ Match not found after winner determination', { matchId: match.id });
+          return;
+        }
+
+        // Create Squads proposal if there's a winner (not a tie)
+        if (payoutResult.winner && payoutResult.winner !== 'tie' && updatedMatch.squadsVaultAddress) {
+          try {
+            const { PublicKey } = require('@solana/web3.js');
+            const winner = payoutResult.winner;
+            const entryFee = updatedMatch.entryFee;
+            const totalPot = entryFee * 2;
+            const winnerAmount = totalPot * 0.95;
+            const feeAmount = totalPot * 0.05;
+
+            const proposalResult = await squadsVaultService.proposeWinnerPayout(
+              updatedMatch.squadsVaultAddress,
+              new PublicKey(winner),
+              winnerAmount,
+              new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+              feeAmount
+            );
+
+            if (proposalResult.success) {
+              enhancedLogger.info('✅ Squads winner payout proposal created for abandoned game', {
+                matchId: match.id,
+                proposalId: proposalResult.proposalId,
+              });
+
+              updatedMatch.payoutProposalId = proposalResult.proposalId;
+              updatedMatch.proposalCreatedAt = new Date();
+              updatedMatch.proposalStatus = 'ACTIVE';
+              updatedMatch.needsSignatures = 2; // 2-of-3 multisig
+
+              // Update payout result with proposal info
+              (payoutResult as any).paymentInstructions = {
+                winner,
+                winnerAmount,
+                feeAmount,
+                feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
+                squadsProposal: true,
+                proposalId: proposalResult.proposalId,
+                transactions: [{
+                  from: 'Squads Vault',
+                  to: winner,
+                  amount: winnerAmount,
+                  description: 'Winner payout via Squads proposal (requires winner signature)',
+                  proposalId: proposalResult.proposalId
+                }]
+              };
+              (payoutResult as any).paymentSuccess = true;
+              (payoutResult as any).squadsProposal = true;
+              (payoutResult as any).proposalId = proposalResult.proposalId;
+            } else {
+              enhancedLogger.error('❌ Failed to create Squads proposal for abandoned game', {
+                matchId: match.id,
+                error: proposalResult.error,
+              });
+            }
+          } catch (error: unknown) {
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            enhancedLogger.error('❌ Error creating Squads proposal for abandoned game', {
+              matchId: match.id,
+              error: errorMessage,
+            });
+          }
+        }
+
+        // Update match with payout result
+        updatedMatch.setPayoutResult(payoutResult);
+        updatedMatch.isCompleted = true;
+        await matchRepository.save(updatedMatch);
 
         // Mark game as completed in Redis
         const { markGameCompleted } = require('../controllers/matchController');
@@ -249,11 +319,13 @@ export class TimeoutScannerService {
           player1Result: finalPlayer1Result,
           player2Result: finalPlayer2Result,
           timeoutSeconds: this.ABANDONED_GAME_TIMEOUT / 1000,
+          proposalId: updatedMatch.payoutProposalId,
         });
 
         enhancedLogger.info('✅ Abandoned game completed, winner determined', {
           matchId: match.id,
           winner: (payoutResult as any).winner,
+          proposalId: updatedMatch.payoutProposalId,
         });
       }
     } catch (error) {

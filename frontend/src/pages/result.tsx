@@ -43,9 +43,9 @@ const Result: React.FC = () => {
               
               // Create payout data from match data
               const payoutData = {
-                won: matchData.payout?.winner === publicKey?.toString(),
-                isTie: matchData.payout?.winner === 'tie',
-                winner: matchData.payout?.winner || matchData.winner,
+                won: matchData.winner === publicKey?.toString(),
+                isTie: matchData.winner === 'tie',
+                winner: matchData.winner,
                 numGuesses: playerResult?.numGuesses || 0,
                 entryFee: matchData.entryFee || 0.1104,
                 timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
@@ -304,11 +304,11 @@ const Result: React.FC = () => {
                 
                 {payoutData.proposalId ? (
                   <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-4">
-                    <div className="text-center">
+                  <div className="text-center">
                       <div className="text-accent text-lg font-semibold mb-2">
                         🔐 Non-Custodial Payout System
-                      </div>
-                      {payoutData.won ? (
+                    </div>
+                                         {payoutData.won ? (
                         <div className="text-white">
                           <p className="text-lg font-semibold text-accent mb-2">🏆 You Won!</p>
                           <p className="text-sm text-white/80 mb-3">
@@ -339,12 +339,12 @@ const Result: React.FC = () => {
                               )}
                             </div>
                           )}
-                        </div>
-                      ) : payoutData.isTie ? (
+                       </div>
+                     ) : payoutData.isTie ? (
                         <div className="text-white">
                           <p className="text-lg font-semibold text-accent mb-2">🤝 It's a Tie!</p>
-                          {payoutData.isWinningTie ? (
-                            <>
+                         {payoutData.isWinningTie ? (
+                          <>
                               <p className="text-sm text-white/80 mb-2">Perfect Match - Both players solved with same moves and time!</p>
                               <p className="text-sm text-white/60 mb-3">
                                 You get a full refund: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
@@ -352,10 +352,10 @@ const Result: React.FC = () => {
                                   ' (Refund sent to your wallet)' :
                                   ' (Sign proposal to claim refund)'
                                 }
-                              </p>
-                            </>
-                          ) : (
-                            <>
+                            </p>
+                          </>
+                        ) : (
+                          <>
                               <p className="text-sm text-white/80 mb-2">Both players failed to solve the puzzle</p>
                               <p className="text-sm text-white/60 mb-3">
                                 You get a 95% refund: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
@@ -363,9 +363,9 @@ const Result: React.FC = () => {
                                   ' (Refund sent to your wallet)' :
                                   ' (Sign proposal to claim refund)'
                                 }
-                              </p>
-                            </>
-                          )}
+                            </p>
+                          </>
+                        )}
                           
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
                             <div className="mt-4">
@@ -387,8 +387,8 @@ const Result: React.FC = () => {
                               )}
                             </div>
                           )}
-                        </div>
-                      ) : (
+                      </div>
+                    ) : (
                         <div className="text-white">
                           <p className="text-lg font-semibold text-red-400 mb-2">😔 You Lost</p>
                           <p className="text-sm text-white/80 mb-2">Better luck next time!</p>
@@ -397,23 +397,23 @@ const Result: React.FC = () => {
                               'The winner has been paid.' :
                               'The winner needs to sign the proposal to claim their winnings.'
                             }
-                          </p>
-                        </div>
-                      )}
-                      {payoutData.payoutSignature && (
-                        <div className="mt-3">
-                          <a 
-                            href={`https://explorer.solana.com/tx/${payoutData.payoutSignature}?cluster=devnet`}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                        </p>
+                      </div>
+                    )}
+                    {payoutData.payoutSignature && (
+                      <div className="mt-3">
+                        <a 
+                          href={`https://explorer.solana.com/tx/${payoutData.payoutSignature}?cluster=devnet`}
+                          target="_blank"
+                          rel="noopener noreferrer"
                             className="text-accent hover:text-yellow-400 text-sm underline"
-                          >
-                            View Transaction on Explorer
-                          </a>
-                        </div>
-                      )}
-                    </div>
+                        >
+                          View Transaction on Explorer
+                        </a>
+                      </div>
+                    )}
                   </div>
+                </div>
                 ) : (
                   <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-4">
                     <div className="text-center">
