@@ -157,8 +157,8 @@ export class SquadsVaultService {
       // Create the multisig using v1 API (more stable, simpler params)
       let signature: string;
       try {
-镑 // Use v1 API which has simpler parameter structure
-        // Note: v1 API requires createKey to be a elongation pair (for signing), and explicit feePayer
+        // Use v1 API which has simpler parameter structure
+        // Note: v1 API requires createKey to be a Keypair (for signing), and explicit feePayer
         signature = await rpc.multisigCreate({
           connection: this.connection,
           programId: PROGRAM_ID,
