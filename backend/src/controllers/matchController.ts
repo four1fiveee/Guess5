@@ -1373,9 +1373,12 @@ const submitResultHandler = async (req: any, res: any) => {
       const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7 || player2Result;
       
       // Check if match should complete:
-      // 1. Both players have submitted results, OR
-      // 2. One player has submitted a timeout result and the other player has no result (never got to game)
-      const shouldComplete = (player1Finished && player2Finished) || 
+      // 1. Both players have submitted results (most reliable check), OR
+      // 2. Both players finished in game state AND at least one has submitted a result (prevents timeout scanner interference), OR
+      // 3. One player has submitted a timeout result and the other player has no result (never got to game)
+      const bothHaveResults = !!player1Result && !!player2Result;
+      const shouldComplete = bothHaveResults || 
+                           ((player1Finished && player2Finished) && (!!player1Result || !!player2Result)) ||
                            (player1Result && player1Result.reason === 'timeout' && !player2Result) ||
                            (player2Result && player2Result.reason === 'timeout' && !player1Result);
       
