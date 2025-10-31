@@ -5482,7 +5482,8 @@ const signProposalHandler = async (req: any, res: any) => {
     );
 
     // Deserialize the signed transaction
-    const transaction = VersionedTransaction.deserialize(Buffer.from(signedTransaction, 'base64'));
+    const signedTxBuffer = Buffer.from(signedTransaction, 'base64');
+    const transaction = VersionedTransaction.deserialize(signedTxBuffer);
     
     // Send and confirm the transaction
     const signature = await connection.sendRawTransaction(transaction.serialize(), {
@@ -5490,7 +5491,12 @@ const signProposalHandler = async (req: any, res: any) => {
       maxRetries: 3,
     });
 
-    await connection.confirmTransaction(signature, 'confirmed');
+    // Wait for confirmation
+    const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+    
+    if (confirmation.value.err) {
+      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+    }
 
     console.log('✅ Proposal signed successfully', {
       matchId,
