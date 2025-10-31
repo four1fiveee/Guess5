@@ -2141,7 +2141,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
         if (reloadedMatch) {
           match.winner = reloadedMatch.winner;
-          match.setPayoutResult(reloadedMatch.getPayoutResult());
+          const reloadedPayoutResult = reloadedMatch.getPayoutResult();
+          if (reloadedPayoutResult) {
+            match.setPayoutResult(reloadedPayoutResult);
+          }
           // Copy proposal fields
           (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
           (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;

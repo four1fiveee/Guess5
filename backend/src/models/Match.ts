@@ -216,6 +216,26 @@ export class Match {
     }
   }
 
+  setPayoutResult(result: {
+    winner: string;
+    winnerAmount: number;
+    feeAmount: number;
+    feeWallet: string;
+    transactions: Array<{
+      from: string;
+      to: string;
+      amount: number;
+      description: string;
+      signature?: string;
+    }>;
+    paymentSuccess?: boolean;
+    paymentError?: string;
+    transaction?: any;
+    [key: string]: any; // Allow additional properties
+  } | null): void {
+    this.payoutResult = result ? JSON.stringify(result) : undefined;
+  }
+
   // Helper methods for proposal signers
   getProposalSigners(): string[] {
     if (!this.proposalSigners) return [];
