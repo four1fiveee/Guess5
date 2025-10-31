@@ -2124,7 +2124,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
 
   // If match is completed but winner is missing, recalculate and save it
-  // Also create payout proposal if it's missing
   if (match.isCompleted && !match.winner) {
     console.log('⚠️ Match is completed but winner is missing, recalculating...', { matchId: match.id });
     const player1Result = match.getPlayer1Result();
@@ -2133,13 +2132,23 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (player1Result && player2Result) {
       try {
         const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
-        // Reload match to get the updated winner
+        // Reload match to get the updated winner and all fields
         const { AppDataSource } = require('../db/index');
         const matchRepository = AppDataSource.getRepository(Match);
         const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
         if (reloadedMatch) {
           match.winner = reloadedMatch.winner;
-          console.log('✅ Winner recalculated and saved:', { matchId: match.id, winner: match.winner });
+          match.setPayoutResult(reloadedMatch.getPayoutResult());
+          // Copy proposal fields
+          (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
+          (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
+          (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
+          (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
+          console.log('✅ Winner recalculated and saved:', { 
+            matchId: match.id, 
+            winner: match.winner,
+            payoutProposalId: (match as any).payoutProposalId
+          });
           
           // If payout proposal is missing and there's a winner (not a tie), create it
           if (!(match as any).payoutProposalId && match.winner && match.winner !== 'tie' && (match as any).squadsVaultAddress) {
@@ -5369,6 +5378,50 @@ const getDepositStatusHandler = async (req: any, res: any) => {
       success: false,
       error: errorMessage 
     });
+  }
+};
+
+// Admin endpoint to void/reset a problematic match
+const voidMatchHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.params;
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID required' });
+    }
+
+    console.log('🗑️ Voiding match:', matchId);
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Delete the match
+    await matchRepository.remove(match);
+
+    // Also clear Redis game state if it exists
+    try {
+      const { deleteGameState } = require('../utils/redisGameState');
+      await deleteGameState(matchId);
+    } catch (redisError) {
+      console.warn('⚠️ Could not delete Redis game state:', redisError);
+    }
+
+    console.log('✅ Match voided successfully:', matchId);
+
+    res.json({
+      success: true,
+      message: 'Match voided successfully',
+      matchId
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error voiding match:', error);
+    res.status(500).json({ error: 'Failed to void match', details: errorMessage });
   }
 };
 

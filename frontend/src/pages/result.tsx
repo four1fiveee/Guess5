@@ -166,9 +166,9 @@ const Result: React.FC = () => {
             
             const updatedPayoutData = {
               ...payoutData,
-              won: matchData.payout?.winner === publicKey.toString(),
-              isTie: matchData.payout?.winner === 'tie',
-              winner: matchData.payout?.winner || matchData.winner,
+              won: matchData.winner === publicKey.toString() && matchData.winner !== 'tie',
+              isTie: matchData.winner === 'tie',
+              winner: matchData.winner,
               numGuesses: playerResult?.numGuesses || 0,
               entryFee: matchData.entryFee || 0.1104,
               timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',

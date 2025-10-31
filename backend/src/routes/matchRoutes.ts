@@ -126,6 +126,9 @@ router.get('/deposit-status/:matchId',
 
 
 
+// Admin endpoint to void/reset a problematic match
+router.delete('/void-match/:matchId', asyncHandlerWrapper(matchController.voidMatchHandler));
+
 // Cleanup endpoints (admin only)
 router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanupStuckMatchesHandler));
 router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
