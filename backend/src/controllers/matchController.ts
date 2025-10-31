@@ -1445,8 +1445,8 @@ const submitResultHandler = async (req: any, res: any) => {
           console.warn('⚠️ Failed to clear Redis game state:', error);
         }
         
-        // Execute smart contract settlement if available, otherwise use legacy payout
-        if (payoutResult && payoutResult.winner) {
+        // Execute Squads proposal for winner payout (same as non-solved case)
+        if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
           
           const winner = payoutResult.winner;
           const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
@@ -1457,38 +1457,115 @@ const submitResultHandler = async (req: any, res: any) => {
           const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
           const feeAmount = totalPot * 0.05; // 5% fee from total pot
           
-          // Multisig vault will handle payout automatically
-          console.log('🔗 Multisig vault will process payout automatically');
-          
-          const paymentInstructions = {
-            winner,
-            loser,
-            winnerAmount,
-            feeAmount,
-            feeWallet: FEE_WALLET_ADDRESS,
-            automatedPayout: true,
-            vaultPayout: true,
-            transactions: [
-              {
-                from: 'Multisig Vault',
-                to: winner,
-                amount: winnerAmount,
-                description: 'Vault payout to winner (95% of pot)'
-              },
-              {
-                from: 'Multisig Vault',
-                to: FEE_WALLET_ADDRESS,
-                amount: feeAmount,
-                description: 'Vault fee payment (5% of pot)'
+          // Create Squads proposal for winner payout
+          if (!updatedMatch.squadsVaultAddress) {
+            console.error('❌ Cannot create payout proposal (solved case): missing squadsVaultAddress', {
+              matchId: updatedMatch.id,
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+            });
+          } else {
+            try {
+              const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                updatedMatch.squadsVaultAddress,
+                new PublicKey(winner),
+                winnerAmount,
+                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                feeAmount
+              );
+              
+              if (proposalResult.success) {
+                console.log('✅ Squads winner payout proposal created (solved case):', proposalResult.proposalId);
+              
+                // Update match with proposal information
+                updatedMatch.payoutProposalId = proposalResult.proposalId;
+                updatedMatch.proposalCreatedAt = new Date();
+                updatedMatch.proposalStatus = 'ACTIVE';
+                updatedMatch.needsSignatures = 2;
+                updatedMatch.matchStatus = 'PROPOSAL_CREATED';
+                
+                // Save the match with proposal information
+                await matchRepository.save(updatedMatch);
+                console.log('✅ Match saved with proposal information (solved case):', {
+                  matchId: updatedMatch.id,
+                  proposalId: proposalResult.proposalId,
+                  proposalStatus: 'ACTIVE',
+                  needsSignatures: 2,
+                });
+                
+                const paymentInstructions = {
+                  winner,
+                  loser,
+                  winnerAmount,
+                  feeAmount,
+                  feeWallet: FEE_WALLET_ADDRESS,
+                  squadsProposal: true,
+                  proposalId: proposalResult.proposalId,
+                  transactions: [
+                    {
+                      from: 'Squads Vault',
+                      to: winner,
+                      amount: winnerAmount,
+                      description: 'Winner payout via Squads proposal (requires signatures)',
+                      proposalId: proposalResult.proposalId
+                    }
+                  ]
+                };
+                
+                (payoutResult as any).paymentInstructions = paymentInstructions;
+                (payoutResult as any).paymentSuccess = true;
+                (payoutResult as any).squadsProposal = true;
+                (payoutResult as any).proposalId = proposalResult.proposalId;
+                
+                console.log('✅ Squads proposal created and payment instructions set (solved case)');
+              } else {
+                console.error('❌ Squads proposal creation failed (solved case):', proposalResult.error);
+                // Fallback to manual instructions
+                const paymentInstructions = {
+                  winner,
+                  loser,
+                  winnerAmount,
+                  feeAmount,
+                  feeWallet: FEE_WALLET_ADDRESS,
+                  squadsProposal: false,
+                  transactions: [
+                    {
+                      from: 'Multisig Vault',
+                      to: winner,
+                      amount: winnerAmount,
+                      description: 'Manual payout to winner (contact support)'
+                    }
+                  ]
+                };
+                (payoutResult as any).paymentInstructions = paymentInstructions;
+                (payoutResult as any).paymentSuccess = false;
+                (payoutResult as any).paymentError = 'Squads proposal failed - contact support';
               }
-            ]
-          };
-          
-          (payoutResult as any).paymentInstructions = paymentInstructions;
-          (payoutResult as any).paymentSuccess = true;
-          (payoutResult as any).automatedPayout = true;
-          
-          console.log('✅ Multisig vault payout instructions created');
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.error('❌ Error creating Squads proposal (solved case):', errorMessage);
+              // Fallback to manual instructions
+              const paymentInstructions = {
+                winner,
+                loser,
+                winnerAmount,
+                feeAmount,
+                feeWallet: FEE_WALLET_ADDRESS,
+                squadsProposal: false,
+                transactions: [
+                  {
+                    from: 'Multisig Vault',
+                    to: winner,
+                    amount: winnerAmount,
+                    description: 'Manual payout to winner (contact support)'
+                  }
+                ]
+              };
+              (payoutResult as any).paymentInstructions = paymentInstructions;
+              (payoutResult as any).paymentSuccess = false;
+              (payoutResult as any).paymentError = `Squads proposal failed: ${errorMessage}`;
+            }
+          }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
@@ -1574,10 +1651,31 @@ const submitResultHandler = async (req: any, res: any) => {
         }
         
         // Mark match as completed and ensure winner is set
-        updatedMatch.isCompleted = true;
-        updatedMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
-        updatedMatch.setPayoutResult(payoutResult);
-        await matchRepository.save(updatedMatch);
+        // IMPORTANT: Reload match to preserve proposal fields if they were set
+        const finalMatchForSolved = await matchRepository.findOne({ where: { id: matchId } });
+        if (finalMatchForSolved) {
+          finalMatchForSolved.isCompleted = true;
+          finalMatchForSolved.winner = payoutResult.winner;
+          finalMatchForSolved.setPayoutResult(payoutResult);
+          // Preserve proposal fields if they were set earlier
+          if ((updatedMatch as any).payoutProposalId) {
+            (finalMatchForSolved as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
+            (finalMatchForSolved as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
+            (finalMatchForSolved as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
+            (finalMatchForSolved as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+            console.log('✅ Preserving proposal fields in final save (solved case):', {
+              matchId: finalMatchForSolved.id,
+              proposalId: (finalMatchForSolved as any).payoutProposalId,
+              proposalStatus: (finalMatchForSolved as any).proposalStatus,
+            });
+          }
+          await matchRepository.save(finalMatchForSolved);
+        } else {
+          updatedMatch.isCompleted = true;
+          updatedMatch.winner = payoutResult.winner;
+          updatedMatch.setPayoutResult(payoutResult);
+          await matchRepository.save(updatedMatch);
+        }
         
         // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
         markGameCompleted(matchId);
@@ -1661,6 +1759,13 @@ const submitResultHandler = async (req: any, res: any) => {
         if (!updatedMatch) {
           throw new Error('Match not found after transaction');
         }
+        
+        console.log('💰 Checking if payout proposal needed...', {
+          matchId: updatedMatch.id,
+          winner: payoutResult?.winner,
+          squadsVaultAddress: (updatedMatch as any).squadsVaultAddress,
+          hasPayoutResult: !!payoutResult,
+        });
         
           // Execute Squads proposal for winner payout (non-custodial)
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
@@ -1957,10 +2062,33 @@ const submitResultHandler = async (req: any, res: any) => {
         }
         
         // Mark match as completed and ensure winner is set
-        updatedMatch.isCompleted = true;
-        updatedMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
-        updatedMatch.setPayoutResult(payoutResult);
-        await matchRepository.save(updatedMatch);
+        // IMPORTANT: Reload match to get latest proposal info before final save
+        const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
+        if (finalMatch) {
+          finalMatch.isCompleted = true;
+          finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
+          finalMatch.setPayoutResult(payoutResult);
+          // Preserve proposal fields if they were set earlier
+          if ((updatedMatch as any).payoutProposalId) {
+            (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
+            (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
+            (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
+            (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+            console.log('✅ Preserving proposal fields in final save:', {
+              matchId: finalMatch.id,
+              proposalId: (finalMatch as any).payoutProposalId,
+              proposalStatus: (finalMatch as any).proposalStatus,
+              needsSignatures: (finalMatch as any).needsSignatures,
+            });
+          }
+          await matchRepository.save(finalMatch);
+        } else {
+          // Fallback if reload fails
+          updatedMatch.isCompleted = true;
+          updatedMatch.winner = payoutResult.winner;
+          updatedMatch.setPayoutResult(payoutResult);
+          await matchRepository.save(updatedMatch);
+        }
         
         // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
         markGameCompleted(matchId);
