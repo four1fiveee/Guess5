@@ -1,5 +1,5 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
-import { rpc, PROGRAM_ID, getMultisigPda } from '@sqds/multisig';
+import { rpc, PROGRAM_ID, getMultisigPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
 import { AppDataSource } from '../db';
@@ -121,73 +121,112 @@ export class SquadsVaultService {
       // Generate multisig PDA (Program Derived Address)
       const [multisigPda] = getMultisigPda({ createKey: createKey.publicKey, programId: PROGRAM_ID });
 
-      // Define the multisig members with numeric permissions (mask = 1)
+      // Fetch program config to get treasury address (required for v2)
+      let treasury: PublicKey | null = null;
+      try {
+        const [programConfigPda] = getProgramConfigPda({});
+        const programConfig = await accounts.ProgramConfig.fromAccountAddress(
+          this.connection,
+          programConfigPda
+        );
+        treasury = programConfig.treasury;
+        enhancedLogger.info('📋 Fetched treasury from ProgramConfig', {
+          treasury: treasury.toString()
+        });
+      } catch (configErr: any) {
+        enhancedLogger.warn('⚠️ Could not fetch ProgramConfig treasury, using null', {
+          error: configErr?.message
+        });
+        // Use null if ProgramConfig fetch fails (some networks/configs may allow this)
+        treasury = null;
+      }
+
+      // Define the multisig members with proper Permissions objects (required for v2)
       const squadsMembers = [
-        { key: this.config.systemPublicKey, permissions: 1 },
-        { key: player1Pubkey, permissions: 1 },
-        { key: player2Pubkey, permissions: 1 },
+        { 
+          key: this.config.systemPublicKey, 
+          permissions: types.Permissions.all() // System has all permissions
+        },
+        { 
+          key: player1Pubkey, 
+          permissions: types.Permissions.fromPermissions([types.Permission.Vote]) // Player can vote
+        },
+        { 
+          key: player2Pubkey, 
+          permissions: types.Permissions.fromPermissions([types.Permission.Vote]) // Player can vote
+        },
       ];
 
       // Diagnostics
       enhancedLogger.info('🧪 Squads create diagnostics', {
         programId: PROGRAM_ID.toString(),
         multisigPda: multisigPda.toString(),
-        members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
+        members: squadsMembers.map(m => ({ 
+          key: m.key.toString(), 
+          permissions: m.permissions.toString() // Permissions object as string
+        })),
         threshold: this.config.threshold,
         feePayer: createKey.publicKey.toString(),
+        creator: createKey.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
-        rentCollector: this.config.systemPublicKey.toString(),
+        treasury: treasury?.toString() || 'null',
+        rentCollector: 'null',
       });
 
       // Extra strict parameter object (no undefined)
       const paramsPreview = {
         connection: '[Connection]',
-        programId: PROGRAM_ID.toString(),
         createKey: '[Keypair]',
-        feePayer: createKey.publicKey.toString(),
-        creator: createKey.publicKey.toString(),
-        configAuthority: this.config.systemPublicKey.toString(),
-        threshold: this.config.threshold,
-        members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
-        timeLock: 0,
-        rentCollector: this.config.systemPublicKey.toString(),
+        creator: '[Keypair]',
         multisigPda: multisigPda.toString(),
-        memo: `Guess5 Match ${matchId}`,
+        configAuthority: this.config.systemPublicKey.toString(),
+        timeLock: 0,
+        members: squadsMembers.map(m => ({ 
+          key: m.key.toString(), 
+          permissions: m.permissions.toString() 
+        })),
+        threshold: this.config.threshold,
+        rentCollector: 'null',
+        treasury: treasury?.toString() || 'null',
+        sendOptions: '{ skipPreflight: true }',
       };
-      enhancedLogger.info('🧾 Squads v1 param preview', paramsPreview);
+      enhancedLogger.info('🧾 Squads v2 param preview', paramsPreview);
 
-      // Create the multisig using v1 API (more stable, simpler params)
+      // Create the multisig using v2 API (recommended by Squads docs for v4 protocol)
       let signature: string;
       try {
-        // Use v1 API which has simpler parameter structure
-        // Note: v1 API requires createKey to be a Keypair (for signing), and explicit feePayer and creator
-        // rentCollector must be a PublicKey (not null) to satisfy SDK account compilation
-        signature = await rpc.multisigCreate({
+        // Use v2 API which is the current recommended approach for Squads Protocol v4
+        // Reference: https://docs.squads.so/main/development
+        signature = await rpc.multisigCreateV2({
           connection: this.connection,
-          programId: PROGRAM_ID,
-          createKey,
-          feePayer: createKey.publicKey, // Explicit feePayer required
-          creator: createKey.publicKey, // SDK wrapper expects creator PublicKey
+          createKey, // Keypair for derivation
+          creator: createKey, // Keypair that signs and pays fees
+          multisigPda, // Explicitly pass the derived PDA
           configAuthority: this.config.systemPublicKey,
-          threshold: this.config.threshold,
-          members: squadsMembers,
           timeLock: 0,
-          rentCollector: this.config.systemPublicKey, // SDK requires a PublicKey (not null) for account compilation
-          memo: `Guess5 Match ${matchId}`,
+          members: squadsMembers,
+          threshold: this.config.threshold,
+          rentCollector: null, // Can be null or a PublicKey
+          treasury: treasury, // From ProgramConfig or null
+          sendOptions: { skipPreflight: true }, // Recommended by docs
         });
       } catch (createErr: any) {
-        enhancedLogger.error('❌ multisigCreate failed', {
+        enhancedLogger.error('❌ multisigCreateV2 failed', {
           matchId,
           error: createErr?.message || String(createErr),
           stack: createErr?.stack,
           details: {
             programId: PROGRAM_ID.toString(),
             multisigPda: multisigPda.toString(),
-            members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
+            members: squadsMembers.map(m => ({ 
+              key: m.key.toString(), 
+              permissions: m.permissions.toString() 
+            })),
             threshold: this.config.threshold,
-            feePayer: createKey.publicKey.toString(),
+            creator: createKey.publicKey.toString(),
             configAuthority: this.config.systemPublicKey.toString(),
-            rentCollector: null,
+            treasury: treasury?.toString() || 'null',
+            rentCollector: 'null',
           }
         });
         throw new Error(`Multisig vault creation failed: ${createErr?.message || String(createErr)}`);
