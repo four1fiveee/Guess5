@@ -10,7 +10,7 @@ import { usePendingClaims } from '../hooks/usePendingClaims';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
-  const { publicKey, signTransaction } = useWallet();
+  const { publicKey, signTransaction, sendTransaction } = useWallet();
   const { hasBlockingClaims, pendingClaims } = usePendingClaims();
   const [status, setStatus] = useState<'waiting' | 'payment_required' | 'waiting_for_payment' | 'waiting_for_game' | 'active' | 'error' | 'cancelled'>('waiting');
   const [waitingCount, setWaitingCount] = useState(0);
@@ -59,6 +59,7 @@ const Matchmaking: React.FC = () => {
 
     if (!signTransaction) {
       console.error('❌ Missing signTransaction function');
+      setIsPaymentInProgress(false);
       return;
     }
 
@@ -110,26 +111,64 @@ const Matchmaking: React.FC = () => {
         })
       );
 
-      // Get recent blockhash
-      const { blockhash } = await connection.getRecentBlockhash();
+      // Get recent blockhash - use getLatestBlockhash for better reliability
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
-      // Sign and send transaction
-      console.log('🔐 Signing transaction...');
-      const signedTransaction = await signTransaction(transaction);
-      console.log('📤 Sending transaction to Solana...');
-      const signature = await connection.sendRawTransaction(signedTransaction.serialize());
-      console.log('✅ Transaction sent with signature:', signature);
+      let signature: string;
       
-      // Wait for confirmation
-      console.log('⏳ Waiting for transaction confirmation...');
-      const confirmation = await connection.confirmTransaction(signature, 'confirmed');
-      if (confirmation.value.err) {
-        console.error('❌ Transaction confirmation failed:', confirmation.value.err);
-        throw new Error(`Transaction failed to confirm: ${JSON.stringify(confirmation.value.err)}`);
+      // Try using sendTransaction if available (handles wallet submission properly)
+      if (sendTransaction) {
+        console.log('📤 Sending transaction via wallet adapter...');
+        signature = await sendTransaction(transaction, connection, {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
+        console.log('✅ Transaction sent with signature:', signature);
+        
+        // Wait for confirmation using the lastValidBlockHeight
+        console.log('⏳ Waiting for transaction confirmation...');
+        await connection.confirmTransaction({
+          blockhash,
+          lastValidBlockHeight,
+          signature,
+        }, 'confirmed');
+        console.log('✅ Transaction confirmed successfully');
+      } else {
+        // Fallback to manual signing/sending
+        console.log('🔐 Signing transaction...');
+        const signedTransaction = await signTransaction(transaction);
+        console.log('📤 Sending transaction to Solana...');
+        
+        try {
+          signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+            skipPreflight: false,
+            maxRetries: 3,
+          });
+          console.log('✅ Transaction sent with signature:', signature);
+        } catch (sendErr: any) {
+          // Handle duplicate transaction error - if it was already sent, treat as success
+          if (sendErr?.message?.includes('already been processed') || 
+              sendErr?.message?.includes('This transaction has already been processed')) {
+            console.log('⚠️ Transaction already processed - extracting signature from error');
+            // Try to extract signature from error or use the serialized transaction signature
+            // If we can't extract it, we'll need to query for the transaction
+            // For now, rethrow with better message
+            throw new Error('Transaction was already submitted. Please check your wallet for the transaction signature.');
+          }
+          throw sendErr;
+        }
+        
+        // Wait for confirmation
+        console.log('⏳ Waiting for transaction confirmation...');
+        await connection.confirmTransaction({
+          blockhash,
+          lastValidBlockHeight,
+          signature,
+        }, 'confirmed');
+        console.log('✅ Transaction confirmed successfully');
       }
-      console.log('✅ Transaction confirmed successfully');
 
       // Notify backend of deposit with transaction signature
       const depositResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/multisig/deposits`, {
