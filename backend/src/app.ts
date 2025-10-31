@@ -8,6 +8,7 @@ const { validateMatchRequest, validateSubmitResult, validateSubmitGuess } = requ
 const { deduplicateRequests } = require('./middleware/deduplication');
 const matchRoutes = require('./routes/matchRoutes');
 const guessRoutes = require('./routes/guessRoutes');
+const multisigRoutes = require('./routes/multisigRoutes');
 
 const app = express();
 
@@ -211,6 +212,7 @@ app.get('/', (req: any, res: any) => {
 // API routes without rate limiting
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
+app.use('/api/multisig', multisigRoutes);
 
 // Debug endpoints only in development
 if (process.env.NODE_ENV === 'development') {
