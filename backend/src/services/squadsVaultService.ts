@@ -158,12 +158,13 @@ export class SquadsVaultService {
       let signature: string;
       try {
         // Use v1 API which has simpler parameter structure
-        // Note: v1 API requires createKey to be a Keypair (for signing), and explicit feePayer
+        // Note: v1 API requires createKey to be a Keypair (for signing), and explicit feePayer and creator
         signature = await rpc.multisigCreate({
           connection: this.connection,
           programId: PROGRAM_ID,
           createKey,
           feePayer: createKey.publicKey, // Explicit feePayer required
+          creator: createKey.publicKey, // SDK wrapper expects creator PublicKey
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
