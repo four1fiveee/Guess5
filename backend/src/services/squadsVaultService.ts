@@ -162,6 +162,7 @@ export class SquadsVaultService {
           connection: this.connection,
           programId: PROGRAM_ID,
           createKey,
+          feePayer: createKey.publicKey, // Explicit feePayer required
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
