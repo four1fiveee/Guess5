@@ -350,6 +350,13 @@ export class SquadsVaultService {
       });
       
       // Create the Squads vault transaction
+      enhancedLogger.info('📝 Creating vault transaction...', {
+        multisigAddress: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        winner: winner.toString(),
+        winnerAmount,
+      });
+      
       const signature = await rpc.vaultTransactionCreate({
         connection: this.connection,
         feePayer: this.config.systemPublicKey, // System pays for transaction creation
@@ -364,6 +371,11 @@ export class SquadsVaultService {
       
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
+      
+      enhancedLogger.info('✅ Vault transaction created successfully', {
+        signature,
+        proposalId,
+      });
       
       enhancedLogger.info('📝 Created real Squads payout transaction', {
         proposalId,

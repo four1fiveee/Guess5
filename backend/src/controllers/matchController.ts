@@ -1662,7 +1662,7 @@ const submitResultHandler = async (req: any, res: any) => {
           throw new Error('Match not found after transaction');
         }
         
-        // Execute Squads proposal for winner payout (non-custodial)
+          // Execute Squads proposal for winner payout (non-custodial)
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
           console.log('💰 Creating Squads proposal for winner payout...');
           
@@ -1670,30 +1670,49 @@ const submitResultHandler = async (req: any, res: any) => {
           const loser = winner === updatedMatch.player1 ? updatedMatch.player2 : updatedMatch.player1;
           const entryFee = updatedMatch.entryFee;
           
-          // Calculate payment amounts
-          const totalPot = entryFee * 2; // Total pot is both players' entry fees
-          const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
-          const feeAmount = totalPot * 0.05; // 5% fee from total pot
-          
-          // Create Squads proposal for winner payout
-          try {
-            // squadsVaultService is now imported at the top of the file
+          // Check if vault address exists
+          if (!updatedMatch.squadsVaultAddress) {
+            console.error('❌ Cannot create payout proposal: missing squadsVaultAddress', {
+              matchId: updatedMatch.id,
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+            });
+          } else {
+            // Calculate payment amounts
+            const totalPot = entryFee * 2; // Total pot is both players' entry fees
+            const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
+            const feeAmount = totalPot * 0.05; // 5% fee from total pot
             
-            const proposalResult = await squadsVaultService.proposeWinnerPayout(
-              updatedMatch.squadsVaultAddress,
-              new PublicKey(winner),
-              winnerAmount,
-              new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-              feeAmount
-            );
-            
-            if (proposalResult.success) {
-              console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
-            
-              // Update match with proposal information
-              updatedMatch.payoutProposalId = proposalResult.proposalId;
-              updatedMatch.proposalCreatedAt = new Date();
-              updatedMatch.matchStatus = 'PROPOSAL_CREATED';
+            // Create Squads proposal for winner payout
+            try {
+              // squadsVaultService is now imported at the top of the file
+              
+              const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                updatedMatch.squadsVaultAddress,
+                new PublicKey(winner),
+                winnerAmount,
+                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                feeAmount
+              );
+              
+              if (proposalResult.success) {
+                console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
+              
+                // Update match with proposal information
+                updatedMatch.payoutProposalId = proposalResult.proposalId;
+                updatedMatch.proposalCreatedAt = new Date();
+                updatedMatch.proposalStatus = 'ACTIVE'; // CRITICAL: Set proposalStatus for frontend
+                updatedMatch.needsSignatures = 2; // 2-of-3 multisig
+                updatedMatch.matchStatus = 'PROPOSAL_CREATED';
+                
+                // IMPORTANT: Save the match with proposal information
+                await matchRepository.save(updatedMatch);
+                console.log('✅ Match saved with proposal information:', {
+                  matchId: updatedMatch.id,
+                  proposalId: proposalResult.proposalId,
+                  proposalStatus: 'ACTIVE',
+                  needsSignatures: 2,
+                });
             
             // Create payment instructions for display
             const paymentInstructions = {
@@ -1723,6 +1742,7 @@ const submitResultHandler = async (req: any, res: any) => {
               console.log('✅ Squads winner payout proposal completed');
             
             } else {
+              console.error('❌ Squads proposal creation failed:', proposalResult.error);
               throw new Error(`Squads proposal failed: ${proposalResult.error}`);
             }
             
