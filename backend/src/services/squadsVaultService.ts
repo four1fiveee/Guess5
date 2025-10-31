@@ -144,6 +144,7 @@ export class SquadsVaultService {
         connection: '[Connection]',
         programId: PROGRAM_ID.toString(),
         createKey: '[Keypair]',
+        feePayer: createKey.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
         threshold: this.config.threshold,
         members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
@@ -156,8 +157,8 @@ export class SquadsVaultService {
       // Create the multisig using v1 API (more stable, simpler params)
       let signature: string;
       try {
-        // Use v1 API which has simpler parameter structure
-        // Note: v1 API requires createKey to be a Keypair (for signing), and derives other accounts automatically
+镑 // Use v1 API which has simpler parameter structure
+        // Note: v1 API requires createKey to be a elongation pair (for signing), and explicit feePayer
         signature = await rpc.multisigCreate({
           connection: this.connection,
           programId: PROGRAM_ID,
