@@ -2694,11 +2694,16 @@ const getGameStateHandler = async (req: any, res: any) => {
     const playerGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
     const opponentGuesses = isPlayer1 ? serverGameState.player2Guesses : serverGameState.player1Guesses;
 
+    // Check if match is completed in database (more authoritative than Redis)
+    const matchCompleted = match.isCompleted || false;
+    
     // Return safe game state (don't reveal the word or opponent's guesses)
     // Game should remain active until BOTH players have finished (solved or run out of guesses)
-    // Don't check database results - game should remain active until both players finish guessing
-    const bothPlayersFinished = (serverGameState.player1Solved || serverGameState.player1Guesses.length >= 7) && 
-                               (serverGameState.player2Solved || serverGameState.player2Guesses.length >= 7);
+    // Also check database results to ensure completion status is accurate
+    const player1Result = match.getPlayer1Result();
+    const player2Result = match.getPlayer2Result();
+    const bothPlayersFinished = (serverGameState.player1Solved || serverGameState.player1Guesses.length >= 7 || !!player1Result) && 
+                               (serverGameState.player2Solved || serverGameState.player2Guesses.length >= 7 || !!player2Result);
     
     res.json({
       success: true,
@@ -2707,9 +2712,9 @@ const getGameStateHandler = async (req: any, res: any) => {
       remainingGuesses: 7 - playerGuesses.length,
       solved: isPlayer1 ? serverGameState.player1Solved : serverGameState.player2Solved,
       opponentSolved: isPlayer1 ? serverGameState.player2Solved : serverGameState.player1Solved,
-      gameActive: !bothPlayersFinished, // Game active until both players finish
+      gameActive: !bothPlayersFinished && !matchCompleted, // Game active until both players finish OR match is completed
       targetWord: serverGameState.word, // Include target word for color calculation
-      gameCompleted: bothPlayersFinished // New field to indicate when both players are done
+      gameCompleted: bothPlayersFinished || matchCompleted // Indicate completion when both players done OR match marked complete
     });
 
   } catch (error: unknown) {

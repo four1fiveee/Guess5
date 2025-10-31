@@ -302,8 +302,8 @@ const Game: React.FC = () => {
         }
         
         // Check if game is completed on the server side (both players finished)
-        // Only redirect if we're in waiting state AND both players have finished
-        if (data.gameCompleted && gameState === 'waiting') {
+        // Redirect if game is completed regardless of current state
+        if (data.gameCompleted) {
       
           
           // Try to fetch the completed match data to get payout information
