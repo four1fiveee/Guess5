@@ -2123,6 +2123,30 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       match.isCompleted = true;
     }
 
+  // If match is completed but winner is missing, recalculate and save it
+  if (match.isCompleted && !match.winner) {
+    console.log('⚠️ Match is completed but winner is missing, recalculating...', { matchId: match.id });
+    const player1Result = match.getPlayer1Result();
+    const player2Result = match.getPlayer2Result();
+    
+    if (player1Result && player2Result) {
+      try {
+        const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
+        // Reload match to get the updated winner
+        const { AppDataSource } = require('../db/index');
+        const matchRepository = AppDataSource.getRepository(Match);
+        const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+        if (reloadedMatch) {
+          match.winner = reloadedMatch.winner;
+          console.log('✅ Winner recalculated and saved:', { matchId: match.id, winner: match.winner });
+        }
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('❌ Error recalculating winner:', errorMessage);
+      }
+    }
+  }
+
   // Get payout result and ensure refund signatures are included
   let payoutResult = match.getPayoutResult();
   if (payoutResult && (match.player1RefundSignature || match.player2RefundSignature)) {
