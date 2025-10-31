@@ -158,14 +158,13 @@ export class SquadsVaultService {
       // Create the multisig using the current RPC (v2)
       let signature: string;
       try {
-        // Use fee wallet as payer; set explicit feePayer and creator public keys
+        // Use fee wallet as payer; createKey serves as both creator and fee payer
         // Note: treasury is derived automatically by the SDK, do not pass it explicitly
         signature = await rpc.multisigCreateV2({
           connection: this.connection,
           programId: PROGRAM_ID,
           createKey,
           feePayer: createKey.publicKey,
-          creator: createKey, // SDK expects a signer with .publicKey
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
