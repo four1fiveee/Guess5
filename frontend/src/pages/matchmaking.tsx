@@ -191,20 +191,45 @@ const Matchmaking: React.FC = () => {
       const depositData = await depositResponse.json();
       console.log('✅ Deposit confirmed by backend:', depositData);
 
-      // Fetch updated match status
-      const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/multisig/matches/${matchData.matchId}/status`);
+      // Fetch updated match status using the main match status endpoint
+      const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}`);
       const confirmData = await statusResponse.json();
 
       // Update match data with payment status
       setMatchData((prev: any) => ({
         ...prev,
-        player1Paid: isPlayer1 ? true : prev.player1Paid,
-        player2Paid: isPlayer1 ? prev.player2Paid : true
+        ...confirmData,
+        player1Paid: isPlayer1 ? true : (confirmData.player1Paid ?? prev.player1Paid),
+        player2Paid: isPlayer1 ? (confirmData.player2Paid ?? prev.player2Paid) : true
       }));
 
+      // If match is active, redirect to game immediately
+      if (confirmData.status === 'active') {
+        console.log('✅ Match is active, redirecting to game...');
+        setStatus('active');
+        
+        // Store match data and redirect to game
+        localStorage.setItem('matchId', matchData.matchId);
+        if (confirmData.word) {
+          localStorage.setItem('word', confirmData.word);
+        }
+        if (confirmData.entryFee) {
+          localStorage.setItem('entryFee', confirmData.entryFee.toString());
+        }
+        
+        setTimeout(() => {
+          router.push(`/game?matchId=${matchData.matchId}`);
+        }, 500);
+        return;
+      }
+
       // Check if both players have paid based on backend response
-      if (confirmData.player1Paid && confirmData.player2Paid) {
-    
+      const bothPaid = (confirmData.player1Paid && confirmData.player2Paid) || 
+                       (confirmData.status === 'payment_required' && 
+                        (confirmData.depositAConfirmations >= 1 && confirmData.depositBConfirmations >= 1));
+      
+      if (bothPaid) {
+        console.log('✅ Both players paid, waiting for game to start...');
         setStatus('waiting_for_game');
       } else {
         console.log('⏳ Waiting for other player to pay...');
@@ -345,8 +370,8 @@ const Matchmaking: React.FC = () => {
                 return;
               }
               
-              // Check if both players have paid and game is active
-              if (data.player1Paid && data.player2Paid && data.status === 'active') {
+              // If match is active, redirect to game immediately (regardless of paid flags)
+              if (data.status === 'active') {
                 setStatus('active');
                 
                 // Store match data and redirect to game
@@ -364,8 +389,15 @@ const Matchmaking: React.FC = () => {
                 
                 setTimeout(() => {
                   router.push(`/game?matchId=${currentMatchData.matchId}`);
-                }, 1000);
-              } else if (data.player1Paid && data.player2Paid && data.status !== 'active') {
+                }, 500);
+                return;
+              }
+              
+              // Check if both players have paid (either via paid flags or deposit confirmations)
+              const bothPaid = (data.player1Paid && data.player2Paid) || 
+                               ((data.depositAConfirmations >= 1 && data.depositBConfirmations >= 1));
+              
+              if (bothPaid && data.status !== 'active') {
                 // Both players paid but game not yet active - show waiting state
                 setStatus('waiting_for_game');
               }
