@@ -166,6 +166,7 @@ export class SquadsVaultService {
           programId: PROGRAM_ID,
           createKey,
           feePayer: createKey.publicKey,
+          creator: createKey.publicKey, // SDK needs creator PublicKey for account derivation
           configAuthority: this.config.systemPublicKey,
           threshold: this.config.threshold,
           members: squadsMembers,
