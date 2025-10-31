@@ -145,6 +145,7 @@ export class SquadsVaultService {
         programId: PROGRAM_ID.toString(),
         createKey: '[Keypair]',
         feePayer: createKey.publicKey.toString(),
+        creator: createKey.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
         threshold: this.config.threshold,
         members: squadsMembers.map(m => ({ key: m.key.toString(), permissions: m.permissions })),
