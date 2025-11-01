@@ -152,9 +152,9 @@ const Result: React.FC = () => {
     setError(null);
     
     try {
-      // Build the approval transaction using Squads SDK
-      const { rpc, PROGRAM_ID } = await import('@sqds/multisig');
-      const { Connection, PublicKey, VersionedTransaction } = await import('@solana/web3.js');
+      // Build the approval transaction using Squads SDK instructions
+      const { instructions, PROGRAM_ID } = await import('@sqds/multisig');
+      const { Connection, PublicKey, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
       
       const connection = new Connection(
         process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com',
@@ -164,21 +164,25 @@ const Result: React.FC = () => {
       const multisigAddress = new PublicKey(payoutData.vaultAddress);
       const transactionIndex = BigInt(payoutData.proposalId);
       
-      // Build the approval transaction
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-      
-      // Build the approval transaction using Squads SDK
-      // vaultTransactionApprove returns a transaction builder that needs to be built
-      const approveTxBuilder = rpc.vaultTransactionApprove({
-        connection,
-        feePayer: publicKey,
-        multisigPda: multisigAddress,
+      // Build the approval instruction manually
+      const approveIx = instructions.vaultTransactionApprove({
+        multisig: multisigAddress,
         transactionIndex,
-        member: publicKey, // The player signing
+        member: publicKey,
       });
       
-      // Build the transaction from the builder
-      const approveTx = await approveTxBuilder.toV0();
+      // Get recent blockhash
+      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+      
+      // Build the transaction message
+      const messageV0 = new TransactionMessage({
+        payerKey: publicKey,
+        recentBlockhash: blockhash,
+        instructions: [approveIx],
+      }).compileToV0Message();
+      
+      // Create versioned transaction
+      const approveTx = new VersionedTransaction(messageV0);
       
       // Sign the transaction with the wallet
       const signedTx = await signTransaction(approveTx);
