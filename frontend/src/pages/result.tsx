@@ -176,7 +176,8 @@ const Result: React.FC = () => {
       
       // Step 4: Serialize the signed transaction
       const serialized = signedTx.serialize();
-      const base64Tx = serialized.toString('base64');
+      // Convert Uint8Array to base64 string (browser-compatible)
+      const base64Tx = Buffer.from(serialized).toString('base64');
       
       // Step 5: Send to backend to submit
       const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
