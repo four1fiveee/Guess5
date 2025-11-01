@@ -5607,6 +5607,99 @@ const voidMatchHandler = async (req: any, res: any) => {
   }
 };
 
+// Get approval transaction to sign (for frontend)
+const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
+  try {
+    const { matchId, wallet } = req.query;
+    
+    if (!matchId || !wallet) {
+      return res.status(400).json({ error: 'Missing required fields: matchId, wallet' });
+    }
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+
+    // Verify player is part of this match
+    const isPlayer1 = wallet === match.player1;
+    const isPlayer2 = wallet === match.player2;
+    
+    if (!isPlayer1 && !isPlayer2) {
+      return res.status(403).json({ error: 'You are not part of this match' });
+    }
+
+    // Check if match has a payout proposal
+    if (!(match as any).squadsVaultAddress || !(match as any).payoutProposalId) {
+      return res.status(400).json({ error: 'No payout proposal exists for this match' });
+    }
+
+    // Verify player hasn't already signed
+    const signers = match.getProposalSigners();
+    if (signers.includes(wallet)) {
+      return res.status(400).json({ error: 'You have already signed this proposal' });
+    }
+
+    // Build the approval transaction using Squads SDK (backend has access to rpc)
+    const { rpc } = require('@sqds/multisig');
+    const { Connection, PublicKey, TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
+    const connection = new Connection(
+      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+
+    const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+    const transactionIndex = BigInt((match as any).payoutProposalId);
+    const memberPublicKey = new PublicKey(wallet);
+
+    // Get recent blockhash
+    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+
+    // Use the Squads service to build the transaction
+    const { squadsVaultService } = require('../services/squadsVaultService');
+    
+    // We need to manually build the instruction since rpc.vaultTransactionApprove might not return a transaction
+    // Instead, use instructions module to build the instruction
+    const { instructions, PROGRAM_ID } = require('@sqds/multisig');
+    
+    // Build the approval instruction
+    const approveIx = instructions.vaultTransactionApprove({
+      multisig: multisigAddress,
+      transactionIndex,
+      member: memberPublicKey,
+    });
+
+    // Build the transaction message
+    const messageV0 = new TransactionMessage({
+      payerKey: memberPublicKey,
+      recentBlockhash: blockhash,
+      instructions: [approveIx],
+    }).compileToV0Message();
+
+    // Create versioned transaction (unsigned, for frontend to sign)
+    const transaction = new VersionedTransaction(messageV0);
+
+    // Serialize the transaction for the frontend to sign
+    const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+    const base64Tx = Buffer.from(serialized).toString('base64');
+
+    res.json({
+      transaction: base64Tx,
+      matchId,
+      proposalId: (match as any).payoutProposalId,
+      vaultAddress: (match as any).squadsVaultAddress,
+    });
+
+  } catch (error: unknown) {
+    console.error('❌ Error building approval transaction:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    res.status(500).json({ error: 'Failed to build approval transaction', details: errorMessage });
+  }
+};
+
 const signProposalHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, signedTransaction } = req.body;
@@ -5708,6 +5801,7 @@ module.exports = {
   requestMatchHandler,
   submitResultHandler,
   getMatchStatusHandler,
+  getProposalApprovalTransactionHandler,
   signProposalHandler,
   checkPlayerMatchHandler,
   debugWaitingPlayersHandler,

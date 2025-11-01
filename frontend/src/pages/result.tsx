@@ -152,49 +152,33 @@ const Result: React.FC = () => {
     setError(null);
     
     try {
-      // Build the approval transaction using Squads SDK instructions
-      const { instructions, PROGRAM_ID } = await import('@sqds/multisig');
-      const { Connection, PublicKey, TransactionMessage, VersionedTransaction } = await import('@solana/web3.js');
-      
-      const connection = new Connection(
-        process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com',
-        'confirmed'
-      );
-      
-      const multisigAddress = new PublicKey(payoutData.vaultAddress);
-      const transactionIndex = BigInt(payoutData.proposalId);
-      
-      // Build the approval instruction manually
-      const approveIx = instructions.vaultTransactionApprove({
-        multisig: multisigAddress,
-        transactionIndex,
-        member: publicKey,
-      });
-      
-      // Get recent blockhash
-      const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
-      
-      // Build the transaction message
-      const messageV0 = new TransactionMessage({
-        payerKey: publicKey,
-        recentBlockhash: blockhash,
-        instructions: [approveIx],
-      }).compileToV0Message();
-      
-      // Create versioned transaction
-      const approveTx = new VersionedTransaction(messageV0);
-      
-      // Sign the transaction with the wallet
-      const signedTx = await signTransaction(approveTx);
-      
-      // Serialize the signed transaction
-      const serialized = signedTx.serialize();
-      const base64Tx = Buffer.from(serialized).toString('base64');
-      
-      // Send to backend to submit
+      // Get the approval transaction from backend (backend has access to rpc.vaultTransactionApprove)
       const matchId = router.query.matchId as string;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       
+      // Step 1: Get the transaction from backend
+      const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${matchId}&wallet=${publicKey.toString()}`);
+      
+      if (!getTxResponse.ok) {
+        const errorData = await getTxResponse.json();
+        throw new Error(errorData.error || 'Failed to get approval transaction');
+      }
+      
+      const txData = await getTxResponse.json();
+      
+      // Step 2: Deserialize and sign the transaction
+      const { VersionedTransaction } = await import('@solana/web3.js');
+      const txBuffer = Buffer.from(txData.transaction, 'base64');
+      const approveTx = VersionedTransaction.deserialize(txBuffer);
+      
+      // Step 3: Sign the transaction with the wallet
+      const signedTx = await signTransaction(approveTx);
+      
+      // Step 4: Serialize the signed transaction
+      const serialized = signedTx.serialize();
+      const base64Tx = serialized.toString('base64');
+      
+      // Step 5: Send to backend to submit
       const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
         method: 'POST',
         headers: {

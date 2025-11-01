@@ -129,7 +129,11 @@ router.get('/deposit-status/:matchId',
 // Admin endpoint to void/reset a problematic match
 router.delete('/void-match/:matchId', asyncHandlerWrapper(matchController.voidMatchHandler));
 
-// Proposal signing endpoint
+// Proposal signing endpoints
+router.get('/get-proposal-approval-transaction',
+  asyncHandlerWrapper(matchController.getProposalApprovalTransactionHandler)
+);
+
 router.post('/sign-proposal',
   validateVercelBotProtection,
   asyncHandlerWrapper(matchController.signProposalHandler)
