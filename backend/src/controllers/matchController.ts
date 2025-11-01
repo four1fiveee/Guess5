@@ -5659,27 +5659,54 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     const { blockhash } = await connection.getLatestBlockhash('confirmed');
 
     // Use the Squads service to build the transaction
-    const { squadsVaultService } = require('../services/squadsVaultService');
+    // We'll call the service method but capture the transaction before signing
+    // Actually, let's use rpc to get a transaction builder if available, or build manually
+    const { getVaultTransactionPda, getMemberPda, PROGRAM_ID } = require('@sqds/multisig');
+    const { TransactionInstruction, sha256 } = require('@solana/web3.js');
+    const crypto = require('crypto');
     
-    // We need to manually build the instruction since rpc.vaultTransactionApprove might not return a transaction
-    // Instead, use instructions module to build the instruction
-    const { instructions, PROGRAM_ID } = require('@sqds/multisig');
-    
-    // Build the approval instruction
-    const approveIx = instructions.vaultTransactionApprove({
+    // Derive transaction PDA using SDK helper
+    const [transactionPda] = getVaultTransactionPda({
       multisig: multisigAddress,
-      transactionIndex,
-      member: memberPublicKey,
+      index: transactionIndex,
+      programId: PROGRAM_ID,
     });
-
-    // Build the transaction message
+    
+    // Derive member PDA using SDK helper
+    const [memberPda] = getMemberPda({
+      multisig: multisigAddress,
+      memberKey: memberPublicKey,
+      programId: PROGRAM_ID,
+    });
+    
+    // Calculate Anchor instruction discriminator: sha256("global:vault_transaction_approve")[0:8]
+    const discriminatorSeed = 'global:vault_transaction_approve';
+    const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
+    const discriminator = hash.slice(0, 8);
+    
+    // Transaction index as 8-byte little-endian u64
+    const indexBuffer = Buffer.alloc(8);
+    indexBuffer.writeBigUInt64LE(transactionIndex, 0);
+    
+    const instructionData = Buffer.concat([discriminator, indexBuffer]);
+    
+    const approveIx = new TransactionInstruction({
+      programId: PROGRAM_ID,
+      keys: [
+        { pubkey: multisigAddress, isSigner: false, isWritable: false },
+        { pubkey: transactionPda, isSigner: false, isWritable: true },
+        { pubkey: memberPda, isSigner: false, isWritable: false },
+        { pubkey: memberPublicKey, isSigner: true, isWritable: false },
+      ],
+      data: instructionData,
+    });
+    
     const messageV0 = new TransactionMessage({
       payerKey: memberPublicKey,
       recentBlockhash: blockhash,
       instructions: [approveIx],
     }).compileToV0Message();
-
-    // Create versioned transaction (unsigned, for frontend to sign)
+    
     const transaction = new VersionedTransaction(messageV0);
 
     // Serialize the transaction for the frontend to sign
