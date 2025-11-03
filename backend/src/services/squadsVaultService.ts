@@ -8,6 +8,8 @@ import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
 import { setGameState } from '../utils/redisGameState';
+import { onMatchCompleted } from './proposalAutoCreateService';
+import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
 
 export interface SquadsVaultConfig {
   systemPublicKey: PublicKey; // Your system's public key (non-custodial)
@@ -120,8 +122,19 @@ export class SquadsVaultService {
       // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
       const createKey = getFeeWalletKeypair();
       
-      // Generate multisig PDA (Program Derived Address)
-      const [multisigPda] = getMultisigPda({ createKey: createKey.publicKey, programId: PROGRAM_ID });
+      // Generate unique multisig PDA (Program Derived Address) for each match
+      // Use matchId as seed to ensure each match gets a unique vault
+      // Sort player addresses to ensure consistent ordering regardless of join order
+      const sortedPlayers = [player1Pubkey.toString(), player2Pubkey.toString()].sort();
+      const matchSeed = Buffer.from(matchId.replace(/-/g, ''), 'hex').slice(0, 32); // Use matchId as seed
+      const [multisigPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('multisig'),
+          createKey.publicKey.toBuffer(),
+          matchSeed,
+        ],
+        PROGRAM_ID
+      );
 
       // Fetch program config to get treasury address (required for v2)
       let treasury: PublicKey | null = null;
@@ -254,7 +267,10 @@ export class SquadsVaultService {
 
       match.squadsVaultAddress = multisigPda.toString();
       match.matchStatus = 'VAULT_CREATED';
-      await matchRepository.save(match);
+      
+      // Use helper to save and trigger proposals if match is completed
+      const wasCompletedBefore = match.isCompleted;
+      await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
 
       // Log vault creation
       await this.logAuditEvent(matchId, 'SQUADS_VAULT_CREATED', {
@@ -331,9 +347,11 @@ export class SquadsVaultService {
       });
       
       // Create transaction message and compile to V0
-      const blockhash = (await this.connection.getLatestBlockhash()).blockhash;
+      // Note: payerKey should be the fee payer (who pays transaction fees), not the vault
+      // The vault is the source of funds in the instructions, but fees are paid by feePayer
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: multisigAddress,
+        payerKey: this.config.systemPublicKey, // Fee payer pays for transaction fees
         recentBlockhash: blockhash,
         instructions: [winnerTransferIx, feeTransferIx],
       });
@@ -401,10 +419,35 @@ export class SquadsVaultService {
         feeAmount,
       });
 
+      // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
+      try {
+        const feeWalletKeypair = getFeeWalletKeypair();
+        const approveResult = await this.approveProposal(vaultAddress, proposalId, feeWalletKeypair);
+        if (approveResult.success) {
+          enhancedLogger.info('✅ System signature added to proposal', {
+            vaultAddress,
+            proposalId,
+            signature: approveResult.signature,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ Failed to auto-approve system signature', {
+            vaultAddress,
+            proposalId,
+            error: approveResult.error,
+          });
+        }
+      } catch (approveError: any) {
+        enhancedLogger.warn('⚠️ Error auto-approving system signature (non-critical)', {
+          vaultAddress,
+          proposalId,
+          error: approveError?.message || String(approveError),
+        });
+      }
+
       return {
         success: true,
         proposalId,
-        needsSignatures: 2, // 2-of-3 multisig, system will auto-sign
+        needsSignatures: 1, // 1 more signature needed (system already signed)
       };
 
     } catch (error: unknown) {
@@ -442,8 +485,8 @@ export class SquadsVaultService {
       // Create real Squads transaction for refunds
       const multisigAddress = new PublicKey(vaultAddress);
       
-      // Generate a unique transaction index
-      const transactionIndex = BigInt(Date.now() + 1); // Different from payout
+      // Generate a unique transaction index (use microseconds + random to avoid collisions)
+      const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
       
       // Create transfer instructions using SystemProgram
       const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
@@ -463,15 +506,25 @@ export class SquadsVaultService {
       });
       
       // Create transaction message and compile to V0
-      const blockhash2 = (await this.connection.getLatestBlockhash()).blockhash;
+      // Note: payerKey should be the fee payer (who pays transaction fees), not the vault
+      // The vault is the source of funds in the instructions, but fees are paid by feePayer
+      const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: multisigAddress,
+        payerKey: this.config.systemPublicKey, // Fee payer pays for transaction fees
         recentBlockhash: blockhash2,
         instructions: [player1TransferIx, player2TransferIx],
       });
       
       // Compile to V0 message - Squads SDK needs compiled V0 message
       const compiledMessage2 = transactionMessage.compileToV0Message();
+      
+      enhancedLogger.info('📝 Compiled V0 message for tie refund', {
+        blockhash: blockhash2,
+        lastValidBlockHeight,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundLamports,
+      });
       
       // Create the Squads vault transaction
       let signature: string;
@@ -521,10 +574,35 @@ export class SquadsVaultService {
         refundAmount,
       });
 
+      // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
+      try {
+        const feeWalletKeypair = getFeeWalletKeypair();
+        const approveResult = await this.approveProposal(vaultAddress, proposalId, feeWalletKeypair);
+        if (approveResult.success) {
+          enhancedLogger.info('✅ System signature added to tie refund proposal', {
+            vaultAddress,
+            proposalId,
+            signature: approveResult.signature,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ Failed to auto-approve system signature', {
+            vaultAddress,
+            proposalId,
+            error: approveResult.error,
+          });
+        }
+      } catch (approveError: any) {
+        enhancedLogger.warn('⚠️ Error auto-approving system signature (non-critical)', {
+          vaultAddress,
+          proposalId,
+          error: approveError?.message || String(approveError),
+        });
+      }
+
       return {
         success: true,
         proposalId,
-        needsSignatures: 2, // 2-of-3 multisig, system will auto-sign
+        needsSignatures: 1, // 1 more signature needed (system already signed)
       };
 
     } catch (error: unknown) {
@@ -811,7 +889,9 @@ export class SquadsVaultService {
           match.gameStartTime = new Date();
         }
         
-        await matchRepository.save(match);
+        // Use helper to save and trigger proposals if match is completed
+        const wasCompletedBefore = match.isCompleted;
+        await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
         
         // Initialize Redis game state for active gameplay
         try {

@@ -1,411 +1,290 @@
-// @ts-nocheck
-const { AppDataSource } = require('../db');
-const { Match } = require('../models/Match');
-const { MatchAttestation } = require('../models/MatchAttestation');
-const { MatchAuditLog } = require('../models/MatchAuditLog');
-const { squadsVaultService } = require('../services/squadsVaultService');
-const { enhancedLogger } = require('../utils/enhancedLogger');
-const { LAMPORTS_PER_SOL } = require('@solana/web3.js');
+import { Request, Response } from 'express';
+import { AppDataSource } from '../db';
+import { Match } from '../models/Match';
+import { SquadsVaultService } from '../services/squadsVaultService';
+import { PublicKey } from '@solana/web3.js';
+import { enhancedLogger } from '../utils/enhancedLogger';
 
 /**
- * Create a new match with multisig vault
+ * Approve a Squads proposal with a player's signature
+ * POST /api/multisig/proposals/:matchId/approve
+ * Body: { wallet: string, proposalId: string, signedTransaction?: string }
+ * 
+ * For frontend: Frontend gets transaction from Squads, user signs with Phantom,
+ * then sends signed transaction here, or we can provide transaction for them to sign
  */
-exports.createMatchHandler = async (req: any, res: any): Promise<void> => {
-  try {
-    const { player1Wallet, player2Wallet, entryFee } = req.body;
-
-    if (!player1Wallet || !player2Wallet || !entryFee) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing required fields: player1Wallet, player2Wallet, entryFee',
-      });
-      return;
-    }
-
-    enhancedLogger.info('🎮 Creating new match with multisig vault', {
-      player1Wallet,
-      player2Wallet,
-      entryFee,
-    });
-
-    // Create match in database
-    const matchRepository = AppDataSource.getRepository(Match);
-    const match = new Match();
-    match.player1 = player1Wallet;
-    match.player2 = player2Wallet;
-    match.entryFee = entryFee;
-    match.status = 'pending';
-    match.matchStatus = 'PENDING';
-    await matchRepository.save(match);
-
-    // Create Squads multisig vault
-    const vaultResult = await squadsVaultService.createMatchVault(
-      match.id,
-      new (require('@solana/web3.js').PublicKey)(player1Wallet),
-      new (require('@solana/web3.js').PublicKey)(player2Wallet),
-      entryFee
-    );
-
-    if (!vaultResult.success) {
-      res.status(500).json({
-        success: false,
-        error: `Failed to create vault: ${vaultResult.error}`,
-      });
-      return;
-    }
-
-    enhancedLogger.info('✅ Match created with multisig vault', {
-      matchId: match.id,
-      vaultAddress: vaultResult.vaultAddress,
-    });
-
-    res.json({
-      success: true,
-      matchId: match.id,
-      vaultAddress: vaultResult.vaultAddress,
-      entryFee,
-      player1Wallet,
-      player2Wallet,
-    });
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error creating match', { error: errorMessage });
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    });
-  }
-};
-
-/**
- * Get match status including vault information
- */
-exports.getMatchStatusHandler = async (req: any, res: any): Promise<void> => {
+export const approveProposal = async (req: Request, res: Response) => {
   try {
     const { matchId } = req.params;
-
-    if (!matchId) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing matchId parameter',
-      });
-      return;
+    const { wallet, proposalId, signedTransaction } = req.body;
+    
+    if (!wallet || !proposalId) {
+      return res.status(400).json({ error: 'Missing wallet or proposalId' });
     }
-
+    
+    enhancedLogger.info('📝 Player approval request', {
+      matchId,
+      wallet,
+      proposalId,
+    });
+    
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
-
+    
     if (!match) {
-      res.status(404).json({
-        success: false,
-        error: 'Match not found',
-      });
-      return;
+      return res.status(404).json({ error: 'Match not found' });
     }
-
-    // Check vault status if vault exists
-    let vaultStatus = null;
-    if (match.squadsVaultAddress) {
-      vaultStatus = await squadsVaultService.checkVaultStatus(match.squadsVaultAddress);
+    
+    // Verify wallet is part of this match
+    if (wallet !== match.player1 && wallet !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
     }
-
-    res.json({
+    
+    if (!match.squadsVaultAddress) {
+      return res.status(400).json({ error: 'Match has no Squads vault' });
+    }
+    
+    // For now, return instructions for frontend to sign
+    // Frontend will use @sqds/multisig SDK to create and sign the approval
+    // We can also provide a transaction builder endpoint
+    
+    return res.json({
       success: true,
-      match: {
-        id: match.id,
+      message: 'Use Phantom wallet to sign the Squads proposal',
+      instructions: {
+        vaultAddress: match.squadsVaultAddress,
+        proposalId,
+        playerWallet: wallet,
+        action: 'approve',
+        // Frontend should use Squads SDK: rpc.vaultTransactionApprove()
+      },
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    enhancedLogger.error('❌ Failed to process approval request', {
+      matchId: req.params.matchId,
+      error: errorMessage,
+    });
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+/**
+ * Build an unsigned approval transaction for frontend signing
+ * GET /api/multisig/build-approval/:matchId
+ * Returns the transaction that needs to be signed by the wallet
+ */
+export const buildApprovalTransaction = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    const { wallet } = req.query; // Wallet address that will sign
+    
+    if (!wallet || typeof wallet !== 'string') {
+      return res.status(400).json({ error: 'Missing wallet query parameter' });
+    }
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    if (!match.squadsVaultAddress) {
+      return res.status(400).json({ error: 'Match has no Squads vault' });
+    }
+    
+    // Verify wallet is part of this match
+    const walletPubkey = new PublicKey(wallet);
+    if (walletPubkey.toString() !== match.player1 && walletPubkey.toString() !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+    
+    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    if (!proposalId) {
+      return res.status(404).json({ error: 'No proposal found for this match' });
+    }
+    
+    // Use Squads SDK to build the approval transaction
+    // Note: We can't use vaultTransactionApprove directly because it requires a Keypair
+    // Instead, we'll construct the instruction manually using the SDK's instruction builder
+    
+    const squadsService = new SquadsVaultService();
+    const connection = (squadsService as any).connection;
+    
+    const multisigAddress = new PublicKey(match.squadsVaultAddress);
+    const transactionIndex = BigInt(proposalId);
+    
+    // Import Squads SDK components
+    const { instructions } = require('@sqds/multisig');
+    const { TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
+    
+    // Build the approval instruction using Squads SDK's instruction builder
+    // The instruction builder doesn't require a Keypair, just the PublicKey
+    const approvalIx = instructions.vaultTransactionApprove({
+      multisigPda: multisigAddress,
+      transactionIndex,
+      member: walletPubkey,
+    });
+    
+    // Get latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash('finalized');
+    
+    // Build transaction message
+    const message = new TransactionMessage({
+      payerKey: walletPubkey,
+      recentBlockhash: blockhash,
+      instructions: [approvalIx],
+    });
+    
+    // Compile to V0 message (required for Squads)
+    const compiledMessage = message.compileToV0Message();
+    const transaction = new VersionedTransaction(compiledMessage);
+    
+    // Return the serialized transaction for frontend to sign
+    return res.json({
+      success: true,
+      transaction: Buffer.from(transaction.serialize()).toString('base64'),
+      transactionIndex: proposalId,
+      vaultAddress: match.squadsVaultAddress,
+      member: wallet,
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    enhancedLogger.error('❌ Failed to build approval transaction', {
+      matchId: req.params.matchId,
+      error: errorMessage,
+    });
+    
+    return res.status(500).json({
+      error: 'Internal server error',
+      details: errorMessage,
+    });
+  }
+};
+
+/**
+ * Get proposal details for frontend
+ * GET /api/multisig/proposals/:matchId
+ */
+export const getProposal = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    if (!match.squadsVaultAddress) {
+      return res.status(400).json({ error: 'Match has no Squads vault' });
+    }
+    
+    const payoutResult = match.getPayoutResult();
+    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    
+    if (!proposalId) {
+      return res.status(404).json({ error: 'No proposal found for this match' });
+    }
+    
+    // Get proposal status
+    const squadsService = new SquadsVaultService();
+    const status = await squadsService.checkProposalStatus(
+      match.squadsVaultAddress,
+      proposalId
+    );
+    
+    return res.json({
+      success: true,
+      proposal: {
+        matchId: match.id,
+        vaultAddress: match.squadsVaultAddress,
+        proposalId,
+        executed: status.executed,
+        signers: status.signers.map(s => s.toString()),
+        needsSignatures: status.needsSignatures,
+        winner: match.winner,
         player1: match.player1,
         player2: match.player2,
-        entryFee: match.entryFee,
-        status: match.status,
-        matchStatus: match.matchStatus,
-        vaultAddress: match.squadsVaultAddress,
-        depositATx: match.depositATx,
-        depositBTx: match.depositBTx,
-        depositAConfirmations: match.depositAConfirmations,
-        depositBConfirmations: match.depositBConfirmations,
-        payoutTxHash: match.payoutTxHash,
-        refundTxHash: match.refundTxHash,
-        createdAt: match.createdAt,
       },
-      vaultStatus,
     });
-
+    
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error getting match status', { error: errorMessage });
-    res.status(500).json({
-      success: false,
+    enhancedLogger.error('❌ Failed to get proposal', {
+      matchId: req.params.matchId,
+      error: errorMessage,
+    });
+    
+    return res.status(500).json({ 
       error: 'Internal server error',
+      details: errorMessage 
     });
   }
 };
 
 /**
- * Submit attestation for match settlement
+ * Clean up old stuck matches (older than 12 hours, completed but no proposal)
+ * POST /api/multisig/cleanup-stuck-matches
  */
-exports.submitAttestationHandler = async (req: any, res: any): Promise<void> => {
+export const cleanupStuckMatches = async (req: Request, res: Response) => {
   try {
-    const { matchId } = req.params;
-    const attestationData: any = req.body;
-
-    if (!matchId) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing matchId parameter',
-      });
-      return;
+    enhancedLogger.info('🧹 Starting stuck matches cleanup');
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const twelveHoursAgo = new Date(Date.now() - 12 * 60 * 60 * 1000);
+    
+    // Find matches that are:
+    // - Completed
+    // - Older than 12 hours
+    // - Missing proposal IDs
+    const stuckMatches = await matchRepository
+      .createQueryBuilder('match')
+      .where('match.isCompleted = :completed', { completed: true })
+      .andWhere('match.createdAt < :twelveHoursAgo', { twelveHoursAgo })
+      .andWhere('(match.payoutProposalId IS NULL OR match.payoutProposalId = \'\')')
+      .andWhere('(match.tieRefundProposalId IS NULL OR match.tieRefundProposalId = \'\')')
+      .getMany();
+    
+    enhancedLogger.info('🔍 Found stuck matches', { count: stuckMatches.length });
+    
+    const deleted = [];
+    for (const match of stuckMatches) {
+      try {
+        await matchRepository.remove(match);
+        deleted.push(match.id);
+        enhancedLogger.info('🗑️ Deleted stuck match', { matchId: match.id });
+      } catch (error) {
+        enhancedLogger.error('❌ Failed to delete match', {
+          matchId: match.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
-
-    // Validate attestation data
-    if (!attestationData.match_id || !attestationData.vault_address || !attestationData.nonce) {
-      res.status(400).json({
-        success: false,
-        error: 'Invalid attestation data',
-      });
-      return;
-    }
-
-    enhancedLogger.info('📝 Submitting attestation for match settlement', {
-      matchId,
-      attestationHash: attestationData.match_id,
-    });
-
-    // Process payout via Squads proposal (non-custodial)
-    const payoutResult = await squadsVaultService.proposeWinnerPayout(
-      attestationData.vault_address,
-      new (require('@solana/web3.js').PublicKey)(attestationData.winner_address),
-      attestationData.stake_lamports * 0.95 / require('@solana/web3.js').LAMPORTS_PER_SOL, // Winner gets 95%
-      new (require('@solana/web3.js').PublicKey)(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-      attestationData.stake_lamports * 0.05 / require('@solana/web3.js').LAMPORTS_PER_SOL  // 5% fee
-    );
-
-    if (!payoutResult.success) {
-      res.status(500).json({
-        success: false,
-        error: `Payout processing failed: ${payoutResult.error}`,
-      });
-      return;
-    }
-
-    enhancedLogger.info('✅ Attestation processed successfully', {
-      matchId,
-      payoutTxId: payoutResult.transactionId,
-    });
-
-    res.json({
+    
+    return res.json({
       success: true,
-      payoutTxId: payoutResult.transactionId,
-      matchId,
+      deletedCount: deleted.length,
+      deletedMatches: deleted,
     });
-
+    
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error submitting attestation', { error: errorMessage });
-    res.status(500).json({
-      success: false,
+    enhancedLogger.error('❌ Failed to cleanup stuck matches', {
+      error: errorMessage,
+    });
+    
+    return res.status(500).json({ 
       error: 'Internal server error',
-    });
-  }
-};
-
-/**
- * Process refund for timeout scenarios
- */
-exports.refundTimeoutHandler = async (req: any, res: any): Promise<void> => {
-  try {
-    const { matchId } = req.params;
-    const { reason } = req.body;
-
-    if (!matchId) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing matchId parameter',
-      });
-      return;
-    }
-
-    const refundReason = reason || 'TIMEOUT_REFUND';
-
-    enhancedLogger.info('🔄 Processing timeout refund', {
-      matchId,
-      reason: refundReason,
-    });
-
-    // Process refund via Squads proposal (non-custodial)
-    const refundResult = await squadsVaultService.proposeTieRefund(
-      match.squadsVaultAddress,
-      new (require('@solana/web3.js').PublicKey)(match.player1),
-      new (require('@solana/web3.js').PublicKey)(match.player2),
-      match.entryFee
-    );
-
-    if (!refundResult.success) {
-      res.status(500).json({
-        success: false,
-        error: `Refund processing failed: ${refundResult.error}`,
-      });
-      return;
-    }
-
-    enhancedLogger.info('✅ Timeout refund processed successfully', {
-      matchId,
-      refundTxId: refundResult.transactionId,
-    });
-
-    res.json({
-      success: true,
-      refundTxId: refundResult.transactionId,
-      matchId,
-      reason: refundReason,
-    });
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error processing timeout refund', { error: errorMessage });
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    });
-  }
-};
-
-/**
- * Get attestations for a match
- */
-exports.getAttestationsHandler = async (req: any, res: any): Promise<void> => {
-  try {
-    const { matchId } = req.params;
-
-    if (!matchId) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing matchId parameter',
-      });
-      return;
-    }
-
-    const attestationRepository = AppDataSource.getRepository(MatchAttestation);
-    const attestations = await attestationRepository.find({
-      where: { matchId },
-      order: { createdAt: 'DESC' },
-    });
-
-    res.json({
-      success: true,
-      attestations: attestations.map(att => ({
-        id: att.id,
-        attestationHash: att.attestationHash,
-        signedByKms: att.signedByKms,
-        kmsSignature: att.kmsSignature,
-        createdAt: att.createdAt,
-        attestationJson: att.attestationJson,
-      })),
-    });
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error getting attestations', { error: errorMessage });
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    });
-  }
-};
-
-/**
- * Get audit logs for a match
- */
-exports.getAuditLogsHandler = async (req: any, res: any): Promise<void> => {
-  try {
-    const { matchId } = req.params;
-
-    if (!matchId) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing matchId parameter',
-      });
-      return;
-    }
-
-    const auditLogRepository = AppDataSource.getRepository(MatchAuditLog);
-    const auditLogs = await auditLogRepository.find({
-      where: { matchId },
-      order: { createdAt: 'DESC' },
-    });
-
-    res.json({
-      success: true,
-      auditLogs: auditLogs.map(log => ({
-        id: log.id,
-        eventType: log.eventType,
-        eventData: log.eventData,
-        createdAt: log.createdAt,
-      })),
-    });
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error getting audit logs', { error: errorMessage });
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
-    });
-  }
-};
-
-/**
- * Process deposit to vault
- */
-exports.processDepositHandler = async (req: any, res: any): Promise<void> => {
-  try {
-    const { matchId, playerWallet, amount, depositTxSignature } = req.body;
-
-    if (!matchId || !playerWallet || !amount) {
-      res.status(400).json({
-        success: false,
-        error: 'Missing required fields: matchId, playerWallet, amount',
-      });
-      return;
-    }
-
-    enhancedLogger.info('💰 Verifying deposit to vault', {
-      matchId,
-      playerWallet,
-      amount,
-      depositTxSignature,
-    });
-
-    // Verify deposit on Solana - pass transaction signature for attribution
-    const depositResult = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
-
-    if (!depositResult.success) {
-      res.status(500).json({
-        success: false,
-        error: `Deposit verification failed: ${depositResult.error}`,
-      });
-      return;
-    }
-
-    enhancedLogger.info('✅ Deposit verified successfully', {
-      matchId,
-      playerWallet,
-      transactionId: depositResult.transactionId,
-    });
-
-    res.json({
-      success: true,
-      transactionId: depositResult.transactionId,
-      matchId,
-      playerWallet,
-    });
-
-  } catch (error: unknown) {
-    const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('❌ Error processing deposit', { error: errorMessage });
-    res.status(500).json({
-      success: false,
-      error: 'Internal server error',
+      details: errorMessage 
     });
   }
 };
