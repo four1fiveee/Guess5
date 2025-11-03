@@ -9,7 +9,7 @@ import { enhancedLogger } from '../utils/enhancedLogger';
  * Fix stuck tie matches by retroactively creating Squads proposals
  * POST /api/match/fix-tie-proposal/:matchId
  */
-export const fixTieProposal = async (req: Request, res: Response) => {
+const fixTieProposal = async (req: Request, res: Response) => {
   try {
     const { matchId } = req.params;
     
@@ -127,4 +127,9 @@ export const fixTieProposal = async (req: Request, res: Response) => {
       details: errorMessage 
     });
   }
+};
+
+// Export for CommonJS compatibility
+module.exports = {
+  fixTieProposal,
 };
