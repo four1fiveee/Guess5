@@ -120,8 +120,19 @@ export class SquadsVaultService {
       // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
       const createKey = getFeeWalletKeypair();
       
-      // Generate multisig PDA (Program Derived Address)
-      const [multisigPda] = getMultisigPda({ createKey: createKey.publicKey, programId: PROGRAM_ID });
+      // Generate unique multisig PDA (Program Derived Address) for each match
+      // Use matchId as seed to ensure each match gets a unique vault
+      // Sort player addresses to ensure consistent ordering regardless of join order
+      const sortedPlayers = [player1Pubkey.toString(), player2Pubkey.toString()].sort();
+      const matchSeed = Buffer.from(matchId.replace(/-/g, ''), 'hex').slice(0, 32); // Use matchId as seed
+      const [multisigPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('multisig'),
+          createKey.publicKey.toBuffer(),
+          matchSeed,
+        ],
+        PROGRAM_ID
+      );
 
       // Fetch program config to get treasury address (required for v2)
       let treasury: PublicKey | null = null;
