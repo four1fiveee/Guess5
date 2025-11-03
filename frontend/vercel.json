@@ -1,0 +1,36 @@
+{
+  "version": 2,
+  "env": {
+    "NEXT_PUBLIC_API_URL": "https://guess5.onrender.com",
+    "NEXT_PUBLIC_SOLANA_NETWORK": "https://api.devnet.solana.com",
+    "NEXT_PUBLIC_MULTISIG_PROGRAM_ID": "SMPLMyo5fcsJzWz8c4KfgQoD2V2t2A2A2A2A2A2A2A2",
+    "NEXT_PUBLIC_AUTOMATED_SIGNER_PUBKEY": "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
+    "NEXT_PUBLIC_CO_SIGNER_PUBKEY": "3R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
+    "NEXT_PUBLIC_RECOVERY_KEY_PUBKEY": "4R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
+    "NEXT_PUBLIC_FEE_WALLET_ADDRESS": "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt"
+  },
+  "functions": {
+    "pages/**/*.tsx": {
+      "maxDuration": 10
+    }
+  },
+  "headers": [
+    {
+      "source": "/(.*)",
+      "headers": [
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        },
+        {
+          "key": "Referrer-Policy",
+          "value": "strict-origin-when-cross-origin"
+        }
+      ]
+    }
+  ]
+} 

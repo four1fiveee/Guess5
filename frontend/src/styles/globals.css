@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles for Guess5 */
+body {
+  background: #121d22; /* exact blue from logo */
+  color: #f1f0e2;      /* exact white from logo */
+  font-family: 'Inter', sans-serif;
+} 
