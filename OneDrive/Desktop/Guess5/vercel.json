@@ -1,0 +1,1 @@
+{ "buildCommand": "cd OneDrive/Desktop/Guess5/frontend && npm install && npm run build", "outputDirectory": "OneDrive/Desktop/Guess5/frontend/.next", "installCommand": "cd OneDrive/Desktop/Guess5/frontend && npm install", "framework": "nextjs" }
