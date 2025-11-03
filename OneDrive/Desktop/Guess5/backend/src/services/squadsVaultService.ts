@@ -8,6 +8,8 @@ import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
 import { setGameState } from '../utils/redisGameState';
+import { onMatchCompleted } from './proposalAutoCreateService';
+import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
 
 export interface SquadsVaultConfig {
   systemPublicKey: PublicKey; // Your system's public key (non-custodial)
@@ -265,7 +267,10 @@ export class SquadsVaultService {
 
       match.squadsVaultAddress = multisigPda.toString();
       match.matchStatus = 'VAULT_CREATED';
-      await matchRepository.save(match);
+      
+      // Use helper to save and trigger proposals if match is completed
+      const wasCompletedBefore = match.isCompleted;
+      await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
 
       // Log vault creation
       await this.logAuditEvent(matchId, 'SQUADS_VAULT_CREATED', {
@@ -884,7 +889,9 @@ export class SquadsVaultService {
           match.gameStartTime = new Date();
         }
         
-        await matchRepository.save(match);
+        // Use helper to save and trigger proposals if match is completed
+        const wasCompletedBefore = match.isCompleted;
+        await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
         
         // Initialize Redis game state for active gameplay
         try {
