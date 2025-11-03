@@ -1,0 +1,40 @@
+{
+  "version": 2,
+  "builds": [
+    {
+      "src": "src/server.ts",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "src/**/*",
+          "package.json",
+          "tsconfig.json"
+        ]
+      }
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/src/server.ts"
+    }
+  ],
+  "env": {
+    "NODE_ENV": "production",
+    "AWS_REGION": "us-east-1",
+    "AWS_ACCESS_KEY_ID": "SECRET_SET_IN_DASHBOARD",
+    "AWS_SECRET_ACCESS_KEY": "SECRET_SET_IN_DASHBOARD",
+    "AWS_KMS_KEY_ID": "SECRET_SET_IN_DASHBOARD",
+    "AUTOMATED_SIGNER_PUBKEY": "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
+    "CO_SIGNER_PUBKEY": "3R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
+    "RECOVERY_KEY_PUBKEY": "4R9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt",
+    "MULTISIG_PROGRAM_ID": "SMPLMyo5fcsJzWz8c4KfgQoD2V2t2A2A2A2A2A2A2A2",
+    "SOLANA_NETWORK": "https://api.devnet.solana.com",
+    "FEE_WALLET_ADDRESS": "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt"
+  },
+  "functions": {
+    "src/server.ts": {
+      "maxDuration": 30
+    }
+  }
+} 
