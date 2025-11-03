@@ -37,6 +37,7 @@ export default function ResultPage() {
   const [isSigning, setIsSigning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [pollInterval, setPollInterval] = useState<NodeJS.Timeout | null>(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
 
   // Poll for proposal status
   useEffect(() => {
@@ -109,6 +110,7 @@ export default function ResultPage() {
       const signature = await signSquadsProposal(
         wallet,
         connection,
+        matchId as string,
         proposal.vaultAddress,
         proposal.proposalId
       );
@@ -257,6 +259,104 @@ export default function ResultPage() {
         >
           Play Again
         </button>
+
+        {/* Debug Panel */}
+        <div className="mt-6">
+          <button
+            onClick={() => setShowDebugPanel(!showDebugPanel)}
+            className="text-sm text-gray-400 hover:text-gray-300 underline"
+          >
+            {showDebugPanel ? 'Hide' : 'Show'} Debug Info
+          </button>
+          
+          {showDebugPanel && (
+            <div className="mt-4 bg-gray-800 border border-gray-700 rounded-lg p-4 text-sm">
+              <h3 className="text-orange-400 font-semibold mb-3">Debug Information</h3>
+              
+              <div className="space-y-2">
+                <div>
+                  <span className="text-gray-400">Match ID:</span>
+                  <span className="ml-2 text-white font-mono text-xs">{matchId}</span>
+                </div>
+                
+                {proposal && (
+                  <>
+                    <div>
+                      <span className="text-gray-400">Vault Address:</span>
+                      <span className="ml-2 text-white font-mono text-xs break-all">{proposal.vaultAddress}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Proposal ID:</span>
+                      <span className="ml-2 text-white font-mono text-xs">{proposal.proposalId}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Executed:</span>
+                      <span className={`ml-2 ${proposal.executed ? 'text-green-400' : 'text-yellow-400'}`}>
+                        {proposal.executed ? 'Yes' : 'No'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Signatures Needed:</span>
+                      <span className="ml-2 text-white">{proposal.needsSignatures}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Current Signers ({proposal.signers.length}):</span>
+                      <div className="ml-2 mt-1 space-y-1">
+                        {proposal.signers.length > 0 ? (
+                          proposal.signers.map((signer, idx) => (
+                            <div key={idx} className="text-white font-mono text-xs break-all">
+                              {signer}
+                            </div>
+                          ))
+                        ) : (
+                          <span className="text-gray-500">None</span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Player 1:</span>
+                      <span className="ml-2 text-white font-mono text-xs break-all">{proposal.player1}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Player 2:</span>
+                      <span className="ml-2 text-white font-mono text-xs break-all">{proposal.player2}</span>
+                    </div>
+                    <div>
+                      <span className="text-gray-400">Winner:</span>
+                      <span className="ml-2 text-white">{proposal.winner || 'None'}</span>
+                    </div>
+                  </>
+                )}
+                
+                {publicKey && (
+                  <div>
+                    <span className="text-gray-400">Your Wallet:</span>
+                    <span className="ml-2 text-white font-mono text-xs break-all">{publicKey.toString()}</span>
+                  </div>
+                )}
+                
+                <div>
+                  <span className="text-gray-400">Needs Your Signature:</span>
+                  <span className={`ml-2 ${needsMySignature ? 'text-green-400' : 'text-gray-500'}`}>
+                    {needsMySignature ? 'Yes' : 'No'}
+                  </span>
+                </div>
+                
+                {!proposal && (
+                  <div className="text-yellow-400">
+                    No proposal found yet. Polling every 5 seconds...
+                  </div>
+                )}
+                
+                {error && (
+                  <div className="text-red-400">
+                    Error: {error}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

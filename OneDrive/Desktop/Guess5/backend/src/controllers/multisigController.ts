@@ -75,6 +75,101 @@ export const approveProposal = async (req: Request, res: Response) => {
 };
 
 /**
+ * Build an unsigned approval transaction for frontend signing
+ * GET /api/multisig/build-approval/:matchId
+ * Returns the transaction that needs to be signed by the wallet
+ */
+export const buildApprovalTransaction = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    const { wallet } = req.query; // Wallet address that will sign
+    
+    if (!wallet || typeof wallet !== 'string') {
+      return res.status(400).json({ error: 'Missing wallet query parameter' });
+    }
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    if (!match.squadsVaultAddress) {
+      return res.status(400).json({ error: 'Match has no Squads vault' });
+    }
+    
+    // Verify wallet is part of this match
+    const walletPubkey = new PublicKey(wallet);
+    if (walletPubkey.toString() !== match.player1 && walletPubkey.toString() !== match.player2) {
+      return res.status(403).json({ error: 'Wallet not part of this match' });
+    }
+    
+    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    if (!proposalId) {
+      return res.status(404).json({ error: 'No proposal found for this match' });
+    }
+    
+    // Use Squads SDK to build the approval transaction
+    // Note: We can't use vaultTransactionApprove directly because it requires a Keypair
+    // Instead, we'll construct the instruction manually using the SDK's instruction builder
+    
+    const squadsService = new SquadsVaultService();
+    const connection = (squadsService as any).connection;
+    
+    const multisigAddress = new PublicKey(match.squadsVaultAddress);
+    const transactionIndex = BigInt(proposalId);
+    
+    // Import Squads SDK components
+    const { instructions } = require('@sqds/multisig');
+    const { TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
+    
+    // Build the approval instruction using Squads SDK's instruction builder
+    // The instruction builder doesn't require a Keypair, just the PublicKey
+    const approvalIx = instructions.vaultTransactionApprove({
+      multisigPda: multisigAddress,
+      transactionIndex,
+      member: walletPubkey,
+    });
+    
+    // Get latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash('finalized');
+    
+    // Build transaction message
+    const message = new TransactionMessage({
+      payerKey: walletPubkey,
+      recentBlockhash: blockhash,
+      instructions: [approvalIx],
+    });
+    
+    // Compile to V0 message (required for Squads)
+    const compiledMessage = message.compileToV0Message();
+    const transaction = new VersionedTransaction(compiledMessage);
+    
+    // Return the serialized transaction for frontend to sign
+    return res.json({
+      success: true,
+      transaction: Buffer.from(transaction.serialize()).toString('base64'),
+      transactionIndex: proposalId,
+      vaultAddress: match.squadsVaultAddress,
+      member: wallet,
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    enhancedLogger.error('❌ Failed to build approval transaction', {
+      matchId: req.params.matchId,
+      error: errorMessage,
+    });
+    
+    return res.status(500).json({
+      error: 'Internal server error',
+      details: errorMessage,
+    });
+  }
+};
+
+/**
  * Get proposal details for frontend
  * GET /api/multisig/proposals/:matchId
  */
