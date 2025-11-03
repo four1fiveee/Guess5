@@ -467,8 +467,8 @@ export class SquadsVaultService {
       // Create real Squads transaction for refunds
       const multisigAddress = new PublicKey(vaultAddress);
       
-      // Generate a unique transaction index
-      const transactionIndex = BigInt(Date.now() + 1); // Different from payout
+      // Generate a unique transaction index (use microseconds + random to avoid collisions)
+      const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
       
       // Create transfer instructions using SystemProgram
       const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
@@ -488,7 +488,8 @@ export class SquadsVaultService {
       });
       
       // Create transaction message and compile to V0
-      const blockhash2 = (await this.connection.getLatestBlockhash()).blockhash;
+      // Get fresh blockhash with commitment to ensure it's valid
+      const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
         payerKey: multisigAddress,
         recentBlockhash: blockhash2,
@@ -497,6 +498,14 @@ export class SquadsVaultService {
       
       // Compile to V0 message - Squads SDK needs compiled V0 message
       const compiledMessage2 = transactionMessage.compileToV0Message();
+      
+      enhancedLogger.info('📝 Compiled V0 message for tie refund', {
+        blockhash: blockhash2,
+        lastValidBlockHeight,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundLamports,
+      });
       
       // Create the Squads vault transaction
       let signature: string;
