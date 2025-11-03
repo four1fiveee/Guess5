@@ -128,3 +128,8 @@ export const fixTieProposal = async (req: Request, res: Response) => {
     });
   }
 };
+
+// Export for CommonJS compatibility
+module.exports = {
+  fixTieProposal,
+};
