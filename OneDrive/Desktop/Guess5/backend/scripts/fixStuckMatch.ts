@@ -1,6 +1,6 @@
 /**
  * Standalone script to fix stuck tie matches by creating Squads proposals
- * Usage: npx ts-node backend/scripts/fixStuckMatch.ts <matchId>
+ * Usage: From backend root: npx ts-node scripts/fixStuckMatch.ts <matchId>
  * 
  * This script:
  * 1. Connects to the database
