@@ -1,42 +1,22 @@
 /**
- * Standalone script to fix stuck tie matches by creating Squads proposals
+ * JavaScript version of fixStuckMatch script
+ * Usage: From backend root: node scripts/fixStuckMatch.js <matchId>
  * 
- * Usage options:
- * 1. From backend root with ts-node: 
- *    npx ts-node --project tsconfig.json scripts/fixStuckMatch.ts <matchId>
- * 
- * 2. After building: 
- *    npm run build
- *    node dist/scripts/fixStuckMatch.js <matchId>
- * 
- * This script:
- * 1. Connects to the database
- * 2. Finds the match
- * 3. Creates a Squads tie refund proposal if missing
- * 4. Saves the proposal ID to the match
+ * This avoids TypeScript compilation issues
  */
 
-// Register tsconfig paths if using tsconfig-paths
-import { register } from 'tsconfig-paths/register';
-import * as path from 'path';
-import * as fs from 'fs';
+// Use require since we're in a script context
+const path = require('path');
 
-// Try to load tsconfig
-const tsConfigPath = path.join(__dirname, '..', 'tsconfig.json');
-if (fs.existsSync(tsConfigPath)) {
-  const tsConfig = require(tsConfigPath);
-  if (tsConfig.compilerOptions && tsConfig.compilerOptions.paths) {
-    register({
-      baseUrl: path.join(__dirname, '..'),
-      paths: tsConfig.compilerOptions.paths
-    });
-  }
-}
+// Change to backend directory
+const backendRoot = path.resolve(__dirname, '..');
+process.chdir(backendRoot);
 
-import { AppDataSource } from '../src/db';
-import { Match } from '../src/models/Match';
-import { SquadsVaultService } from '../src/services/squadsVaultService';
-import { PublicKey } from '@solana/web3.js';
+// Now require from the backend root
+const { AppDataSource } = require('../dist/db');
+const { Match } = require('../dist/models/Match');
+const { SquadsVaultService } = require('../dist/services/squadsVaultService');
+const { PublicKey } = require('@solana/web3.js');
 
 const matchId = process.argv[2] || 'aebc06bb-30ef-465f-8fc1-eae608ecae39';
 
@@ -81,8 +61,8 @@ async function fixStuckMatch() {
     }
     
     // Check if proposal already exists
-    if ((match as any).tieRefundProposalId) {
-      console.log('✅ Proposal already exists:', (match as any).tieRefundProposalId);
+    if (match.tieRefundProposalId) {
+      console.log('✅ Proposal already exists:', match.tieRefundProposalId);
       console.log('   Match is already fixed!');
       process.exit(0);
     }
@@ -130,7 +110,7 @@ async function fixStuckMatch() {
     }
     
     // Save proposal ID to match
-    (match as any).tieRefundProposalId = proposalResult.proposalId;
+    match.tieRefundProposalId = proposalResult.proposalId;
     await matchRepository.save(match);
     
     console.log('✅ Tie refund proposal created and saved!');
@@ -145,6 +125,7 @@ async function fixStuckMatch() {
     
   } catch (error) {
     console.error('❌ Error fixing match:', error);
+    console.error(error.stack);
     process.exit(1);
   }
 }
