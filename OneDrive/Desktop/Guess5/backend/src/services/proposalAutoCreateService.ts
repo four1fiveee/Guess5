@@ -2,6 +2,7 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { ensureProposalsForMatch } from '../controllers/proposalRecoveryController';
 import { enhancedLogger } from '../utils/enhancedLogger';
+import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
 
 /**
  * Automatically create proposals when a match completes
@@ -90,19 +91,17 @@ export async function completeMatchAndCreateProposals(matchId: string, winner: s
     }
     
     // Set match as completed
+    const wasCompletedBefore = match.isCompleted;
     match.isCompleted = true;
     match.winner = winner;
     
-    // Save match
-    await matchRepository.save(match);
+    // Use helper to save and trigger proposals automatically
+    await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
     
     enhancedLogger.info('✅ Match marked as completed', {
       matchId,
       winner,
     });
-    
-    // Automatically create proposals
-    await onMatchCompleted(match);
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     enhancedLogger.error('❌ Failed to complete match and create proposals', {
