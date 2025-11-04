@@ -130,6 +130,4 @@ async function fixTieProposal(req: Request, res: Response) {
 }
 
 // Export for CommonJS compatibility
-module.exports = {
-  fixTieProposal,
-};
+exports.fixTieProposal = fixTieProposal;
