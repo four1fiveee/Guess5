@@ -1,9 +1,10 @@
-import express from 'express';
-import { deleteMatchById } from '../controllers/deleteMatchController';
+// @ts-nocheck
+const express = require('express');
+const { deleteMatchById } = require('../controllers/deleteMatchController');
 
 const router = express.Router();
 
 router.delete('/:matchId', deleteMatchById);
 
-export default router;
+module.exports = router;
 
