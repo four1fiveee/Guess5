@@ -21,6 +21,8 @@ const Matchmaking: React.FC = () => {
   const [isRequestInProgress, setIsRequestInProgress] = useState<boolean>(false);
   const [isPaymentInProgress, setIsPaymentInProgress] = useState<boolean>(false);
   const [paymentTimeout, setPaymentTimeout] = useState<NodeJS.Timeout | null>(null);
+  const [queueStartTime, setQueueStartTime] = useState<number | null>(null);
+  const [elapsedTime, setElapsedTime] = useState<string>('0s');
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
@@ -44,6 +46,24 @@ const Matchmaking: React.FC = () => {
       }
     }
   }, [hasBlockingClaims, pendingClaims, publicKey, router]);
+
+  // Timer to track elapsed time in queue
+  useEffect(() => {
+    if (status === 'waiting' && queueStartTime) {
+      const interval = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - queueStartTime) / 1000);
+        const minutes = Math.floor(elapsed / 60);
+        const seconds = elapsed % 60;
+        setElapsedTime(minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`);
+      }, 1000);
+
+      return () => clearInterval(interval);
+    } else if (status !== 'waiting') {
+      // Reset timer when not waiting
+      setQueueStartTime(null);
+      setElapsedTime('0s');
+    }
+  }, [status, queueStartTime]);
 
   const handlePayment = async () => {
     if (isPaymentInProgress) {
@@ -443,6 +463,10 @@ const Matchmaking: React.FC = () => {
         if (data.status === 'waiting') {
           setWaitingCount(data.waitingCount || 0);
           setStatus('waiting');
+          // Start timer when entering waiting state
+          if (!queueStartTime) {
+            setQueueStartTime(Date.now());
+          }
           // Ensure polling starts after initial request returns 'waiting'
           if (!isPolling) {
             setIsPolling(true);
@@ -573,8 +597,11 @@ const Matchmaking: React.FC = () => {
               <div className="text-white/80 mb-4">
                 Waiting for another player to join
               </div>
+              <div className="text-accent text-lg font-semibold mb-2">
+                Entry Fee: {entryFee} SOL
+              </div>
               <div className="text-accent text-lg font-semibold mb-4">
-                {waitingCount > 0 ? `${waitingCount} players waiting` : 'Searching...'}
+                Time in Queue: {elapsedTime}
               </div>
               <button
                 onClick={() => router.push('/lobby')}
