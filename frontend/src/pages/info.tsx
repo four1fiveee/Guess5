@@ -25,7 +25,7 @@ export default function Info() {
           <h3 className="text-xl font-bold text-accent mb-3 mt-4">How to Play</h3>
           <ol className="list-decimal list-inside text-sm text-white/90 space-y-2">
             <li><b>Connect your Phantom wallet</b> using the wallet button in the top right</li>
-            <li><b>Choose a lobby:</b> Select $1, $5, or $20 entry fee (paid in SOL at current market rate)</li>
+            <li><b>Choose a lobby:</b> Select $1, $5, $20, or $100 entry fee (paid in SOL at current market rate)</li>
             <li><b>Get matched:</b> Wait for another player to join the same lobby</li>
             <li><b>Deposit funds:</b> Send your entry fee to the secure multisig vault address</li>
             <li><b>Play the game:</b> You have up to 7 tries to guess a secret 5-letter word</li>

@@ -8,7 +8,7 @@ import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
 
-const ENTRY_FEES_USD = [1, 5, 20];
+const ENTRY_FEES_USD = [1, 5, 20, 100];
 
 // Fetch live SOL/USD price from backend (avoids CORS issues)
 const fetchSolPrice = async () => {
@@ -337,7 +337,7 @@ export default function Lobby() {
               </div>
             )}
             
-            <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
               {ENTRY_FEES_USD.map((usdAmount, index) => {
                 const solAmount = solAmounts[index];
                 const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
