@@ -129,5 +129,5 @@ async function fixTieProposal(req: Request, res: Response) {
   }
 }
 
-// Export as ES6 module
+// Export as ES6 module for TypeScript compilation compatibility
 export { fixTieProposal };
