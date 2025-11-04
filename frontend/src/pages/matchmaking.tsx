@@ -23,6 +23,7 @@ const Matchmaking: React.FC = () => {
   const [paymentTimeout, setPaymentTimeout] = useState<NodeJS.Timeout | null>(null);
   const [queueStartTime, setQueueStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
+  const [solPrice, setSolPrice] = useState<number | null>(null);
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
@@ -46,6 +47,34 @@ const Matchmaking: React.FC = () => {
       }
     }
   }, [hasBlockingClaims, pendingClaims, publicKey, router]);
+
+  // Fetch SOL price for USD conversion
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com';
+        const response = await fetch(`${API_URL}/api/match/sol-price`);
+        
+        if (response.ok) {
+          const data = await response.json();
+          if (data.price && typeof data.price === 'number' && data.price > 0) {
+            setSolPrice(data.price);
+          } else if (data.fallback) {
+            setSolPrice(data.fallback);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error fetching SOL price:', error);
+        // Use fallback price
+        setSolPrice(180);
+      }
+    };
+
+    fetchSolPrice();
+    // Refresh price every 30 seconds
+    const interval = setInterval(fetchSolPrice, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   // Timer to track elapsed time in queue
   useEffect(() => {
@@ -597,8 +626,8 @@ const Matchmaking: React.FC = () => {
               <div className="text-white/80 mb-4">
                 Waiting for another player to join
               </div>
-              <div className="text-accent text-lg font-semibold mb-2">
-                Entry Fee: {entryFee} SOL
+              <div className="text-accent text-lg font-semibold mb-4">
+                Entry Fee: {solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD (${entryFee} SOL)` : `${entryFee} SOL`}
               </div>
               <div className="text-accent text-lg font-semibold mb-4">
                 Time in Queue: {elapsedTime}
