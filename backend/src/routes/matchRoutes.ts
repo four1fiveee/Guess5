@@ -225,9 +225,11 @@ if (process.env.NODE_ENV !== 'production') {
   router.get('/test-database', asyncHandlerWrapper(matchController.testDatabaseHandler));
 }
 
-import { fixTieProposal } from '../controllers/fixMatchController';
-router.post('/fix-tie-proposal/:matchId', asyncHandlerWrapper(fixTieProposal));
+const fixMatchController = require('../controllers/fixMatchController');
+router.post('/fix-tie-proposal/:matchId', asyncHandlerWrapper(fixMatchController.fixTieProposal));
 
 module.exports = router; 
+
+
 
 
