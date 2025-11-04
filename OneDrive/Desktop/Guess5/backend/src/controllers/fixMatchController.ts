@@ -129,5 +129,5 @@ async function fixTieProposal(req: Request, res: Response) {
   }
 }
 
-// Export for CommonJS compatibility
-exports.fixTieProposal = fixTieProposal;
+// Export as ES6 module
+export { fixTieProposal };
