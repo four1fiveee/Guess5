@@ -2774,6 +2774,7 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Find matches where player has pending winnings (completed matches with active proposals)
+    // Exclude matches where proposalStatus = 'EXECUTED' or needsSignatures = 0
     const pendingWinnings = await matchRepository
       .createQueryBuilder('match')
       .where('match.isCompleted = :completed', { completed: true })
@@ -2781,17 +2782,20 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
       .andWhere('match.winner IS NOT NULL')
       .andWhere('match.payoutProposalId IS NOT NULL')
       .andWhere('(match.proposalStatus = :proposalStatus OR match.proposalStatus IS NULL)', { proposalStatus: 'ACTIVE' })
+      .andWhere('match.proposalStatus != :executed', { executed: 'EXECUTED' })
       .andWhere('match.needsSignatures > 0')
       .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
       .getMany();
 
     // Find matches where player has pending refunds (tie/timeout but proposal not executed)
+    // Exclude matches where proposalStatus = 'EXECUTED' or needsSignatures = 0
     const pendingRefunds = await matchRepository
       .createQueryBuilder('match')
       .where('match.isCompleted = :completed', { completed: true })
       .andWhere('match.winner = :tie', { tie: 'tie' })
       .andWhere('match.payoutProposalId IS NOT NULL')
       .andWhere('(match.proposalStatus = :proposalStatus OR match.proposalStatus IS NULL)', { proposalStatus: 'ACTIVE' })
+      .andWhere('match.proposalStatus != :executed', { executed: 'EXECUTED' })
       .andWhere('match.needsSignatures > 0')
       .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
       .getMany();
@@ -6498,6 +6502,18 @@ const signProposalHandler = async (req: any, res: any) => {
               proposalStatus,
               proposalExecutedAt,
             });
+            
+            // Ensure needsSignatures is 0 if executed
+            if ((match as any).needsSignatures > 0) {
+              try {
+                (match as any).needsSignatures = 0;
+                await matchRepository.save(match);
+                console.log('✅ Updated needsSignatures to 0 for executed proposal');
+              } catch (dbUpdateError: any) {
+                console.warn('⚠️ Failed to update needsSignatures:', dbUpdateError?.message);
+              }
+            }
+            
             return res.json({
               success: true,
               message: 'Proposal was already executed. Payout has been completed.',
@@ -6540,11 +6556,12 @@ const signProposalHandler = async (req: any, res: any) => {
             // Update database status to reflect this
             try {
               (match as any).proposalStatus = 'EXECUTED';
+              (match as any).needsSignatures = 0; // Mark as fully signed/executed
               if (!(match as any).proposalExecutedAt) {
                 (match as any).proposalExecutedAt = new Date();
               }
               await matchRepository.save(match);
-              console.log('✅ Updated match proposal status to EXECUTED');
+              console.log('✅ Updated match proposal status to EXECUTED and needsSignatures to 0');
             } catch (dbUpdateError: any) {
               console.warn('⚠️ Failed to update proposal status in database:', dbUpdateError?.message);
             }
