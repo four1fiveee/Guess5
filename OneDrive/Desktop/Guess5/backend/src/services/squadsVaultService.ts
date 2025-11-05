@@ -434,8 +434,35 @@ export class SquadsVaultService {
         vaultPda: vaultPda.toString(),
       });
       
-      // Generate a unique transaction index
-      const transactionIndex = BigInt(Date.now());
+      // Fetch multisig account to get current transaction index
+      // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
+      let transactionIndex: BigInt;
+      try {
+        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigAddress,
+          { commitment: 'confirmed' }
+        );
+        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
+        transactionIndex = BigInt(currentTransactionIndex + 1);
+        
+        enhancedLogger.info('📊 Fetched multisig transaction index', {
+          multisigAddress: multisigAddress.toString(),
+          currentTransactionIndex,
+          nextTransactionIndex: transactionIndex.toString(),
+        });
+      } catch (fetchError: any) {
+        const errorMsg = `Failed to fetch multisig account for transaction index: ${fetchError?.message || String(fetchError)}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          multisigAddress: multisigAddress.toString(),
+          error: fetchError?.message || String(fetchError),
+          stack: fetchError?.stack,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
       
       // Create transfer instructions using SystemProgram
       const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
@@ -689,8 +716,35 @@ export class SquadsVaultService {
         vaultPda: vaultPda.toString(),
       });
       
-      // Generate a unique transaction index (use microseconds + random to avoid collisions)
-      const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
+      // Fetch multisig account to get current transaction index
+      // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
+      let transactionIndex: BigInt;
+      try {
+        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigAddress,
+          { commitment: 'confirmed' }
+        );
+        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
+        transactionIndex = BigInt(currentTransactionIndex + 1);
+        
+        enhancedLogger.info('📊 Fetched multisig transaction index for tie refund', {
+          multisigAddress: multisigAddress.toString(),
+          currentTransactionIndex,
+          nextTransactionIndex: transactionIndex.toString(),
+        });
+      } catch (fetchError: any) {
+        const errorMsg = `Failed to fetch multisig account for transaction index: ${fetchError?.message || String(fetchError)}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          multisigAddress: multisigAddress.toString(),
+          error: fetchError?.message || String(fetchError),
+          stack: fetchError?.stack,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
       
       // Create transfer instructions using SystemProgram
       const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
