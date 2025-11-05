@@ -2908,11 +2908,15 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
           "player2Paid",
           word,
           "squadsVaultAddress",
-          "entryFee"
+          "entryFee",
+          "isCompleted"
         FROM "match" 
-        WHERE (("player1" = $1 OR "player2" = $2) AND "status" IN ($3, $4, $5, $6))
+        WHERE (("player1" = $1 OR "player2" = $2) 
+          AND "status" IN ($3, $4, $5, $6)
+          AND ("isCompleted" = false OR "isCompleted" IS NULL)
+          AND "status" != $7)
         LIMIT 1
-      `, [walletParam, walletParam, 'active', 'escrow', 'matched', 'payment_required']);
+      `, [walletParam, walletParam, 'active', 'escrow', 'matched', 'payment_required', 'completed']);
 
       // Also check for cancelled matches
       cancelledMatches = await matchRepository.query(`
