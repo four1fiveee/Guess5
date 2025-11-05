@@ -270,13 +270,13 @@ export default function Lobby() {
       <div className="flex flex-col items-center">
         <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-8" />
         
-        {/* Back to Home Button */}
-        <button
-          onClick={() => router.push('/')}
-          className="mb-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-colors text-sm"
-        >
-          ← Back to Home
-        </button>
+                 {/* Back to Home Button */}
+         <button
+           onClick={() => router.push('/')}
+           className="mb-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-all duration-200 text-sm border border-white/20 hover:border-white/30"
+         >
+           ← Back to Home
+         </button>
         
         <WalletConnectButton />
         
@@ -337,34 +337,35 @@ export default function Lobby() {
               </div>
             )}
             
-            <div className="grid grid-cols-2 gap-3">
+                         <div className="grid grid-cols-2 gap-3">
               {ENTRY_FEES_USD.map((usdAmount, index) => {
                 const solAmount = solAmounts[index];
                 const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
+                const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims;
                 
                 return (
                   <button
                     key={usdAmount}
-                    className={`w-full p-4 rounded-lg font-bold transition-colors shadow ${
-                      hasEnoughBalance && !hasBlockingClaims
-                        ? 'bg-accent text-primary hover:bg-yellow-400'
-                        : 'bg-gray-600 text-gray-300 cursor-not-allowed'
-                    } ${isMatchmaking ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    className={`w-full p-4 rounded-lg font-bold transition-all duration-200 shadow ${
+                      hasEnoughBalance && !hasBlockingClaims && !isMatchmaking
+                        ? 'bg-accent text-primary hover:bg-yellow-400 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] border-2 border-transparent hover:border-yellow-300'
+                        : 'bg-gray-700 text-gray-400 cursor-not-allowed border-2 border-gray-600'
+                    } ${isMatchmaking ? 'opacity-60' : ''}`}
                     onClick={() => handleSelect(usdAmount, solAmount)}
-                    disabled={!hasEnoughBalance || isMatchmaking || hasBlockingClaims}
+                    disabled={isDisabled}
                   >
-                    <div className="text-lg">${usdAmount}</div>
-                    <div className="text-sm opacity-80">
-                      {solAmount ? `${solAmount} SOL` : 'Loading...'}
+                    <div className="text-xl font-bold mb-1">${usdAmount}</div>
+                    <div className="text-xs opacity-90 font-medium">
+                      {solAmount ? `${solAmount} SOL` : '...'}
                     </div>
                     {!hasEnoughBalance && walletBalance !== null && (
-                      <div className="text-xs text-red-400 mt-1">
-                        Insufficient balance
+                      <div className="text-xs text-red-400 mt-2 font-medium">
+                        ⚠ Insufficient balance
                       </div>
                     )}
                     {hasBlockingClaims && (
-                      <div className="text-xs text-yellow-400 mt-1">
-                        Claim pending funds first
+                      <div className="text-xs text-yellow-400 mt-2 font-medium">
+                        ⚠ Claim pending funds first
                       </div>
                     )}
                   </button>
@@ -373,9 +374,12 @@ export default function Lobby() {
             </div>
             
             {isMatchmaking && (
-              <div className="text-center mt-4">
-                <div className="text-accent text-lg font-semibold">Finding opponent...</div>
-                <div className="text-white/80 text-sm">Please wait</div>
+              <div className="text-center mt-4 animate-fade-in">
+                <div className="flex items-center justify-center mb-2">
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent mr-2"></div>
+                  <div className="text-accent text-lg font-semibold">Finding opponent...</div>
+                </div>
+                <div className="text-white/60 text-xs">Redirecting to matchmaking...</div>
               </div>
             )}
           </div>

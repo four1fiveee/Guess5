@@ -12,7 +12,7 @@ export default function Home() {
         
         {/* Main CTA */}
         <Link href="/lobby">
-          <button className="bg-accent text-primary text-xl font-bold px-8 py-3 rounded-lg shadow hover:bg-yellow-400 transition mb-2">
+          <button className="bg-accent text-primary text-xl font-bold px-8 py-4 rounded-lg shadow-lg hover:bg-yellow-400 hover:shadow-xl transition-all duration-200 transform hover:scale-105 active:scale-95 mb-2">
             Play Now
           </button>
         </Link>
@@ -80,7 +80,7 @@ export default function Home() {
         {/* Quick Links */}
         <div className="flex gap-3 mt-3 mb-3 flex-wrap justify-center">
           <Link href="/info">
-            <button className="bg-accent text-primary text-sm font-bold px-5 py-2 rounded-lg shadow hover:bg-yellow-400 transition">
+            <button className="bg-white/10 hover:bg-white/20 text-white text-sm font-medium px-5 py-2.5 rounded-lg shadow border border-white/20 hover:border-white/30 transition-all duration-200">
               📚 Rules, FAQ & Match History
             </button>
           </Link>

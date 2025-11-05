@@ -621,123 +621,178 @@ const Matchmaking: React.FC = () => {
         {/* Status Display */}
         <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-center shadow">
           {status === 'waiting' && (
-            <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Finding Opponent...</h2>
-              <div className="text-white/80 mb-4">
+            <div className="animate-fade-in">
+              <div className="flex items-center justify-center mb-6">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mr-3"></div>
+                <h2 className="text-2xl font-bold text-accent">Finding Opponent...</h2>
+              </div>
+              <div className="text-white/80 mb-6 text-center">
                 Waiting for another player to join
               </div>
-              <div className="text-accent text-lg font-semibold mb-4">
-                Entry Fee: {solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD (${entryFee} SOL)` : `${entryFee} SOL`}
-              </div>
-              <div className="text-accent text-lg font-semibold mb-4">
-                Time in Queue: {elapsedTime}
+              <div className="space-y-3 mb-6">
+                <div className="bg-secondary bg-opacity-20 rounded-lg p-4 border border-accent/20">
+                  <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Entry Fee</div>
+                  <div className="text-accent text-lg font-semibold">
+                    {solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD` : '—'}
+                  </div>
+                  <div className="text-white/70 text-sm mt-1">
+                    {entryFee} SOL
+                  </div>
+                </div>
+                <div className="bg-secondary bg-opacity-20 rounded-lg p-4 border border-accent/20">
+                  <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Time in Queue</div>
+                  <div className="text-accent text-xl font-bold font-mono">
+                    {elapsedTime}
+                  </div>
+                </div>
               </div>
               <button
                 onClick={() => router.push('/lobby')}
-                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
+                className="w-full bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-200 border border-white/20"
               >
-                Back to Lobby
+                ← Cancel & Return to Lobby
               </button>
             </div>
           )}
 
           {status === 'payment_required' && matchData && (
-            <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Payment Required</h2>
-              <div className="text-white/80 mb-4">
-                Entry Fee: {entryFee} SOL
+            <div className="animate-fade-in">
+              <h2 className="text-2xl font-bold text-accent mb-2">Payment Required</h2>
+              <p className="text-white/70 text-sm mb-6">Send your entry fee to the secure multisig vault</p>
+              
+              <div className="bg-secondary bg-opacity-20 rounded-lg p-4 mb-4 border border-accent/20">
+                <div className="text-white/60 text-xs uppercase tracking-wide mb-2">Entry Fee</div>
+                <div className="text-accent text-xl font-bold">
+                  {solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD` : '—'}
+                </div>
+                <div className="text-white/70 text-sm mt-1">
+                  {entryFee} SOL
+                </div>
               </div>
-              <div className="text-white/60 text-sm mb-2">
-                Vault: {(matchData.squadsVaultAddress || matchData.vaultAddress) ? (
-                  <span className="text-accent break-all">{matchData.squadsVaultAddress || matchData.vaultAddress}</span>
-                ) : (
-                  <span className="text-white/60">preparing vault…</span>
-                )}
-              </div>
-              <div className="text-white/60 text-sm mb-4">
-                Match ID: {matchData.matchId}
-              </div>
+
               {!(matchData.squadsVaultAddress || matchData.vaultAddress) && (
-                <div className="text-white/70 text-sm mb-4">Please wait a moment while the vault is created. This usually takes a few seconds.</div>
+                <div className="bg-yellow-500/20 border border-yellow-500/40 rounded-lg p-3 mb-4">
+                  <div className="flex items-center justify-center mb-2">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400 mr-2"></div>
+                    <div className="text-yellow-400 text-sm font-medium">Preparing secure vault...</div>
+                  </div>
+                  <p className="text-white/70 text-xs text-center">This usually takes a few seconds</p>
+                </div>
               )}
+
+              {(matchData.squadsVaultAddress || matchData.vaultAddress) && (
+                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4">
+                  <div className="text-green-400 text-sm font-medium mb-1">✓ Vault Ready</div>
+                  <div className="text-white/60 text-xs break-all font-mono">
+                    {(matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(0, 8)}...{(matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(-8)}
+                  </div>
+                </div>
+              )}
+
               <button
                 onClick={handlePayment}
                 disabled={isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)}
-                className={`font-bold py-2 px-4 rounded transition-colors ${
+                className={`w-full font-bold py-3 px-6 rounded-lg transition-all duration-200 ${
                   isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)
-                    ? 'bg-gray-500 cursor-not-allowed text-gray-300' 
-                    : 'bg-accent hover:bg-accent/80 text-white'
+                    ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
+                    : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'
                 }`}
               >
-                {isPaymentInProgress
-                  ? 'Processing Payment...'
-                  : (matchData.squadsVaultAddress || matchData.vaultAddress)
-                    ? 'Pay Entry Fee'
-                    : 'Waiting for Vault...'}
+                {isPaymentInProgress ? (
+                  <span className="flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                    Processing Payment...
+                  </span>
+                ) : (matchData.squadsVaultAddress || matchData.vaultAddress) ? (
+                  `Pay ${entryFee} SOL Entry Fee`
+                ) : (
+                  'Waiting for Vault...'
+                )}
               </button>
+              
+              <div className="mt-4 text-center">
+                <button
+                  onClick={() => router.push('/lobby')}
+                  className="text-white/60 hover:text-white text-sm underline transition-colors"
+                >
+                  Cancel
+                </button>
+              </div>
             </div>
           )}
 
           {status === 'waiting_for_payment' && matchData && (
-            <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Opponent</h2>
-              <div className="text-white/80 mb-4">
-                You have paid your entry fee. Waiting for your opponent to pay.
+            <div className="animate-fade-in">
+              <div className="flex items-center justify-center mb-4">
+                <div className="animate-pulse w-3 h-3 bg-accent rounded-full mr-3"></div>
+                <h2 className="text-2xl font-bold text-accent">Waiting for Opponent</h2>
               </div>
-              <div className="text-white/60 text-sm mb-4">
-                Match ID: {matchData.matchId}
-              </div>
-              <div className="text-accent text-lg font-semibold mb-4">
-                Please wait...
+              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
+                <div className="text-green-400 text-sm font-medium mb-1">✓ Your payment confirmed</div>
+                <p className="text-white/70 text-sm">Waiting for your opponent to pay their entry fee</p>
               </div>
             </div>
           )}
 
           {status === 'waiting_for_game' && (
-            <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Waiting for Game</h2>
-              <div className="text-white/80 mb-4">
-                {matchData?.player1Paid && matchData?.player2Paid 
-                  ? 'Both players have paid! Game starting soon...'
-                  : 'Waiting for other player to pay...'
-                }
+            <div className="animate-fade-in">
+              <div className="flex items-center justify-center mb-4">
+                <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mr-3"></div>
+                <h2 className="text-2xl font-bold text-accent">Preparing Game</h2>
+              </div>
+              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
+                {matchData?.player1Paid && matchData?.player2Paid ? (
+                  <>
+                    <div className="text-green-400 text-sm font-medium mb-1">✓ Both players paid</div>
+                    <p className="text-white/70 text-sm">Game starting soon...</p>
+                  </>
+                ) : (
+                  <p className="text-white/70 text-sm">Waiting for other player to pay...</p>
+                )}
               </div>
             </div>
           )}
 
           {status === 'active' && (
-            <div>
-              <h2 className="text-2xl font-bold text-accent mb-4">Game Starting...</h2>
-              <div className="text-white/80 mb-4">
-                Redirecting to game...
+            <div className="animate-fade-in">
+              <div className="flex items-center justify-center mb-4">
+                <div className="animate-pulse w-3 h-3 bg-green-400 rounded-full mr-3"></div>
+                <h2 className="text-2xl font-bold text-green-400">Game Starting</h2>
               </div>
+              <p className="text-white/70 text-center">Redirecting to game...</p>
             </div>
           )}
 
           {status === 'error' && (
-            <div>
-              <h2 className="text-2xl font-bold text-red-400 mb-4">Error</h2>
-              <div className="text-white/80 mb-4">
-                Something went wrong. Please try again.
-              </div>
+            <div className="animate-fade-in">
+              <div className="text-red-400 text-4xl mb-4 text-center">⚠️</div>
+              <h2 className="text-2xl font-bold text-red-400 mb-2 text-center">Something Went Wrong</h2>
+              <p className="text-white/70 text-sm mb-6 text-center">
+                An error occurred during matchmaking. Please try again.
+              </p>
               <button
                 onClick={() => router.push('/lobby')}
-                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
+                className="w-full bg-accent hover:bg-yellow-400 text-primary font-bold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
               >
-                Back to Lobby
+                Return to Lobby
               </button>
             </div>
           )}
 
           {status === 'cancelled' && (
-            <div>
-              <h2 className="text-2xl font-bold text-yellow-400 mb-4">Match Cancelled</h2>
-              <div className="text-white/80 mb-4">
-                The match was cancelled due to payment timeout. If you paid, you will receive a refund.
+            <div className="animate-fade-in">
+              <div className="text-yellow-400 text-4xl mb-4 text-center">⏰</div>
+              <h2 className="text-2xl font-bold text-yellow-400 mb-2 text-center">Match Cancelled</h2>
+              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
+                <p className="text-white/80 text-sm text-center mb-2">
+                  The match was cancelled due to payment timeout.
+                </p>
+                <p className="text-green-400 text-sm text-center font-medium">
+                  If you paid, you will receive a refund.
+                </p>
               </div>
               <button
                 onClick={() => {
-                  // Clear all stale match data before going to lobby
                   setMatchData(null);
                   matchDataRef.current = null;
                   localStorage.removeItem('matchId');
@@ -745,9 +800,9 @@ const Matchmaking: React.FC = () => {
                   localStorage.removeItem('entryFee');
                   router.push('/lobby');
                 }}
-                className="bg-accent hover:bg-accent/80 text-white font-bold py-2 px-4 rounded transition-colors"
+                className="w-full bg-accent hover:bg-yellow-400 text-primary font-bold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
               >
-                Back to Lobby
+                Return to Lobby
               </button>
             </div>
           )}
