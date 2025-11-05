@@ -2067,7 +2067,7 @@ const submitResultHandler = async (req: any, res: any) => {
             await matchRepository.save(finalMatch);
             
             // CRITICAL: Ensure proposals are created after saving match
-            // Create proposal directly if it doesn't exist
+            // Create proposal directly if it doesn't exist (fixed missing service file issue)
             try {
               if (!(finalMatch as any).payoutProposalId && !(finalMatch as any).tieRefundProposalId && finalMatch.winner && (finalMatch as any).squadsVaultAddress) {
                 const { PublicKey } = require('@solana/web3.js');
