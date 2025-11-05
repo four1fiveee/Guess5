@@ -6493,19 +6493,58 @@ const signProposalHandler = async (req: any, res: any) => {
     try {
       const serializedTx = transaction.serialize();
       console.log('📤 Sending signed transaction to network...');
-      signature = await connection.sendRawTransaction(serializedTx, {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
-      console.log('✅ Transaction sent, signature:', signature);
+      
+      // First try with preflight (simulation)
+      try {
+        signature = await connection.sendRawTransaction(serializedTx, {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
+        console.log('✅ Transaction sent, signature:', signature);
+      } catch (preflightError: any) {
+        // If preflight fails, try to get simulation logs
+        console.warn('⚠️ Preflight simulation failed, attempting to get simulation logs...');
+        try {
+          const simulationResult = await connection.simulateTransaction(transaction, {
+            replaceRecentBlockhash: true,
+            sigVerify: false,
+          });
+          console.error('❌ Simulation details:', {
+            err: simulationResult.value.err,
+            logs: simulationResult.value.logs,
+            accounts: simulationResult.value.accounts,
+          });
+        } catch (simError: any) {
+          console.warn('⚠️ Could not get simulation details:', simError?.message);
+        }
+        
+        // For old transactions, try skipping preflight (blockhash might be stale)
+        console.log('🔄 Retrying with skipPreflight=true (blockhash may be stale)...');
+        signature = await connection.sendRawTransaction(serializedTx, {
+          skipPreflight: true,
+          maxRetries: 3,
+        });
+        console.log('✅ Transaction sent (preflight skipped), signature:', signature);
+      }
     } catch (sendError: any) {
       console.error('❌ Failed to send transaction:', {
         error: sendError?.message,
         stack: sendError?.stack,
         errorCode: sendError?.code,
         errorName: sendError?.name,
+        logs: sendError?.logs,
       });
-      throw new Error(`Failed to send transaction: ${sendError?.message || String(sendError)}`);
+      
+      // Try to extract more details from the error
+      let errorMessage = sendError?.message || String(sendError);
+      if (sendError?.logs && Array.isArray(sendError.logs)) {
+        errorMessage += ` | Logs: ${sendError.logs.slice(-5).join('; ')}`;
+      }
+      if (sendError?.err) {
+        errorMessage += ` | Error: ${JSON.stringify(sendError.err)}`;
+      }
+      
+      throw new Error(`Failed to send transaction: ${errorMessage}`);
     }
 
     // Wait for confirmation
