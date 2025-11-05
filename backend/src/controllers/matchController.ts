@@ -6095,9 +6095,18 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       return res.status(403).json({ error: 'You are not part of this match' });
     }
 
-    // Check if match has a payout proposal
-    if (!(match as any).squadsVaultAddress || !(match as any).payoutProposalId) {
-      return res.status(400).json({ error: 'No payout proposal exists for this match' });
+    // Check if match has a payout proposal (either payout or tie refund)
+    const hasPayoutProposal = !!(match as any).payoutProposalId;
+    const hasTieRefundProposal = !!(match as any).tieRefundProposalId;
+    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    
+    if (!(match as any).squadsVaultAddress || !proposalId) {
+      return res.status(400).json({ 
+        error: 'No payout proposal exists for this match',
+        hasPayoutProposal,
+        hasTieRefundProposal,
+        squadsVaultAddress: (match as any).squadsVaultAddress,
+      });
     }
 
     // Verify player hasn't already signed
@@ -6140,6 +6149,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       wallet,
       squadsVaultAddress: (match as any).squadsVaultAddress,
       payoutProposalId: (match as any).payoutProposalId,
+      tieRefundProposalId: (match as any).tieRefundProposalId,
+      proposalId: proposalId,
       programId: programId.toString(),
     });
 
@@ -6149,7 +6160,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     
     try {
       multisigAddress = new PublicKey((match as any).squadsVaultAddress);
-      transactionIndex = BigInt((match as any).payoutProposalId);
+      transactionIndex = BigInt(proposalId);
       memberPublicKey = new PublicKey(wallet);
     } catch (keyError: any) {
       console.error('❌ Failed to create PublicKey instances:', keyError?.message);
@@ -6199,7 +6210,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         multisigAddress: multisigAddress.toString(),
         transactionIndex: transactionIndex.toString(),
         programId: programId.toString(),
-      });
+    });
       throw new Error(`Failed to derive transaction PDA: ${pdaError?.message || String(pdaError)}`);
     }
     
@@ -6210,8 +6221,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         // Try with programId parameter first
         if (typeof getMemberPda === 'function') {
           const result = getMemberPda({
-            multisig: multisigAddress,
-            memberKey: memberPublicKey,
+      multisig: multisigAddress,
+      memberKey: memberPublicKey,
             programId: programId,
           } as any);
           // Check if result is an array (PDA tuple) or single value
@@ -6305,14 +6316,14 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     try {
       approveIx = new TransactionInstruction({
         programId: programId, // Use network-specific program ID (must match multisig creation!)
-        keys: [
+      keys: [
           { pubkey: multisigAddress, isSigner: false, isWritable: true },  // multisig PDA
           { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction PDA
           { pubkey: memberPda, isSigner: false, isWritable: false },     // member PDA
           { pubkey: memberPublicKey, isSigner: true, isWritable: false }, // member (signer)
-        ],
-        data: instructionData,
-      });
+      ],
+      data: instructionData,
+    });
       console.log('✅ Approval instruction created manually');
     } catch (ixError: any) {
       console.error('❌ Failed to create approval instruction:', {
@@ -6326,10 +6337,10 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     let messageV0;
     try {
       messageV0 = new TransactionMessage({
-        payerKey: memberPublicKey,
-        recentBlockhash: blockhash,
-        instructions: [approveIx],
-      }).compileToV0Message();
+      payerKey: memberPublicKey,
+      recentBlockhash: blockhash,
+      instructions: [approveIx],
+    }).compileToV0Message();
       console.log('✅ Transaction message compiled');
     } catch (msgError: any) {
       console.error('❌ Failed to compile transaction message:', {
@@ -6483,9 +6494,9 @@ const signProposalHandler = async (req: any, res: any) => {
       const serializedTx = transaction.serialize();
       console.log('📤 Sending signed transaction to network...');
       signature = await connection.sendRawTransaction(serializedTx, {
-        skipPreflight: false,
-        maxRetries: 3,
-      });
+      skipPreflight: false,
+      maxRetries: 3,
+    });
       console.log('✅ Transaction sent, signature:', signature);
     } catch (sendError: any) {
       console.error('❌ Failed to send transaction:', {
@@ -6537,20 +6548,20 @@ const signProposalHandler = async (req: any, res: any) => {
 
     // Update match with new signer
     try {
-      match.addProposalSigner(wallet);
-      
-      // Update needsSignatures count
-      const currentNeedsSignatures = (match as any).needsSignatures || 2;
-      (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
-      
-      // If enough signatures, mark as ready to execute
-      if ((match as any).needsSignatures === 0) {
-        (match as any).proposalStatus = 'READY_TO_EXECUTE';
-      } else {
-        (match as any).proposalStatus = 'ACTIVE';
-      }
+    match.addProposalSigner(wallet);
+    
+    // Update needsSignatures count
+    const currentNeedsSignatures = (match as any).needsSignatures || 2;
+    (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
+    
+    // If enough signatures, mark as ready to execute
+    if ((match as any).needsSignatures === 0) {
+      (match as any).proposalStatus = 'READY_TO_EXECUTE';
+    } else {
+      (match as any).proposalStatus = 'ACTIVE';
+    }
 
-      await matchRepository.save(match);
+    await matchRepository.save(match);
       console.log('✅ Match updated with signer:', {
         matchId,
         wallet,
