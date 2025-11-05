@@ -6099,65 +6099,126 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     );
 
     // CRITICAL: Use the same program ID that was used to create the multisig
-    // Get it from the Squads service or environment variable (same logic as service uses)
+    // Get it from the Squads service to ensure consistency
     const { PROGRAM_ID } = require('@sqds/multisig');
-    let programId: PublicKey;
-    if (process.env.SQUADS_PROGRAM_ID) {
-      try {
-        programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
-      } catch (pkError: any) {
-        console.warn('⚠️ Invalid SQUADS_PROGRAM_ID, using SDK default', pkError?.message);
+    let programId;
+    try {
+      if (process.env.SQUADS_PROGRAM_ID) {
+        try {
+          programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+          console.log('✅ Using SQUADS_PROGRAM_ID from environment:', programId.toString());
+        } catch (pkError: any) {
+          console.warn('⚠️ Invalid SQUADS_PROGRAM_ID, using SDK default', pkError?.message);
+          programId = PROGRAM_ID;
+        }
+      } else {
         programId = PROGRAM_ID;
+        console.log('✅ Using SDK default PROGRAM_ID:', programId.toString());
       }
-    } else {
-      programId = PROGRAM_ID;
+    } catch (progIdError: any) {
+      console.error('❌ Failed to get program ID:', progIdError?.message);
+      throw new Error(`Failed to get program ID: ${progIdError?.message || String(progIdError)}`);
     }
 
-    const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
-    const transactionIndex = BigInt((match as any).payoutProposalId);
-    const memberPublicKey = new PublicKey(wallet);
+    console.log('🔍 Building approval transaction:', {
+      matchId,
+      wallet,
+      squadsVaultAddress: (match as any).squadsVaultAddress,
+      payoutProposalId: (match as any).payoutProposalId,
+      programId: programId.toString(),
+    });
+
+    let multisigAddress;
+    let transactionIndex;
+    let memberPublicKey;
+    
+    try {
+      multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+      transactionIndex = BigInt((match as any).payoutProposalId);
+      memberPublicKey = new PublicKey(wallet);
+    } catch (keyError: any) {
+      console.error('❌ Failed to create PublicKey instances:', keyError?.message);
+      throw new Error(`Invalid address format: ${keyError?.message || String(keyError)}`);
+    }
 
     // Get recent blockhash
-    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
+    let blockhash;
+    let lastValidBlockHeight;
+    try {
+      const blockhashResult = await connection.getLatestBlockhash('confirmed');
+      blockhash = blockhashResult.blockhash;
+      lastValidBlockHeight = blockhashResult.lastValidBlockHeight;
+    } catch (blockhashError: any) {
+      console.error('❌ Failed to get blockhash:', blockhashError?.message);
+      throw new Error(`Failed to get blockhash: ${blockhashError?.message || String(blockhashError)}`);
+    }
 
     // Use SDK helpers with the correct program ID
     const { getVaultTransactionPda, getMemberPda } = require('@sqds/multisig');
     const crypto = require('crypto');
     
     // Derive transaction PDA using SDK helper with correct program ID
-    let transactionPda: PublicKey;
+    let transactionPda;
     try {
-      const [pda] = getVaultTransactionPda({
-        multisig: multisigAddress,
-        index: transactionIndex,
-        programId: programId,
-      } as any);
-      transactionPda = pda;
+      try {
+        const [pda] = getVaultTransactionPda({
+          multisig: multisigAddress,
+          index: transactionIndex,
+          programId: programId,
+        } as any);
+        transactionPda = pda;
+        console.log('✅ Transaction PDA derived with programId:', transactionPda.toString());
+      } catch (pdaError: any) {
+        // Fallback if programId parameter not supported
+        console.warn('⚠️ getVaultTransactionPda with programId failed, trying without:', pdaError?.message);
+        const [pda] = getVaultTransactionPda({
+          multisig: multisigAddress,
+          index: transactionIndex,
+        });
+        transactionPda = pda;
+        console.log('✅ Transaction PDA derived without programId:', transactionPda.toString());
+      }
     } catch (pdaError: any) {
-      // Fallback if programId parameter not supported
-      const [pda] = getVaultTransactionPda({
-        multisig: multisigAddress,
-        index: transactionIndex,
+      console.error('❌ Failed to derive transaction PDA:', {
+        error: pdaError?.message,
+        stack: pdaError?.stack,
+        multisigAddress: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        programId: programId.toString(),
       });
-      transactionPda = pda;
+      throw new Error(`Failed to derive transaction PDA: ${pdaError?.message || String(pdaError)}`);
     }
     
     // Derive member PDA using SDK helper with correct program ID
-    let memberPda: PublicKey;
+    let memberPda;
     try {
-      const [pda] = getMemberPda({
-        multisig: multisigAddress,
-        memberKey: memberPublicKey,
-        programId: programId,
-      } as any);
-      memberPda = pda;
+      try {
+        const [pda] = getMemberPda({
+          multisig: multisigAddress,
+          memberKey: memberPublicKey,
+          programId: programId,
+        } as any);
+        memberPda = pda;
+        console.log('✅ Member PDA derived with programId:', memberPda.toString());
+      } catch (pdaError: any) {
+        // Fallback if programId parameter not supported
+        console.warn('⚠️ getMemberPda with programId failed, trying without:', pdaError?.message);
+        const [pda] = getMemberPda({
+          multisig: multisigAddress,
+          memberKey: memberPublicKey,
+        });
+        memberPda = pda;
+        console.log('✅ Member PDA derived without programId:', memberPda.toString());
+      }
     } catch (pdaError: any) {
-      // Fallback if programId parameter not supported
-      const [pda] = getMemberPda({
-        multisig: multisigAddress,
-        memberKey: memberPublicKey,
+      console.error('❌ Failed to derive member PDA:', {
+        error: pdaError?.message,
+        stack: pdaError?.stack,
+        multisigAddress: multisigAddress.toString(),
+        memberKey: memberPublicKey.toString(),
+        programId: programId.toString(),
       });
-      memberPda = pda;
+      throw new Error(`Failed to derive member PDA: ${pdaError?.message || String(pdaError)}`);
     }
     
     // Calculate Anchor instruction discriminator: sha256("global:vault_transaction_approve")[0:8]
@@ -6171,28 +6232,70 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     
     const instructionData = Buffer.concat([discriminator, indexBuffer]);
     
-    const approveIx = new TransactionInstruction({
-      programId: programId, // Use network-specific program ID (must match multisig creation!)
-      keys: [
-        { pubkey: multisigAddress, isSigner: false, isWritable: false },
-        { pubkey: transactionPda, isSigner: false, isWritable: true },
-        { pubkey: memberPda, isSigner: false, isWritable: false },
-        { pubkey: memberPublicKey, isSigner: true, isWritable: false },
-      ],
-      data: instructionData,
-    });
+    let approveIx;
+    try {
+      approveIx = new TransactionInstruction({
+        programId: programId, // Use network-specific program ID (must match multisig creation!)
+        keys: [
+          { pubkey: multisigAddress, isSigner: false, isWritable: false },
+          { pubkey: transactionPda, isSigner: false, isWritable: true },
+          { pubkey: memberPda, isSigner: false, isWritable: false },
+          { pubkey: memberPublicKey, isSigner: true, isWritable: false },
+        ],
+        data: instructionData,
+      });
+      console.log('✅ Approval instruction created');
+    } catch (ixError: any) {
+      console.error('❌ Failed to create approval instruction:', {
+        error: ixError?.message,
+        stack: ixError?.stack,
+        programId: programId.toString(),
+      });
+      throw new Error(`Failed to create approval instruction: ${ixError?.message || String(ixError)}`);
+    }
     
-    const messageV0 = new TransactionMessage({
-      payerKey: memberPublicKey,
-      recentBlockhash: blockhash,
-      instructions: [approveIx],
-    }).compileToV0Message();
+    let messageV0;
+    try {
+      messageV0 = new TransactionMessage({
+        payerKey: memberPublicKey,
+        recentBlockhash: blockhash,
+        instructions: [approveIx],
+      }).compileToV0Message();
+      console.log('✅ Transaction message compiled');
+    } catch (msgError: any) {
+      console.error('❌ Failed to compile transaction message:', {
+        error: msgError?.message,
+        stack: msgError?.stack,
+      });
+      throw new Error(`Failed to compile transaction message: ${msgError?.message || String(msgError)}`);
+    }
     
-    const transaction = new VersionedTransaction(messageV0);
+    let transaction;
+    try {
+      transaction = new VersionedTransaction(messageV0);
+      console.log('✅ Versioned transaction created');
+    } catch (txError: any) {
+      console.error('❌ Failed to create versioned transaction:', {
+        error: txError?.message,
+        stack: txError?.stack,
+      });
+      throw new Error(`Failed to create versioned transaction: ${txError?.message || String(txError)}`);
+    }
 
     // Serialize the transaction for the frontend to sign
-    const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
-    const base64Tx = Buffer.from(serialized).toString('base64');
+    let serialized;
+    let base64Tx;
+    try {
+      serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+      base64Tx = Buffer.from(serialized).toString('base64');
+      console.log('✅ Transaction serialized, length:', base64Tx.length);
+    } catch (serializeError: any) {
+      console.error('❌ Failed to serialize transaction:', {
+        error: serializeError?.message,
+        stack: serializeError?.stack,
+      });
+      throw new Error(`Failed to serialize transaction: ${serializeError?.message || String(serializeError)}`);
+    }
 
     res.json({
       transaction: base64Tx,
