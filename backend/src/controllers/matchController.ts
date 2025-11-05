@@ -5209,14 +5209,17 @@ const generateReportHandler = async (req: any, res: any) => {
         FROM "match" 
         WHERE ${dateFilter}
           AND "squadsVaultAddress" IS NOT NULL
+          AND "player1Paid" = true
+          AND "player2Paid" = true
           AND (
-            (status = 'completed' AND "isCompleted" = true)
-            OR 
+            -- Executed payouts (winners or ties with refunds)
+            (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
+            OR
+            -- Cancelled matches with refunds
             (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
             OR
-            ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL)
-            OR
-            ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+            -- Any match with executed transaction
+            ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
           )
         ORDER BY "createdAt" DESC
       `);
@@ -5265,14 +5268,17 @@ const generateReportHandler = async (req: any, res: any) => {
           FROM "match" 
           WHERE ${dateFilter}
             AND "squadsVaultAddress" IS NOT NULL
+            AND "player1Paid" = true
+            AND "player2Paid" = true
             AND (
-              (status = 'completed' AND "isCompleted" = true)
-              OR 
+              -- Executed payouts (winners or ties with refunds)
+              (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
+              OR
+              -- Cancelled matches with refunds
               (status = 'cancelled' AND ("proposalTransactionId" IS NOT NULL))
               OR
-              ("proposalTransactionId" IS NOT NULL)
-              OR
-              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+              -- Any match with executed transaction
+              ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
             )
           ORDER BY "createdAt" DESC
         `);
@@ -5310,10 +5316,14 @@ const generateReportHandler = async (req: any, res: any) => {
           FROM "match" 
           WHERE ${dateFilter}
             AND "squadsVaultAddress" IS NOT NULL
+            AND "player1Paid" = true
+            AND "player2Paid" = true
             AND (
-              (status = 'completed' AND "isCompleted" = true)
+              -- Executed payouts
+              (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
               OR
-              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+              -- Any match with executed transaction
+              ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
             )
           ORDER BY "createdAt" DESC
         `);
@@ -5359,8 +5369,9 @@ const generateReportHandler = async (req: any, res: any) => {
       }
     };
     
-    // Generate CSV headers - Only finished matches with results or refunds
+    // Generate CSV headers - Financial tracking focused
     const csvHeaders = [
+      // Core Match Info
       'Match ID',
       'Player 1 Wallet',
       'Player 2 Wallet', 
@@ -5372,12 +5383,15 @@ const generateReportHandler = async (req: any, res: any) => {
       'Winner Amount (SOL)',
       'Winner Amount (USD)',
       'Platform Fee (SOL)',
+      'Fee Wallet Address',
       'Game Completed',
-      '🔗 SQUADS VAULT 🔗',
+      
+      // Vault & Deposits
       'Squads Vault Address',
       'Player 1 Deposit TX',
       'Player 2 Deposit TX',
-      '🔗 PAYMENT VERIFICATION 🔗',
+      
+      // Payment Verification
       'Player 1 Payment TX',
       'Player 2 Payment TX',
       'Player 1 Payment Time (EST)',
@@ -5385,7 +5399,8 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 1 Payment Block',
       'Player 2 Payment Block',
       'SOL Price at Transaction',
-      '🔗 GAME RESULTS 🔗',
+      
+      // Game Results
       'Player 1 Solved',
       'Player 1 Guesses',
       'Player 1 Time (sec)',
@@ -5394,32 +5409,41 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 2 Guesses',
       'Player 2 Time (sec)',
       'Player 2 Result Reason',
-      '🔗 TIMESTAMPS 🔗',
+      
+      // Timestamps
       'Match Created (EST)',
       'Game Started (EST)',
       'Game Ended (EST)',
-      '🔗 PAYOUT TRANSACTIONS 🔗',
+      
+      // Payout Transactions
       'Winner Payout TX',
       'Winner Payout Time (EST)',
       'Winner Payout Block',
+      'Fee Wallet Payout TX',
       'Executed Transaction Hash',
-      '🔗 SQUADS PROPOSAL INFO 🔗',
+      
+      // Proposal Info
       'Payout Proposal ID',
       'Tie Refund Proposal ID',
       'Proposal Status',
       'Proposal Created At',
       'Proposal Executed At',
       'Needs Signatures',
-      'Proposal Signers (JSON)',
-      '🔗 EXPLORER LINKS 🔗',
+      
+      // Explorer Links
       'Squads Vault Link',
       'Player 1 Deposit Link',
       'Player 2 Deposit Link',
       'Player 1 Payment Link',
       'Player 2 Payment Link',
       'Winner Payout Link',
+      'Fee Wallet Payout Link',
       'Executed Transaction Link'
     ];
+    
+    // Get fee wallet address
+    const { FEE_WALLET_ADDRESS } = require('../config/wallet');
+    const feeWalletAddress = FEE_WALLET_ADDRESS;
     
     // Generate CSV rows with available data
     const csvRows = matches.map((match: any) => {
@@ -5430,10 +5454,6 @@ const generateReportHandler = async (req: any, res: any) => {
       const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
       const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
       const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
-      
-
-      
-
       
       // Calculate total pot and amounts based on match status
       const totalPot = match.entryFee * 2;
@@ -5455,21 +5475,13 @@ const generateReportHandler = async (req: any, res: any) => {
         winner = 'cancelled';
       }
 
-      // Get proposal signers
-      let proposalSignersJson = '';
-      try {
-        if (match.proposalSigners) {
-          const signers = typeof match.proposalSigners === 'string' 
-            ? JSON.parse(match.proposalSigners) 
-            : match.proposalSigners;
-          proposalSignersJson = JSON.stringify(signers);
-        }
-      } catch (e) {
-        // If parsing fails, use raw value
-        proposalSignersJson = match.proposalSigners || '';
-      }
+      // Fee wallet payout transaction is same as executed transaction for completed matches
+      const feeWalletPayoutTx = (match.proposalStatus === 'EXECUTED' && match.proposalTransactionId) 
+        ? match.proposalTransactionId 
+        : '';
       
       return [
+        // Core Match Info
         sanitizeCsvValue(match.id),
         sanitizeCsvValue(match.player1),
         sanitizeCsvValue(match.player2),
@@ -5481,12 +5493,15 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(winnerAmount),
         sanitizeCsvValue(winnerAmountUSD),
         sanitizeCsvValue(platformFee),
+        sanitizeCsvValue(feeWalletAddress),
         sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
-        '', // 🔗 SQUADS VAULT 🔗
+        
+        // Vault & Deposits
         sanitizeCsvValue(match.squadsVaultAddress),
         sanitizeCsvValue(match.depositATx),
         sanitizeCsvValue(match.depositBTx),
-        '', // 🔗 PAYMENT VERIFICATION 🔗
+        
+        // Payment Verification
         sanitizeCsvValue(match.player1PaymentSignature || ''),
         sanitizeCsvValue(match.player2PaymentSignature || ''),
         sanitizeCsvValue(match.player1PaymentTime ? convertToEST(match.player1PaymentTime) : ''),
@@ -5494,7 +5509,8 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(match.player1PaymentBlockNumber || ''),
         sanitizeCsvValue(match.player2PaymentBlockNumber || ''),
         sanitizeCsvValue(match.solPriceAtTransaction || ''),
-        '', // 🔗 GAME RESULTS 🔗
+        
+        // Game Results
         sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
         sanitizeCsvValue(player1Result && player1Result.numGuesses ? player1Result.numGuesses : ''),
         sanitizeCsvValue(player1Result && player1Result.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
@@ -5503,30 +5519,35 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(player2Result && player2Result.numGuesses ? player2Result.numGuesses : ''),
         sanitizeCsvValue(player2Result && player2Result.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
         sanitizeCsvValue(player2Result && player2Result.reason ? player2Result.reason : ''),
-        '', // 🔗 TIMESTAMPS 🔗
+        
+        // Timestamps
         convertToEST(match.createdAt),
         convertToEST(match.gameStartTimeUtc),
         convertToEST(match.gameEndTimeUtc),
-        '', // 🔗 PAYOUT TRANSACTIONS 🔗
+        
+        // Payout Transactions
         sanitizeCsvValue(match.winnerPayoutSignature || ''),
         sanitizeCsvValue(match.winnerPayoutBlockTime ? convertToEST(match.winnerPayoutBlockTime) : ''),
         sanitizeCsvValue(match.winnerPayoutBlockNumber || ''),
+        sanitizeCsvValue(feeWalletPayoutTx),
         sanitizeCsvValue(match.proposalTransactionId || ''),
-        '', // 🔗 SQUADS PROPOSAL INFO 🔗
+        
+        // Proposal Info
         sanitizeCsvValue(match.payoutProposalId || ''),
         sanitizeCsvValue(match.tieRefundProposalId || ''),
         sanitizeCsvValue(match.proposalStatus || ''),
         sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
         sanitizeCsvValue(match.proposalExecutedAt ? convertToEST(match.proposalExecutedAt) : ''),
         sanitizeCsvValue(match.needsSignatures || ''),
-        sanitizeCsvValue(proposalSignersJson),
-        '', // 🔗 EXPLORER LINKS 🔗
+        
+        // Explorer Links
         match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
         match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
         match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
         match.player1PaymentSignature ? `https://explorer.solana.com/tx/${match.player1PaymentSignature}?cluster=${network}` : '',
         match.player2PaymentSignature ? `https://explorer.solana.com/tx/${match.player2PaymentSignature}?cluster=${network}` : '',
         match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${network}` : '',
+        feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
         match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
       ];
     });
@@ -5616,30 +5637,45 @@ const generateReportHandler = async (req: any, res: any) => {
           FROM "match" 
           WHERE ${dateFilter}
             AND "squadsVaultAddress" IS NOT NULL
+            AND "player1Paid" = true
+            AND "player2Paid" = true
             AND (
-              (status = 'completed' AND "isCompleted" = true)
-              OR 
-              (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
+              -- Executed payouts (winners or ties with refunds)
+              (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
               OR
-              ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL)
+              -- Cancelled matches with refunds
+              (status = 'cancelled' AND ("proposalTransactionId" IS NOT NULL))
               OR
-              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+              -- Any match with executed transaction
+              ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
             )
           ORDER BY "createdAt" DESC
         `);
         
+        // Get fee wallet address
+        const { FEE_WALLET_ADDRESS } = require('../config/wallet');
+        const feeWalletAddress = FEE_WALLET_ADDRESS;
+        
         // Generate CSV with fallback data (missing new columns will be empty)
         const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet-beta';
         const csvHeaders = [
+          // Core Match Info
           'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Total Pot (SOL)',
-          'Match Status', 'Winner', 'Winner Amount (SOL)', 'Platform Fee (SOL)', 'Game Completed',
+          'Match Status', 'Winner', 'Winner Amount (SOL)', 'Platform Fee (SOL)', 'Fee Wallet Address', 'Game Completed',
+          // Vault & Deposits
           'Squads Vault Address', 'Player 1 Deposit TX', 'Player 2 Deposit TX',
+          // Game Results
           'Player 1 Solved', 'Player 1 Guesses', 'Player 1 Time (sec)', 'Player 1 Result Reason',
           'Player 2 Solved', 'Player 2 Guesses', 'Player 2 Time (sec)', 'Player 2 Result Reason',
+          // Timestamps
           'Match Created (EST)', 'Game Started (EST)', 'Game Ended (EST)',
-          'Executed Transaction Hash', 'Proposal ID', 'Proposal Status', 'Proposal Created At',
-          'Needs Signatures', 'Squads Vault Link', 'Player 1 Deposit Link', 'Player 2 Deposit Link',
-          'Executed Transaction Link'
+          // Payout Transactions
+          'Executed Transaction Hash', 'Fee Wallet Payout TX',
+          // Proposal Info
+          'Proposal ID', 'Proposal Status', 'Proposal Created At', 'Needs Signatures',
+          // Explorer Links
+          'Squads Vault Link', 'Player 1 Deposit Link', 'Player 2 Deposit Link',
+          'Fee Wallet Payout Link', 'Executed Transaction Link'
         ];
         
         const sanitizeCsvValue = (value: any) => {
@@ -5668,7 +5704,13 @@ const generateReportHandler = async (req: any, res: any) => {
           const platformFee = match.platformFee || (payoutResult?.feeAmount || 0);
           const winner = payoutResult?.winner || match.winner || '';
           
+          // Fee wallet payout transaction is same as executed transaction for completed matches
+          const feeWalletPayoutTx = (match.proposalStatus === 'EXECUTED' && match.proposalTransactionId) 
+            ? match.proposalTransactionId 
+            : '';
+          
           return [
+            // Core Match Info
             sanitizeCsvValue(match.id),
             sanitizeCsvValue(match.player1),
             sanitizeCsvValue(match.player2),
@@ -5678,10 +5720,13 @@ const generateReportHandler = async (req: any, res: any) => {
             sanitizeCsvValue(winner),
             sanitizeCsvValue(winnerAmount),
             sanitizeCsvValue(platformFee),
+            sanitizeCsvValue(feeWalletAddress),
             sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
+            // Vault & Deposits
             sanitizeCsvValue(match.squadsVaultAddress),
             sanitizeCsvValue(match.depositATx),
             sanitizeCsvValue(match.depositBTx),
+            // Game Results
             sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
             sanitizeCsvValue(player1Result?.numGuesses || ''),
             sanitizeCsvValue(player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
@@ -5690,17 +5735,23 @@ const generateReportHandler = async (req: any, res: any) => {
             sanitizeCsvValue(player2Result?.numGuesses || ''),
             sanitizeCsvValue(player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
             sanitizeCsvValue(player2Result?.reason || ''),
+            // Timestamps
             convertToEST(match.createdAt),
             convertToEST(match.gameStartTimeUtc),
             convertToEST(match.gameEndTimeUtc),
-            sanitizeCsvValue(match.proposalTransactionId),
+            // Payout Transactions
+            sanitizeCsvValue(match.proposalTransactionId || ''),
+            sanitizeCsvValue(feeWalletPayoutTx),
+            // Proposal Info
             sanitizeCsvValue(match.payoutProposalId || ''),
             sanitizeCsvValue(match.proposalStatus || ''),
             sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
             sanitizeCsvValue(match.needsSignatures || ''),
+            // Explorer Links
             match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
             match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
             match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
+            feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
             match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
           ];
         });
