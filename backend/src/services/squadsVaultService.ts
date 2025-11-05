@@ -803,55 +803,10 @@ export class SquadsVaultService {
         vaultPda: vaultPda.toString(),
       });
 
-      // CRITICAL: Verify the vault PDA exists and is owned by the Squads program
-      // In Squads v4, the vault is automatically created when the multisig is created
-      // But we need to verify it exists before using it
-      try {
-        const vaultAccountInfo = await this.connection.getAccountInfo(vaultPda, 'confirmed');
-        if (!vaultAccountInfo) {
-          const errorMsg = `Vault PDA ${vaultPda.toString()} does not exist. The vault may not have been initialized when the multisig was created.`;
-          enhancedLogger.error('❌ ' + errorMsg, {
-            vaultPda: vaultPda.toString(),
-            multisigAddress: multisigAddress.toString(),
-            programId: this.programId.toString(),
-          });
-          return {
-            success: false,
-            error: errorMsg,
-          };
-        }
-        
-        // Verify the vault is owned by the Squads program
-        if (!vaultAccountInfo.owner.equals(this.programId)) {
-          const errorMsg = `Vault PDA ${vaultPda.toString()} is owned by ${vaultAccountInfo.owner.toString()}, expected ${this.programId.toString()}`;
-          enhancedLogger.error('❌ ' + errorMsg, {
-            vaultPda: vaultPda.toString(),
-            actualOwner: vaultAccountInfo.owner.toString(),
-            expectedOwner: this.programId.toString(),
-            multisigAddress: multisigAddress.toString(),
-          });
-          return {
-            success: false,
-            error: errorMsg,
-          };
-        }
-        
-        enhancedLogger.info('✅ Vault PDA verified', {
-          vaultPda: vaultPda.toString(),
-          owner: vaultAccountInfo.owner.toString(),
-          dataLength: vaultAccountInfo.data.length,
-        });
-      } catch (verifyError: any) {
-        const errorMsg = `Failed to verify vault PDA: ${verifyError?.message || String(verifyError)}`;
-        enhancedLogger.error('❌ ' + errorMsg, {
-          vaultPda: vaultPda.toString(),
-          error: verifyError?.message || String(verifyError),
-        });
-        return {
-          success: false,
-          error: errorMsg,
-        };
-      }
+      // NOTE: In Squads v4, the vault PDA may not exist yet when the multisig is first created.
+      // The vault is created lazily when you first call vaultTransactionCreate.
+      // So we don't check for its existence here - let vaultTransactionCreate handle it.
+      // If the vault doesn't exist, vaultTransactionCreate will create it automatically.
       
       // Fetch multisig account to get current transaction index
       // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
