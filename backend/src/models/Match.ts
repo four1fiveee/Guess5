@@ -47,6 +47,59 @@ export class Match {
   @Column({ nullable: true })
   proposalTransactionId?: string;
 
+  @Column({ nullable: true })
+  tieRefundProposalId?: string;
+
+  // Payment signature fields
+  @Column({ nullable: true })
+  player1PaymentSignature?: string;
+
+  @Column({ nullable: true })
+  player2PaymentSignature?: string;
+
+  @Column({ nullable: true })
+  winnerPayoutSignature?: string;
+
+  // Payment timestamp fields
+  @Column({ nullable: true })
+  player1PaymentTime?: Date;
+
+  @Column({ nullable: true })
+  player2PaymentTime?: Date;
+
+  // Payment block time fields
+  @Column({ nullable: true })
+  player1PaymentBlockTime?: Date;
+
+  @Column({ nullable: true })
+  player2PaymentBlockTime?: Date;
+
+  @Column({ nullable: true })
+  winnerPayoutBlockTime?: Date;
+
+  // Payment block number fields
+  @Column({ type: 'bigint', nullable: true })
+  player1PaymentBlockNumber?: number;
+
+  @Column({ type: 'bigint', nullable: true })
+  player2PaymentBlockNumber?: number;
+
+  @Column({ type: 'bigint', nullable: true })
+  winnerPayoutBlockNumber?: number;
+
+  // Financial amount fields
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  payoutAmount?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  payoutAmountUSD?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  entryFeeUSD?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  solPriceAtTransaction?: number;
+
   // Multisig deposit tracking fields
   @Column({ nullable: true })
   depositATx?: string;
