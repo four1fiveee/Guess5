@@ -6310,10 +6310,19 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       console.warn('⚠️ SDK instruction builder failed, falling back to manual construction:', sdkError?.message);
       
       // Fallback: Manual instruction construction
-      // Anchor discriminator: sha256("global:vault_transaction_approve")[0:8]
-      const discriminatorSeed = 'global:vault_transaction_approve';
-      const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
-      const discriminator = hash.slice(0, 8);
+      // Try different discriminator formats - Anchor uses sha256("global:instruction_name")[0:8]
+      // But Squads might use a different format
+      let discriminator;
+      try {
+        // Standard Anchor format: "global:vault_transaction_approve"
+        const discriminatorSeed = 'global:vault_transaction_approve';
+        const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
+        discriminator = hash.slice(0, 8);
+        console.log('✅ Using discriminator format: global:vault_transaction_approve');
+      } catch (discrimError: any) {
+        console.error('❌ Failed to create discriminator:', discrimError?.message);
+        throw new Error(`Failed to create discriminator: ${discrimError?.message || String(discrimError)}`);
+      }
       
       // Transaction index as 8-byte little-endian u64
       const indexBuffer = Buffer.alloc(8);
@@ -6448,6 +6457,50 @@ const signProposalHandler = async (req: any, res: any) => {
         hasTieRefundProposal,
         squadsVaultAddress: (match as any).squadsVaultAddress,
       });
+    }
+
+    // Check on-chain proposal state before attempting to sign
+    try {
+      const { PublicKey, Connection } = require('@solana/web3.js');
+      const { PROGRAM_ID } = require('@sqds/multisig');
+      
+      const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+      const programId = process.env.SQUADS_PROGRAM_ID 
+        ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+        : PROGRAM_ID;
+      
+      // Try to get transaction PDA to verify it exists
+      let transactionPda;
+      try {
+        const indexBuffer = Buffer.alloc(8);
+        indexBuffer.writeBigUInt64LE(BigInt(proposalId), 0);
+        const [pda] = PublicKey.findProgramAddressSync(
+          [multisigAddress.toBuffer(), indexBuffer, Buffer.from('transaction')],
+          programId
+        );
+        transactionPda = pda;
+        
+        // Try to fetch the transaction account to verify it exists and is in a valid state
+        const connection = new Connection(
+          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+          'confirmed'
+        );
+        const transactionAccount = await connection.getAccountInfo(transactionPda);
+        if (!transactionAccount) {
+          return res.status(400).json({ 
+            error: 'Transaction proposal does not exist on-chain. It may have been executed or cancelled.',
+            proposalId: proposalId,
+            transactionPda: transactionPda.toString(),
+          });
+        }
+        console.log('✅ Transaction proposal exists on-chain:', transactionPda.toString());
+      } catch (pdaError: any) {
+        console.warn('⚠️ Could not verify transaction on-chain:', pdaError?.message);
+        // Continue anyway - might be a network issue
+      }
+    } catch (verifyError: any) {
+      console.warn('⚠️ Could not verify proposal state:', verifyError?.message);
+      // Continue anyway - might be a network issue
     }
 
     // Verify player hasn't already signed (make idempotent)
