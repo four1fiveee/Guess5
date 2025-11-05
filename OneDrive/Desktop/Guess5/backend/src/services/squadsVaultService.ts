@@ -8,8 +8,8 @@ import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
 import { setGameState } from '../utils/redisGameState';
-import { onMatchCompleted } from './proposalAutoCreateService';
-import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
+// import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
+// import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
 
 export interface SquadsVaultConfig {
   systemKeypair: Keypair; // Full keypair with private key for signing transactions
@@ -306,9 +306,8 @@ export class SquadsVaultService {
       match.squadsVaultAddress = multisigPda.toString();
       match.matchStatus = 'VAULT_CREATED';
       
-      // Use helper to save and trigger proposals if match is completed
-      const wasCompletedBefore = match.isCompleted;
-      await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
+      // Save match directly (helper file doesn't exist)
+      await matchRepository.save(match);
 
       // Log vault creation
       await this.logAuditEvent(matchId, 'SQUADS_VAULT_CREATED', {
@@ -1174,9 +1173,8 @@ export class SquadsVaultService {
           match.gameStartTime = new Date();
         }
         
-        // Use helper to save and trigger proposals if match is completed
-        const wasCompletedBefore = match.isCompleted;
-        await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
+        // Save match directly (helper file doesn't exist)
+        await matchRepository.save(match);
         
         // Initialize Redis game state for active gameplay
         try {
