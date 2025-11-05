@@ -2591,8 +2591,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
       const { PublicKey } = require('@solana/web3.js');
-      const { SquadsVaultService } = require('../services/squadsVaultService');
-      const squadsService = new SquadsVaultService();
+      const { squadsVaultService } = require('../services/squadsVaultService');
       
       if (match.winner === 'tie') {
         const player1Result = match.getPlayer1Result();
