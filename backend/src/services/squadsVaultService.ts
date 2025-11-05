@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, SystemProgram } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram } from '@solana/web3.js';
 import { rpc, PROGRAM_ID, getMultisigPda, getVaultPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
@@ -398,17 +398,32 @@ export class SquadsVaultService {
       const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
       
       // Create System Program transfer instruction for winner
-      const winnerTransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: winnerKey,
-        lamports: winnerLamports,
+      // Note: vaultPda is a PDA, so it's not a signer - the Squads program will authorize it
+      const winnerTransferIx = new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys: [
+          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
+          { pubkey: winnerKey, isSigner: false, isWritable: true },
+        ],
+        data: SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: winnerKey,
+          lamports: winnerLamports,
+        }).data, // Use the same instruction data but with corrected keys
       });
       
       // Create System Program transfer instruction for fee
-      const feeTransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: feeWalletKey,
-        lamports: feeLamports,
+      const feeTransferIx = new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys: [
+          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
+          { pubkey: feeWalletKey, isSigner: false, isWritable: true },
+        ],
+        data: SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: feeWalletKey,
+          lamports: feeLamports,
+        }).data, // Use the same instruction data but with corrected keys
       });
       
       // Log instruction keys for debugging
@@ -636,17 +651,32 @@ export class SquadsVaultService {
       const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
       
       // Create System Program transfer instruction for player 1
-      const player1TransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: player1Key,
-        lamports: refundLamports,
+      // Note: vaultPda is a PDA, so it's not a signer - the Squads program will authorize it
+      const player1TransferIx = new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys: [
+          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
+          { pubkey: player1Key, isSigner: false, isWritable: true },
+        ],
+        data: SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: player1Key,
+          lamports: refundLamports,
+        }).data, // Use the same instruction data but with corrected keys
       });
       
       // Create System Program transfer instruction for player 2
-      const player2TransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: player2Key,
-        lamports: refundLamports,
+      const player2TransferIx = new TransactionInstruction({
+        programId: SystemProgram.programId,
+        keys: [
+          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
+          { pubkey: player2Key, isSigner: false, isWritable: true },
+        ],
+        data: SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: player2Key,
+          lamports: refundLamports,
+        }).data, // Use the same instruction data but with corrected keys
       });
       
       // Log instruction keys for debugging
