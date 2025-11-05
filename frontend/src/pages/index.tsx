@@ -63,7 +63,7 @@ export default function Home() {
               </div>
                              <div className="flex items-start space-x-2">
                  <span className="text-green-400 font-bold text-sm flex-shrink-0">•</span>
-                 <span><b>Funds Locked On-Chain:</b> Your funds are stored in an audited Squads Protocol multisig vault on Solana blockchain. We cannot access them alone—we need at least one player signature to move funds. Funds can only move after games complete or timeouts, and only when a player signs to approve the transaction. Even if the platform shuts down, your funds remain safe and accessible on-chain.</span>
+                 <span><b>Funds Locked On-Chain:</b> Your funds are stored in an audited Squads Protocol multisig vault on Solana blockchain during gameplay. We cannot access them alone—we need at least one player signature to move funds. Funds can only move after games complete or timeouts, and only when a player signs to approve the transaction.</span>
                </div>
             </div>
           </div>
