@@ -8,8 +8,8 @@ import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
 import { setGameState } from '../utils/redisGameState';
-import { onMatchCompleted } from './proposalAutoCreateService';
-import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
+// import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
+// import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
 
 export interface SquadsVaultConfig {
   systemKeypair: Keypair; // Full keypair with private key for signing transactions
@@ -43,34 +43,49 @@ export class SquadsVaultService {
   private programId: PublicKey; // Network-specific program ID
 
   constructor() {
-    this.connection = new Connection(
-      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-      'confirmed'
-    );
+    // Get network URL from environment or default to Devnet
+    const networkUrl = process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com';
+    this.connection = new Connection(networkUrl, 'confirmed');
 
-    // Use environment variable if set, otherwise fall back to SDK default
+    // Detect cluster from URL
+    const detectedCluster = this.detectCluster(networkUrl);
+    const clusterName = process.env.SQUADS_NETWORK || detectedCluster;
+
+    // Determine program ID based on environment and cluster
+    // Priority: 1. Environment variable, 2. SDK default (usually Mainnet)
     if (process.env.SQUADS_PROGRAM_ID) {
       try {
         this.programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
         enhancedLogger.info('✅ Using Squads program ID from environment', {
           programId: this.programId.toString(),
+          cluster: clusterName,
+          networkUrl,
+          sdkDefault: PROGRAM_ID.toString(),
         });
       } catch (pkError: unknown) {
         const errorMsg = pkError instanceof Error ? pkError.message : String(pkError);
         enhancedLogger.error('❌ Invalid SQUADS_PROGRAM_ID in environment', {
           error: errorMsg,
           providedId: process.env.SQUADS_PROGRAM_ID,
+          cluster: clusterName,
         });
         // Fall back to SDK default
         this.programId = PROGRAM_ID;
         enhancedLogger.warn('⚠️ Falling back to SDK default PROGRAM_ID', {
           programId: this.programId.toString(),
+          cluster: clusterName,
+          note: 'SDK default is typically Mainnet. Verify this is correct for your cluster.',
         });
       }
     } else {
       this.programId = PROGRAM_ID;
       enhancedLogger.info('✅ Using SDK default Squads program ID', {
         programId: this.programId.toString(),
+        cluster: clusterName,
+        networkUrl,
+        warning: clusterName === 'devnet' 
+          ? 'Note: Devnet uses the same program ID as Mainnet per official Squads docs. This is correct.'
+          : 'Using SDK default program ID (Mainnet/Devnet both use the same program ID)',
       });
     }
 
@@ -101,6 +116,23 @@ export class SquadsVaultService {
       systemPublicKey: systemKeypair.publicKey,
       threshold: 2, // 2-of-3 multisig
     };
+  }
+
+  /**
+   * Detect Solana cluster from RPC URL
+   */
+  private detectCluster(url: string): string {
+    const urlLower = url.toLowerCase();
+    if (urlLower.includes('devnet')) {
+      return 'devnet';
+    } else if (urlLower.includes('testnet')) {
+      return 'testnet';
+    } else if (urlLower.includes('mainnet') || urlLower.includes('mainnet-beta')) {
+      return 'mainnet';
+    } else if (urlLower.includes('localhost') || urlLower.includes('127.0.0.1')) {
+      return 'localnet';
+    }
+    return 'unknown';
   }
 
   /**
@@ -171,12 +203,14 @@ export class SquadsVaultService {
           createKey.publicKey.toBuffer(),
           matchSeed,
         ],
-        PROGRAM_ID
+        this.programId // Use network-specific program ID (devnet/mainnet)
       );
 
       // Fetch program config to get treasury address (required for v2)
       let treasury: PublicKey | null = null;
       try {
+        // Note: getProgramConfigPda may accept programId parameter for Devnet support
+        // If SDK supports it, use: getProgramConfigPda({ programId: this.programId })
         const [programConfigPda] = getProgramConfigPda({});
         const programConfig = await accounts.ProgramConfig.fromAccountAddress(
           this.connection,
@@ -262,6 +296,7 @@ export class SquadsVaultService {
           rentCollector: null, // Can be null or a PublicKey
           treasury: treasury, // From ProgramConfig or null
           sendOptions: { skipPreflight: true }, // Recommended by docs
+          programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
         });
       } catch (createErr: any) {
         enhancedLogger.error('❌ multisigCreateV2 failed', {
@@ -306,9 +341,8 @@ export class SquadsVaultService {
       match.squadsVaultAddress = multisigPda.toString();
       match.matchStatus = 'VAULT_CREATED';
       
-      // Use helper to save and trigger proposals if match is completed
-      const wasCompletedBefore = match.isCompleted;
-      await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
+      // Save match directly (helper file doesn't exist)
+      await matchRepository.save(match);
 
       // Log vault creation
       await this.logAuditEvent(matchId, 'SQUADS_VAULT_CREATED', {
@@ -424,6 +458,8 @@ export class SquadsVaultService {
       }
 
       // Derive the vault PDA from the multisig PDA
+      // Note: getVaultPda may accept programId parameter for Devnet support
+      // If SDK supports it, use: getVaultPda({ multisigPda, index: 0, programId: this.programId })
       const [vaultPda] = getVaultPda({
         multisigPda: multisigAddress,
         index: 0, // Using vault index 0 (matches vaultTransactionCreate parameter)
@@ -434,8 +470,36 @@ export class SquadsVaultService {
         vaultPda: vaultPda.toString(),
       });
       
-      // Generate a unique transaction index
-      const transactionIndex = BigInt(Date.now());
+      // Fetch multisig account to get current transaction index
+      // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
+      // This ensures the transactionIndex matches what the multisig account expects
+      let transactionIndex: BigInt;
+      try {
+        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigAddress,
+          { commitment: 'confirmed' }
+        );
+        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
+        transactionIndex = BigInt(currentTransactionIndex + 1);
+        
+        enhancedLogger.info('📊 Fetched multisig transaction index', {
+          multisigAddress: multisigAddress.toString(),
+          currentTransactionIndex,
+          nextTransactionIndex: transactionIndex.toString(),
+        });
+      } catch (fetchError: any) {
+        const errorMsg = `Failed to fetch multisig account for transaction index: ${fetchError?.message || String(fetchError)}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          multisigAddress: multisigAddress.toString(),
+          error: fetchError?.message || String(fetchError),
+          stack: fetchError?.stack,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
       
       // Create transfer instructions using SystemProgram
       const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
@@ -689,8 +753,36 @@ export class SquadsVaultService {
         vaultPda: vaultPda.toString(),
       });
       
-      // Generate a unique transaction index (use microseconds + random to avoid collisions)
-      const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
+      // Fetch multisig account to get current transaction index
+      // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
+      // This ensures the transactionIndex matches what the multisig account expects
+      let transactionIndex: BigInt;
+      try {
+        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigAddress,
+          { commitment: 'confirmed' }
+        );
+        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
+        transactionIndex = BigInt(currentTransactionIndex + 1);
+        
+        enhancedLogger.info('📊 Fetched multisig transaction index for tie refund', {
+          multisigAddress: multisigAddress.toString(),
+          currentTransactionIndex,
+          nextTransactionIndex: transactionIndex.toString(),
+        });
+      } catch (fetchError: any) {
+        const errorMsg = `Failed to fetch multisig account for transaction index: ${fetchError?.message || String(fetchError)}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          multisigAddress: multisigAddress.toString(),
+          error: fetchError?.message || String(fetchError),
+          stack: fetchError?.stack,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
       
       // Create transfer instructions using SystemProgram
       const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
@@ -836,14 +928,22 @@ export class SquadsVaultService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      
       enhancedLogger.error('❌ Failed to propose tie refund', {
         vaultAddress,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundAmount,
         error: errorMessage,
+        stack: errorStack,
+        errorType: error?.constructor?.name || typeof error,
       });
 
       return {
         success: false,
         error: errorMessage,
+        needsSignatures: 0,
       };
     }
   }
@@ -919,6 +1019,7 @@ export class SquadsVaultService {
         multisigPda: multisigAddress,
         transactionIndex,
         member: signer,
+        programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
       });
 
       enhancedLogger.info('✅ Proposal approved', {
@@ -1118,9 +1219,8 @@ export class SquadsVaultService {
           match.gameStartTime = new Date();
         }
         
-        // Use helper to save and trigger proposals if match is completed
-        const wasCompletedBefore = match.isCompleted;
-        await saveMatchAndTriggerProposals(matchRepository, match, wasCompletedBefore);
+        // Save match directly (helper file doesn't exist)
+        await matchRepository.save(match);
         
         // Initialize Redis game state for active gameplay
         try {
