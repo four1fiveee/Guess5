@@ -4,6 +4,7 @@ import { Guess } from '../models/Guess'
 import { Transaction } from '../models/Transaction'
 import { MatchAttestation } from '../models/MatchAttestation'
 import { MatchAuditLog } from '../models/MatchAuditLog'
+import { MatchSubscriber } from '../subscribers/matchSubscriber'
 import * as dotenv from 'dotenv'
 
 // Load environment variables
@@ -25,6 +26,7 @@ export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL!,
   entities: [Match, Guess, Transaction, MatchAttestation, MatchAuditLog],
+  subscribers: [MatchSubscriber],
   migrations: ['dist/db/migrations/*.js'],
   synchronize: false, // Use migrations instead of synchronize
   logging: process.env.NODE_ENV === 'development',

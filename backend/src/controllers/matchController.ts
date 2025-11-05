@@ -2044,37 +2044,64 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         }
         
-        // Mark match as completed and ensure winner is set
-        // IMPORTANT: Reload match to get latest proposal info before final save
-        const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
-        if (finalMatch) {
-          finalMatch.isCompleted = true;
-          finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
-          finalMatch.setPayoutResult(payoutResult);
-          // Preserve proposal fields if they were set earlier
-          if ((updatedMatch as any).payoutProposalId) {
-            (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
-            (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
-            (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-            (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
-            console.log('✅ Preserving proposal fields in final save:', {
-              matchId: finalMatch.id,
-              proposalId: (finalMatch as any).payoutProposalId,
-              proposalStatus: (finalMatch as any).proposalStatus,
-              needsSignatures: (finalMatch as any).needsSignatures,
-            });
+                  // Mark match as completed and ensure winner is set
+          // IMPORTANT: Reload match to get latest proposal info before final save
+          const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
+          if (finalMatch) {
+            finalMatch.isCompleted = true;
+            finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
+            finalMatch.setPayoutResult(payoutResult);
+            // Preserve proposal fields if they were set earlier
+            if ((updatedMatch as any).payoutProposalId) {
+              (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
+              (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
+              (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
+              (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+              console.log('✅ Preserving proposal fields in final save:', {
+                matchId: finalMatch.id,
+                proposalId: (finalMatch as any).payoutProposalId,
+                proposalStatus: (finalMatch as any).proposalStatus,
+                needsSignatures: (finalMatch as any).needsSignatures,
+              });
+            }
+            await matchRepository.save(finalMatch);
+            
+            // CRITICAL: Ensure proposals are created after saving match
+            // The subscriber should trigger, but we also call directly as a fallback
+            try {
+              const { onMatchCompleted } = require('../services/proposalAutoCreateService');
+              await onMatchCompleted(finalMatch);
+              console.log('✅ Proposal creation triggered for completed match:', {
+                matchId: finalMatch.id,
+                proposalId: (finalMatch as any).payoutProposalId || (finalMatch as any).tieRefundProposalId,
+              });
+            } catch (proposalError: unknown) {
+              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+              console.error('⚠️ Failed to create proposals directly (subscriber may still trigger):', errorMessage);
+              // Don't fail the request - subscriber might still work
+            }
+          } else {
+            // Fallback if reload fails
+            updatedMatch.isCompleted = true;
+            updatedMatch.winner = payoutResult.winner;
+            updatedMatch.setPayoutResult(payoutResult);
+            await matchRepository.save(updatedMatch);
+            
+            // CRITICAL: Ensure proposals are created for fallback save as well
+            try {
+              const { onMatchCompleted } = require('../services/proposalAutoCreateService');
+              await onMatchCompleted(updatedMatch);
+              console.log('✅ Proposal creation triggered for fallback match save:', {
+                matchId: updatedMatch.id,
+              });
+            } catch (proposalError: unknown) {
+              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+              console.error('⚠️ Failed to create proposals for fallback save:', errorMessage);
+            }
           }
-          await matchRepository.save(finalMatch);
-        } else {
-          // Fallback if reload fails
-          updatedMatch.isCompleted = true;
-          updatedMatch.winner = payoutResult.winner;
-          updatedMatch.setPayoutResult(payoutResult);
-          await matchRepository.save(updatedMatch);
-        }
-        
-        // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
-        markGameCompleted(matchId);
+          
+          // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
+          markGameCompleted(matchId);
         
         res.json({
           status: 'completed',
