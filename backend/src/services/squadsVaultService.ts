@@ -473,7 +473,7 @@ export class SquadsVaultService {
       // Fetch multisig account to get current transaction index
       // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
       // This ensures the transactionIndex matches what the multisig account expects
-      let transactionIndex: BigInt;
+      let transactionIndex: bigint;
       try {
         const multisigInfo = await accounts.Multisig.fromAccountAddress(
           this.connection,
@@ -756,7 +756,7 @@ export class SquadsVaultService {
       // Fetch multisig account to get current transaction index
       // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
       // This ensures the transactionIndex matches what the multisig account expects
-      let transactionIndex: BigInt;
+      let transactionIndex: bigint;
       try {
         const multisigInfo = await accounts.Multisig.fromAccountAddress(
           this.connection,

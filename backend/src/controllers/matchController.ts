@@ -2520,6 +2520,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     (match as any).needsSignatures = proposalResult.needsSignatures || 1; // System auto-signs, so 1 more needed
                     await matchRepository.save(match);
                     console.log('✅ Tie refund proposal created:', { matchId: match.id, proposalId: proposalResult.proposalId });
+                    
+                    // Reload match to ensure we have the latest proposal data
+                    const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+                    if (reloadedMatch) {
+                      (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
+                      (match as any).tieRefundProposalId = (reloadedMatch as any).tieRefundProposalId;
+                      (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
+                      (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
+                      (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
+                    }
                   } else {
                     console.error('❌ Failed to create tie refund proposal:', {
                       matchId: match.id,
@@ -2529,6 +2539,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                       needsSignatures: proposalResult.needsSignatures,
                     });
                   }
+                } else {
+                  console.warn('⚠️ Tie detected but isLosingTie check failed:', {
+                    matchId: match.id,
+                    player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+                    player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
+                  });
                 }
               }
             } catch (proposalError: unknown) {
