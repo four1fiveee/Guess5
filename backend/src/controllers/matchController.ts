@@ -2609,7 +2609,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             player2: match.player2
           });
           
-          const proposalResult = await squadsService.proposeTieRefund(
+          const proposalResult = await squadsVaultService.proposeTieRefund(
             (match as any).squadsVaultAddress,
             new PublicKey(match.player1),
             new PublicKey(match.player2),
