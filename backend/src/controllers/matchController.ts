@@ -1292,11 +1292,26 @@ const submitResultHandler = async (req: any, res: any) => {
     const opponentKey = isPlayer1 ? 'player2' : 'player1';
 
     // SERVER-SIDE VALIDATION: Check if player already submitted
-    if (isPlayer1 && match.getPlayer1Result()) {
-      return res.status(400).json({ error: 'Player 1 already submitted result' });
-    }
-    if (!isPlayer1 && match.getPlayer2Result()) {
-      return res.status(400).json({ error: 'Player 2 already submitted result' });
+    // Make idempotent - if already submitted, return success (prevents duplicate submission errors)
+    const existingResult = isPlayer1 ? match.getPlayer1Result() : match.getPlayer2Result();
+    if (existingResult) {
+      console.log('✅ Player already submitted result, returning existing result (idempotent)', {
+        matchId,
+        wallet,
+        isPlayer1,
+        existingResult: {
+          won: existingResult.won,
+          numGuesses: existingResult.numGuesses,
+          totalTime: existingResult.totalTime,
+        },
+      });
+      // Return success with existing result to prevent frontend retry loops
+      return res.json({
+        success: true,
+        message: 'Result already submitted',
+        result: existingResult,
+        matchId,
+      });
     }
 
     // FIXED: Make validation less strict to prevent race conditions
