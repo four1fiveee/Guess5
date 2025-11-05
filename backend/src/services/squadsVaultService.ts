@@ -320,7 +320,122 @@ export class SquadsVaultService {
         throw new Error(`Multisig vault creation failed: ${createErr?.message || String(createErr)}`);
       }
 
-      enhancedLogger.info('✅ Squads multisig vault created', {
+      // CRITICAL: Confirm the transaction and verify the multisig was actually created
+      enhancedLogger.info('⏳ Confirming multisig creation transaction', {
+        matchId,
+        signature,
+        multisigAddress: multisigPda.toString(),
+      });
+
+      try {
+        // Wait for transaction confirmation with a timeout
+        const confirmation = await this.connection.confirmTransaction(signature, 'confirmed');
+        
+        if (confirmation.value.err) {
+          const errorDetails = JSON.stringify(confirmation.value.err);
+          enhancedLogger.error('❌ Multisig creation transaction failed on-chain', {
+            matchId,
+            signature,
+            multisigAddress: multisigPda.toString(),
+            error: errorDetails,
+          });
+          throw new Error(`Multisig creation transaction failed: ${errorDetails}`);
+        }
+
+        enhancedLogger.info('✅ Multisig creation transaction confirmed', {
+          matchId,
+          signature,
+          multisigAddress: multisigPda.toString(),
+        });
+      } catch (confirmErr: any) {
+        enhancedLogger.error('❌ Failed to confirm multisig creation transaction', {
+          matchId,
+          signature,
+          multisigAddress: multisigPda.toString(),
+          error: confirmErr?.message || String(confirmErr),
+        });
+        throw new Error(`Failed to confirm multisig creation: ${confirmErr?.message || String(confirmErr)}`);
+      }
+
+      // CRITICAL: Verify the multisig account was actually created and owned by Squads
+      enhancedLogger.info('🔍 Verifying multisig account creation', {
+        matchId,
+        multisigAddress: multisigPda.toString(),
+        expectedProgramId: this.programId.toString(),
+      });
+
+      try {
+        // Wait a bit for the account to be available
+        await new Promise(resolve => setTimeout(resolve, 2000));
+
+        const multisigAccountInfo = await this.connection.getAccountInfo(multisigPda, 'confirmed');
+        
+        if (!multisigAccountInfo) {
+          enhancedLogger.error('❌ Multisig account does not exist after creation', {
+            matchId,
+            multisigAddress: multisigPda.toString(),
+            signature,
+          });
+          throw new Error(`Multisig account ${multisigPda.toString()} does not exist after creation transaction. Transaction may have failed silently.`);
+        }
+
+        const actualOwner = multisigAccountInfo.owner.toString();
+        const expectedOwner = this.programId.toString();
+        const isOwnedBySquads = multisigAccountInfo.owner.equals(this.programId);
+
+        enhancedLogger.info('🔍 Multisig account verification', {
+          matchId,
+          multisigAddress: multisigPda.toString(),
+          actualOwner,
+          expectedOwner,
+          isOwnedBySquads,
+          dataLength: multisigAccountInfo.data.length,
+          lamports: multisigAccountInfo.lamports,
+        });
+
+        if (!isOwnedBySquads) {
+          enhancedLogger.error('❌ CRITICAL: Multisig account is owned by wrong program!', {
+            matchId,
+            multisigAddress: multisigPda.toString(),
+            actualOwner,
+            expectedOwner,
+            dataLength: multisigAccountInfo.data.length,
+            lamports: multisigAccountInfo.lamports,
+            signature,
+            note: 'The account exists but is owned by the System Program, not Squads. The multisig creation transaction did not properly initialize the account.',
+          });
+          throw new Error(`Multisig account ${multisigPda.toString()} is owned by ${actualOwner} (System Program), but expected ${expectedOwner} (Squads Program). The multisig creation transaction failed to properly initialize the account. Transaction signature: ${signature}`);
+        }
+
+        if (multisigAccountInfo.data.length === 0) {
+          enhancedLogger.error('❌ CRITICAL: Multisig account has no data!', {
+            matchId,
+            multisigAddress: multisigPda.toString(),
+            dataLength: 0,
+            lamports: multisigAccountInfo.lamports,
+            signature,
+            note: 'The account exists but has no data, meaning it was not initialized as a Squads multisig.',
+          });
+          throw new Error(`Multisig account ${multisigPda.toString()} exists but has no data (dataLength: 0). The multisig was not properly initialized. Transaction signature: ${signature}`);
+        }
+
+        enhancedLogger.info('✅ Multisig account verified successfully', {
+          matchId,
+          multisigAddress: multisigPda.toString(),
+          owner: actualOwner,
+          dataLength: multisigAccountInfo.data.length,
+        });
+      } catch (verifyErr: any) {
+        enhancedLogger.error('❌ Failed to verify multisig account creation', {
+          matchId,
+          multisigAddress: multisigPda.toString(),
+          signature,
+          error: verifyErr?.message || String(verifyErr),
+        });
+        throw verifyErr;
+      }
+
+      enhancedLogger.info('✅ Squads multisig vault created and verified', {
         matchId,
         multisigAddress: multisigPda.toString(),
         vaultAddress: multisigPda.toString(), // Same as multisig address
