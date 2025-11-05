@@ -392,18 +392,39 @@ export class SquadsVaultService {
       const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
       const feeLamports = Math.floor(feeAmount * LAMPORTS_PER_SOL);
       
+      // Ensure all PublicKeys are properly instantiated
+      const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
+      const winnerKey = typeof winner === 'string' ? new PublicKey(winner) : winner;
+      const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
+      
       // Create System Program transfer instruction for winner
       const winnerTransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPda,
-        toPubkey: winner,
+        fromPubkey: vaultPdaKey,
+        toPubkey: winnerKey,
         lamports: winnerLamports,
       });
       
       // Create System Program transfer instruction for fee
       const feeTransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPda,
-        toPubkey: feeWallet,
+        fromPubkey: vaultPdaKey,
+        toPubkey: feeWalletKey,
         lamports: feeLamports,
+      });
+      
+      // Log instruction keys for debugging
+      enhancedLogger.info('🔍 Instruction keys check', {
+        winnerIxKeys: winnerTransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        feeIxKeys: feeTransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        winnerIxProgramId: winnerTransferIx.programId.toString(),
+        feeIxProgramId: feeTransferIx.programId.toString(),
       });
       
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
@@ -411,7 +432,7 @@ export class SquadsVaultService {
       // The vault PDA holds funds and executes transactions, not the multisig PDA
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: vaultPda,
+        payerKey: vaultPdaKey,
         recentBlockhash: blockhash,
         instructions: [winnerTransferIx, feeTransferIx],
       });
@@ -609,18 +630,39 @@ export class SquadsVaultService {
       // Create transfer instructions using SystemProgram
       const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
       
+      // Ensure all PublicKeys are properly instantiated
+      const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
+      const player1Key = typeof player1 === 'string' ? new PublicKey(player1) : player1;
+      const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
+      
       // Create System Program transfer instruction for player 1
       const player1TransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPda,
-        toPubkey: player1,
+        fromPubkey: vaultPdaKey,
+        toPubkey: player1Key,
         lamports: refundLamports,
       });
       
       // Create System Program transfer instruction for player 2
       const player2TransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPda,
-        toPubkey: player2,
+        fromPubkey: vaultPdaKey,
+        toPubkey: player2Key,
         lamports: refundLamports,
+      });
+      
+      // Log instruction keys for debugging
+      enhancedLogger.info('🔍 Instruction keys check for tie refund', {
+        player1IxKeys: player1TransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        player2IxKeys: player2TransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        player1IxProgramId: player1TransferIx.programId.toString(),
+        player2IxProgramId: player2TransferIx.programId.toString(),
       });
       
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
@@ -628,7 +670,7 @@ export class SquadsVaultService {
       // The vault PDA holds funds and executes transactions, not the multisig PDA
       const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: vaultPda,
+        payerKey: vaultPdaKey,
         recentBlockhash: blockhash2,
         instructions: [player1TransferIx, player2TransferIx],
       });
