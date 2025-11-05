@@ -2069,7 +2069,20 @@ const submitResultHandler = async (req: any, res: any) => {
             // CRITICAL: Ensure proposals are created after saving match
             // Create proposal directly if it doesn't exist (fixed missing service file issue)
             try {
+              console.log('🔍 Checking if proposal needs to be created:', {
+                matchId: finalMatch.id,
+                hasPayoutProposalId: !!(finalMatch as any).payoutProposalId,
+                hasTieRefundProposalId: !!(finalMatch as any).tieRefundProposalId,
+                winner: finalMatch.winner,
+                hasVaultAddress: !!(finalMatch as any).squadsVaultAddress,
+              });
+              
               if (!(finalMatch as any).payoutProposalId && !(finalMatch as any).tieRefundProposalId && finalMatch.winner && (finalMatch as any).squadsVaultAddress) {
+                console.log('✅ Proposal creation conditions met, creating proposal...', {
+                  matchId: finalMatch.id,
+                  winner: finalMatch.winner,
+                });
+                
                 const { PublicKey } = require('@solana/web3.js');
                 const { SquadsVaultService } = require('../services/squadsVaultService');
                 const squadsService = new SquadsVaultService();
@@ -2102,11 +2115,20 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 } else {
                   // Tie refund proposal
+                  console.log('🎯 Creating tie refund proposal...', { matchId: finalMatch.id });
                   const player1Result = finalMatch.getPlayer1Result();
                   const player2Result = finalMatch.getPlayer2Result();
                   const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
                   
+                  console.log('🔍 Tie refund check:', {
+                    matchId: finalMatch.id,
+                    player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+                    player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
+                    isLosingTie,
+                  });
+                  
                   if (isLosingTie) {
+                    console.log('✅ Creating tie refund proposal for losing tie...', { matchId: finalMatch.id });
                     const entryFee = finalMatch.entryFee;
                     const refundAmount = entryFee * 0.95;
                     
