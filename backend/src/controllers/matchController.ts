@@ -6507,16 +6507,55 @@ const signProposalHandler = async (req: any, res: any) => {
             });
           }
           
-          // If not executed, it might have been cancelled or never created
+          // If not executed, check if this is an old match (completed status)
+          // For old matches, if transaction doesn't exist, it was likely executed
+          const matchStatus = match.status;
+          const isOldMatch = matchStatus === 'completed' || matchStatus === 'settled';
+          
+          if (isOldMatch) {
+            console.log('ℹ️ Old match - transaction account not found, likely already executed', {
+              matchId,
+              matchStatus,
+              proposalId,
+              proposalStatus,
+              transactionPda: transactionPda.toString(),
+            });
+            
+            // For old matches, assume execution happened if transaction doesn't exist
+            // Update database status to reflect this
+            try {
+              (match as any).proposalStatus = 'EXECUTED';
+              if (!(match as any).proposalExecutedAt) {
+                (match as any).proposalExecutedAt = new Date();
+              }
+              await matchRepository.save(match);
+              console.log('✅ Updated match proposal status to EXECUTED');
+            } catch (dbUpdateError: any) {
+              console.warn('⚠️ Failed to update proposal status in database:', dbUpdateError?.message);
+            }
+            
+            return res.json({
+              success: true,
+              message: 'This proposal appears to have been executed previously. Your payout should have been completed.',
+              proposalId: proposalId,
+              proposalStatus: 'EXECUTED',
+              executed: true,
+              note: 'Transaction account was closed after execution. Please check your wallet balance to confirm payout.',
+            });
+          }
+          
+          // For active/new matches, return error
           console.warn('⚠️ Transaction account not found, but proposal not marked as executed', {
             proposalId,
             proposalStatus,
+            matchStatus,
             transactionPda: transactionPda.toString(),
           });
           return res.status(400).json({ 
             error: 'Transaction proposal does not exist on-chain. It may have been executed, cancelled, or never created.',
             proposalId: proposalId,
             proposalStatus: proposalStatus,
+            matchStatus: matchStatus,
             transactionPda: transactionPda.toString(),
             suggestion: 'If this proposal was already executed, your payout should have been completed. Please check your wallet balance.',
           });
