@@ -6154,30 +6154,29 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
 
     // Use SDK helpers with the correct program ID
-    const { getVaultTransactionPda, getMemberPda } = require('@sqds/multisig');
+    // Note: getVaultTransactionPda might not be exported, so we'll derive manually
+    const { getMemberPda } = require('@sqds/multisig');
     const crypto = require('crypto');
     
-    // Derive transaction PDA using SDK helper with correct program ID
+    // Derive transaction PDA manually (matches Squads SDK derivation)
+    // Transaction PDA = [multisig, transaction_index (u64), "transaction"]
     let transactionPda;
     try {
-      try {
-        const [pda] = getVaultTransactionPda({
-          multisig: multisigAddress,
-          index: transactionIndex,
-          programId: programId,
-        } as any);
-        transactionPda = pda;
-        console.log('✅ Transaction PDA derived with programId:', transactionPda.toString());
-      } catch (pdaError: any) {
-        // Fallback if programId parameter not supported
-        console.warn('⚠️ getVaultTransactionPda with programId failed, trying without:', pdaError?.message);
-        const [pda] = getVaultTransactionPda({
-          multisig: multisigAddress,
-          index: transactionIndex,
-        });
-        transactionPda = pda;
-        console.log('✅ Transaction PDA derived without programId:', transactionPda.toString());
-      }
+      // Convert transaction index to 8-byte little-endian buffer
+      const indexBuffer = Buffer.alloc(8);
+      indexBuffer.writeBigUInt64LE(transactionIndex, 0);
+      
+      // Derive PDA: [multisigAddress, transactionIndex (u64), "transaction"]
+      const [pda] = PublicKey.findProgramAddressSync(
+        [
+          multisigAddress.toBuffer(),
+          indexBuffer,
+          Buffer.from('transaction'),
+        ],
+        programId
+      );
+      transactionPda = pda;
+      console.log('✅ Transaction PDA derived manually:', transactionPda.toString());
     } catch (pdaError: any) {
       console.error('❌ Failed to derive transaction PDA:', {
         error: pdaError?.message,
@@ -6193,22 +6192,67 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     let memberPda;
     try {
       try {
-        const [pda] = getMemberPda({
-          multisig: multisigAddress,
-          memberKey: memberPublicKey,
-          programId: programId,
-        } as any);
-        memberPda = pda;
-        console.log('✅ Member PDA derived with programId:', memberPda.toString());
+        // Try with programId parameter first
+        if (typeof getMemberPda === 'function') {
+          const result = getMemberPda({
+            multisig: multisigAddress,
+            memberKey: memberPublicKey,
+            programId: programId,
+          } as any);
+          // Check if result is an array (PDA tuple) or single value
+          if (Array.isArray(result)) {
+            memberPda = result[0];
+          } else {
+            memberPda = result;
+          }
+          console.log('✅ Member PDA derived with programId:', memberPda.toString());
+        } else {
+          throw new Error('getMemberPda is not a function');
+        }
       } catch (pdaError: any) {
-        // Fallback if programId parameter not supported
-        console.warn('⚠️ getMemberPda with programId failed, trying without:', pdaError?.message);
-        const [pda] = getMemberPda({
-          multisig: multisigAddress,
-          memberKey: memberPublicKey,
-        });
-        memberPda = pda;
-        console.log('✅ Member PDA derived without programId:', memberPda.toString());
+        // Fallback if programId parameter not supported or function doesn't exist
+        console.warn('⚠️ getMemberPda with programId failed, trying without or deriving manually:', pdaError?.message);
+        
+        if (typeof getMemberPda === 'function') {
+          try {
+            const result = getMemberPda({
+              multisig: multisigAddress,
+              memberKey: memberPublicKey,
+            });
+            if (Array.isArray(result)) {
+              memberPda = result[0];
+            } else {
+              memberPda = result;
+            }
+            console.log('✅ Member PDA derived without programId:', memberPda.toString());
+          } catch (fallbackError: any) {
+            // Final fallback: derive manually
+            console.warn('⚠️ SDK getMemberPda failed, deriving manually:', fallbackError?.message);
+            // Member PDA = [multisig, member_key, "member"]
+            const [pda] = PublicKey.findProgramAddressSync(
+              [
+                multisigAddress.toBuffer(),
+                memberPublicKey.toBuffer(),
+                Buffer.from('member'),
+              ],
+              programId
+            );
+            memberPda = pda;
+            console.log('✅ Member PDA derived manually:', memberPda.toString());
+          }
+        } else {
+          // getMemberPda doesn't exist, derive manually
+          const [pda] = PublicKey.findProgramAddressSync(
+            [
+              multisigAddress.toBuffer(),
+              memberPublicKey.toBuffer(),
+              Buffer.from('member'),
+            ],
+            programId
+          );
+          memberPda = pda;
+          console.log('✅ Member PDA derived manually (SDK function not available):', memberPda.toString());
+        }
       }
     } catch (pdaError: any) {
       console.error('❌ Failed to derive member PDA:', {
