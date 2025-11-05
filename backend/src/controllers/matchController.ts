@@ -5274,7 +5274,7 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
  */
 const depositToMultisigVaultHandler = async (req: any, res: any) => {
   try {
-    const { matchId, playerWallet, amount } = req.body;
+    const { matchId, playerWallet, amount, depositTxSignature } = req.body;
 
     if (!matchId || !playerWallet || !amount) {
       return res.status(400).json({ 
@@ -5282,10 +5282,10 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
       });
     }
 
-    console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount });
+    console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount, depositTxSignature });
 
     // Verify deposit on Solana using Squads service
-    const result = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount);
+    const result = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
 
     if (result.success) {
       console.log('✅ Multisig vault deposit verified successfully:', {

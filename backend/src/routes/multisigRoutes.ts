@@ -6,6 +6,8 @@ const {
   buildApprovalTransaction,
   cleanupStuckMatches,
 } = require('../controllers/multisigController');
+const matchController = require('../controllers/matchController');
+const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
 // Import bot protection middleware
 const { validateVercelBotProtection } = require('../middleware/vercelBotProtection');
@@ -16,6 +18,14 @@ const {
 } = require('../middleware/rateLimiter');
 
 const router = Router();
+
+// Handle player deposit to multisig vault
+router.post('/deposits',
+  ipLimiter,
+  validateVercelBotProtection,
+  paymentLimiter,
+  asyncHandlerWrapper(matchController.depositToMultisigVaultHandler)
+);
 
 // Get proposal details for a match
 router.get('/proposals/:matchId', getProposal);
