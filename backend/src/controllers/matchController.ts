@@ -2574,17 +2574,32 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
   // FINAL FALLBACK: If proposal is still missing and match is completed, create it now
   // This ensures proposals are created even if the earlier code paths didn't execute
-  if (match.isCompleted && 
-      !(match as any).payoutProposalId && 
-      !(match as any).tieRefundProposalId && 
-      match.winner && 
-      (match as any).squadsVaultAddress) {
+  // Log current state for debugging
+  console.log('🔍 FINAL FALLBACK CHECK:', {
+    matchId: match.id,
+    isCompleted: match.isCompleted,
+    winner: match.winner,
+    hasPayoutProposalId: !!(match as any).payoutProposalId,
+    hasTieRefundProposalId: !!(match as any).tieRefundProposalId,
+    hasSquadsVaultAddress: !!(match as any).squadsVaultAddress,
+    player1Result: match.getPlayer1Result() ? { won: match.getPlayer1Result()?.won } : null,
+    player2Result: match.getPlayer2Result() ? { won: match.getPlayer2Result()?.won } : null,
+  });
+  
+  // More lenient check: if match has results and winner is 'tie', try to create proposal
+  const hasResults = match.getPlayer1Result() && match.getPlayer2Result();
+  const isTieMatch = match.winner === 'tie';
+  const needsProposal = !(match as any).payoutProposalId && !(match as any).tieRefundProposalId;
+  const hasVault = !!(match as any).squadsVaultAddress;
+  
+  if (hasResults && isTieMatch && needsProposal && hasVault) {
     
     console.log('🔄 FINAL FALLBACK: Creating missing proposal before response', {
       matchId: match.id,
       winner: match.winner,
       isCompleted: match.isCompleted,
-      hasVault: !!(match as any).squadsVaultAddress
+      hasVault: hasVault,
+      hasResults: hasResults
     });
     
     try {
@@ -2617,11 +2632,19 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           );
           
           if (proposalResult.success && proposalResult.proposalId) {
+            // Update match with proposal data
             (match as any).payoutProposalId = proposalResult.proposalId;
             (match as any).tieRefundProposalId = proposalResult.proposalId;
             (match as any).proposalCreatedAt = new Date();
             (match as any).proposalStatus = 'ACTIVE';
             (match as any).needsSignatures = proposalResult.needsSignatures || 1;
+            
+            // Ensure match is marked as completed
+            if (!match.isCompleted) {
+              match.isCompleted = true;
+            }
+            
+            // Save match
             await matchRepository.save(match);
             
             // Reload to ensure we have the latest data
@@ -2632,17 +2655,22 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
               (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
               (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
+              match.isCompleted = reloadedMatch.isCompleted;
             }
             
-            console.log('✅ FINAL FALLBACK: Tie refund proposal created successfully', {
+            console.log('✅ FINAL FALLBACK: Tie refund proposal created and saved successfully', {
               matchId: match.id,
-              proposalId: proposalResult.proposalId
+              proposalId: proposalResult.proposalId,
+              proposalStatus: (match as any).proposalStatus,
+              needsSignatures: (match as any).needsSignatures
             });
           } else {
             console.error('❌ FINAL FALLBACK: Failed to create tie refund proposal', {
               matchId: match.id,
               success: proposalResult.success,
-              error: proposalResult.error
+              proposalId: proposalResult.proposalId,
+              error: proposalResult.error,
+              needsSignatures: proposalResult.needsSignatures
             });
           }
         }
