@@ -933,11 +933,49 @@ export class SquadsVaultService {
         instructions: [player1TransferIx, player2TransferIx],
       });
       
+      // CRITICAL: Verify multisig account ownership before creating transaction
+      // The AccountOwnedByWrongProgram error suggests a program ID mismatch
+      try {
+        const multisigAccountInfo = await this.connection.getAccountInfo(multisigAddress, 'confirmed');
+        if (multisigAccountInfo) {
+          enhancedLogger.info('🔍 Multisig account ownership check', {
+            multisigAddress: multisigAddress.toString(),
+            owner: multisigAccountInfo.owner.toString(),
+            expectedOwner: this.programId.toString(),
+            isOwnedBySquads: multisigAccountInfo.owner.equals(this.programId),
+            dataLength: multisigAccountInfo.data.length,
+            lamports: multisigAccountInfo.lamports,
+          });
+          
+          if (!multisigAccountInfo.owner.equals(this.programId)) {
+            enhancedLogger.error('❌ CRITICAL: Multisig account is owned by wrong program!', {
+              multisigAddress: multisigAddress.toString(),
+              actualOwner: multisigAccountInfo.owner.toString(),
+              expectedOwner: this.programId.toString(),
+              note: 'This will cause AccountOwnedByWrongProgram. The multisig was created with a different program ID than we are using for vault operations.',
+            });
+            throw new Error(`Multisig account ${multisigAddress.toString()} is owned by ${multisigAccountInfo.owner.toString()}, but expected ${this.programId.toString()}. Program ID mismatch detected.`);
+          }
+        } else {
+          enhancedLogger.error('❌ Multisig account does not exist!', {
+            multisigAddress: multisigAddress.toString(),
+          });
+          throw new Error(`Multisig account ${multisigAddress.toString()} does not exist on-chain.`);
+        }
+      } catch (accountCheckError: any) {
+        enhancedLogger.error('❌ Failed to verify multisig account ownership', {
+          multisigAddress: multisigAddress.toString(),
+          error: accountCheckError?.message || String(accountCheckError),
+        });
+        throw accountCheckError;
+      }
+      
       // Create the Squads vault transaction
       // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
       enhancedLogger.info('📝 Creating vault transaction for tie refund', {
         multisigAddress: multisigAddress.toString(),
         vaultPda: vaultPda.toString(),
+        programId: this.programId.toString(),
         blockhash: blockhash2,
         lastValidBlockHeight,
         player1: player1.toString(),
