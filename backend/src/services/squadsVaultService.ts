@@ -929,13 +929,36 @@ export class SquadsVaultService {
           programId: this.programId, // Use network-specific program ID
         });
       } catch (createError: any) {
-        enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', {
+        // Log detailed error information to diagnose AccountOwnedByWrongProgram
+        const errorDetails: any = {
           error: createError?.message || String(createError),
           stack: createError?.stack,
           vaultAddress,
+          multisigAddress: multisigAddress.toString(),
+          vaultPda: vaultPda.toString(),
+          programId: this.programId.toString(),
           player1: player1.toString(),
           player2: player2.toString(),
-        });
+          transactionIndex: transactionIndex.toString(),
+        };
+        
+        // Check if vault PDA exists and what it's owned by
+        try {
+          const vaultAccountInfo = await this.connection.getAccountInfo(vaultPda, 'confirmed');
+          if (vaultAccountInfo) {
+            errorDetails.vaultPdaExists = true;
+            errorDetails.vaultPdaOwner = vaultAccountInfo.owner.toString();
+            errorDetails.vaultPdaDataLength = vaultAccountInfo.data.length;
+            errorDetails.vaultPdaLamports = vaultAccountInfo.lamports;
+          } else {
+            errorDetails.vaultPdaExists = false;
+            errorDetails.vaultPdaOwner = 'N/A (account does not exist)';
+          }
+        } catch (accountCheckError: any) {
+          errorDetails.vaultPdaCheckError = accountCheckError?.message || String(accountCheckError);
+        }
+        
+        enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', errorDetails);
         throw createError;
       }
       
