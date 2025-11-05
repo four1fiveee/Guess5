@@ -2077,7 +2077,13 @@ const submitResultHandler = async (req: any, res: any) => {
                 hasVaultAddress: !!(finalMatch as any).squadsVaultAddress,
               });
               
-              if (!(finalMatch as any).payoutProposalId && !(finalMatch as any).tieRefundProposalId && finalMatch.winner && (finalMatch as any).squadsVaultAddress) {
+              // Check if proposal needs to be created - for tie games, winner is 'tie', for other games it's a wallet address
+              const needsProposal = !(finalMatch as any).payoutProposalId && 
+                                    !(finalMatch as any).tieRefundProposalId && 
+                                    (finalMatch.winner || finalMatch.winner === 'tie') && 
+                                    (finalMatch as any).squadsVaultAddress;
+              
+              if (needsProposal) {
                 console.log('✅ Proposal creation conditions met, creating proposal...', {
                   matchId: finalMatch.id,
                   winner: finalMatch.winner,
