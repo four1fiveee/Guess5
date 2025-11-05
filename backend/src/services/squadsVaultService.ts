@@ -192,15 +192,49 @@ export class SquadsVaultService {
       // CRITICAL FIX: Generate a unique createKey per match (deterministic from matchId)
       // The SDK's getMultisigPda derives the PDA from createKey, so each match needs a unique createKey
       // We use a deterministic keypair from matchId so we can recreate it later if needed
-      const matchSeed = Buffer.from(matchId.replace(/-/g, ''), 'hex').slice(0, 32);
+      let matchSeed: Buffer;
+      try {
+        const hexString = matchId.replace(/-/g, '');
+        const seedBytes = Buffer.from(hexString, 'hex');
+        // Keypair.fromSeed requires exactly 32 bytes
+        if (seedBytes.length < 32) {
+          // Pad with zeros if too short
+          matchSeed = Buffer.concat([seedBytes, Buffer.alloc(32 - seedBytes.length)]);
+        } else {
+          // Take first 32 bytes if too long
+          matchSeed = seedBytes.slice(0, 32);
+        }
+      } catch (seedError: any) {
+        enhancedLogger.error('❌ Failed to create match seed from matchId', {
+          matchId,
+          error: seedError?.message || String(seedError),
+        });
+        throw new Error(`Failed to create match seed: ${seedError?.message || String(seedError)}`);
+      }
+      
       const createKeyKeypair = Keypair.fromSeed(matchSeed); // Deterministic keypair per match
       
       // Use SDK's getMultisigPda function (CORRECT way per Squads Protocol v4 docs)
       // This ensures the PDA derivation matches what the SDK expects internally
-      const [multisigPda] = getMultisigPda({ 
-        createKey: createKeyKeypair.publicKey,
-        programId: this.programId 
-      });
+      let multisigPda: PublicKey;
+      try {
+        // Try with programId first (if SDK supports it)
+        const [pda] = getMultisigPda({ 
+          createKey: createKeyKeypair.publicKey,
+          programId: this.programId 
+        } as any);
+        multisigPda = pda;
+      } catch (pdaError: any) {
+        // If programId parameter is not supported, try without it
+        enhancedLogger.warn('⚠️ getMultisigPda with programId failed, trying without it', {
+          error: pdaError?.message || String(pdaError),
+          matchId,
+        });
+        const [pda] = getMultisigPda({ 
+          createKey: createKeyKeypair.publicKey
+        });
+        multisigPda = pda;
+      }
       
       // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
       // The createKey is used for PDA derivation, but creator pays for the transaction
@@ -480,9 +514,13 @@ export class SquadsVaultService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
       enhancedLogger.error('❌ Failed to create Squads multisig vault', {
         matchId,
         error: errorMessage,
+        stack: errorStack,
+        errorType: error?.constructor?.name || typeof error,
+        errorString: String(error),
       });
 
       return {
