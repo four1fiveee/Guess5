@@ -476,11 +476,13 @@ const Result: React.FC = () => {
                               <p className="text-sm text-white/60 mb-2">
                                 {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
                                   ? '✓ You have already signed this proposal' 
+                                  : payoutData.needsSignatures === 1
+                                  ? 'Waiting for opponent to sign...'
                                   : 'Sign this proposal to execute the payout'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && (
+                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 1 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}

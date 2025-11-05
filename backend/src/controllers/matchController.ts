@@ -5141,10 +5141,10 @@ const generateReportHandler = async (req: any, res: any) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Build date filter - use timestamp comparison for better compatibility
-    let dateFilter = `"createdAt" >= '${startDate}T00:00:00.000Z'::timestamp`;
+    // Build date filter - use DATE() function for compatibility
+    let dateFilter = `DATE("createdAt") >= '${startDate}'`;
     if (endDate) {
-      dateFilter += ` AND "createdAt" <= '${endDate}T23:59:59.999Z'::timestamp`;
+      dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
     // Try to get matches with all columns, but fallback to minimal query if columns don't exist
