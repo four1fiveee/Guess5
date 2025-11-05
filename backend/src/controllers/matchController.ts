@@ -2572,6 +2572,91 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
   }
 
+  // FINAL FALLBACK: If proposal is still missing and match is completed, create it now
+  // This ensures proposals are created even if the earlier code paths didn't execute
+  if (match.isCompleted && 
+      !(match as any).payoutProposalId && 
+      !(match as any).tieRefundProposalId && 
+      match.winner && 
+      (match as any).squadsVaultAddress) {
+    
+    console.log('🔄 FINAL FALLBACK: Creating missing proposal before response', {
+      matchId: match.id,
+      winner: match.winner,
+      isCompleted: match.isCompleted,
+      hasVault: !!(match as any).squadsVaultAddress
+    });
+    
+    try {
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const { PublicKey } = require('@solana/web3.js');
+      const { SquadsVaultService } = require('../services/squadsVaultService');
+      const squadsService = new SquadsVaultService();
+      
+      if (match.winner === 'tie') {
+        const player1Result = match.getPlayer1Result();
+        const player2Result = match.getPlayer2Result();
+        const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+        
+        if (isLosingTie) {
+          const entryFee = match.entryFee;
+          const refundAmount = entryFee * 0.95;
+          
+          console.log('🔄 FINAL FALLBACK: Creating tie refund proposal', {
+            matchId: match.id,
+            refundAmount,
+            player1: match.player1,
+            player2: match.player2
+          });
+          
+          const proposalResult = await squadsService.proposeTieRefund(
+            (match as any).squadsVaultAddress,
+            new PublicKey(match.player1),
+            new PublicKey(match.player2),
+            refundAmount
+          );
+          
+          if (proposalResult.success && proposalResult.proposalId) {
+            (match as any).payoutProposalId = proposalResult.proposalId;
+            (match as any).tieRefundProposalId = proposalResult.proposalId;
+            (match as any).proposalCreatedAt = new Date();
+            (match as any).proposalStatus = 'ACTIVE';
+            (match as any).needsSignatures = proposalResult.needsSignatures || 1;
+            await matchRepository.save(match);
+            
+            // Reload to ensure we have the latest data
+            const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+            if (reloadedMatch) {
+              (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
+              (match as any).tieRefundProposalId = (reloadedMatch as any).tieRefundProposalId;
+              (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
+              (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
+              (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
+            }
+            
+            console.log('✅ FINAL FALLBACK: Tie refund proposal created successfully', {
+              matchId: match.id,
+              proposalId: proposalResult.proposalId
+            });
+          } else {
+            console.error('❌ FINAL FALLBACK: Failed to create tie refund proposal', {
+              matchId: match.id,
+              success: proposalResult.success,
+              error: proposalResult.error
+            });
+          }
+        }
+      }
+    } catch (fallbackError: unknown) {
+      const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+      console.error('❌ FINAL FALLBACK: Error creating proposal', {
+        matchId: match.id,
+        error: errorMessage
+      });
+    }
+  }
+
   res.json({
     status: playerSpecificStatus,
       player1: match.player1,
