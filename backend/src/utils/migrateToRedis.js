@@ -3,7 +3,16 @@ const path = require('path');
 
 // Migration script to replace in-memory storage with Redis
 const migrateToRedis = () => {
-  const matchControllerPath = path.join(__dirname, '../controllers/matchController.ts');
+  // Use path.resolve with __dirname to ensure we get a relative path from the script location
+  // Never use absolute paths - always use relative paths from __dirname
+  const matchControllerPath = path.resolve(__dirname, '../controllers/matchController.ts');
+  
+  // Safety check: ensure the path is within the project (relative to backend root)
+  const backendRoot = path.resolve(__dirname, '../..');
+  const normalizedPath = path.normalize(matchControllerPath);
+  if (!normalizedPath.startsWith(backendRoot)) {
+    throw new Error(`Invalid path: ${matchControllerPath} is outside project root`);
+  }
   let content = fs.readFileSync(matchControllerPath, 'utf8');
 
   console.log('🔄 Starting migration to Redis...');
