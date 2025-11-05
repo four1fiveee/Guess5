@@ -5145,82 +5145,181 @@ const generateReportHandler = async (req: any, res: any) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    // Get all FINISHED matches with Squads data (completed games, cancelled games with refunds)
-    const matches = await matchRepository.query(`
-      SELECT 
-        id,
-        "player1",
-        "player2",
-        "entryFee",
-        "entryFeeUSD",
-        status,
-        "squadsVaultAddress",
-        "depositATx",
-        "depositBTx",
-        "depositAConfirmations",
-        "depositBConfirmations",
-        "gameStartTime",
-        "gameStartTimeUtc",
-        "gameEndTime",
-        "gameEndTimeUtc",
-        "player1Paid",
-        "player2Paid",
-        "player1Result",
-        "player2Result",
-        winner,
-        "payoutResult",
-        "payoutAmount",
-        "payoutAmountUSD",
-        "proposalTransactionId",
-        "player1RefundSignature",
-        "player2RefundSignature",
-        "matchOutcome",
-        "totalFeesCollected",
-        "platformFee",
-        "matchDuration",
-        "refundReason",
-        "refundedAt",
-        "refundedAtUtc",
-        "isCompleted",
-        "createdAt",
-        "updatedAt",
-        "payoutProposalId",
-        "tieRefundProposalId",
-        "proposalStatus",
-        "proposalCreatedAt",
-        "proposalExecutedAt",
-        "needsSignatures",
-        "proposalSigners",
-        "player1PaymentSignature",
-        "player2PaymentSignature",
-        "winnerPayoutSignature",
-        "player1PaymentTime",
-        "player2PaymentTime",
-        "player1PaymentBlockTime",
-        "player2PaymentBlockTime",
-        "winnerPayoutBlockTime",
-        "player1PaymentBlockNumber",
-        "player2PaymentBlockNumber",
-        "winnerPayoutBlockNumber",
-        "solPriceAtTransaction"
-      FROM "match" 
-      WHERE ${dateFilter}
-        AND "squadsVaultAddress" IS NOT NULL
-        AND (
-          -- Include all completed matches (winners, losers, ties, losing ties)
-          (status = 'completed' AND "isCompleted" = true)
-          OR 
-          -- Include cancelled matches that have refund signatures
-          (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
-          OR
-          -- Include any matches with refund signatures (covers losing ties and other refund scenarios)
-          ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL)
-          OR
-          -- Include matches with player results (covers timeout scenarios and other completed games)
-          ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
-        )
-      ORDER BY "createdAt" DESC
-    `);
+    // Try to get matches with all columns, but fallback to minimal query if columns don't exist
+    let matches: any[];
+    try {
+      // First attempt: try with all new columns
+      matches = await matchRepository.query(`
+        SELECT 
+          id,
+          "player1",
+          "player2",
+          "entryFee",
+          "entryFeeUSD",
+          status,
+          "squadsVaultAddress",
+          "depositATx",
+          "depositBTx",
+          "depositAConfirmations",
+          "depositBConfirmations",
+          "gameStartTime",
+          "gameStartTimeUtc",
+          "gameEndTime",
+          "gameEndTimeUtc",
+          "player1Paid",
+          "player2Paid",
+          "player1Result",
+          "player2Result",
+          winner,
+          "payoutResult",
+          "payoutAmount",
+          "payoutAmountUSD",
+          "proposalTransactionId",
+          "player1RefundSignature",
+          "player2RefundSignature",
+          "matchOutcome",
+          "totalFeesCollected",
+          "platformFee",
+          "matchDuration",
+          "refundReason",
+          "refundedAt",
+          "refundedAtUtc",
+          "isCompleted",
+          "createdAt",
+          "updatedAt",
+          "payoutProposalId",
+          "tieRefundProposalId",
+          "proposalStatus",
+          "proposalCreatedAt",
+          "proposalExecutedAt",
+          "needsSignatures",
+          "proposalSigners",
+          "player1PaymentSignature",
+          "player2PaymentSignature",
+          "winnerPayoutSignature",
+          "player1PaymentTime",
+          "player2PaymentTime",
+          "player1PaymentBlockTime",
+          "player2PaymentBlockTime",
+          "winnerPayoutBlockTime",
+          "player1PaymentBlockNumber",
+          "player2PaymentBlockNumber",
+          "winnerPayoutBlockNumber",
+          "solPriceAtTransaction"
+        FROM "match" 
+        WHERE ${dateFilter}
+          AND "squadsVaultAddress" IS NOT NULL
+          AND (
+            (status = 'completed' AND "isCompleted" = true)
+            OR 
+            (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
+            OR
+            ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL)
+            OR
+            ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+          )
+        ORDER BY "createdAt" DESC
+      `);
+      console.log(`✅ Full query succeeded with ${matches.length} matches`);
+    } catch (queryError: any) {
+      const errorMsg = queryError?.message || String(queryError);
+      console.log(`⚠️ Full query failed, trying fallback: ${errorMsg}`);
+      
+      try {
+        // Fallback: use only columns that definitely exist (from older migrations)
+        matches = await matchRepository.query(`
+          SELECT 
+            id,
+            "player1",
+            "player2",
+            "entryFee",
+            status,
+            "squadsVaultAddress",
+            "depositATx",
+            "depositBTx",
+            "player1Paid",
+            "player2Paid",
+            "player1Result",
+            "player2Result",
+            winner,
+            "payoutResult",
+            "proposalTransactionId",
+            "matchOutcome",
+            "totalFeesCollected",
+            "platformFee",
+            "matchDuration",
+            "refundReason",
+            "refundedAt",
+            "refundedAtUtc",
+            "isCompleted",
+            "createdAt",
+            "updatedAt",
+            "payoutProposalId",
+            "proposalStatus",
+            "proposalCreatedAt",
+            "proposalExecutedAt",
+            "needsSignatures",
+            "proposalSigners",
+            "gameStartTimeUtc",
+            "gameEndTimeUtc"
+          FROM "match" 
+          WHERE ${dateFilter}
+            AND "squadsVaultAddress" IS NOT NULL
+            AND (
+              (status = 'completed' AND "isCompleted" = true)
+              OR 
+              (status = 'cancelled' AND ("proposalTransactionId" IS NOT NULL))
+              OR
+              ("proposalTransactionId" IS NOT NULL)
+              OR
+              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+            )
+          ORDER BY "createdAt" DESC
+        `);
+        console.log(`✅ Fallback query succeeded with ${matches.length} matches`);
+      } catch (fallbackError: any) {
+        const fallbackMsg = fallbackError?.message || String(fallbackError);
+        console.log(`⚠️ Fallback query also failed, trying minimal query: ${fallbackMsg}`);
+        
+        // Ultra-minimal fallback: only absolute core columns
+        matches = await matchRepository.query(`
+          SELECT 
+            id,
+            "player1",
+            "player2",
+            "entryFee",
+            status,
+            "squadsVaultAddress",
+            "depositATx",
+            "depositBTx",
+            "player1Paid",
+            "player2Paid",
+            "player1Result",
+            "player2Result",
+            winner,
+            "payoutResult",
+            "proposalTransactionId",
+            "isCompleted",
+            "createdAt",
+            "updatedAt",
+            "payoutProposalId",
+            "proposalStatus",
+            "proposalCreatedAt",
+            "needsSignatures",
+            "proposalSigners"
+          FROM "match" 
+          WHERE ${dateFilter}
+            AND "squadsVaultAddress" IS NOT NULL
+            AND (
+              (status = 'completed' AND "isCompleted" = true)
+              OR
+              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+            )
+          ORDER BY "createdAt" DESC
+        `);
+        console.log(`✅ Minimal query succeeded with ${matches.length} matches`);
+      }
+    }
     
 
     
