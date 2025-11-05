@@ -5209,21 +5209,73 @@ const generateReportHandler = async (req: any, res: any) => {
         FROM "match" 
         WHERE ${dateFilter}
           AND "squadsVaultAddress" IS NOT NULL
-          AND "player1Paid" = true
-          AND "player2Paid" = true
           AND (
-            -- Executed payouts (winners or ties with refunds)
-            (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
+            -- Executed payouts (most complete data)
+            ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
             OR
-            -- Cancelled matches with refunds
+            -- Completed matches (may not have proposalStatus set yet)
+            (status = 'completed' AND "isCompleted" = true)
+            OR
+            -- Cancelled with refunds
             (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
             OR
-            -- Any match with executed transaction
-            ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
+            -- Matches with both players paid (even if not fully executed)
+            ("player1Paid" = true AND "player2Paid" = true AND "proposalTransactionId" IS NOT NULL)
           )
         ORDER BY "createdAt" DESC
       `);
       console.log(`✅ Full query succeeded with ${matches.length} matches`);
+      console.log(`📊 Query stats:`, {
+        dateFilter,
+        hasSquadsVault: matches.filter((m: any) => m.squadsVaultAddress).length,
+        bothPaid: matches.filter((m: any) => m.player1Paid && m.player2Paid).length,
+        executed: matches.filter((m: any) => m.proposalStatus === 'EXECUTED').length,
+        completed: matches.filter((m: any) => m.status === 'completed').length,
+      });
+      
+      // If no matches found, try relaxed query
+      if (matches.length === 0) {
+        console.log('⚠️ No matches with filters, trying relaxed query...');
+        const relaxedMatches = await matchRepository.query(`
+          SELECT 
+            id,
+            "player1",
+            "player2",
+            "entryFee",
+            "entryFeeUSD",
+            status,
+            "squadsVaultAddress",
+            "depositATx",
+            "depositBTx",
+            "player1Paid",
+            "player2Paid",
+            "player1Result",
+            "player2Result",
+            winner,
+            "payoutResult",
+            "proposalTransactionId",
+            "isCompleted",
+            "createdAt",
+            "updatedAt",
+            "payoutProposalId",
+            "proposalStatus",
+            "proposalCreatedAt",
+            "proposalExecutedAt",
+            "needsSignatures"
+          FROM "match" 
+          WHERE ${dateFilter}
+            AND "squadsVaultAddress" IS NOT NULL
+            AND (
+              (status = 'completed' AND "isCompleted" = true)
+              OR ("proposalTransactionId" IS NOT NULL)
+              OR ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+            )
+          ORDER BY "createdAt" DESC
+          LIMIT 100
+        `);
+        console.log(`✅ Relaxed query found ${relaxedMatches.length} matches`);
+        matches = relaxedMatches;
+      }
     } catch (queryError: any) {
       const errorMsg = queryError?.message || String(queryError);
       console.log(`⚠️ Full query failed, trying fallback: ${errorMsg}`);
@@ -5827,8 +5879,9 @@ const verifyBlockchainDataHandler = async (req: any, res: any) => {
   }
 };
 
-// Track active SSE connections
+// Track active SSE connections (count and response objects)
 const activeSSEConnections = new Map<string, { count: number; lastActivity: number }>();
+const activeSSEResponses = new Map<string, Set<any>>(); // Store actual response objects per wallet
 
 // Cleanup stale connections every 5 minutes
 setInterval(() => {
@@ -5870,6 +5923,12 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       count: walletConnections.count + 1, 
       lastActivity: Date.now() 
     });
+    
+    // Store response object for this connection
+    if (!activeSSEResponses.has(wallet)) {
+      activeSSEResponses.set(wallet, new Set());
+    }
+    activeSSEResponses.get(wallet)!.add(res);
     
     console.log('🔌 SSE connection requested for wallet:', wallet, 'active connections:', walletConnections.count + 1);
     
@@ -5974,6 +6033,15 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       clearInterval(balanceInterval);
       clearInterval(heartbeatInterval);
       
+      // Remove response object
+      const responses = activeSSEResponses.get(wallet);
+      if (responses) {
+        responses.delete(res);
+        if (responses.size === 0) {
+          activeSSEResponses.delete(wallet);
+        }
+      }
+      
       // Decrement connection count
       const walletConnections = activeSSEConnections.get(wallet);
       if (walletConnections) {
@@ -5991,6 +6059,15 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       console.error('❌ SSE connection error:', error);
       clearInterval(balanceInterval);
       clearInterval(heartbeatInterval);
+      
+      // Remove response object
+      const responses = activeSSEResponses.get(wallet);
+      if (responses) {
+        responses.delete(res);
+        if (responses.size === 0) {
+          activeSSEResponses.delete(wallet);
+        }
+      }
       
       // Decrement connection count
       const walletConnections = activeSSEConnections.get(wallet);
@@ -7159,6 +7236,32 @@ const signProposalHandler = async (req: any, res: any) => {
         needsSignatures: (match as any).needsSignatures,
         proposalStatus: (match as any).proposalStatus,
       });
+      
+      // Notify opponent via SSE if they're connected
+      const opponentWallet = isPlayer1 ? match.player2 : match.player1;
+      const opponentResponses = activeSSEResponses.get(opponentWallet);
+      if (opponentResponses && opponentResponses.size > 0) {
+        const eventData = {
+          type: 'proposal_signed',
+          matchId: matchId,
+          signer: wallet,
+          needsSignatures: (match as any).needsSignatures,
+          proposalStatus: (match as any).proposalStatus,
+          message: 'Opponent has signed the transaction'
+        };
+        
+        // Broadcast to all opponent's SSE connections
+        opponentResponses.forEach((response: any) => {
+          try {
+            response.write(`data: ${JSON.stringify(eventData)}\n\n`);
+            console.log(`📢 SSE notification sent to opponent ${opponentWallet} for match ${matchId}`);
+          } catch (error: any) {
+            console.error('❌ Failed to send SSE notification:', error);
+            // Remove dead connection
+            opponentResponses.delete(response);
+          }
+        });
+      }
     } catch (dbError: any) {
       console.error('❌ Failed to update match in database:', {
         error: dbError?.message,

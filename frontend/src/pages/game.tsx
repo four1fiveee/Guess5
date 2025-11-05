@@ -783,12 +783,21 @@ const Game: React.FC = () => {
         <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 max-w-md w-full text-center">
           <div className="text-red-400 text-xl font-bold mb-2">❌ Error</div>
           <p className="text-white/80 mb-4">{error}</p>
-          <button
-            onClick={() => router.push('/lobby')}
-            className="bg-accent hover:bg-yellow-400 text-primary px-6 py-2.5 rounded-lg font-bold transition-all duration-200 min-h-[44px] flex items-center justify-center mx-auto"
-          >
-            Back to Lobby
-          </button>
+          {error?.includes('already tried') ? (
+            <button
+              onClick={() => setError(null)}
+              className="bg-accent hover:bg-yellow-400 text-primary px-6 py-2.5 rounded-lg font-bold transition-all duration-200 min-h-[44px] flex items-center justify-center mx-auto"
+            >
+              Return to Game
+            </button>
+          ) : (
+            <button
+              onClick={() => router.push('/lobby')}
+              className="bg-accent hover:bg-yellow-400 text-primary px-6 py-2.5 rounded-lg font-bold transition-all duration-200 min-h-[44px] flex items-center justify-center mx-auto"
+            >
+              Back to Lobby
+            </button>
+          )}
         </div>
       </div>
     );

@@ -15,6 +15,7 @@ const Result: React.FC = () => {
   const [signingProposal, setSigningProposal] = useState(false);
   const [squadsClient] = useState(() => new SquadsClient());
   const [isPolling, setIsPolling] = useState(false);
+  const [notification, setNotification] = useState<string | null>(null);
 
   const loadPayoutData = async () => {
     // Always try to fetch fresh data from backend first if we have a matchId
@@ -157,6 +158,42 @@ const Result: React.FC = () => {
       });
     }
   }, [payoutData]);
+
+  // Listen for SSE proposal signing events
+  useEffect(() => {
+    const matchId = router.query.matchId as string;
+    if (!matchId || !publicKey) return;
+
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+    const eventSource = new EventSource(
+      `${apiUrl}/api/wallet/${publicKey.toString()}/balance/stream`
+    );
+
+    eventSource.addEventListener('proposal_signed', (event: any) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (data.matchId === matchId) {
+          console.log('📢 Received proposal signed notification:', data);
+          setNotification('Opponent has signed the transaction! Redirecting...');
+          
+          // Refresh payout data to get updated status
+          setTimeout(() => {
+            loadPayoutData();
+            // Redirect after 2 seconds
+            setTimeout(() => {
+              router.push(`/result?matchId=${matchId}`);
+            }, 2000);
+          }, 500);
+        }
+      } catch (error) {
+        console.error('❌ Error parsing proposal_signed event:', error);
+      }
+    });
+
+    return () => {
+      eventSource.close();
+    };
+  }, [router.query.matchId, publicKey]);
 
   const handlePlayAgain = () => {
     // Clear stored data
@@ -370,26 +407,46 @@ const Result: React.FC = () => {
                 </div>
               </div>
               
+              {/* Notification Banner */}
+              {notification && (
+                <div className="mb-4 bg-accent/20 border border-accent rounded-lg p-4 text-center animate-pulse">
+                  <p className="text-accent font-semibold text-lg">{notification}</p>
+                </div>
+              )}
+
               {/* Payout Information - Non-Custodial Proposal System */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
                 
                 {payoutData.proposalId ? (
-                  <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-4">
+                  <div className={`
+                    ${payoutData.won && payoutData.proposalStatus === 'EXECUTED' 
+                      ? 'bg-gradient-to-br from-accent/20 to-yellow-500/20 border-2 border-accent shadow-lg shadow-accent/50' 
+                      : 'bg-secondary bg-opacity-10 border border-accent'
+                    } rounded-lg p-6 transform transition-all duration-300
+                    ${payoutData.won && payoutData.proposalStatus === 'EXECUTED' ? 'animate-pulse hover:scale-105' : ''}
+                  `}>
                   <div className="text-center">
                       <div className="text-accent text-lg font-semibold mb-2">
                         💰 Non-Custodial Payout System
                     </div>
                                          {payoutData.won ? (
                         <div className="text-white">
-                          <p className="text-lg font-semibold text-accent mb-2">🏆 You Won!</p>
-                          <p className="text-sm text-white/80 mb-3">
-                            You won {payoutData.winnerAmount?.toFixed(4)} SOL! 
-                            {payoutData.proposalStatus === 'EXECUTED' ? 
-                              ' Payment has been sent to your wallet.' :
-                              ' Sign the proposal below to claim your winnings.'
-                            }
-                          </p>
+                          <div className="text-3xl font-bold text-accent mb-3 animate-bounce">
+                            🎉 YOU WON! 🎉
+                          </div>
+                          <div className="text-4xl font-bold text-yellow-400 mb-2">
+                            {payoutData.winnerAmount?.toFixed(4)} SOL
+                          </div>
+                          {payoutData.proposalStatus === 'EXECUTED' ? (
+                            <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
+                              ✅ Payment Sent to Your Wallet!
+                            </div>
+                          ) : (
+                            <p className="text-sm text-white/80 mb-3">
+                              Sign the proposal below to claim your winnings.
+                            </p>
+                          )}
                           
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
                             <div className="mt-4">

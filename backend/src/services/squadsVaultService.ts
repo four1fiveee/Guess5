@@ -620,7 +620,7 @@ export class SquadsVaultService {
       try {
         // Try with programId parameter (may not be supported by SDK)
         const [derivedVaultPda] = getVaultPda({
-          multisigPda: multisigAddress,
+        multisigPda: multisigAddress,
           index: 0,
           programId: this.programId,
         } as any); // Type cast since programId might not be in types
@@ -933,8 +933,8 @@ export class SquadsVaultService {
       try {
         // Try with programId parameter (may not be supported by SDK)
         const [derivedVaultPda] = getVaultPda({
-          multisigPda: multisigAddress,
-          index: 0,
+        multisigPda: multisigAddress,
+        index: 0,
           programId: this.programId,
         } as any); // Type cast since programId might not be in types
         vaultPda = derivedVaultPda;

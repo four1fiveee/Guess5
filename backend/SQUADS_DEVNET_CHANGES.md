@@ -199,3 +199,4 @@ All Squads operations now log:
 
 **Last Updated**: November 2025
 **SDK Version**: @sqds/multisig@^2.1.4
+

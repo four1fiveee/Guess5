@@ -13,7 +13,7 @@ async function fixTieProposal(req: Request, res: Response) {
   try {
     const { matchId } = req.params;
     
-    enhancedLogger.info('=ƒöº Fix tie proposal requested', { matchId });
+    enhancedLogger.info('=ï¿½ï¿½ï¿½ Fix tie proposal requested', { matchId });
     
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
@@ -75,7 +75,7 @@ async function fixTieProposal(req: Request, res: Response) {
     const entryFee = match.entryFee;
     const refundAmount = entryFee * 0.95;
     
-    enhancedLogger.info('=ƒöä Creating tie refund proposal', {
+    enhancedLogger.info('=ï¿½ï¿½ï¿½ Creating tie refund proposal', {
       matchId,
       vaultAddress: match.squadsVaultAddress,
       player1: match.player1,
@@ -103,7 +103,7 @@ async function fixTieProposal(req: Request, res: Response) {
     (match as any).tieRefundProposalId = proposalResult.proposalId;
     await matchRepository.save(match);
     
-    enhancedLogger.info('G£à Tie refund proposal created and saved', {
+    enhancedLogger.info('Gï¿½ï¿½ Tie refund proposal created and saved', {
       matchId,
       proposalId: proposalResult.proposalId,
     });
@@ -117,7 +117,7 @@ async function fixTieProposal(req: Request, res: Response) {
     
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('G¥î Failed to fix tie proposal', {
+    enhancedLogger.error('Gï¿½ï¿½ Failed to fix tie proposal', {
       matchId: req.params.matchId,
       error: errorMessage,
     });
