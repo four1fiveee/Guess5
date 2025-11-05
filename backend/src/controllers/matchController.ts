@@ -5454,8 +5454,182 @@ const generateReportHandler = async (req: any, res: any) => {
     res.send(csvContent);
     
   } catch (error: unknown) {
-    console.error('❌ Error generating secure report:', error);
-    res.status(500).json({ error: 'Failed to generate secure report' });
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('❌ Error generating secure report:', errorMessage);
+    console.error('❌ Error stack:', errorStack);
+    console.error('❌ Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      errorName: error instanceof Error ? error.name : undefined,
+      startDate: req.query?.startDate,
+      endDate: req.query?.endDate,
+    });
+    
+    // If the error is about missing columns, try a fallback query with only core columns
+    if (errorMessage.includes('column') && (errorMessage.includes('does not exist') || errorMessage.includes('not found'))) {
+      console.log('🔄 Attempting fallback query with core columns only...');
+      try {
+        const { AppDataSource } = require('../db/index');
+        const matchRepository = AppDataSource.getRepository(Match);
+        
+        let dateFilter = `DATE("createdAt") >= '${req.query.startDate || '2025-08-16'}'`;
+        if (req.query.endDate) {
+          dateFilter += ` AND DATE("createdAt") <= '${req.query.endDate}'`;
+        }
+        
+        // Fallback query with only columns that should definitely exist
+        const fallbackMatches = await matchRepository.query(`
+          SELECT 
+            id,
+            "player1",
+            "player2",
+            "entryFee",
+            status,
+            "squadsVaultAddress",
+            "depositATx",
+            "depositBTx",
+            "player1Paid",
+            "player2Paid",
+            "player1Result",
+            "player2Result",
+            winner,
+            "payoutResult",
+            "proposalTransactionId",
+            "matchOutcome",
+            "totalFeesCollected",
+            "platformFee",
+            "matchDuration",
+            "refundReason",
+            "refundedAt",
+            "refundedAtUtc",
+            "isCompleted",
+            "createdAt",
+            "updatedAt",
+            "payoutProposalId",
+            "proposalStatus",
+            "proposalCreatedAt",
+            "proposalExecutedAt",
+            "needsSignatures",
+            "proposalSigners",
+            "gameStartTimeUtc",
+            "gameEndTimeUtc"
+          FROM "match" 
+          WHERE ${dateFilter}
+            AND "squadsVaultAddress" IS NOT NULL
+            AND (
+              (status = 'completed' AND "isCompleted" = true)
+              OR 
+              (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
+              OR
+              ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL)
+              OR
+              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+            )
+          ORDER BY "createdAt" DESC
+        `);
+        
+        // Generate CSV with fallback data (missing new columns will be empty)
+        const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet-beta';
+        const csvHeaders = [
+          'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Total Pot (SOL)',
+          'Match Status', 'Winner', 'Winner Amount (SOL)', 'Platform Fee (SOL)', 'Game Completed',
+          'Squads Vault Address', 'Player 1 Deposit TX', 'Player 2 Deposit TX',
+          'Player 1 Solved', 'Player 1 Guesses', 'Player 1 Time (sec)', 'Player 1 Result Reason',
+          'Player 2 Solved', 'Player 2 Guesses', 'Player 2 Time (sec)', 'Player 2 Result Reason',
+          'Match Created (EST)', 'Game Started (EST)', 'Game Ended (EST)',
+          'Executed Transaction Hash', 'Proposal ID', 'Proposal Status', 'Proposal Created At',
+          'Needs Signatures', 'Squads Vault Link', 'Player 1 Deposit Link', 'Player 2 Deposit Link',
+          'Executed Transaction Link'
+        ];
+        
+        const sanitizeCsvValue = (value: any) => {
+          if (!value) return '';
+          const str = String(value);
+          if (/^[=\-+@]/.test(str)) return `'${str}`;
+          return str;
+        };
+        
+        const convertToEST = (timestamp: any) => {
+          if (!timestamp) return '';
+          try {
+            const date = new Date(timestamp);
+            return date.toLocaleString('en-US', { timeZone: 'America/New_York' });
+          } catch {
+            return '';
+          }
+        };
+        
+        const csvRows = fallbackMatches.map((match: any) => {
+          const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
+          const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
+          const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
+          const totalPot = match.entryFee * 2;
+          const winnerAmount = match.platformFee ? totalPot - match.platformFee : (payoutResult?.winnerAmount || 0);
+          const platformFee = match.platformFee || (payoutResult?.feeAmount || 0);
+          const winner = payoutResult?.winner || match.winner || '';
+          
+          return [
+            sanitizeCsvValue(match.id),
+            sanitizeCsvValue(match.player1),
+            sanitizeCsvValue(match.player2),
+            sanitizeCsvValue(match.entryFee),
+            sanitizeCsvValue(totalPot),
+            sanitizeCsvValue(match.status),
+            sanitizeCsvValue(winner),
+            sanitizeCsvValue(winnerAmount),
+            sanitizeCsvValue(platformFee),
+            sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
+            sanitizeCsvValue(match.squadsVaultAddress),
+            sanitizeCsvValue(match.depositATx),
+            sanitizeCsvValue(match.depositBTx),
+            sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
+            sanitizeCsvValue(player1Result?.numGuesses || ''),
+            sanitizeCsvValue(player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
+            sanitizeCsvValue(player1Result?.reason || ''),
+            sanitizeCsvValue((player2Result && player2Result.won) ? 'Yes' : (player2Result ? 'No' : 'N/A')),
+            sanitizeCsvValue(player2Result?.numGuesses || ''),
+            sanitizeCsvValue(player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
+            sanitizeCsvValue(player2Result?.reason || ''),
+            convertToEST(match.createdAt),
+            convertToEST(match.gameStartTimeUtc),
+            convertToEST(match.gameEndTimeUtc),
+            sanitizeCsvValue(match.proposalTransactionId),
+            sanitizeCsvValue(match.payoutProposalId || ''),
+            sanitizeCsvValue(match.proposalStatus || ''),
+            sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
+            sanitizeCsvValue(match.needsSignatures || ''),
+            match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
+            match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
+            match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
+            match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
+          ];
+        });
+        
+        const csvContent = [csvHeaders, ...csvRows]
+          .map((row: any) => row.map((field: any) => `"${field || ''}"`).join(','))
+          .join('\n');
+        
+        const crypto = require('crypto');
+        const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
+        const filename = `guess5_matches_${req.query.startDate || '2025-08-16'}${req.query.endDate ? '_to_' + req.query.endDate : ''}.csv`;
+        
+        res.setHeader('Content-Type', 'text/csv');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.setHeader('X-File-Hash', fileHash);
+        
+        console.log(`✅ Fallback report generated: ${filename} with ${fallbackMatches.length} matches`);
+        res.send(csvContent);
+        return;
+      } catch (fallbackError: unknown) {
+        console.error('❌ Fallback query also failed:', fallbackError instanceof Error ? fallbackError.message : String(fallbackError));
+      }
+    }
+    
+    res.status(500).json({ 
+      error: 'Failed to generate secure report',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
   }
 };
 
