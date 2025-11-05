@@ -6403,6 +6403,8 @@ const signProposalHandler = async (req: any, res: any) => {
       signedTransactionLength: signedTransaction?.length,
       squadsVaultAddress: (match as any).squadsVaultAddress,
       payoutProposalId: (match as any).payoutProposalId,
+      tieRefundProposalId: (match as any).tieRefundProposalId,
+      proposalId: proposalId,
     });
 
     // Submit the signed transaction
@@ -6480,7 +6482,9 @@ const signProposalHandler = async (req: any, res: any) => {
       matchId,
       wallet,
       signature,
-      proposalId: (match as any).payoutProposalId,
+      proposalId: proposalId,
+      payoutProposalId: (match as any).payoutProposalId,
+      tieRefundProposalId: (match as any).tieRefundProposalId,
     });
 
     // Update match with new signer
@@ -6519,7 +6523,7 @@ const signProposalHandler = async (req: any, res: any) => {
     res.json({
       success: true,
       signature,
-      proposalId: (match as any).payoutProposalId,
+      proposalId: proposalId,
       needsSignatures: (match as any).needsSignatures,
       proposalStatus: (match as any).proposalStatus,
     });
