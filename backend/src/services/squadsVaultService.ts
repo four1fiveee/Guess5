@@ -486,6 +486,7 @@ export class SquadsVaultService {
           ephemeralSigners: 0, // No ephemeral signers needed
           transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Winner payout: ${winner.toString()}`,
+          programId: PROGRAM_ID, // Explicitly specify Squads program ID
         });
       } catch (createError: any) {
         enhancedLogger.error('❌ vaultTransactionCreate failed', {
@@ -741,6 +742,7 @@ export class SquadsVaultService {
           ephemeralSigners: 0, // No ephemeral signers needed
           transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
+          programId: PROGRAM_ID, // Explicitly specify Squads program ID
         });
       } catch (createError: any) {
         enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', {
