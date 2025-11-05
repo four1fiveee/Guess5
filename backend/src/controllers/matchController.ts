@@ -6092,40 +6092,73 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
 
     // Build the approval transaction using Squads SDK (backend has access to rpc)
-    const { rpc } = require('@sqds/multisig');
-    const { Connection, PublicKey, TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
+    const { Connection, PublicKey, TransactionMessage, VersionedTransaction, TransactionInstruction } = require('@solana/web3.js');
     const connection = new Connection(
       process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
       'confirmed'
     );
+
+    // CRITICAL: Use the same program ID that was used to create the multisig
+    // Get it from the Squads service or environment variable (same logic as service uses)
+    const { PROGRAM_ID } = require('@sqds/multisig');
+    let programId: PublicKey;
+    if (process.env.SQUADS_PROGRAM_ID) {
+      try {
+        programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+      } catch (pkError: any) {
+        console.warn('⚠️ Invalid SQUADS_PROGRAM_ID, using SDK default', pkError?.message);
+        programId = PROGRAM_ID;
+      }
+    } else {
+      programId = PROGRAM_ID;
+    }
 
     const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
     const transactionIndex = BigInt((match as any).payoutProposalId);
     const memberPublicKey = new PublicKey(wallet);
 
     // Get recent blockhash
-    const { blockhash } = await connection.getLatestBlockhash('confirmed');
+    const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('confirmed');
 
-    // Use the Squads service to build the transaction
-    // We'll call the service method but capture the transaction before signing
-    // Actually, let's use rpc to get a transaction builder if available, or build manually
-    const { getVaultTransactionPda, getMemberPda, PROGRAM_ID } = require('@sqds/multisig');
-    const { TransactionInstruction, sha256 } = require('@solana/web3.js');
+    // Use SDK helpers with the correct program ID
+    const { getVaultTransactionPda, getMemberPda } = require('@sqds/multisig');
     const crypto = require('crypto');
     
-    // Derive transaction PDA using SDK helper
-    const [transactionPda] = getVaultTransactionPda({
-      multisig: multisigAddress,
-      index: transactionIndex,
-      programId: PROGRAM_ID,
-    });
+    // Derive transaction PDA using SDK helper with correct program ID
+    let transactionPda: PublicKey;
+    try {
+      const [pda] = getVaultTransactionPda({
+        multisig: multisigAddress,
+        index: transactionIndex,
+        programId: programId,
+      } as any);
+      transactionPda = pda;
+    } catch (pdaError: any) {
+      // Fallback if programId parameter not supported
+      const [pda] = getVaultTransactionPda({
+        multisig: multisigAddress,
+        index: transactionIndex,
+      });
+      transactionPda = pda;
+    }
     
-    // Derive member PDA using SDK helper
-    const [memberPda] = getMemberPda({
-      multisig: multisigAddress,
-      memberKey: memberPublicKey,
-      programId: PROGRAM_ID,
-    });
+    // Derive member PDA using SDK helper with correct program ID
+    let memberPda: PublicKey;
+    try {
+      const [pda] = getMemberPda({
+        multisig: multisigAddress,
+        memberKey: memberPublicKey,
+        programId: programId,
+      } as any);
+      memberPda = pda;
+    } catch (pdaError: any) {
+      // Fallback if programId parameter not supported
+      const [pda] = getMemberPda({
+        multisig: multisigAddress,
+        memberKey: memberPublicKey,
+      });
+      memberPda = pda;
+    }
     
     // Calculate Anchor instruction discriminator: sha256("global:vault_transaction_approve")[0:8]
     const discriminatorSeed = 'global:vault_transaction_approve';
@@ -6139,7 +6172,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     const instructionData = Buffer.concat([discriminator, indexBuffer]);
     
     const approveIx = new TransactionInstruction({
-      programId: PROGRAM_ID,
+      programId: programId, // Use network-specific program ID (must match multisig creation!)
       keys: [
         { pubkey: multisigAddress, isSigner: false, isWritable: false },
         { pubkey: transactionPda, isSigner: false, isWritable: true },
@@ -6171,6 +6204,13 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
   } catch (error: unknown) {
     console.error('❌ Error building approval transaction:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('❌ Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      matchId: req.query?.matchId,
+      wallet: req.query?.wallet,
+    });
     res.status(500).json({ error: 'Failed to build approval transaction', details: errorMessage });
   }
 };
