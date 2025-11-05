@@ -2574,32 +2574,58 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
   // FINAL FALLBACK: If proposal is still missing and match is completed, create it now
   // This ensures proposals are created even if the earlier code paths didn't execute
+  // CRITICAL: Reload match from database to ensure we have the latest vault address
+  // The vault might have been created after the match was initially loaded
+  let freshMatch = match;
+  try {
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const reloaded = await matchRepository.findOne({ where: { id: match.id } });
+    if (reloaded) {
+      freshMatch = reloaded;
+      // Copy any methods that might be missing
+      if (!freshMatch.getPlayer1Result) {
+        freshMatch.getPlayer1Result = match.getPlayer1Result;
+      }
+      if (!freshMatch.getPlayer2Result) {
+        freshMatch.getPlayer2Result = match.getPlayer2Result;
+      }
+      if (!freshMatch.getPayoutResult) {
+        freshMatch.getPayoutResult = match.getPayoutResult;
+      }
+    }
+  } catch (reloadError) {
+    console.warn('⚠️ Failed to reload match for final fallback, using cached match:', reloadError);
+  }
+  
   // Log current state for debugging
   console.log('🔍 FINAL FALLBACK CHECK:', {
-    matchId: match.id,
-    isCompleted: match.isCompleted,
-    winner: match.winner,
-    hasPayoutProposalId: !!(match as any).payoutProposalId,
-    hasTieRefundProposalId: !!(match as any).tieRefundProposalId,
-    hasSquadsVaultAddress: !!(match as any).squadsVaultAddress,
-    player1Result: match.getPlayer1Result() ? { won: match.getPlayer1Result()?.won } : null,
-    player2Result: match.getPlayer2Result() ? { won: match.getPlayer2Result()?.won } : null,
+    matchId: freshMatch.id,
+    isCompleted: freshMatch.isCompleted,
+    winner: freshMatch.winner,
+    hasPayoutProposalId: !!(freshMatch as any).payoutProposalId,
+    hasTieRefundProposalId: !!(freshMatch as any).tieRefundProposalId,
+    hasSquadsVaultAddress: !!(freshMatch as any).squadsVaultAddress,
+    squadsVaultAddress: (freshMatch as any).squadsVaultAddress,
+    player1Result: freshMatch.getPlayer1Result() ? { won: freshMatch.getPlayer1Result()?.won } : null,
+    player2Result: freshMatch.getPlayer2Result() ? { won: freshMatch.getPlayer2Result()?.won } : null,
   });
   
   // More lenient check: if match has results and winner is 'tie', try to create proposal
-  const hasResults = match.getPlayer1Result() && match.getPlayer2Result();
-  const isTieMatch = match.winner === 'tie';
-  const needsProposal = !(match as any).payoutProposalId && !(match as any).tieRefundProposalId;
-  const hasVault = !!(match as any).squadsVaultAddress;
+  const hasResults = freshMatch.getPlayer1Result() && freshMatch.getPlayer2Result();
+  const isTieMatch = freshMatch.winner === 'tie';
+  const needsProposal = !(freshMatch as any).payoutProposalId && !(freshMatch as any).tieRefundProposalId;
+  const hasVault = !!(freshMatch as any).squadsVaultAddress;
   
   if (hasResults && isTieMatch && needsProposal && hasVault) {
     
     console.log('🔄 FINAL FALLBACK: Creating missing proposal before response', {
-      matchId: match.id,
-      winner: match.winner,
-      isCompleted: match.isCompleted,
+      matchId: freshMatch.id,
+      winner: freshMatch.winner,
+      isCompleted: freshMatch.isCompleted,
       hasVault: hasVault,
-      hasResults: hasResults
+      hasResults: hasResults,
+      squadsVaultAddress: (freshMatch as any).squadsVaultAddress
     });
     
     try {
@@ -2608,26 +2634,27 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const { PublicKey } = require('@solana/web3.js');
       const { squadsVaultService } = require('../services/squadsVaultService');
       
-      if (match.winner === 'tie') {
-        const player1Result = match.getPlayer1Result();
-        const player2Result = match.getPlayer2Result();
+      if (freshMatch.winner === 'tie') {
+        const player1Result = freshMatch.getPlayer1Result();
+        const player2Result = freshMatch.getPlayer2Result();
         const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
         
         if (isLosingTie) {
-          const entryFee = match.entryFee;
+          const entryFee = freshMatch.entryFee;
           const refundAmount = entryFee * 0.95;
           
           console.log('🔄 FINAL FALLBACK: Creating tie refund proposal', {
-            matchId: match.id,
+            matchId: freshMatch.id,
             refundAmount,
-            player1: match.player1,
-            player2: match.player2
+            player1: freshMatch.player1,
+            player2: freshMatch.player2,
+            squadsVaultAddress: (freshMatch as any).squadsVaultAddress
           });
           
           const proposalResult = await squadsVaultService.proposeTieRefund(
-            (match as any).squadsVaultAddress,
-            new PublicKey(match.player1),
-            new PublicKey(match.player2),
+            (freshMatch as any).squadsVaultAddress,
+            new PublicKey(freshMatch.player1),
+            new PublicKey(freshMatch.player2),
             refundAmount
           );
           
