@@ -5294,12 +5294,93 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         transactionId: result.transactionId
       });
 
+      // Get match from database to update payment status
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const match = await matchRepository.findOne({ where: { id: matchId } });
+
+      if (!match) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'Match not found' 
+        });
+      }
+
+      // Determine which player made the deposit
+      const isPlayer1 = playerWallet === match.player1;
+
+      // Mark player as paid
+      if (isPlayer1) {
+        match.player1Paid = true;
+        console.log(`✅ Marked Player 1 (${playerWallet}) as paid for match ${matchId}`);
+      } else {
+        match.player2Paid = true;
+        console.log(`✅ Marked Player 2 (${playerWallet}) as paid for match ${matchId}`);
+      }
+
+      // Check if both players have paid
+      const bothPaid = match.player1Paid && match.player2Paid;
+
+      if (bothPaid) {
+        // Both players have paid - ensure match is active
+        if (match.status !== 'active') {
+          console.log(`🎮 Both players have paid for match ${matchId}, activating game...`);
+          match.status = 'active';
+          
+          // Ensure word is set if not already present
+          if (!match.word) {
+            const { getRandomWord } = require('../wordList');
+            match.word = getRandomWord();
+          }
+          
+          // Set game start time if not already set
+          if (!match.gameStartTime) {
+            match.gameStartTime = new Date();
+          }
+        }
+      }
+
+      // Save match to database
+      await matchRepository.save(match);
+
+      console.log(`🔍 Payment status for match ${matchId}:`, {
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        status: match.status,
+        bothPaid
+      });
+
+      // Send WebSocket event for payment received
+      try {
+        const { websocketService } = require('../services/websocketService');
+        const { WebSocketEventType } = require('../services/websocketService');
+        websocketService.broadcastToMatch(matchId, {
+          type: WebSocketEventType.PAYMENT_RECEIVED,
+          matchId,
+          data: {
+            player: isPlayer1 ? 'player1' : 'player2',
+            wallet: playerWallet,
+            amount: amount,
+            player1Paid: match.player1Paid,
+            player2Paid: match.player2Paid,
+            status: match.status
+          },
+          timestamp: new Date().toISOString()
+        });
+      } catch (wsError) {
+        console.error('⚠️ Failed to send WebSocket event (non-critical):', wsError);
+      }
+
       res.json({
         success: true,
         message: 'Deposit verified successfully',
         transactionId: result.transactionId,
         matchId,
-        playerWallet
+        playerWallet,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        status: match.status,
+        bothPaid
       });
     } else {
       console.error('❌ Multisig vault deposit failed:', result.error);
