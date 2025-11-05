@@ -6280,30 +6280,21 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to derive member PDA: ${pdaError?.message || String(pdaError)}`);
     }
     
-    // Calculate Anchor instruction discriminator: sha256("global:vault_transaction_approve")[0:8]
-    const discriminatorSeed = 'global:vault_transaction_approve';
-    const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
-    const discriminator = hash.slice(0, 8);
-    
-    // Transaction index as 8-byte little-endian u64
-    const indexBuffer = Buffer.alloc(8);
-    indexBuffer.writeBigUInt64LE(transactionIndex, 0);
-    
-    const instructionData = Buffer.concat([discriminator, indexBuffer]);
+    // Use SDK's instruction builder instead of manual construction
+    // This ensures the instruction format matches what the Squads program expects
+    const { instructions } = require('@sqds/multisig');
     
     let approveIx;
     try {
-      approveIx = new TransactionInstruction({
+      // Use SDK's vaultTransactionApprove instruction builder
+      // This correctly formats the instruction with the right discriminator and accounts
+      approveIx = instructions.vaultTransactionApprove({
+        multisigPda: multisigAddress,
+        transactionIndex: transactionIndex,
+        member: memberPublicKey,
         programId: programId, // Use network-specific program ID (must match multisig creation!)
-        keys: [
-          { pubkey: multisigAddress, isSigner: false, isWritable: false },
-          { pubkey: transactionPda, isSigner: false, isWritable: true },
-          { pubkey: memberPda, isSigner: false, isWritable: false },
-          { pubkey: memberPublicKey, isSigner: true, isWritable: false },
-        ],
-        data: instructionData,
       });
-      console.log('✅ Approval instruction created');
+      console.log('✅ Approval instruction created using SDK');
     } catch (ixError: any) {
       console.error('❌ Failed to create approval instruction:', {
         error: ixError?.message,
