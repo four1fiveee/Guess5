@@ -1,1 +1,28 @@
 ﻿node_modules/
+dist/
+*.log
+.env
+.env.local
+.DS_Store
+*.swp
+*.swo
+*~
+
+# Ignore any OneDrive folders that might accidentally get created
+OneDrive/
+OneDrive/**
+**/OneDrive/
+**/OneDrive/**
+
+# Ignore any paths with absolute Windows paths
+**/Users/**
+**/C:/**
+
+# Ignore IDE and editor files
+.vscode/
+.idea/
+*.iml
+
+# Ignore OS files
+Thumbs.db
+desktop.ini
