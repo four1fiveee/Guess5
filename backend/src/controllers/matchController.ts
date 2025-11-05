@@ -2865,6 +2865,12 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('❌ Error checking pending claims:', errorMessage);
     console.error('❌ Error stack:', errorStack);
+    console.error('❌ Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      wallet: req.params?.wallet,
+      errorName: error instanceof Error ? error.name : undefined,
+    });
     res.status(500).json({ 
       error: 'Internal server error',
       details: process.env.NODE_ENV === 'development' ? errorMessage : undefined

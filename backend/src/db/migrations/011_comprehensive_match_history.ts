@@ -4,8 +4,20 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
   name = 'ComprehensiveMatchHistory1700000000011';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // Helper function to safely add column if it doesn't exist
+    const addColumnIfNotExists = async (columnName: string, columnDef: TableColumn) => {
+      const table = await queryRunner.getTable('match');
+      const column = table?.findColumnByName(columnName);
+      if (!column) {
+        await queryRunner.addColumn('match', columnDef);
+        console.log(`✅ Added column: ${columnName}`);
+      } else {
+        console.log(`⏭️  Column ${columnName} already exists, skipping`);
+      }
+    };
+
     // Add tie refund proposal ID
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('tieRefundProposalId', new TableColumn({
       name: 'tieRefundProposalId',
       type: 'varchar',
       isNullable: true,
@@ -13,21 +25,21 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
     }));
 
     // Payment signature fields
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player1PaymentSignature', new TableColumn({
       name: 'player1PaymentSignature',
       type: 'varchar',
       isNullable: true,
       comment: 'Transaction signature for player 1 deposit payment'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player2PaymentSignature', new TableColumn({
       name: 'player2PaymentSignature',
       type: 'varchar',
       isNullable: true,
       comment: 'Transaction signature for player 2 deposit payment'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('winnerPayoutSignature', new TableColumn({
       name: 'winnerPayoutSignature',
       type: 'varchar',
       isNullable: true,
@@ -35,14 +47,14 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
     }));
 
     // Payment timestamp fields
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player1PaymentTime', new TableColumn({
       name: 'player1PaymentTime',
       type: 'timestamp',
       isNullable: true,
       comment: 'Timestamp when player 1 made payment'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player2PaymentTime', new TableColumn({
       name: 'player2PaymentTime',
       type: 'timestamp',
       isNullable: true,
@@ -50,21 +62,21 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
     }));
 
     // Payment block time fields
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player1PaymentBlockTime', new TableColumn({
       name: 'player1PaymentBlockTime',
       type: 'timestamp',
       isNullable: true,
       comment: 'Block time of player 1 payment transaction'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player2PaymentBlockTime', new TableColumn({
       name: 'player2PaymentBlockTime',
       type: 'timestamp',
       isNullable: true,
       comment: 'Block time of player 2 payment transaction'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('winnerPayoutBlockTime', new TableColumn({
       name: 'winnerPayoutBlockTime',
       type: 'timestamp',
       isNullable: true,
@@ -72,21 +84,21 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
     }));
 
     // Payment block number fields
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player1PaymentBlockNumber', new TableColumn({
       name: 'player1PaymentBlockNumber',
       type: 'bigint',
       isNullable: true,
       comment: 'Block number/slot of player 1 payment transaction'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('player2PaymentBlockNumber', new TableColumn({
       name: 'player2PaymentBlockNumber',
       type: 'bigint',
       isNullable: true,
       comment: 'Block number/slot of player 2 payment transaction'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('winnerPayoutBlockNumber', new TableColumn({
       name: 'winnerPayoutBlockNumber',
       type: 'bigint',
       isNullable: true,
@@ -94,7 +106,7 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
     }));
 
     // Financial amount fields
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('payoutAmount', new TableColumn({
       name: 'payoutAmount',
       type: 'decimal',
       precision: 10,
@@ -103,7 +115,7 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
       comment: 'Actual payout amount in SOL'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('payoutAmountUSD', new TableColumn({
       name: 'payoutAmountUSD',
       type: 'decimal',
       precision: 10,
@@ -112,7 +124,7 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
       comment: 'Payout amount in USD at time of payout'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('entryFeeUSD', new TableColumn({
       name: 'entryFeeUSD',
       type: 'decimal',
       precision: 10,
@@ -121,7 +133,7 @@ export class ComprehensiveMatchHistory1700000000011 implements MigrationInterfac
       comment: 'Entry fee in USD at time of match creation'
     }));
 
-    await queryRunner.addColumn('match', new TableColumn({
+    await addColumnIfNotExists('solPriceAtTransaction', new TableColumn({
       name: 'solPriceAtTransaction',
       type: 'decimal',
       precision: 10,

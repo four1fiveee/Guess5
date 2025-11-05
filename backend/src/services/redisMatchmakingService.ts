@@ -86,7 +86,10 @@ export class RedisMatchmakingService {
         enhancedLogger.info(`👤 Player ${wallet} added to waiting queue for ${entryFee} SOL`);
         return { status: 'waiting', waitingCount: 1 };
       } else {
-        // Find a compatible player
+        // Find a compatible player with flexible entry fee matching
+        // Allow matching if entry fees are within 2% tolerance (to handle SOL price fluctuations)
+        const ENTRY_FEE_TOLERANCE = 0.02; // 2% tolerance
+        
         for (const [waitingWallet, playerJson] of Object.entries(waitingPlayers)) {
           // Double-check: never match with self
           if (waitingWallet === wallet) {
@@ -104,15 +107,23 @@ export class RedisMatchmakingService {
             continue;
           }
           
-          // Check if players are compatible (same entry fee, different wallets)
-          if (waitingPlayer.entryFee === entryFee && waitingPlayer.wallet !== wallet) {
+          // Check if players are compatible with flexible entry fee matching
+          const feeDiff = Math.abs(waitingPlayer.entryFee - entryFee);
+          const avgFee = (waitingPlayer.entryFee + entryFee) / 2;
+          const feeTolerance = avgFee * ENTRY_FEE_TOLERANCE;
+          const isCompatible = feeDiff <= feeTolerance && waitingPlayer.wallet !== wallet;
+          
+          if (isCompatible) {
+            // Use the lower entry fee when matched (both players pay the same minimum amount)
+            const finalEntryFee = Math.min(waitingPlayer.entryFee, entryFee);
+            
             // Create a match with proper UUID
             const matchId = uuidv4();
             const matchData: MatchData = {
               matchId,
               player1: waitingPlayer.wallet,
               player2: wallet,
-              entryFee,
+              entryFee: finalEntryFee, // Use the lower fee
               status: 'payment_required',
               createdAt: Date.now(),
               expiresAt: Date.now() + 1800000 // 30 minutes
@@ -131,7 +142,7 @@ export class RedisMatchmakingService {
             // Remove waiting player from queue
             await this.redis.hDel(waitingKey, waitingPlayer.wallet);
 
-            enhancedLogger.info(`🎯 Match created: ${matchId} between ${waitingPlayer.wallet} and ${wallet}`);
+            enhancedLogger.info(`🎯 Match created: ${matchId} between ${waitingPlayer.wallet} (${waitingPlayer.entryFee} SOL) and ${wallet} (${entryFee} SOL) using ${finalEntryFee} SOL`);
             return { status: 'matched', matchId };
           }
         }
