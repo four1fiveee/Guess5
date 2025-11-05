@@ -6397,6 +6397,14 @@ const signProposalHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'You have already signed this proposal' });
     }
 
+    console.log('📝 Processing signed proposal:', {
+      matchId,
+      wallet,
+      signedTransactionLength: signedTransaction?.length,
+      squadsVaultAddress: (match as any).squadsVaultAddress,
+      payoutProposalId: (match as any).payoutProposalId,
+    });
+
     // Submit the signed transaction
     const { Connection, VersionedTransaction } = require('@solana/web3.js');
     const connection = new Connection(
@@ -6405,20 +6413,67 @@ const signProposalHandler = async (req: any, res: any) => {
     );
 
     // Deserialize the signed transaction
-    const signedTxBuffer = Buffer.from(signedTransaction, 'base64');
-    const transaction = VersionedTransaction.deserialize(signedTxBuffer);
+    let transaction;
+    try {
+      const signedTxBuffer = Buffer.from(signedTransaction, 'base64');
+      transaction = VersionedTransaction.deserialize(signedTxBuffer);
+      console.log('✅ Transaction deserialized successfully');
+    } catch (deserializeError: any) {
+      console.error('❌ Failed to deserialize signed transaction:', {
+        error: deserializeError?.message,
+        stack: deserializeError?.stack,
+        signedTransactionLength: signedTransaction?.length,
+      });
+      throw new Error(`Failed to deserialize transaction: ${deserializeError?.message || String(deserializeError)}`);
+    }
     
     // Send and confirm the transaction
-    const signature = await connection.sendRawTransaction(transaction.serialize(), {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
+    let signature;
+    try {
+      const serializedTx = transaction.serialize();
+      console.log('📤 Sending signed transaction to network...');
+      signature = await connection.sendRawTransaction(serializedTx, {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
+      console.log('✅ Transaction sent, signature:', signature);
+    } catch (sendError: any) {
+      console.error('❌ Failed to send transaction:', {
+        error: sendError?.message,
+        stack: sendError?.stack,
+        errorCode: sendError?.code,
+        errorName: sendError?.name,
+      });
+      throw new Error(`Failed to send transaction: ${sendError?.message || String(sendError)}`);
+    }
 
     // Wait for confirmation
-    const confirmation = await connection.confirmTransaction(signature, 'confirmed');
+    let confirmation;
+    try {
+      console.log('⏳ Waiting for transaction confirmation...');
+      confirmation = await connection.confirmTransaction(signature, 'confirmed');
+      console.log('✅ Transaction confirmed:', {
+        signature,
+        slot: confirmation.context.slot,
+        hasError: !!confirmation.value.err,
+      });
+    } catch (confirmError: any) {
+      console.error('❌ Failed to confirm transaction:', {
+        error: confirmError?.message,
+        stack: confirmError?.stack,
+        signature,
+      });
+      throw new Error(`Failed to confirm transaction: ${confirmError?.message || String(confirmError)}`);
+    }
     
     if (confirmation.value.err) {
-      throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+      const errorDetails = JSON.stringify(confirmation.value.err);
+      console.error('❌ Transaction failed on-chain:', {
+        signature,
+        error: errorDetails,
+        slot: confirmation.context.slot,
+      });
+      throw new Error(`Transaction failed: ${errorDetails}`);
     }
 
     console.log('✅ Proposal signed successfully', {
@@ -6429,20 +6484,37 @@ const signProposalHandler = async (req: any, res: any) => {
     });
 
     // Update match with new signer
-    match.addProposalSigner(wallet);
-    
-    // Update needsSignatures count
-    const currentNeedsSignatures = (match as any).needsSignatures || 2;
-    (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
-    
-    // If enough signatures, mark as ready to execute
-    if ((match as any).needsSignatures === 0) {
-      (match as any).proposalStatus = 'READY_TO_EXECUTE';
-    } else {
-      (match as any).proposalStatus = 'ACTIVE';
-    }
+    try {
+      match.addProposalSigner(wallet);
+      
+      // Update needsSignatures count
+      const currentNeedsSignatures = (match as any).needsSignatures || 2;
+      (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
+      
+      // If enough signatures, mark as ready to execute
+      if ((match as any).needsSignatures === 0) {
+        (match as any).proposalStatus = 'READY_TO_EXECUTE';
+      } else {
+        (match as any).proposalStatus = 'ACTIVE';
+      }
 
-    await matchRepository.save(match);
+      await matchRepository.save(match);
+      console.log('✅ Match updated with signer:', {
+        matchId,
+        wallet,
+        needsSignatures: (match as any).needsSignatures,
+        proposalStatus: (match as any).proposalStatus,
+      });
+    } catch (dbError: any) {
+      console.error('❌ Failed to update match in database:', {
+        error: dbError?.message,
+        stack: dbError?.stack,
+        matchId,
+        wallet,
+      });
+      // Don't fail the request if DB update fails - transaction was already submitted
+      console.warn('⚠️ Transaction was submitted but database update failed');
+    }
 
     res.json({
       success: true,
@@ -6455,6 +6527,15 @@ const signProposalHandler = async (req: any, res: any) => {
   } catch (error: unknown) {
     console.error('❌ Error signing proposal:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('❌ Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      matchId: req.body?.matchId,
+      wallet: req.body?.wallet,
+      hasSignedTransaction: !!req.body?.signedTransaction,
+      signedTransactionLength: req.body?.signedTransaction?.length,
+    });
     res.status(500).json({ error: 'Failed to sign proposal', details: errorMessage });
   }
 };
