@@ -6487,10 +6487,38 @@ const signProposalHandler = async (req: any, res: any) => {
         );
         const transactionAccount = await connection.getAccountInfo(transactionPda);
         if (!transactionAccount) {
-          return res.status(400).json({ 
-            error: 'Transaction proposal does not exist on-chain. It may have been executed or cancelled.',
-            proposalId: proposalId,
+          // Transaction account doesn't exist - could be executed or cancelled
+          // Check database status to see if it was executed
+          const proposalStatus = (match as any).proposalStatus;
+          const proposalExecutedAt = (match as any).proposalExecutedAt;
+          
+          if (proposalStatus === 'EXECUTED' || proposalExecutedAt) {
+            console.log('✅ Proposal was already executed (transaction account closed)', {
+              proposalId,
+              proposalStatus,
+              proposalExecutedAt,
+            });
+            return res.json({
+              success: true,
+              message: 'Proposal was already executed. Payout has been completed.',
+              proposalId: proposalId,
+              proposalStatus: 'EXECUTED',
+              executed: true,
+            });
+          }
+          
+          // If not executed, it might have been cancelled or never created
+          console.warn('⚠️ Transaction account not found, but proposal not marked as executed', {
+            proposalId,
+            proposalStatus,
             transactionPda: transactionPda.toString(),
+          });
+          return res.status(400).json({ 
+            error: 'Transaction proposal does not exist on-chain. It may have been executed, cancelled, or never created.',
+            proposalId: proposalId,
+            proposalStatus: proposalStatus,
+            transactionPda: transactionPda.toString(),
+            suggestion: 'If this proposal was already executed, your payout should have been completed. Please check your wallet balance.',
           });
         }
         console.log('✅ Transaction proposal exists on-chain:', transactionPda.toString());
