@@ -63,7 +63,7 @@ export default function Home() {
               </div>
               <div className="flex items-start space-x-2">
                 <span className="text-green-400 font-bold text-sm flex-shrink-0">•</span>
-                <span><b>We Can't Take Funds:</b> Even if you lose, we cannot withdraw without your signature. Your funds are <b>always safe</b></span>
+                <span><b>Funds Locked On-Chain:</b> Your funds are stored in an audited Squads Protocol multisig vault on Solana blockchain. We cannot access them without your wallet signature—even if the platform shuts down, your funds remain safe and accessible.</span>
               </div>
             </div>
           </div>

@@ -44,7 +44,7 @@ export default function Info() {
             <li><b>Winner receives 95%</b> of the total pot (both entry fees)</li>
             <li><b>Platform fee: 5%</b> covers transaction costs and platform maintenance</li>
             <li><b>You must sign to claim:</b> Winners receive a payout proposal that requires your wallet signature</li>
-            <li><b>Sign within 24 hours:</b> If you don't sign, an automatic refund is proposed</li>
+            <li><b>Sign to claim:</b> You must sign the proposal with your wallet to receive payouts. Funds remain safely locked in the multisig vault until you sign.</li>
           </ul>
 
           <h3 className="text-xl font-bold text-accent mb-3 mt-6">Tie Scenarios</h3>
@@ -61,8 +61,8 @@ export default function Info() {
                 <li>If you didn't solve: Losing tie (95% refund)</li>
               </ul>
             </li>
-            <li><b>Game Timeout:</b> If game doesn't start within 1 minute after both deposits → 
-              <span className="text-green-400 font-bold"> Full refund to both players (100%)</span>
+            <li><b>Game Timeout:</b> If game doesn't start within 10 minutes after both deposits → 
+              <span className="text-green-400 font-bold"> Full refund proposal created for both players (100%)</span>
             </li>
           </ul>
         </div>
@@ -119,9 +119,9 @@ export default function Info() {
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
-              <b className="text-red-400">What if no one signs for 24 hours?</b>
+              <b className="text-red-400">What if no one signs after 30 minutes?</b>
               <p className="mt-1">The system automatically creates a <b>refund proposal</b> that either player can sign 
-              to get their money back (minus fees if applicable).</p>
+              to get their money back (minus fees if applicable). Funds remain safely locked in the multisig vault until a player signs to execute the refund.</p>
             </div>
           </div>
 
