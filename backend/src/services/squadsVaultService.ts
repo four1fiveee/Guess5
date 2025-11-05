@@ -314,16 +314,64 @@ export class SquadsVaultService {
     feeAmount: number
   ): Promise<ProposalResult> {
     try {
+      // Defensive checks: Validate all required values
+      if (!this.config || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemPublicKey is undefined. Check SYSTEM_PUBLIC_KEY environment variable.';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          hasConfig: !!this.config,
+          hasSystemPublicKey: !!(this.config?.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      if (!vaultAddress || typeof vaultAddress !== 'string') {
+        const errorMsg = 'Invalid vaultAddress provided to proposeWinnerPayout';
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate PublicKeys
+      const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+      if (!isPk(winner) || !isPk(feeWallet) || !isPk(this.config.systemPublicKey)) {
+        const errorMsg = 'Invalid PublicKey provided to proposeWinnerPayout';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          winnerOk: isPk(winner),
+          feeWalletOk: isPk(feeWallet),
+          systemPublicKeyOk: isPk(this.config.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
       enhancedLogger.info('💸 Proposing winner payout via Squads', {
         vaultAddress,
         winner: winner.toString(),
         winnerAmount,
         feeWallet: feeWallet.toString(),
         feeAmount,
+        systemPublicKey: this.config.systemPublicKey.toString(),
       });
 
       // Create real Squads transaction for winner payout
-      const multisigAddress = new PublicKey(vaultAddress);
+      let multisigAddress: PublicKey;
+      try {
+        multisigAddress = new PublicKey(vaultAddress);
+      } catch (pkError: any) {
+        const errorMsg = `Invalid vaultAddress PublicKey format: ${vaultAddress}`;
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress, error: pkError?.message });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
       
       // Generate a unique transaction index
       const transactionIndex = BigInt(Date.now());
@@ -475,15 +523,63 @@ export class SquadsVaultService {
     refundAmount: number
   ): Promise<ProposalResult> {
     try {
+      // Defensive checks: Validate all required values
+      if (!this.config || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemPublicKey is undefined. Check SYSTEM_PUBLIC_KEY environment variable.';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          hasConfig: !!this.config,
+          hasSystemPublicKey: !!(this.config?.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      if (!vaultAddress || typeof vaultAddress !== 'string') {
+        const errorMsg = 'Invalid vaultAddress provided to proposeTieRefund';
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate PublicKeys
+      const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+      if (!isPk(player1) || !isPk(player2) || !isPk(this.config.systemPublicKey)) {
+        const errorMsg = 'Invalid PublicKey provided to proposeTieRefund';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          player1Ok: isPk(player1),
+          player2Ok: isPk(player2),
+          systemPublicKeyOk: isPk(this.config.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
       enhancedLogger.info('🔄 Proposing tie refund via Squads', {
         vaultAddress,
         player1: player1.toString(),
         player2: player2.toString(),
         refundAmount,
+        systemPublicKey: this.config.systemPublicKey.toString(),
       });
 
       // Create real Squads transaction for refunds
-      const multisigAddress = new PublicKey(vaultAddress);
+      let multisigAddress: PublicKey;
+      try {
+        multisigAddress = new PublicKey(vaultAddress);
+      } catch (pkError: any) {
+        const errorMsg = `Invalid vaultAddress PublicKey format: ${vaultAddress}`;
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress, error: pkError?.message });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
       
       // Generate a unique transaction index (use microseconds + random to avoid collisions)
       const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
