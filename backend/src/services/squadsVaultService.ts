@@ -12,7 +12,8 @@ import { onMatchCompleted } from './proposalAutoCreateService';
 import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
 
 export interface SquadsVaultConfig {
-  systemPublicKey: PublicKey; // Your system's public key (non-custodial)
+  systemKeypair: Keypair; // Full keypair with private key for signing transactions
+  systemPublicKey: PublicKey; // Public key for reference
   threshold: number; // 2-of-3 multisig
 }
 
@@ -48,19 +49,29 @@ export class SquadsVaultService {
 
     // Squads SDK initialized via direct imports (no class instantiation needed)
 
-    // Get system public key from environment, fallback to fee wallet address
-    let systemPublicKey = process.env.SYSTEM_PUBLIC_KEY;
-    if (!systemPublicKey) {
-      try {
-        systemPublicKey = getFeeWalletAddress();
-      } catch {}
+    // Get the full keypair (not just public key) - needed for signing transaction creation
+    let systemKeypair: Keypair;
+    try {
+      systemKeypair = getFeeWalletKeypair();
+      enhancedLogger.info('✅ System keypair loaded successfully', {
+        publicKey: systemKeypair.publicKey.toString(),
+      });
+    } catch (keypairError: unknown) {
+      const errorMsg = keypairError instanceof Error ? keypairError.message : String(keypairError);
+      enhancedLogger.error('❌ Failed to load system keypair', {
+        error: errorMsg,
+      });
+      throw new Error(`Failed to load system keypair: ${errorMsg}. Ensure FEE_WALLET_PRIVATE_KEY is set.`);
     }
-    if (!systemPublicKey) {
-      throw new Error('SYSTEM_PUBLIC_KEY environment variable is required');
+
+    // Validate keypair has signing capability
+    if (!systemKeypair.secretKey || systemKeypair.secretKey.length === 0) {
+      throw new Error('System keypair does not have a valid secret key for signing');
     }
 
     this.config = {
-      systemPublicKey: new PublicKey(systemPublicKey),
+      systemKeypair: systemKeypair,
+      systemPublicKey: systemKeypair.publicKey,
       threshold: 2, // 2-of-3 multisig
     };
   }
@@ -315,12 +326,23 @@ export class SquadsVaultService {
   ): Promise<ProposalResult> {
     try {
       // Defensive checks: Validate all required values
-      if (!this.config || !this.config.systemPublicKey) {
-        const errorMsg = 'SquadsVaultService config or systemPublicKey is undefined. Check SYSTEM_PUBLIC_KEY environment variable.';
+      if (!this.config || !this.config.systemKeypair || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemKeypair is undefined. Check FEE_WALLET_PRIVATE_KEY environment variable.';
         enhancedLogger.error('❌ ' + errorMsg, {
           hasConfig: !!this.config,
+          hasSystemKeypair: !!(this.config?.systemKeypair),
           hasSystemPublicKey: !!(this.config?.systemPublicKey),
         });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate keypair has signing capability
+      if (!this.config.systemKeypair.secretKey || this.config.systemKeypair.secretKey.length === 0) {
+        const errorMsg = 'System keypair does not have a valid secret key for signing';
+        enhancedLogger.error('❌ ' + errorMsg);
         return {
           success: false,
           error: errorMsg,
@@ -456,11 +478,10 @@ export class SquadsVaultService {
       try {
         signature = await rpc.vaultTransactionCreate({
           connection: this.connection,
-// @ts-ignore - feePayer type mismatch but works at runtime
-          feePayer: this.config.systemPublicKey, // System pays for transaction creation
+          feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
           multisigPda: multisigAddress,
           transactionIndex,
-          creator: this.config.systemPublicKey,
+          creator: this.config.systemKeypair.publicKey, // Creator public key
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
           transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
@@ -560,12 +581,23 @@ export class SquadsVaultService {
   ): Promise<ProposalResult> {
     try {
       // Defensive checks: Validate all required values
-      if (!this.config || !this.config.systemPublicKey) {
-        const errorMsg = 'SquadsVaultService config or systemPublicKey is undefined. Check SYSTEM_PUBLIC_KEY environment variable.';
+      if (!this.config || !this.config.systemKeypair || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemKeypair is undefined. Check FEE_WALLET_PRIVATE_KEY environment variable.';
         enhancedLogger.error('❌ ' + errorMsg, {
           hasConfig: !!this.config,
+          hasSystemKeypair: !!(this.config?.systemKeypair),
           hasSystemPublicKey: !!(this.config?.systemPublicKey),
         });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate keypair has signing capability
+      if (!this.config.systemKeypair.secretKey || this.config.systemKeypair.secretKey.length === 0) {
+        const errorMsg = 'System keypair does not have a valid secret key for signing';
+        enhancedLogger.error('❌ ' + errorMsg);
         return {
           success: false,
           error: errorMsg,
@@ -701,11 +733,10 @@ export class SquadsVaultService {
       try {
         signature = await rpc.vaultTransactionCreate({
           connection: this.connection,
-// @ts-ignore - feePayer type mismatch but works at runtime
-          feePayer: this.config.systemPublicKey, // System pays for transaction creation
+          feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
           multisigPda: multisigAddress,
           transactionIndex,
-          creator: this.config.systemPublicKey,
+          creator: this.config.systemKeypair.publicKey, // Creator public key
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
           transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
