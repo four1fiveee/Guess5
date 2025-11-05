@@ -443,11 +443,11 @@ export class SquadsVaultService {
       });
       
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
-      // Note: payerKey must be the vault PDA (derived from multisig PDA)
-      // The vault PDA holds funds and executes transactions, not the multisig PDA
+      // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
+      // The vault PDA holds funds but cannot pay fees (it's not a signer)
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: vaultPdaKey,
+        payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
         recentBlockhash: blockhash,
         instructions: [winnerTransferIx, feeTransferIx],
       });
@@ -696,11 +696,11 @@ export class SquadsVaultService {
       });
       
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
-      // Note: payerKey must be the vault PDA (derived from multisig PDA)
-      // The vault PDA holds funds and executes transactions, not the multisig PDA
+      // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
+      // The vault PDA holds funds but cannot pay fees (it's not a signer)
       const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: vaultPdaKey,
+        payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
         recentBlockhash: blockhash2,
         instructions: [player1TransferIx, player2TransferIx],
       });
