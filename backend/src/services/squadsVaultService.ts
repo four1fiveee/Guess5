@@ -1,5 +1,5 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, SystemProgram } from '@solana/web3.js';
-import { rpc, PROGRAM_ID, getMultisigPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
+import { rpc, PROGRAM_ID, getMultisigPda, getVaultPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
 import { AppDataSource } from '../db';
@@ -353,6 +353,7 @@ export class SquadsVaultService {
 
       enhancedLogger.info('💸 Proposing winner payout via Squads', {
         vaultAddress,
+        multisigAddress: vaultAddress, // vaultAddress is the multisig PDA
         winner: winner.toString(),
         winnerAmount,
         feeWallet: feeWallet.toString(),
@@ -372,6 +373,17 @@ export class SquadsVaultService {
           error: errorMsg,
         };
       }
+
+      // Derive the vault PDA from the multisig PDA
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0, // Using vault index 0 (matches vaultTransactionCreate parameter)
+      });
+
+      enhancedLogger.info('📍 Derived vault PDA', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+      });
       
       // Generate a unique transaction index
       const transactionIndex = BigInt(Date.now());
@@ -382,24 +394,24 @@ export class SquadsVaultService {
       
       // Create System Program transfer instruction for winner
       const winnerTransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
+        fromPubkey: vaultPda,
         toPubkey: winner,
         lamports: winnerLamports,
       });
       
       // Create System Program transfer instruction for fee
       const feeTransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
+        fromPubkey: vaultPda,
         toPubkey: feeWallet,
         lamports: feeLamports,
       });
       
       // Create transaction message and compile to V0
-      // Note: payerKey should be the vault address when instructions transfer FROM the vault
-      // The vault is both the source of funds AND the payer for transaction fees in the compiled message
+      // Note: payerKey must be the vault PDA (derived from multisig PDA)
+      // The vault PDA holds funds and executes transactions, not the multisig PDA
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: multisigAddress, // Vault pays for transaction fees in the compiled message
+        payerKey: vaultPda,
         recentBlockhash: blockhash,
         instructions: [winnerTransferIx, feeTransferIx],
       });
@@ -562,6 +574,7 @@ export class SquadsVaultService {
 
       enhancedLogger.info('🔄 Proposing tie refund via Squads', {
         vaultAddress,
+        multisigAddress: vaultAddress, // vaultAddress is the multisig PDA
         player1: player1.toString(),
         player2: player2.toString(),
         refundAmount,
@@ -580,6 +593,17 @@ export class SquadsVaultService {
           error: errorMsg,
         };
       }
+
+      // Derive the vault PDA from the multisig PDA
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0,
+      });
+
+      enhancedLogger.info('📍 Derived vault PDA for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+      });
       
       // Generate a unique transaction index (use microseconds + random to avoid collisions)
       const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
@@ -589,24 +613,24 @@ export class SquadsVaultService {
       
       // Create System Program transfer instruction for player 1
       const player1TransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
+        fromPubkey: vaultPda,
         toPubkey: player1,
         lamports: refundLamports,
       });
       
       // Create System Program transfer instruction for player 2
       const player2TransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
+        fromPubkey: vaultPda,
         toPubkey: player2,
         lamports: refundLamports,
       });
       
       // Create transaction message and compile to V0
-      // Note: payerKey should be the vault address when instructions transfer FROM the vault
-      // The vault is both the source of funds AND the payer for transaction fees in the compiled message
+      // Note: payerKey must be the vault PDA (derived from multisig PDA)
+      // The vault PDA holds funds and executes transactions, not the multisig PDA
       const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: multisigAddress, // Vault pays for transaction fees in the compiled message
+        payerKey: vaultPda,
         recentBlockhash: blockhash2,
         instructions: [player1TransferIx, player2TransferIx],
       });
