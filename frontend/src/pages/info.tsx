@@ -147,16 +147,16 @@ export default function Info() {
               If you don't return, the opponent wins if they solved the word, otherwise it's a losing tie.</p>
             </div>
 
-            <div>
-              <b className="text-accent text-base">Q: How long do I have to sign a winning payout?</b>
-              <p className="mt-1">You have 24 hours to sign and claim your winnings. If you don't sign within 24 hours, 
-              the system proposes an automatic refund.</p>
-            </div>
+                         <div>
+               <b className="text-accent text-base">Q: How long do I have to sign a winning payout?</b>
+               <p className="mt-1">Your funds remain safely locked in the multisig vault until you sign. After 30 minutes of no activity, 
+               the system creates a refund proposal that either player can sign to recover their funds.</p>
+             </div>
 
             <div>
               <b className="text-accent text-base">Q: Can Guess5 steal my money?</b>
-              <p className="mt-1">No. Due to the 2-of-3 multisig design, we cannot withdraw funds without your signature. 
-              Even if we wanted to, the smart contract enforces the rules.</p>
+              <p className="mt-1">No. Due to the 2-of-3 multisig design, we cannot access funds alone—we need at least one player signature. 
+              Funds can only move after games complete or timeouts, and only when a player signs to approve the transaction. Even if we wanted to steal funds, the smart contract enforces these rules on-chain.</p>
             </div>
 
             <div>
