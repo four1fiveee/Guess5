@@ -6386,9 +6386,18 @@ const signProposalHandler = async (req: any, res: any) => {
       return res.status(403).json({ error: 'You are not part of this match' });
     }
 
-    // Check if match has a payout proposal
-    if (!(match as any).squadsVaultAddress || !(match as any).payoutProposalId) {
-      return res.status(400).json({ error: 'No payout proposal exists for this match' });
+    // Check if match has a payout proposal (either payout or tie refund)
+    const hasPayoutProposal = !!(match as any).payoutProposalId;
+    const hasTieRefundProposal = !!(match as any).tieRefundProposalId;
+    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    
+    if (!(match as any).squadsVaultAddress || !proposalId) {
+      return res.status(400).json({ 
+        error: 'No payout proposal exists for this match',
+        hasPayoutProposal,
+        hasTieRefundProposal,
+        squadsVaultAddress: (match as any).squadsVaultAddress,
+      });
     }
 
     // Verify player hasn't already signed
