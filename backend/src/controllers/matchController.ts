@@ -6280,21 +6280,40 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to derive member PDA: ${pdaError?.message || String(pdaError)}`);
     }
     
-    // Use SDK's instruction builder instead of manual construction
-    // This ensures the instruction format matches what the Squads program expects
-    const { instructions } = require('@sqds/multisig');
+    // Manual instruction construction - SDK doesn't export instructions.vaultTransactionApprove
+    // Use Anchor instruction format with correct discriminator
+    const crypto = require('crypto');
     
+    // Anchor discriminator: sha256("global:vault_transaction_approve")[0:8]
+    // Note: This is the standard Anchor discriminator format for global instructions
+    const discriminatorSeed = 'global:vault_transaction_approve';
+    const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
+    const discriminator = hash.slice(0, 8);
+    
+    // Transaction index as 8-byte little-endian u64
+    const indexBuffer = Buffer.alloc(8);
+    indexBuffer.writeBigUInt64LE(transactionIndex, 0);
+    
+    const instructionData = Buffer.concat([discriminator, indexBuffer]);
+    
+    // Account order for vault_transaction_approve (per Squads v4):
+    // 0. multisig (PDA) - writable
+    // 1. transaction (PDA) - writable  
+    // 2. member (PDA) - not writable
+    // 3. member (signer) - not writable, is signer
     let approveIx;
     try {
-      // Use SDK's vaultTransactionApprove instruction builder
-      // This correctly formats the instruction with the right discriminator and accounts
-      approveIx = instructions.vaultTransactionApprove({
-        multisigPda: multisigAddress,
-        transactionIndex: transactionIndex,
-        member: memberPublicKey,
+      approveIx = new TransactionInstruction({
         programId: programId, // Use network-specific program ID (must match multisig creation!)
+        keys: [
+          { pubkey: multisigAddress, isSigner: false, isWritable: true },  // multisig PDA
+          { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction PDA
+          { pubkey: memberPda, isSigner: false, isWritable: false },     // member PDA
+          { pubkey: memberPublicKey, isSigner: true, isWritable: false }, // member (signer)
+        ],
+        data: instructionData,
       });
-      console.log('✅ Approval instruction created using SDK');
+      console.log('✅ Approval instruction created manually');
     } catch (ixError: any) {
       console.error('❌ Failed to create approval instruction:', {
         error: ixError?.message,
