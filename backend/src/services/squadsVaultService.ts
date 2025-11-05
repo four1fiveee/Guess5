@@ -803,10 +803,41 @@ export class SquadsVaultService {
         vaultPda: vaultPda.toString(),
       });
 
-      // NOTE: In Squads v4, the vault PDA may not exist yet when the multisig is first created.
-      // The vault is created lazily when you first call vaultTransactionCreate.
-      // So we don't check for its existence here - let vaultTransactionCreate handle it.
-      // If the vault doesn't exist, vaultTransactionCreate will create it automatically.
+      // CRITICAL: Check vault PDA account status before using it
+      // In Squads v4, the vault PDA should be created lazily, but let's verify its status
+      try {
+        const vaultAccountInfo = await this.connection.getAccountInfo(vaultPda, 'confirmed');
+        if (vaultAccountInfo) {
+          enhancedLogger.info('🔍 Vault PDA account exists', {
+            vaultPda: vaultPda.toString(),
+            owner: vaultAccountInfo.owner.toString(),
+            expectedOwner: this.programId.toString(),
+            dataLength: vaultAccountInfo.data.length,
+            lamports: vaultAccountInfo.lamports,
+            isOwnedBySquads: vaultAccountInfo.owner.equals(this.programId),
+          });
+          
+          // If vault exists but is owned by wrong program, this will cause AccountOwnedByWrongProgram
+          if (!vaultAccountInfo.owner.equals(this.programId)) {
+            enhancedLogger.warn('⚠️ Vault PDA is owned by wrong program', {
+              vaultPda: vaultPda.toString(),
+              actualOwner: vaultAccountInfo.owner.toString(),
+              expectedOwner: this.programId.toString(),
+              note: 'This will cause AccountOwnedByWrongProgram error. The vault may need to be re-derived or the multisig may have been created with a different program ID.',
+            });
+          }
+        } else {
+          enhancedLogger.info('ℹ️ Vault PDA does not exist yet - will be created lazily by vaultTransactionCreate', {
+            vaultPda: vaultPda.toString(),
+            multisigAddress: multisigAddress.toString(),
+          });
+        }
+      } catch (accountCheckError: any) {
+        enhancedLogger.warn('⚠️ Failed to check vault PDA account status', {
+          vaultPda: vaultPda.toString(),
+          error: accountCheckError?.message || String(accountCheckError),
+        });
+      }
       
       // Fetch multisig account to get current transaction index
       // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
