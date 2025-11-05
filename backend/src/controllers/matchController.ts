@@ -2660,23 +2660,24 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           
           if (proposalResult.success && proposalResult.proposalId) {
             // Update match with proposal data
-            (match as any).payoutProposalId = proposalResult.proposalId;
-            (match as any).tieRefundProposalId = proposalResult.proposalId;
-            (match as any).proposalCreatedAt = new Date();
-            (match as any).proposalStatus = 'ACTIVE';
-            (match as any).needsSignatures = proposalResult.needsSignatures || 1;
+            (freshMatch as any).payoutProposalId = proposalResult.proposalId;
+            (freshMatch as any).tieRefundProposalId = proposalResult.proposalId;
+            (freshMatch as any).proposalCreatedAt = new Date();
+            (freshMatch as any).proposalStatus = 'ACTIVE';
+            (freshMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
             
             // Ensure match is marked as completed
-            if (!match.isCompleted) {
-              match.isCompleted = true;
+            if (!freshMatch.isCompleted) {
+              freshMatch.isCompleted = true;
             }
             
             // Save match
-            await matchRepository.save(match);
+            await matchRepository.save(freshMatch);
             
-            // Reload to ensure we have the latest data
-            const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+            // Reload to ensure we have the latest data and update the match reference
+            const reloadedMatch = await matchRepository.findOne({ where: { id: freshMatch.id } });
             if (reloadedMatch) {
+              Object.assign(match, reloadedMatch);
               (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
               (match as any).tieRefundProposalId = (reloadedMatch as any).tieRefundProposalId;
               (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
@@ -2686,7 +2687,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
             
             console.log('✅ FINAL FALLBACK: Tie refund proposal created and saved successfully', {
-              matchId: match.id,
+              matchId: freshMatch.id,
               proposalId: proposalResult.proposalId,
               proposalStatus: (match as any).proposalStatus,
               needsSignatures: (match as any).needsSignatures
