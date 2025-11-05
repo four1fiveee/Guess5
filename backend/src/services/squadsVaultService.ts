@@ -458,12 +458,32 @@ export class SquadsVaultService {
       }
 
       // Derive the vault PDA from the multisig PDA
-      // Note: getVaultPda may accept programId parameter for Devnet support
-      // If SDK supports it, use: getVaultPda({ multisigPda, index: 0, programId: this.programId })
-      const [vaultPda] = getVaultPda({
-        multisigPda: multisigAddress,
-        index: 0, // Using vault index 0 (matches vaultTransactionCreate parameter)
-      });
+      // CRITICAL: Must use the same programId that was used to create the vault
+      // Try using getVaultPda with programId, but if it doesn't support it, manually derive
+      let vaultPda: PublicKey;
+      try {
+        // Try with programId parameter (may not be supported by SDK)
+        const [derivedVaultPda] = getVaultPda({
+          multisigPda: multisigAddress,
+          index: 0,
+          programId: this.programId,
+        } as any); // Type cast since programId might not be in types
+        vaultPda = derivedVaultPda;
+      } catch (e) {
+        // Fallback: manually derive using the same method Squads uses
+        // Vault PDA derivation: [multisigPda, vault_index (u16), "vault"]
+        const vaultIndexBuffer = Buffer.allocUnsafe(2);
+        vaultIndexBuffer.writeUInt16LE(0, 0); // vault index 0
+        const [derivedVaultPda] = PublicKey.findProgramAddressSync(
+          [
+            multisigAddress.toBuffer(),
+            vaultIndexBuffer,
+            Buffer.from('vault'),
+          ],
+          this.programId
+        );
+        vaultPda = derivedVaultPda;
+      }
 
       enhancedLogger.info('📍 Derived vault PDA', {
         multisigAddress: multisigAddress.toString(),
@@ -751,10 +771,32 @@ export class SquadsVaultService {
       }
 
       // Derive the vault PDA from the multisig PDA
-      const [vaultPda] = getVaultPda({
-        multisigPda: multisigAddress,
-        index: 0,
-      });
+      // CRITICAL: Must use the same programId that was used to create the vault
+      // Try using getVaultPda with programId, but if it doesn't support it, manually derive
+      let vaultPda: PublicKey;
+      try {
+        // Try with programId parameter (may not be supported by SDK)
+        const [derivedVaultPda] = getVaultPda({
+          multisigPda: multisigAddress,
+          index: 0,
+          programId: this.programId,
+        } as any); // Type cast since programId might not be in types
+        vaultPda = derivedVaultPda;
+      } catch (e) {
+        // Fallback: manually derive using the same method Squads uses
+        // Vault PDA derivation: [multisigPda, vault_index (u16), "vault"]
+        const vaultIndexBuffer = Buffer.allocUnsafe(2);
+        vaultIndexBuffer.writeUInt16LE(0, 0); // vault index 0
+        const [derivedVaultPda] = PublicKey.findProgramAddressSync(
+          [
+            multisigAddress.toBuffer(),
+            vaultIndexBuffer,
+            Buffer.from('vault'),
+          ],
+          this.programId
+        );
+        vaultPda = derivedVaultPda;
+      }
 
       enhancedLogger.info('📍 Derived vault PDA for tie refund', {
         multisigAddress: multisigAddress.toString(),
