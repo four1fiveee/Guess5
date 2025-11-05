@@ -303,7 +303,7 @@ const Result: React.FC = () => {
         <div className="max-w-2xl mx-auto">
           {/* Logo prominently displayed at the top */}
           <div className="flex justify-center mb-8">
-            <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-4" />
+            <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4" />
           </div>
           
           {/* Game Results */}
@@ -500,7 +500,7 @@ const Result: React.FC = () => {
               <div className="flex justify-center">
                 <button
                   onClick={handlePlayAgain}
-                  className="bg-accent hover:bg-accent/80 text-white px-8 py-3 rounded-lg font-bold transition-colors"
+                  className="bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center"
                 >
                   Play Again
                 </button>

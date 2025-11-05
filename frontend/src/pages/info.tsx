@@ -10,7 +10,7 @@ export default function Info() {
         {/* Header */}
         <div className="w-full mb-8">
           <Link href="/">
-            <button className="bg-accent text-primary text-sm font-bold px-4 py-2 rounded-lg shadow hover:bg-yellow-400 transition">
+            <button className="bg-accent text-primary text-xs sm:text-sm font-bold px-4 py-2.5 sm:py-3 rounded-lg shadow hover:bg-yellow-400 hover:shadow-lg transition-all duration-200 min-h-[44px] flex items-center justify-center">
               ← Back to Home
             </button>
           </Link>
@@ -43,8 +43,7 @@ export default function Info() {
           <ul className="list-disc list-inside text-sm text-white/90 space-y-2">
             <li><b>Winner receives 95%</b> of the total pot (both entry fees)</li>
             <li><b>Platform fee: 5%</b> covers transaction costs and platform maintenance</li>
-            <li><b>You must sign to claim:</b> Winners receive a payout proposal that requires your wallet signature</li>
-            <li><b>Sign to claim:</b> You must sign the proposal with your wallet to receive payouts. Funds remain safely locked in the multisig vault until you sign.</li>
+            <li><b>You must sign to claim:</b> Winners receive a payout proposal that requires your wallet signature. Funds remain safely locked in the multisig vault until you sign.</li>
           </ul>
 
           <h3 className="text-xl font-bold text-accent mb-3 mt-6">Tie Scenarios</h3>
@@ -236,7 +235,7 @@ export default function Info() {
         {/* Back to Home */}
         <div className="w-full text-center mt-8">
           <Link href="/">
-            <button className="bg-accent text-primary text-lg font-bold px-8 py-4 rounded-lg shadow hover:bg-yellow-400 transition">
+            <button className="bg-accent text-primary text-base sm:text-lg font-bold px-8 py-4 rounded-lg shadow-lg hover:bg-yellow-400 hover:shadow-xl transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center">
               Ready to Play? Start Now →
             </button>
           </Link>

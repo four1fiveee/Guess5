@@ -616,7 +616,7 @@ const Matchmaking: React.FC = () => {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-8" />
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6 sm:mb-8" />
         
         {/* Status Display */}
         <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-center shadow">
@@ -692,7 +692,7 @@ const Matchmaking: React.FC = () => {
               <button
                 onClick={handlePayment}
                 disabled={isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)}
-                className={`w-full font-bold py-3 px-6 rounded-lg transition-all duration-200 ${
+                className={`w-full font-bold py-3.5 px-6 rounded-lg transition-all duration-200 min-h-[52px] flex items-center justify-center ${
                   isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)
                     ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
                     : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'

@@ -268,12 +268,12 @@ export default function Lobby() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={300} height={300} className="mb-8" />
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6 sm:mb-8" />
         
                  {/* Back to Home Button */}
          <button
            onClick={() => router.push('/')}
-           className="mb-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2 rounded-lg transition-all duration-200 text-sm border border-white/20 hover:border-white/30"
+           className="mb-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 text-xs sm:text-sm border border-white/20 hover:border-white/30 min-h-[44px] flex items-center justify-center"
          >
            ← Back to Home
          </button>
@@ -346,7 +346,7 @@ export default function Lobby() {
                 return (
                   <button
                     key={usdAmount}
-                    className={`w-full p-4 rounded-lg font-bold transition-all duration-200 shadow ${
+                    className={`w-full p-4 sm:p-5 rounded-lg font-bold transition-all duration-200 shadow min-h-[100px] flex flex-col items-center justify-center ${
                       hasEnoughBalance && !hasBlockingClaims && !isMatchmaking
                         ? 'bg-accent text-primary hover:bg-yellow-400 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] border-2 border-transparent hover:border-yellow-300'
                         : 'bg-gray-700 text-gray-400 cursor-not-allowed border-2 border-gray-600'
