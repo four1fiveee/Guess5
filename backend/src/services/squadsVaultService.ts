@@ -395,11 +395,11 @@ export class SquadsVaultService {
       });
       
       // Create transaction message and compile to V0
-      // Note: payerKey should be the fee payer (who pays transaction fees), not the vault
-      // The vault is the source of funds in the instructions, but fees are paid by feePayer
+      // Note: payerKey should be the vault address when instructions transfer FROM the vault
+      // The vault is both the source of funds AND the payer for transaction fees in the compiled message
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: this.config.systemPublicKey, // Fee payer pays for transaction fees
+        payerKey: multisigAddress, // Vault pays for transaction fees in the compiled message
         recentBlockhash: blockhash,
         instructions: [winnerTransferIx, feeTransferIx],
       });
@@ -602,11 +602,11 @@ export class SquadsVaultService {
       });
       
       // Create transaction message and compile to V0
-      // Note: payerKey should be the fee payer (who pays transaction fees), not the vault
-      // The vault is the source of funds in the instructions, but fees are paid by feePayer
+      // Note: payerKey should be the vault address when instructions transfer FROM the vault
+      // The vault is both the source of funds AND the payer for transaction fees in the compiled message
       const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: this.config.systemPublicKey, // Fee payer pays for transaction fees
+        payerKey: multisigAddress, // Vault pays for transaction fees in the compiled message
         recentBlockhash: blockhash2,
         instructions: [player1TransferIx, player2TransferIx],
       });
