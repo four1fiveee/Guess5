@@ -406,7 +406,7 @@ export class SquadsVaultService {
         lamports: feeLamports,
       });
       
-      // Create transaction message and compile to V0
+      // Create transaction message (uncompiled - Squads SDK compiles it internally)
       // Note: payerKey must be the vault PDA (derived from multisig PDA)
       // The vault PDA holds funds and executes transactions, not the multisig PDA
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
@@ -416,12 +416,11 @@ export class SquadsVaultService {
         instructions: [winnerTransferIx, feeTransferIx],
       });
       
-      // Compile to V0 message - Squads SDK needs compiled V0 message
-      const compiledMessage = transactionMessage.compileToV0Message();
-      
       // Create the Squads vault transaction
+      // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
       enhancedLogger.info('📝 Creating vault transaction...', {
         multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
         transactionIndex: transactionIndex.toString(),
         winner: winner.toString(),
         winnerAmount,
@@ -438,8 +437,7 @@ export class SquadsVaultService {
           creator: this.config.systemPublicKey,
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
-// @ts-ignore - compiledMessage (MessageV0) works at runtime despite type mismatch
-          transactionMessage: compiledMessage,
+          transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Winner payout: ${winner.toString()}`,
         });
       } catch (createError: any) {
@@ -625,7 +623,7 @@ export class SquadsVaultService {
         lamports: refundLamports,
       });
       
-      // Create transaction message and compile to V0
+      // Create transaction message (uncompiled - Squads SDK compiles it internally)
       // Note: payerKey must be the vault PDA (derived from multisig PDA)
       // The vault PDA holds funds and executes transactions, not the multisig PDA
       const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
@@ -635,10 +633,11 @@ export class SquadsVaultService {
         instructions: [player1TransferIx, player2TransferIx],
       });
       
-      // Compile to V0 message - Squads SDK needs compiled V0 message
-      const compiledMessage2 = transactionMessage.compileToV0Message();
-      
-      enhancedLogger.info('📝 Compiled V0 message for tie refund', {
+      // Create the Squads vault transaction
+      // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
+      enhancedLogger.info('📝 Creating vault transaction for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
         blockhash: blockhash2,
         lastValidBlockHeight,
         player1: player1.toString(),
@@ -646,7 +645,6 @@ export class SquadsVaultService {
         refundLamports,
       });
       
-      // Create the Squads vault transaction
       let signature: string;
       try {
         signature = await rpc.vaultTransactionCreate({
@@ -658,8 +656,7 @@ export class SquadsVaultService {
           creator: this.config.systemPublicKey,
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
-// @ts-ignore - compiledMessage2 (MessageV0) works at runtime despite type mismatch
-          transactionMessage: compiledMessage2,
+          transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
         });
       } catch (createError: any) {
