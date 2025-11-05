@@ -40,12 +40,39 @@ export interface ProposalStatus {
 export class SquadsVaultService {
   private connection: Connection;
   private config: SquadsVaultConfig;
+  private programId: PublicKey; // Network-specific program ID
 
   constructor() {
     this.connection = new Connection(
       process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
       'confirmed'
     );
+
+    // Use environment variable if set, otherwise fall back to SDK default
+    if (process.env.SQUADS_PROGRAM_ID) {
+      try {
+        this.programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+        enhancedLogger.info('✅ Using Squads program ID from environment', {
+          programId: this.programId.toString(),
+        });
+      } catch (pkError: unknown) {
+        const errorMsg = pkError instanceof Error ? pkError.message : String(pkError);
+        enhancedLogger.error('❌ Invalid SQUADS_PROGRAM_ID in environment', {
+          error: errorMsg,
+          providedId: process.env.SQUADS_PROGRAM_ID,
+        });
+        // Fall back to SDK default
+        this.programId = PROGRAM_ID;
+        enhancedLogger.warn('⚠️ Falling back to SDK default PROGRAM_ID', {
+          programId: this.programId.toString(),
+        });
+      }
+    } else {
+      this.programId = PROGRAM_ID;
+      enhancedLogger.info('✅ Using SDK default Squads program ID', {
+        programId: this.programId.toString(),
+      });
+    }
 
     // Squads SDK initialized via direct imports (no class instantiation needed)
 
@@ -486,7 +513,7 @@ export class SquadsVaultService {
           ephemeralSigners: 0, // No ephemeral signers needed
           transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Winner payout: ${winner.toString()}`,
-          programId: PROGRAM_ID, // Explicitly specify Squads program ID
+          programId: this.programId, // Use network-specific program ID
         });
       } catch (createError: any) {
         enhancedLogger.error('❌ vaultTransactionCreate failed', {
@@ -742,7 +769,7 @@ export class SquadsVaultService {
           ephemeralSigners: 0, // No ephemeral signers needed
           transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
-          programId: PROGRAM_ID, // Explicitly specify Squads program ID
+          programId: this.programId, // Use network-specific program ID
         });
       } catch (createError: any) {
         enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', {
