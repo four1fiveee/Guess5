@@ -65,10 +65,6 @@ export default function Home() {
                 <span className="text-green-400 font-bold text-sm flex-shrink-0">•</span>
                 <span><b>We Can't Take Funds:</b> Even if you lose, we cannot withdraw without your signature. Your funds are <b>always safe</b></span>
               </div>
-              <div className="flex items-start space-x-2">
-                <span className="text-green-400 font-bold text-sm flex-shrink-0">•</span>
-                <span><b>Auto Refunds:</b> If payouts aren't signed within timeout period, either player can accept automatic refunds</span>
-              </div>
             </div>
           </div>
 
