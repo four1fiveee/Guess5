@@ -1,5 +1,5 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, SystemProgram } from '@solana/web3.js';
-import { rpc, PROGRAM_ID, getMultisigPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram } from '@solana/web3.js';
+import { rpc, PROGRAM_ID, getMultisigPda, getVaultPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
 import { AppDataSource } from '../db';
@@ -12,7 +12,8 @@ import { onMatchCompleted } from './proposalAutoCreateService';
 import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper';
 
 export interface SquadsVaultConfig {
-  systemPublicKey: PublicKey; // Your system's public key (non-custodial)
+  systemKeypair: Keypair; // Full keypair with private key for signing transactions
+  systemPublicKey: PublicKey; // Public key for reference
   threshold: number; // 2-of-3 multisig
 }
 
@@ -39,6 +40,7 @@ export interface ProposalStatus {
 export class SquadsVaultService {
   private connection: Connection;
   private config: SquadsVaultConfig;
+  private programId: PublicKey; // Network-specific program ID
 
   constructor() {
     this.connection = new Connection(
@@ -46,21 +48,57 @@ export class SquadsVaultService {
       'confirmed'
     );
 
+    // Use environment variable if set, otherwise fall back to SDK default
+    if (process.env.SQUADS_PROGRAM_ID) {
+      try {
+        this.programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+        enhancedLogger.info('✅ Using Squads program ID from environment', {
+          programId: this.programId.toString(),
+        });
+      } catch (pkError: unknown) {
+        const errorMsg = pkError instanceof Error ? pkError.message : String(pkError);
+        enhancedLogger.error('❌ Invalid SQUADS_PROGRAM_ID in environment', {
+          error: errorMsg,
+          providedId: process.env.SQUADS_PROGRAM_ID,
+        });
+        // Fall back to SDK default
+        this.programId = PROGRAM_ID;
+        enhancedLogger.warn('⚠️ Falling back to SDK default PROGRAM_ID', {
+          programId: this.programId.toString(),
+        });
+      }
+    } else {
+      this.programId = PROGRAM_ID;
+      enhancedLogger.info('✅ Using SDK default Squads program ID', {
+        programId: this.programId.toString(),
+      });
+    }
+
     // Squads SDK initialized via direct imports (no class instantiation needed)
 
-    // Get system public key from environment, fallback to fee wallet address
-    let systemPublicKey = process.env.SYSTEM_PUBLIC_KEY;
-    if (!systemPublicKey) {
-      try {
-        systemPublicKey = getFeeWalletAddress();
-      } catch {}
+    // Get the full keypair (not just public key) - needed for signing transaction creation
+    let systemKeypair: Keypair;
+    try {
+      systemKeypair = getFeeWalletKeypair();
+      enhancedLogger.info('✅ System keypair loaded successfully', {
+        publicKey: systemKeypair.publicKey.toString(),
+      });
+    } catch (keypairError: unknown) {
+      const errorMsg = keypairError instanceof Error ? keypairError.message : String(keypairError);
+      enhancedLogger.error('❌ Failed to load system keypair', {
+        error: errorMsg,
+      });
+      throw new Error(`Failed to load system keypair: ${errorMsg}. Ensure FEE_WALLET_PRIVATE_KEY is set.`);
     }
-    if (!systemPublicKey) {
-      throw new Error('SYSTEM_PUBLIC_KEY environment variable is required');
+
+    // Validate keypair has signing capability
+    if (!systemKeypair.secretKey || systemKeypair.secretKey.length === 0) {
+      throw new Error('System keypair does not have a valid secret key for signing');
     }
 
     this.config = {
-      systemPublicKey: new PublicKey(systemPublicKey),
+      systemKeypair: systemKeypair,
+      systemPublicKey: systemKeypair.publicKey,
       threshold: 2, // 2-of-3 multisig
     };
   }
@@ -314,16 +352,87 @@ export class SquadsVaultService {
     feeAmount: number
   ): Promise<ProposalResult> {
     try {
+      // Defensive checks: Validate all required values
+      if (!this.config || !this.config.systemKeypair || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemKeypair is undefined. Check FEE_WALLET_PRIVATE_KEY environment variable.';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          hasConfig: !!this.config,
+          hasSystemKeypair: !!(this.config?.systemKeypair),
+          hasSystemPublicKey: !!(this.config?.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate keypair has signing capability
+      if (!this.config.systemKeypair.secretKey || this.config.systemKeypair.secretKey.length === 0) {
+        const errorMsg = 'System keypair does not have a valid secret key for signing';
+        enhancedLogger.error('❌ ' + errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      if (!vaultAddress || typeof vaultAddress !== 'string') {
+        const errorMsg = 'Invalid vaultAddress provided to proposeWinnerPayout';
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate PublicKeys
+      const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+      if (!isPk(winner) || !isPk(feeWallet) || !isPk(this.config.systemPublicKey)) {
+        const errorMsg = 'Invalid PublicKey provided to proposeWinnerPayout';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          winnerOk: isPk(winner),
+          feeWalletOk: isPk(feeWallet),
+          systemPublicKeyOk: isPk(this.config.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
       enhancedLogger.info('💸 Proposing winner payout via Squads', {
         vaultAddress,
+        multisigAddress: vaultAddress, // vaultAddress is the multisig PDA
         winner: winner.toString(),
         winnerAmount,
         feeWallet: feeWallet.toString(),
         feeAmount,
+        systemPublicKey: this.config.systemPublicKey.toString(),
       });
 
       // Create real Squads transaction for winner payout
-      const multisigAddress = new PublicKey(vaultAddress);
+      let multisigAddress: PublicKey;
+      try {
+        multisigAddress = new PublicKey(vaultAddress);
+      } catch (pkError: any) {
+        const errorMsg = `Invalid vaultAddress PublicKey format: ${vaultAddress}`;
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress, error: pkError?.message });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Derive the vault PDA from the multisig PDA
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0, // Using vault index 0 (matches vaultTransactionCreate parameter)
+      });
+
+      enhancedLogger.info('📍 Derived vault PDA', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+      });
       
       // Generate a unique transaction index
       const transactionIndex = BigInt(Date.now());
@@ -332,36 +441,61 @@ export class SquadsVaultService {
       const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
       const feeLamports = Math.floor(feeAmount * LAMPORTS_PER_SOL);
       
-      // Create System Program transfer instruction for winner
+      // Ensure all PublicKeys are properly instantiated
+      const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
+      const winnerKey = typeof winner === 'string' ? new PublicKey(winner) : winner;
+      const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
+      
+      // Create System Program transfer instruction for winner using SystemProgram.transfer directly
+      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
       const winnerTransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
-        toPubkey: winner,
+        fromPubkey: vaultPdaKey,
+        toPubkey: winnerKey,
         lamports: winnerLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      winnerTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
       // Create System Program transfer instruction for fee
       const feeTransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
-        toPubkey: feeWallet,
+        fromPubkey: vaultPdaKey,
+        toPubkey: feeWalletKey,
         lamports: feeLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
-      // Create transaction message and compile to V0
-      // Note: payerKey should be the fee payer (who pays transaction fees), not the vault
-      // The vault is the source of funds in the instructions, but fees are paid by feePayer
+      // Log instruction keys for debugging
+      enhancedLogger.info('🔍 Instruction keys check', {
+        winnerIxKeys: winnerTransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        feeIxKeys: feeTransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        winnerIxProgramId: winnerTransferIx.programId.toString(),
+        feeIxProgramId: feeTransferIx.programId.toString(),
+      });
+      
+      // Create transaction message (uncompiled - Squads SDK compiles it internally)
+      // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
+      // The vault PDA holds funds but cannot pay fees (it's not a signer)
       const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: this.config.systemPublicKey, // Fee payer pays for transaction fees
+        payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
         recentBlockhash: blockhash,
         instructions: [winnerTransferIx, feeTransferIx],
       });
       
-      // Compile to V0 message - Squads SDK needs compiled V0 message
-      const compiledMessage = transactionMessage.compileToV0Message();
-      
       // Create the Squads vault transaction
+      // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
       enhancedLogger.info('📝 Creating vault transaction...', {
         multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
         transactionIndex: transactionIndex.toString(),
         winner: winner.toString(),
         winnerAmount,
@@ -371,16 +505,15 @@ export class SquadsVaultService {
       try {
         signature = await rpc.vaultTransactionCreate({
           connection: this.connection,
-// @ts-ignore - feePayer type mismatch but works at runtime
-          feePayer: this.config.systemPublicKey, // System pays for transaction creation
+          feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
           multisigPda: multisigAddress,
           transactionIndex,
-          creator: this.config.systemPublicKey,
+          creator: this.config.systemKeypair.publicKey, // Creator public key
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
-// @ts-ignore - compiledMessage (MessageV0) works at runtime despite type mismatch
-          transactionMessage: compiledMessage,
+          transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Winner payout: ${winner.toString()}`,
+          programId: this.programId, // Use network-specific program ID
         });
       } catch (createError: any) {
         enhancedLogger.error('❌ vaultTransactionCreate failed', {
@@ -475,15 +608,86 @@ export class SquadsVaultService {
     refundAmount: number
   ): Promise<ProposalResult> {
     try {
+      // Defensive checks: Validate all required values
+      if (!this.config || !this.config.systemKeypair || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemKeypair is undefined. Check FEE_WALLET_PRIVATE_KEY environment variable.';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          hasConfig: !!this.config,
+          hasSystemKeypair: !!(this.config?.systemKeypair),
+          hasSystemPublicKey: !!(this.config?.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate keypair has signing capability
+      if (!this.config.systemKeypair.secretKey || this.config.systemKeypair.secretKey.length === 0) {
+        const errorMsg = 'System keypair does not have a valid secret key for signing';
+        enhancedLogger.error('❌ ' + errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      if (!vaultAddress || typeof vaultAddress !== 'string') {
+        const errorMsg = 'Invalid vaultAddress provided to proposeTieRefund';
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate PublicKeys
+      const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+      if (!isPk(player1) || !isPk(player2) || !isPk(this.config.systemPublicKey)) {
+        const errorMsg = 'Invalid PublicKey provided to proposeTieRefund';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          player1Ok: isPk(player1),
+          player2Ok: isPk(player2),
+          systemPublicKeyOk: isPk(this.config.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
       enhancedLogger.info('🔄 Proposing tie refund via Squads', {
         vaultAddress,
+        multisigAddress: vaultAddress, // vaultAddress is the multisig PDA
         player1: player1.toString(),
         player2: player2.toString(),
         refundAmount,
+        systemPublicKey: this.config.systemPublicKey.toString(),
       });
 
       // Create real Squads transaction for refunds
-      const multisigAddress = new PublicKey(vaultAddress);
+      let multisigAddress: PublicKey;
+      try {
+        multisigAddress = new PublicKey(vaultAddress);
+      } catch (pkError: any) {
+        const errorMsg = `Invalid vaultAddress PublicKey format: ${vaultAddress}`;
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress, error: pkError?.message });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Derive the vault PDA from the multisig PDA
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0,
+      });
+
+      enhancedLogger.info('📍 Derived vault PDA for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+      });
       
       // Generate a unique transaction index (use microseconds + random to avoid collisions)
       const transactionIndex = BigInt(Date.now() * 1000 + Math.floor(Math.random() * 1000));
@@ -491,34 +695,61 @@ export class SquadsVaultService {
       // Create transfer instructions using SystemProgram
       const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
       
-      // Create System Program transfer instruction for player 1
+      // Ensure all PublicKeys are properly instantiated
+      const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
+      const player1Key = typeof player1 === 'string' ? new PublicKey(player1) : player1;
+      const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
+      
+      // Create System Program transfer instruction for player 1 using SystemProgram.transfer directly
+      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
       const player1TransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
-        toPubkey: player1,
+        fromPubkey: vaultPdaKey,
+        toPubkey: player1Key,
         lamports: refundLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
       // Create System Program transfer instruction for player 2
       const player2TransferIx = SystemProgram.transfer({
-        fromPubkey: multisigAddress,
-        toPubkey: player2,
+        fromPubkey: vaultPdaKey,
+        toPubkey: player2Key,
         lamports: refundLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
-      // Create transaction message and compile to V0
-      // Note: payerKey should be the fee payer (who pays transaction fees), not the vault
-      // The vault is the source of funds in the instructions, but fees are paid by feePayer
+      // Log instruction keys for debugging
+      enhancedLogger.info('🔍 Instruction keys check for tie refund', {
+        player1IxKeys: player1TransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        player2IxKeys: player2TransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        player1IxProgramId: player1TransferIx.programId.toString(),
+        player2IxProgramId: player2TransferIx.programId.toString(),
+      });
+      
+      // Create transaction message (uncompiled - Squads SDK compiles it internally)
+      // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
+      // The vault PDA holds funds but cannot pay fees (it's not a signer)
       const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
       const transactionMessage = new TransactionMessage({
-        payerKey: this.config.systemPublicKey, // Fee payer pays for transaction fees
+        payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
         recentBlockhash: blockhash2,
         instructions: [player1TransferIx, player2TransferIx],
       });
       
-      // Compile to V0 message - Squads SDK needs compiled V0 message
-      const compiledMessage2 = transactionMessage.compileToV0Message();
-      
-      enhancedLogger.info('📝 Compiled V0 message for tie refund', {
+      // Create the Squads vault transaction
+      // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
+      enhancedLogger.info('📝 Creating vault transaction for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
         blockhash: blockhash2,
         lastValidBlockHeight,
         player1: player1.toString(),
@@ -526,21 +757,19 @@ export class SquadsVaultService {
         refundLamports,
       });
       
-      // Create the Squads vault transaction
       let signature: string;
       try {
         signature = await rpc.vaultTransactionCreate({
           connection: this.connection,
-// @ts-ignore - feePayer type mismatch but works at runtime
-          feePayer: this.config.systemPublicKey, // System pays for transaction creation
+          feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
           multisigPda: multisigAddress,
           transactionIndex,
-          creator: this.config.systemPublicKey,
+          creator: this.config.systemKeypair.publicKey, // Creator public key
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
-// @ts-ignore - compiledMessage2 (MessageV0) works at runtime despite type mismatch
-          transactionMessage: compiledMessage2,
+          transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
           memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
+          programId: this.programId, // Use network-specific program ID
         });
       } catch (createError: any) {
         enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', {

@@ -139,9 +139,9 @@ export const TopRightWallet: React.FC = () => {
   if (!connected) {
     return (
       <>
-        <div className="absolute top-4 right-4">
+        <div className="absolute top-3 right-3 sm:top-4 sm:right-4">
           <button
-            className={`px-4 py-2 rounded-lg font-bold transition-colors shadow bg-accent text-primary hover:bg-yellow-400 ${
+            className={`px-4 py-2.5 sm:px-5 sm:py-3 rounded-lg font-bold transition-all duration-200 shadow bg-accent text-primary hover:bg-yellow-400 hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center text-sm sm:text-base ${
               isProcessing ? 'opacity-50 cursor-not-allowed' : ''
             }`}
             onClick={handleConnect}
@@ -163,13 +163,13 @@ export const TopRightWallet: React.FC = () => {
 
   return (
     <>
-      <div className="absolute top-4 right-4 bg-secondary bg-opacity-20 rounded-lg p-3 backdrop-blur-sm">
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 bg-secondary bg-opacity-20 rounded-lg p-3 backdrop-blur-sm border border-accent/20">
         <div className="flex flex-col items-center">
-          <div className="text-lg font-bold text-accent mb-2">
+          <div className="text-sm sm:text-base font-bold text-accent mb-2 text-center">
             {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
           </div>
           <button
-            className="px-4 py-1 text-xs font-bold bg-red-600 text-white rounded hover:bg-red-700 transition-colors"
+            className="px-4 py-2 text-xs sm:text-sm font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors min-h-[36px] flex items-center justify-center"
             onClick={disconnect}
           >
             Disconnect

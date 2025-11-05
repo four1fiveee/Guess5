@@ -1,14 +1,13 @@
 // @ts-nocheck
 const { Router } = require('express');
 const {
-  createMatchHandler,
-  getMatchStatusHandler,
-  submitAttestationHandler,
-  refundTimeoutHandler,
-  getAttestationsHandler,
-  getAuditLogsHandler,
-  processDepositHandler,
+  getProposal,
+  approveProposal,
+  buildApprovalTransaction,
+  cleanupStuckMatches,
 } = require('../controllers/multisigController');
+const matchController = require('../controllers/matchController');
+const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandler');
 
 // Import bot protection middleware
 const { validateVercelBotProtection } = require('../middleware/vercelBotProtection');
@@ -20,45 +19,32 @@ const {
 
 const router = Router();
 
-// Create a new match with multisig vault (protected)
-router.post('/matches', 
-  ipLimiter,
-  validateVercelBotProtection,
-  vaultLimiter, // 2 vault operations per minute per wallet
-  createMatchHandler
-);
-
-// Get match status including vault information (read-only, light protection)
-router.get('/matches/:matchId/status', getMatchStatusHandler);
-
-// Submit attestation for match settlement (protected)
-router.post('/matches/:matchId/attestation',
-  ipLimiter,
-  validateVercelBotProtection,
-  vaultLimiter,
-  submitAttestationHandler
-);
-
-// Process refund for timeout scenarios (protected)
-router.post('/matches/:matchId/refund',
-  ipLimiter,
-  validateVercelBotProtection,
-  vaultLimiter,
-  refundTimeoutHandler
-);
-
-// Get attestations for a match (read-only)
-router.get('/matches/:matchId/attestations', getAttestationsHandler);
-
-// Get audit logs for a match (read-only)
-router.get('/matches/:matchId/audit-logs', getAuditLogsHandler);
-
-// Process deposit to vault (protected)
+// Handle player deposit to multisig vault
 router.post('/deposits',
   ipLimiter,
   validateVercelBotProtection,
-  paymentLimiter, // 5 deposits per minute per wallet
-  processDepositHandler
+  paymentLimiter,
+  asyncHandlerWrapper(matchController.depositToMultisigVaultHandler)
+);
+
+// Get proposal details for a match
+router.get('/proposals/:matchId', getProposal);
+
+// Build unsigned approval transaction for frontend signing
+router.get('/build-approval/:matchId', buildApprovalTransaction);
+
+// Player approval endpoint (frontend sends signed transaction)
+router.post('/proposals/:matchId/approve',
+  ipLimiter,
+  validateVercelBotProtection,
+  vaultLimiter,
+  approveProposal
+);
+
+// Cleanup stuck matches (admin endpoint)
+router.post('/cleanup-stuck-matches',
+  ipLimiter,
+  cleanupStuckMatches
 );
 
 module.exports = router;

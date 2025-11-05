@@ -14,6 +14,113 @@ const Result: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [signingProposal, setSigningProposal] = useState(false);
   const [squadsClient] = useState(() => new SquadsClient());
+  const [isPolling, setIsPolling] = useState(false);
+
+  const loadPayoutData = async () => {
+    // Always try to fetch fresh data from backend first if we have a matchId
+    const matchId = router.query.matchId as string;
+    if (matchId) {
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
+        
+        if (response.ok) {
+          const matchData = await response.json();
+
+          if (matchData.isCompleted) {
+            // Get player results from match data
+            const isPlayer1 = publicKey?.toString() === matchData.player1;
+            const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+            const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+            
+            // Create payout data from match data
+            const payoutData = {
+              won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
+              isTie: matchData.winner === 'tie',
+              winner: matchData.winner,
+              numGuesses: playerResult?.numGuesses || 0,
+              entryFee: matchData.entryFee || 0.1104,
+              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
+              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+              opponentGuesses: opponentResult?.numGuesses || 0,
+              winnerAmount: matchData.payout?.winnerAmount || 0,
+              feeAmount: matchData.payout?.feeAmount || 0,
+              refundAmount: matchData.payout?.refundAmount || 0,
+              isWinningTie: matchData.payout?.isWinningTie || false,
+              feeWallet: matchData.payout?.feeWallet || '',
+              transactions: matchData.payout?.transactions || [],
+              vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress,
+              proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId,
+              proposalStatus: matchData.proposalStatus,
+              proposalSigners: matchData.proposalSigners || [],
+              needsSignatures: matchData.needsSignatures || 0,
+              proposalExecutedAt: matchData.proposalExecutedAt,
+              proposalTransactionId: matchData.proposalTransactionId,
+              automatedPayout: matchData.payout?.paymentSuccess || false,
+              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null
+            };
+            
+            setPayoutData(payoutData);
+            setLoading(false);
+
+            // If proposalId exists, stop polling
+            if (payoutData.proposalId) {
+              setIsPolling(false);
+            } else {
+              // Start polling if no proposalId yet
+              setIsPolling(true);
+            }
+            return;
+          } else {
+            console.log('⏳ Game not yet completed, falling back to localStorage');
+          }
+        } else {
+          console.error('❌ Failed to fetch match data from backend, falling back to localStorage');
+        }
+      } catch (error) {
+        console.error('❌ Error fetching match data, falling back to localStorage:', error);
+      }
+    }
+
+    // Fallback to localStorage if no matchId or backend fetch failed
+    const storedPayoutData = localStorage.getItem('payoutData');
+    if (storedPayoutData) {
+      try {
+        const data = JSON.parse(storedPayoutData);
+        
+        // Ensure isWinningTie flag exists (fallback for old localStorage data)
+        if (data.isTie && data.isWinningTie === undefined) {
+          // If it's a tie but isWinningTie is missing, assume losing tie (more common)
+          data.isWinningTie = false;
+        }
+        
+        setPayoutData(data);
+        setLoading(false);
+
+        // If proposalId exists, stop polling; otherwise start polling
+        if (data.proposalId) {
+          setIsPolling(false);
+        } else {
+          setIsPolling(true);
+        }
+        return;
+      } catch (error) {
+        console.error('❌ Error parsing stored payout data:', error);
+      }
+    }
+
+    // If no matchId and no localStorage data, show error
+    if (!matchId) {
+      setError('No match ID provided');
+      setLoading(false);
+      setIsPolling(false);
+      return;
+    }
+
+    setError('Failed to load game results');
+    setLoading(false);
+    setIsPolling(false);
+  };
 
   useEffect(() => {
     if (!publicKey) {
@@ -21,114 +128,32 @@ const Result: React.FC = () => {
       return;
     }
 
-    const loadPayoutData = async () => {
-      // Always try to fetch fresh data from backend first if we have a matchId
-      const matchId = router.query.matchId as string;
-      if (matchId) {
-        try {
-  
-          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-          const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
-          
-          if (response.ok) {
-            const matchData = await response.json();
-
-
-            
-            if (matchData.isCompleted) {
-              // Get player results from match data
-              const isPlayer1 = publicKey?.toString() === matchData.player1;
-              const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
-              const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
-              
-              // Create payout data from match data
-              const payoutData = {
-                won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
-                isTie: matchData.winner === 'tie',
-                winner: matchData.winner,
-                numGuesses: playerResult?.numGuesses || 0,
-                entryFee: matchData.entryFee || 0.1104,
-                timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
-                opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
-                opponentGuesses: opponentResult?.numGuesses || 0,
-                winnerAmount: matchData.payout?.winnerAmount || 0,
-                feeAmount: matchData.payout?.feeAmount || 0,
-                refundAmount: matchData.payout?.refundAmount || 0,
-                isWinningTie: matchData.payout?.isWinningTie || false,
-                feeWallet: matchData.payout?.feeWallet || '',
-                transactions: matchData.payout?.transactions || [],
-                vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress,
-                proposalId: matchData.payoutProposalId,
-                proposalStatus: matchData.proposalStatus,
-                proposalSigners: matchData.proposalSigners || [],
-                needsSignatures: matchData.needsSignatures || 0,
-                proposalExecutedAt: matchData.proposalExecutedAt,
-                proposalTransactionId: matchData.proposalTransactionId,
-                automatedPayout: matchData.payout?.paymentSuccess || false,
-                payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null
-              };
-              
-
-              
-              setPayoutData(payoutData);
-
-              setLoading(false);
-              return;
-            } else {
-              console.log('⚠️ Game not yet completed, falling back to localStorage');
-            }
-          } else {
-            console.error('❌ Failed to fetch match data from backend, falling back to localStorage');
-          }
-        } catch (error) {
-          console.error('❌ Error fetching match data, falling back to localStorage:', error);
-        }
-      }
-
-      // Fallback to localStorage if no matchId or backend fetch failed
-      const storedPayoutData = localStorage.getItem('payoutData');
-      if (storedPayoutData) {
-        try {
-          const data = JSON.parse(storedPayoutData);
-          
-          // Ensure isWinningTie flag exists (fallback for old localStorage data)
-          if (data.isTie && data.isWinningTie === undefined) {
-            // If it's a tie but isWinningTie is missing, assume losing tie (more common)
-            data.isWinningTie = false;
-
-          }
-          
-          setPayoutData(data);
-
-          setLoading(false);
-          return;
-        } catch (error) {
-          console.error('❌ Error parsing stored payout data:', error);
-        }
-      }
-
-      // If no matchId and no localStorage data, show error
-      if (!matchId) {
-        setError('No match ID provided');
-        setLoading(false);
-        return;
-      }
-
-      setError('Failed to load game results');
-      setLoading(false);
-    };
-
     loadPayoutData();
   }, [publicKey, router]);
+
+  // Poll for proposal updates when no proposalId exists
+  useEffect(() => {
+    if (!isPolling || !router.query.matchId || !publicKey) {
+      return;
+    }
+
+    const pollInterval = setInterval(() => {
+      console.log('🔄 Polling for proposal updates...');
+      loadPayoutData();
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [isPolling, router.query.matchId, publicKey]);
 
   // Debug logging for payout data
   useEffect(() => {
     if (payoutData) {
-      console.log('🎯 Payout data in render:', {
+      console.log('💰 Payout data in render:', {
         won: payoutData.won,
         isTie: payoutData.isTie,
         isWinningTie: payoutData.isWinningTie,
-        refundAmount: payoutData.refundAmount
+        refundAmount: payoutData.refundAmount,
+        proposalId: payoutData.proposalId
       });
     }
   }, [payoutData]);
@@ -353,7 +378,7 @@ const Result: React.FC = () => {
                   <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-4">
                   <div className="text-center">
                       <div className="text-accent text-lg font-semibold mb-2">
-                        🔐 Non-Custodial Payout System
+                        💰 Non-Custodial Payout System
                     </div>
                                          {payoutData.won ? (
                         <div className="text-white">
@@ -370,7 +395,7 @@ const Result: React.FC = () => {
                             <div className="mt-4">
                               <p className="text-sm text-white/60 mb-2">
                                 {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
-                                  ? 'You have already signed this proposal' 
+                                  ? '✓ You have already signed this proposal' 
                                   : 'Sign this proposal to execute the payout'
                                 }
                               </p>
@@ -379,9 +404,14 @@ const Result: React.FC = () => {
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
-                                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                  className="bg-accent hover:bg-yellow-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-primary font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
                                 >
-                                  {signingProposal ? 'Signing...' : 'Sign to Claim Winnings'}
+                                  {signingProposal ? (
+                                    <>
+                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                                      Signing...
+                                    </>
+                                  ) : 'Sign to Claim Winnings'}
                                 </button>
                               )}
                             </div>
@@ -485,12 +515,20 @@ const Result: React.FC = () => {
                 ) : (
                   <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-4">
                     <div className="text-center">
-                      <div className="text-accent text-lg font-semibold mb-2">
-                        ⏳ Processing Payout
+                      <div className="flex items-center justify-center mb-3">
+                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
+                        <div className="text-accent text-lg font-semibold">
+                          ⏳ Processing Payout
+                        </div>
                       </div>
-                      <p className="text-white/80">
-                        The payout proposal is being created. Please check back in a moment.
+                      <p className="text-white/80 text-sm">
+                        The payout proposal is being created. Please wait...
                       </p>
+                      {isPolling && (
+                        <p className="text-white/60 text-xs mt-2">
+                          Checking for updates...
+                        </p>
+                      )}
                     </div>
                   </div>
                 )}
@@ -500,7 +538,7 @@ const Result: React.FC = () => {
               <div className="flex justify-center">
                 <button
                   onClick={handlePlayAgain}
-                  className="bg-accent hover:bg-accent/80 text-white px-8 py-3 rounded-lg font-bold transition-colors"
+                  className="bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center"
                 >
                   Play Again
                 </button>

@@ -10,7 +10,7 @@ export default function Info() {
         {/* Header */}
         <div className="w-full mb-8">
           <Link href="/">
-            <button className="bg-accent text-primary text-sm font-bold px-4 py-2 rounded-lg shadow hover:bg-yellow-400 transition">
+            <button className="bg-accent text-primary text-xs sm:text-sm font-bold px-4 py-2.5 sm:py-3 rounded-lg shadow hover:bg-yellow-400 hover:shadow-lg transition-all duration-200 min-h-[44px] flex items-center justify-center">
               ← Back to Home
             </button>
           </Link>
@@ -25,7 +25,7 @@ export default function Info() {
           <h3 className="text-xl font-bold text-accent mb-3 mt-4">How to Play</h3>
           <ol className="list-decimal list-inside text-sm text-white/90 space-y-2">
             <li><b>Connect your Phantom wallet</b> using the wallet button in the top right</li>
-            <li><b>Choose a lobby:</b> Select $1, $5, or $20 entry fee (paid in SOL at current market rate)</li>
+            <li><b>Choose a lobby:</b> Select $1, $5, $20, or $100 entry fee (paid in SOL at current market rate)</li>
             <li><b>Get matched:</b> Wait for another player to join the same lobby</li>
             <li><b>Deposit funds:</b> Send your entry fee to the secure multisig vault address</li>
             <li><b>Play the game:</b> You have up to 7 tries to guess a secret 5-letter word</li>
@@ -43,8 +43,7 @@ export default function Info() {
           <ul className="list-disc list-inside text-sm text-white/90 space-y-2">
             <li><b>Winner receives 95%</b> of the total pot (both entry fees)</li>
             <li><b>Platform fee: 5%</b> covers transaction costs and platform maintenance</li>
-            <li><b>You must sign to claim:</b> Winners receive a payout proposal that requires your wallet signature</li>
-            <li><b>Sign within 24 hours:</b> If you don't sign, an automatic refund is proposed</li>
+            <li><b>You must sign to claim:</b> Winners receive a payout proposal that requires your wallet signature. Funds remain safely locked in the multisig vault until you sign.</li>
           </ul>
 
           <h3 className="text-xl font-bold text-accent mb-3 mt-6">Tie Scenarios</h3>
@@ -61,8 +60,8 @@ export default function Info() {
                 <li>If you didn't solve: Losing tie (95% refund)</li>
               </ul>
             </li>
-            <li><b>Game Timeout:</b> If game doesn't start within 1 minute after both deposits → 
-              <span className="text-green-400 font-bold"> Full refund to both players (100%)</span>
+            <li><b>Game Timeout:</b> If game doesn't start within 10 minutes after both deposits → 
+              <span className="text-green-400 font-bold"> Full refund proposal created for both players (100%)</span>
             </li>
           </ul>
         </div>
@@ -119,9 +118,9 @@ export default function Info() {
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
-              <b className="text-red-400">What if no one signs for 24 hours?</b>
+              <b className="text-red-400">What if no one signs after 30 minutes?</b>
               <p className="mt-1">The system automatically creates a <b>refund proposal</b> that either player can sign 
-              to get their money back (minus fees if applicable).</p>
+              to get their money back (minus fees if applicable). Funds remain safely locked in the multisig vault until a player signs to execute the refund.</p>
             </div>
           </div>
 
@@ -147,16 +146,16 @@ export default function Info() {
               If you don't return, the opponent wins if they solved the word, otherwise it's a losing tie.</p>
             </div>
 
-            <div>
-              <b className="text-accent text-base">Q: How long do I have to sign a winning payout?</b>
-              <p className="mt-1">You have 24 hours to sign and claim your winnings. If you don't sign within 24 hours, 
-              the system proposes an automatic refund.</p>
-            </div>
+                         <div>
+               <b className="text-accent text-base">Q: How long do I have to sign a winning payout?</b>
+               <p className="mt-1">Your funds remain safely locked in the multisig vault until you sign. After 30 minutes of no activity, 
+               the system creates a refund proposal that either player can sign to recover their funds.</p>
+             </div>
 
             <div>
               <b className="text-accent text-base">Q: Can Guess5 steal my money?</b>
-              <p className="mt-1">No. Due to the 2-of-3 multisig design, we cannot withdraw funds without your signature. 
-              Even if we wanted to, the smart contract enforces the rules.</p>
+              <p className="mt-1">No. Due to the 2-of-3 multisig design, we cannot access funds alone—we need at least one player signature. 
+              Funds can only move after games complete or timeouts, and only when a player signs to approve the transaction. Even if we wanted to steal funds, the smart contract enforces these rules on-chain.</p>
             </div>
 
             <div>
@@ -236,7 +235,7 @@ export default function Info() {
         {/* Back to Home */}
         <div className="w-full text-center mt-8">
           <Link href="/">
-            <button className="bg-accent text-primary text-lg font-bold px-8 py-4 rounded-lg shadow hover:bg-yellow-400 transition">
+            <button className="bg-accent text-primary text-base sm:text-lg font-bold px-8 py-4 rounded-lg shadow-lg hover:bg-yellow-400 hover:shadow-xl transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center">
               Ready to Play? Start Now →
             </button>
           </Link>

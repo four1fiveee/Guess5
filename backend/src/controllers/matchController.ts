@@ -2044,37 +2044,64 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         }
         
-        // Mark match as completed and ensure winner is set
-        // IMPORTANT: Reload match to get latest proposal info before final save
-        const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
-        if (finalMatch) {
-          finalMatch.isCompleted = true;
-          finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
-          finalMatch.setPayoutResult(payoutResult);
-          // Preserve proposal fields if they were set earlier
-          if ((updatedMatch as any).payoutProposalId) {
-            (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
-            (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
-            (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-            (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
-            console.log('✅ Preserving proposal fields in final save:', {
-              matchId: finalMatch.id,
-              proposalId: (finalMatch as any).payoutProposalId,
-              proposalStatus: (finalMatch as any).proposalStatus,
-              needsSignatures: (finalMatch as any).needsSignatures,
-            });
+                  // Mark match as completed and ensure winner is set
+          // IMPORTANT: Reload match to get latest proposal info before final save
+          const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
+          if (finalMatch) {
+            finalMatch.isCompleted = true;
+            finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
+            finalMatch.setPayoutResult(payoutResult);
+            // Preserve proposal fields if they were set earlier
+            if ((updatedMatch as any).payoutProposalId) {
+              (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
+              (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
+              (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
+              (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+              console.log('✅ Preserving proposal fields in final save:', {
+                matchId: finalMatch.id,
+                proposalId: (finalMatch as any).payoutProposalId,
+                proposalStatus: (finalMatch as any).proposalStatus,
+                needsSignatures: (finalMatch as any).needsSignatures,
+              });
+            }
+            await matchRepository.save(finalMatch);
+            
+            // CRITICAL: Ensure proposals are created after saving match
+            // The subscriber should trigger, but we also call directly as a fallback
+            try {
+              const { onMatchCompleted } = require('../services/proposalAutoCreateService');
+              await onMatchCompleted(finalMatch);
+              console.log('✅ Proposal creation triggered for completed match:', {
+                matchId: finalMatch.id,
+                proposalId: (finalMatch as any).payoutProposalId || (finalMatch as any).tieRefundProposalId,
+              });
+            } catch (proposalError: unknown) {
+              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+              console.error('⚠️ Failed to create proposals directly (subscriber may still trigger):', errorMessage);
+              // Don't fail the request - subscriber might still work
+            }
+          } else {
+            // Fallback if reload fails
+            updatedMatch.isCompleted = true;
+            updatedMatch.winner = payoutResult.winner;
+            updatedMatch.setPayoutResult(payoutResult);
+            await matchRepository.save(updatedMatch);
+            
+            // CRITICAL: Ensure proposals are created for fallback save as well
+            try {
+              const { onMatchCompleted } = require('../services/proposalAutoCreateService');
+              await onMatchCompleted(updatedMatch);
+              console.log('✅ Proposal creation triggered for fallback match save:', {
+                matchId: updatedMatch.id,
+              });
+            } catch (proposalError: unknown) {
+              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+              console.error('⚠️ Failed to create proposals for fallback save:', errorMessage);
+            }
           }
-          await matchRepository.save(finalMatch);
-        } else {
-          // Fallback if reload fails
-          updatedMatch.isCompleted = true;
-          updatedMatch.winner = payoutResult.winner;
-          updatedMatch.setPayoutResult(payoutResult);
-          await matchRepository.save(updatedMatch);
-        }
-        
-        // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
-        markGameCompleted(matchId);
+          
+          // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
+          markGameCompleted(matchId);
         
         res.json({
           status: 'completed',
@@ -2295,32 +2322,64 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             payoutProposalId: (match as any).payoutProposalId
           });
           
-          // If payout proposal is missing and there's a winner (not a tie), create it
-          if (!(match as any).payoutProposalId && match.winner && match.winner !== 'tie' && (match as any).squadsVaultAddress) {
-            console.log('⚠️ Payout proposal missing, creating now...', { matchId: match.id });
+          // If payout proposal is missing, create it based on match outcome
+          if (!(match as any).payoutProposalId && !(match as any).tieRefundProposalId && match.winner && (match as any).squadsVaultAddress) {
+            console.log('⚠️ Payout proposal missing, creating now...', { matchId: match.id, winner: match.winner });
             try {
               const { PublicKey } = require('@solana/web3.js');
-              const winner = match.winner;
-              const entryFee = match.entryFee;
-              const totalPot = entryFee * 2;
-              const winnerAmount = totalPot * 0.95;
-              const feeAmount = totalPot * 0.05;
+              const { squadsVaultService } = require('../services/squadsVaultService');
+              
+              if (match.winner !== 'tie') {
+                // Winner payout proposal
+                const winner = match.winner;
+                const entryFee = match.entryFee;
+                const totalPot = entryFee * 2;
+                const winnerAmount = totalPot * 0.95;
+                const feeAmount = totalPot * 0.05;
 
-              const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                (match as any).squadsVaultAddress,
-                new PublicKey(winner),
-                winnerAmount,
-                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount
-              );
+                const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                  (match as any).squadsVaultAddress,
+                  new PublicKey(winner),
+                  winnerAmount,
+                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                  feeAmount
+                );
 
-              if (proposalResult.success) {
-                (match as any).payoutProposalId = proposalResult.proposalId;
-                (match as any).proposalCreatedAt = new Date();
-                (match as any).proposalStatus = 'ACTIVE';
-                (match as any).needsSignatures = 2; // 2-of-3 multisig
-                await matchRepository.save(match);
-                console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId });
+                if (proposalResult.success) {
+                  (match as any).payoutProposalId = proposalResult.proposalId;
+                  (match as any).proposalCreatedAt = new Date();
+                  (match as any).proposalStatus = 'ACTIVE';
+                  (match as any).needsSignatures = proposalResult.needsSignatures || 1; // System auto-signs, so 1 more needed
+                  await matchRepository.save(match);
+                  console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId });
+                }
+              } else {
+                // Tie refund proposal
+                const player1Result = match.getPlayer1Result();
+                const player2Result = match.getPlayer2Result();
+                const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+                
+                if (isLosingTie) {
+                  const entryFee = match.entryFee;
+                  const refundAmount = entryFee * 0.95; // 95% refund
+                  
+                  const proposalResult = await squadsVaultService.proposeTieRefund(
+                    (match as any).squadsVaultAddress,
+                    new PublicKey(match.player1),
+                    new PublicKey(match.player2),
+                    refundAmount
+                  );
+
+                  if (proposalResult.success) {
+                    (match as any).payoutProposalId = proposalResult.proposalId;
+                    (match as any).tieRefundProposalId = proposalResult.proposalId;
+                    (match as any).proposalCreatedAt = new Date();
+                    (match as any).proposalStatus = 'ACTIVE';
+                    (match as any).needsSignatures = proposalResult.needsSignatures || 1; // System auto-signs, so 1 more needed
+                    await matchRepository.save(match);
+                    console.log('✅ Tie refund proposal created:', { matchId: match.id, proposalId: proposalResult.proposalId });
+                  }
+                }
               }
             } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
@@ -2362,6 +2421,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       payout: payoutResult,
       isCompleted: match.isCompleted || !!existingResult,
       payoutProposalId: (match as any).payoutProposalId || null,
+      tieRefundProposalId: (match as any).tieRefundProposalId || null,
       proposalStatus: (match as any).proposalStatus || null,
       proposalCreatedAt: (match as any).proposalCreatedAt || null,
       needsSignatures: (match as any).needsSignatures || 0,
@@ -5274,7 +5334,7 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
  */
 const depositToMultisigVaultHandler = async (req: any, res: any) => {
   try {
-    const { matchId, playerWallet, amount } = req.body;
+    const { matchId, playerWallet, amount, depositTxSignature } = req.body;
 
     if (!matchId || !playerWallet || !amount) {
       return res.status(400).json({ 
@@ -5282,10 +5342,10 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
       });
     }
 
-    console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount });
+    console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount, depositTxSignature });
 
     // Verify deposit on Solana using Squads service
-    const result = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount);
+    const result = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
 
     if (result.success) {
       console.log('✅ Multisig vault deposit verified successfully:', {
@@ -5294,12 +5354,93 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         transactionId: result.transactionId
       });
 
+      // Get match from database to update payment status
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const match = await matchRepository.findOne({ where: { id: matchId } });
+
+      if (!match) {
+        return res.status(404).json({ 
+          success: false,
+          error: 'Match not found' 
+        });
+      }
+
+      // Determine which player made the deposit
+      const isPlayer1 = playerWallet === match.player1;
+
+      // Mark player as paid
+      if (isPlayer1) {
+        match.player1Paid = true;
+        console.log(`✅ Marked Player 1 (${playerWallet}) as paid for match ${matchId}`);
+      } else {
+        match.player2Paid = true;
+        console.log(`✅ Marked Player 2 (${playerWallet}) as paid for match ${matchId}`);
+      }
+
+      // Check if both players have paid
+      const bothPaid = match.player1Paid && match.player2Paid;
+
+      if (bothPaid) {
+        // Both players have paid - ensure match is active
+        if (match.status !== 'active') {
+          console.log(`🎮 Both players have paid for match ${matchId}, activating game...`);
+          match.status = 'active';
+          
+          // Ensure word is set if not already present
+          if (!match.word) {
+            const { getRandomWord } = require('../wordList');
+            match.word = getRandomWord();
+          }
+          
+          // Set game start time if not already set
+          if (!match.gameStartTime) {
+            match.gameStartTime = new Date();
+          }
+        }
+      }
+
+      // Save match to database
+      await matchRepository.save(match);
+
+      console.log(`🔍 Payment status for match ${matchId}:`, {
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        status: match.status,
+        bothPaid
+      });
+
+      // Send WebSocket event for payment received
+      try {
+        const { websocketService } = require('../services/websocketService');
+        const { WebSocketEventType } = require('../services/websocketService');
+        websocketService.broadcastToMatch(matchId, {
+          type: WebSocketEventType.PAYMENT_RECEIVED,
+          matchId,
+          data: {
+            player: isPlayer1 ? 'player1' : 'player2',
+            wallet: playerWallet,
+            amount: amount,
+            player1Paid: match.player1Paid,
+            player2Paid: match.player2Paid,
+            status: match.status
+          },
+          timestamp: new Date().toISOString()
+        });
+      } catch (wsError) {
+        console.error('⚠️ Failed to send WebSocket event (non-critical):', wsError);
+      }
+
       res.json({
         success: true,
         message: 'Deposit verified successfully',
         transactionId: result.transactionId,
         matchId,
-        playerWallet
+        playerWallet,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        status: match.status,
+        bothPaid
       });
     } else {
       console.error('❌ Multisig vault deposit failed:', result.error);

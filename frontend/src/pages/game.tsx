@@ -767,15 +767,29 @@ const Game: React.FC = () => {
   if (loading) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
-        <div className="text-white text-xl">Loading game...</div>
+        <div className="text-center">
+          <div className="flex items-center justify-center mb-4">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-accent mr-3"></div>
+            <div className="text-white text-xl font-semibold">Loading game...</div>
+          </div>
+        </div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen bg-primary flex items-center justify-center">
-        <div className="text-white text-xl">Error: {error}</div>
+      <div className="min-h-screen bg-primary flex items-center justify-center px-4">
+        <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-6 max-w-md w-full text-center">
+          <div className="text-red-400 text-xl font-bold mb-2">❌ Error</div>
+          <p className="text-white/80 mb-4">{error}</p>
+          <button
+            onClick={() => router.push('/lobby')}
+            className="bg-accent hover:bg-yellow-400 text-primary px-6 py-2.5 rounded-lg font-bold transition-all duration-200 min-h-[44px] flex items-center justify-center mx-auto"
+          >
+            Back to Lobby
+          </button>
+        </div>
       </div>
     );
   }
@@ -785,12 +799,15 @@ const Game: React.FC = () => {
       <TopRightWallet />
       <div className="flex flex-col items-center">
         {/* Logo prominently displayed at the top */}
-        <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-6" />
+        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4 sm:mb-6" />
         
         {/* Timer */}
         {gameState === 'playing' && (
-          <div className="text-accent text-lg mb-6 font-semibold">
-            ⏰ Time Remaining: {formatTime(timeRemaining)}
+          <div className="text-accent text-lg mb-6 font-semibold text-center">
+            <div className="flex items-center justify-center gap-2 mb-2">
+              <span>⏰</span>
+              <span>Time Remaining: {formatTime(timeRemaining)}</span>
+            </div>
             {/* Network Status Indicator */}
             <div className="text-sm mt-2">
               {networkStatus === 'connected' && (
@@ -808,7 +825,7 @@ const Game: React.FC = () => {
         
         {/* Error Display */}
         {error && (
-          <div className="bg-red-500 text-white px-4 py-2 rounded-lg mb-4 text-center">
+          <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-2.5 rounded-lg mb-4 text-center max-w-md w-full">
             ❌ {error}
           </div>
         )}
@@ -863,11 +880,12 @@ const Game: React.FC = () => {
 
         {/* Game Completed */}
         {gameState === 'completed' && (
-          <div className="text-center mb-6">
-            <div className="text-2xl font-bold text-accent mb-2">
-              {playerResult?.won ? '🏆 You won!' : '😔 You lost'}
+          <div className="text-center mb-6 animate-fade-in">
+            <div className="text-2xl font-bold text-accent mb-3">
+              {playerResult?.won ? '🏆 You Won!' : '😔 You Lost'}
             </div>
-            <div className="text-white text-lg">
+            <div className="flex items-center justify-center text-white/80 text-lg">
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent mr-2"></div>
               Processing payment...
             </div>
           </div>
