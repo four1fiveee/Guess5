@@ -397,34 +397,24 @@ export class SquadsVaultService {
       const winnerKey = typeof winner === 'string' ? new PublicKey(winner) : winner;
       const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
       
-      // Create System Program transfer instruction for winner
-      // Note: vaultPda is a PDA, so it's not a signer - the Squads program will authorize it
-      const winnerTransferIx = new TransactionInstruction({
-        programId: SystemProgram.programId,
-        keys: [
-          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
-          { pubkey: winnerKey, isSigner: false, isWritable: true },
-        ],
-        data: SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: winnerKey,
-          lamports: winnerLamports,
-        }).data, // Use the same instruction data but with corrected keys
+      // Create System Program transfer instruction for winner using SystemProgram.transfer directly
+      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
+      const winnerTransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: winnerKey,
+        lamports: winnerLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      winnerTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
       // Create System Program transfer instruction for fee
-      const feeTransferIx = new TransactionInstruction({
-        programId: SystemProgram.programId,
-        keys: [
-          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
-          { pubkey: feeWalletKey, isSigner: false, isWritable: true },
-        ],
-        data: SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: feeWalletKey,
-          lamports: feeLamports,
-        }).data, // Use the same instruction data but with corrected keys
+      const feeTransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: feeWalletKey,
+        lamports: feeLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
       // Log instruction keys for debugging
       enhancedLogger.info('🔍 Instruction keys check', {
@@ -650,34 +640,24 @@ export class SquadsVaultService {
       const player1Key = typeof player1 === 'string' ? new PublicKey(player1) : player1;
       const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
       
-      // Create System Program transfer instruction for player 1
-      // Note: vaultPda is a PDA, so it's not a signer - the Squads program will authorize it
-      const player1TransferIx = new TransactionInstruction({
-        programId: SystemProgram.programId,
-        keys: [
-          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
-          { pubkey: player1Key, isSigner: false, isWritable: true },
-        ],
-        data: SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: player1Key,
-          lamports: refundLamports,
-        }).data, // Use the same instruction data but with corrected keys
+      // Create System Program transfer instruction for player 1 using SystemProgram.transfer directly
+      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
+      const player1TransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: player1Key,
+        lamports: refundLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
       // Create System Program transfer instruction for player 2
-      const player2TransferIx = new TransactionInstruction({
-        programId: SystemProgram.programId,
-        keys: [
-          { pubkey: vaultPdaKey, isSigner: false, isWritable: true }, // PDA, not a signer
-          { pubkey: player2Key, isSigner: false, isWritable: true },
-        ],
-        data: SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: player2Key,
-          lamports: refundLamports,
-        }).data, // Use the same instruction data but with corrected keys
+      const player2TransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: player2Key,
+        lamports: refundLamports,
       });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
       
       // Log instruction keys for debugging
       enhancedLogger.info('🔍 Instruction keys check for tie refund', {
