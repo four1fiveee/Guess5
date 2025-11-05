@@ -2,13 +2,13 @@
 
 ## 1. Vercel Root Directory Issue
 
-**Problem:** Vercel can't find `frontend` because your git repo has files under `OneDrive/Desktop/Guess5/` prefix.
+**Problem:** Vercel needs to be configured to use the `frontend` directory as the root.
 
 **Solution:** Update Vercel Project Settings:
 1. Go to https://dashboard.vercel.com
 2. Select your `guess5` project
 3. Go to Settings → General
-4. Set **Root Directory** to: `OneDrive/Desktop/Guess5/frontend`
+4. Set **Root Directory** to: `frontend`
 5. Save and redeploy
 
 ## 2. Delete Stuck Match
