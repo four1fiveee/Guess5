@@ -6510,12 +6510,27 @@ const signProposalHandler = async (req: any, res: any) => {
           // If not executed, check if this is an old match (completed status)
           // For old matches, if transaction doesn't exist, it was likely executed
           const matchStatus = match.status;
-          const isOldMatch = matchStatus === 'completed' || matchStatus === 'settled';
+          const gameEndTime = match.gameEndTime;
+          const gameEndTimeUtc = match.gameEndTimeUtc;
+          const hasGameEnded = !!(gameEndTime || gameEndTimeUtc);
           
-          if (isOldMatch) {
+          // Check if match is completed based on multiple criteria
+          const isOldMatch = matchStatus === 'completed' || 
+                           matchStatus === 'settled' || 
+                           hasGameEnded ||
+                           (match as any).player1Result || 
+                           (match as any).player2Result;
+          
+          // If transaction account doesn't exist and this looks like an old match,
+          // assume it was executed (transaction accounts are closed after execution)
+          if (isOldMatch || hasGameEnded) {
             console.log('ℹ️ Old match - transaction account not found, likely already executed', {
               matchId,
               matchStatus,
+              matchStatusField: (match as any).matchStatus,
+              hasGameEnded,
+              gameEndTime,
+              gameEndTimeUtc,
               proposalId,
               proposalStatus,
               transactionPda: transactionPda.toString(),
