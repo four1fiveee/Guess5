@@ -189,22 +189,22 @@ export class SquadsVaultService {
         player2Pubkey,
       ];
 
-      // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
-      const createKey = getFeeWalletKeypair();
+      // CRITICAL FIX: Generate a unique createKey per match (deterministic from matchId)
+      // The SDK's getMultisigPda derives the PDA from createKey, so each match needs a unique createKey
+      // We use a deterministic keypair from matchId so we can recreate it later if needed
+      const matchSeed = Buffer.from(matchId.replace(/-/g, ''), 'hex').slice(0, 32);
+      const createKeyKeypair = Keypair.fromSeed(matchSeed); // Deterministic keypair per match
       
-      // Generate unique multisig PDA (Program Derived Address) for each match
-      // Use matchId as seed to ensure each match gets a unique vault
-      // Sort player addresses to ensure consistent ordering regardless of join order
-      const sortedPlayers = [player1Pubkey.toString(), player2Pubkey.toString()].sort();
-      const matchSeed = Buffer.from(matchId.replace(/-/g, ''), 'hex').slice(0, 32); // Use matchId as seed
-      const [multisigPda] = PublicKey.findProgramAddressSync(
-        [
-          Buffer.from('multisig'),
-          createKey.publicKey.toBuffer(),
-          matchSeed,
-        ],
-        this.programId // Use network-specific program ID (devnet/mainnet)
-      );
+      // Use SDK's getMultisigPda function (CORRECT way per Squads Protocol v4 docs)
+      // This ensures the PDA derivation matches what the SDK expects internally
+      const [multisigPda] = getMultisigPda({ 
+        createKey: createKeyKeypair.publicKey,
+        programId: this.programId 
+      });
+      
+      // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
+      // The createKey is used for PDA derivation, but creator pays for the transaction
+      const creatorKeypair = getFeeWalletKeypair();
 
       // Fetch program config to get treasury address (required for v2)
       let treasury: PublicKey | null = null;
@@ -253,8 +253,8 @@ export class SquadsVaultService {
           permissions: m.permissions.toString() // Permissions object as string
         })),
         threshold: this.config.threshold,
-        feePayer: createKey.publicKey.toString(),
-        creator: createKey.publicKey.toString(),
+        createKey: createKeyKeypair.publicKey.toString(),
+        creator: creatorKeypair.publicKey.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
         treasury: treasury?.toString() || 'null',
         rentCollector: 'null',
@@ -263,8 +263,8 @@ export class SquadsVaultService {
       // Extra strict parameter object (no undefined)
       const paramsPreview = {
         connection: '[Connection]',
-        createKey: '[Keypair]',
-        creator: '[Keypair]',
+        createKey: createKeyKeypair.publicKey.toString(),
+        creator: creatorKeypair.publicKey.toString(),
         multisigPda: multisigPda.toString(),
         configAuthority: this.config.systemPublicKey.toString(),
         timeLock: 0,
@@ -284,11 +284,13 @@ export class SquadsVaultService {
       try {
         // Use v2 API which is the current recommended approach for Squads Protocol v4
         // Reference: https://docs.squads.so/main/development
+        // CRITICAL: createKey is used for PDA derivation (must match getMultisigPda derivation)
+        // creator is the keypair that signs and pays fees (fee wallet)
         signature = await rpc.multisigCreateV2({
           connection: this.connection,
-          createKey, // Keypair for derivation
-          creator: createKey, // Keypair that signs and pays fees
-          multisigPda, // Explicitly pass the derived PDA
+          createKey: createKeyKeypair, // Unique keypair per match for PDA derivation
+          creator: creatorKeypair, // Fee wallet keypair that signs and pays fees
+          multisigPda, // PDA derived using SDK's getMultisigPda (must match!)
           configAuthority: this.config.systemPublicKey,
           timeLock: 0,
           members: squadsMembers,
@@ -311,7 +313,8 @@ export class SquadsVaultService {
               permissions: m.permissions.toString() 
             })),
             threshold: this.config.threshold,
-            creator: createKey.publicKey.toString(),
+            createKey: createKeyKeypair.publicKey.toString(),
+            creator: creatorKeypair.publicKey.toString(),
             configAuthority: this.config.systemPublicKey.toString(),
             treasury: treasury?.toString() || 'null',
             rentCollector: 'null',
