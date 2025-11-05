@@ -133,7 +133,7 @@ const GameGrid: React.FC<{
             />
             <button
               onClick={handleSubmit}
-              className="px-6 py-3 bg-accent text-primary rounded-lg font-bold text-lg hover:bg-yellow-400 disabled:bg-gray-600 disabled:text-gray-400 transition-colors"
+              className="px-6 py-3 bg-accent text-primary rounded-lg font-bold text-lg hover:bg-yellow-400 hover:shadow-lg disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[48px] flex items-center justify-center"
               disabled={currentGuess.length !== 5 || remainingGuesses <= 0}
             >
               Guess
