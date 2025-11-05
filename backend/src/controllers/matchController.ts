@@ -6282,7 +6282,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     
     // Manual instruction construction - SDK doesn't export instructions.vaultTransactionApprove
     // Use Anchor instruction format with correct discriminator
-    const crypto = require('crypto');
+    // Note: crypto is already declared above at line 6174
     
     // Anchor discriminator: sha256("global:vault_transaction_approve")[0:8]
     // Note: This is the standard Anchor discriminator format for global instructions
