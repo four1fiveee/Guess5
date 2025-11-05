@@ -1,0 +1,1304 @@
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram } from '@solana/web3.js';
+import { rpc, PROGRAM_ID, getMultisigPda, getVaultPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
+import { enhancedLogger } from '../utils/enhancedLogger';
+import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
+import { AppDataSource } from '../db';
+import { Match } from '../models/Match';
+import { MatchAttestation } from '../models/MatchAttestation';
+import { MatchAuditLog } from '../models/MatchAuditLog';
+import { AttestationData, kmsService } from './kmsService';
+import { setGameState } from '../utils/redisGameState';
+// import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
+// import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
+
+export interface SquadsVaultConfig {
+  systemKeypair: Keypair; // Full keypair with private key for signing transactions
+  systemPublicKey: PublicKey; // Public key for reference
+  threshold: number; // 2-of-3 multisig
+}
+
+export interface VaultCreationResult {
+  success: boolean;
+  vaultAddress?: string;
+  multisigAddress?: string;
+  error?: string;
+}
+
+export interface ProposalResult {
+  success: boolean;
+  proposalId?: string;
+  error?: string;
+  needsSignatures?: number;
+}
+
+export interface ProposalStatus {
+  executed: boolean;
+  signers: PublicKey[];
+  needsSignatures: number;
+}
+
+export class SquadsVaultService {
+  private connection: Connection;
+  private config: SquadsVaultConfig;
+  private programId: PublicKey; // Network-specific program ID
+
+  constructor() {
+    this.connection = new Connection(
+      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+
+    // Use environment variable if set, otherwise fall back to SDK default
+    if (process.env.SQUADS_PROGRAM_ID) {
+      try {
+        this.programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+        enhancedLogger.info('✅ Using Squads program ID from environment', {
+          programId: this.programId.toString(),
+        });
+      } catch (pkError: unknown) {
+        const errorMsg = pkError instanceof Error ? pkError.message : String(pkError);
+        enhancedLogger.error('❌ Invalid SQUADS_PROGRAM_ID in environment', {
+          error: errorMsg,
+          providedId: process.env.SQUADS_PROGRAM_ID,
+        });
+        // Fall back to SDK default
+        this.programId = PROGRAM_ID;
+        enhancedLogger.warn('⚠️ Falling back to SDK default PROGRAM_ID', {
+          programId: this.programId.toString(),
+        });
+      }
+    } else {
+      this.programId = PROGRAM_ID;
+      enhancedLogger.info('✅ Using SDK default Squads program ID', {
+        programId: this.programId.toString(),
+      });
+    }
+
+    // Squads SDK initialized via direct imports (no class instantiation needed)
+
+    // Get the full keypair (not just public key) - needed for signing transaction creation
+    let systemKeypair: Keypair;
+    try {
+      systemKeypair = getFeeWalletKeypair();
+      enhancedLogger.info('✅ System keypair loaded successfully', {
+        publicKey: systemKeypair.publicKey.toString(),
+      });
+    } catch (keypairError: unknown) {
+      const errorMsg = keypairError instanceof Error ? keypairError.message : String(keypairError);
+      enhancedLogger.error('❌ Failed to load system keypair', {
+        error: errorMsg,
+      });
+      throw new Error(`Failed to load system keypair: ${errorMsg}. Ensure FEE_WALLET_PRIVATE_KEY is set.`);
+    }
+
+    // Validate keypair has signing capability
+    if (!systemKeypair.secretKey || systemKeypair.secretKey.length === 0) {
+      throw new Error('System keypair does not have a valid secret key for signing');
+    }
+
+    this.config = {
+      systemKeypair: systemKeypair,
+      systemPublicKey: systemKeypair.publicKey,
+      threshold: 2, // 2-of-3 multisig
+    };
+  }
+
+  /**
+   * Create a new 2-of-3 multisig vault for a match
+   * Signers: [system, player1, player2]
+   * Threshold: 2 signatures required
+   */
+  async createMatchVault(
+    matchId: string,
+    player1Pubkey: PublicKey,
+    player2Pubkey: PublicKey,
+    entryFee: number
+  ): Promise<VaultCreationResult> {
+    try {
+            // Preflight diagnostics and validations
+            const cluster = process.env.SQUADS_NETWORK || 'devnet';
+            const network = process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com';
+            const expectedProgramId = PROGRAM_ID?.toString?.() || 'unknown';
+
+            const allKeys = {
+              systemPublicKey: this.config.systemPublicKey?.toString?.(),
+              player1: player1Pubkey?.toString?.(),
+              player2: player2Pubkey?.toString?.(),
+              feePayer: getFeeWalletKeypair().publicKey?.toString?.(),
+              programId: expectedProgramId,
+              cluster,
+              network,
+            };
+            enhancedLogger.info('🔎 Preflight: env and key sanity', allKeys);
+
+            // Validate PublicKey instances
+            const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+            if (!isPk(this.config.systemPublicKey) || !isPk(player1Pubkey) || !isPk(player2Pubkey)) {
+              const details = {
+                systemOk: isPk(this.config.systemPublicKey),
+                player1Ok: isPk(player1Pubkey),
+                player2Ok: isPk(player2Pubkey),
+              };
+              enhancedLogger.error('❌ Invalid PublicKey inputs', details);
+              return { success: false, error: 'Invalid PublicKey inputs for multisig creation' };
+            }
+            enhancedLogger.info('🏦 Creating Squads multisig vault', {
+              matchId,
+              player1: player1Pubkey.toString(),
+              player2: player2Pubkey.toString(),
+              entryFee,
+              system: this.config.systemPublicKey.toString(),
+            });
+
+      // Create 2-of-3 multisig: [system, player1, player2]
+      const members = [
+        this.config.systemPublicKey,
+        player1Pubkey,
+        player2Pubkey,
+      ];
+
+      // Use fee wallet as the creator/fee payer so creation has SOL to cover rent/fees
+      const createKey = getFeeWalletKeypair();
+      
+      // Generate unique multisig PDA (Program Derived Address) for each match
+      // Use matchId as seed to ensure each match gets a unique vault
+      // Sort player addresses to ensure consistent ordering regardless of join order
+      const sortedPlayers = [player1Pubkey.toString(), player2Pubkey.toString()].sort();
+      const matchSeed = Buffer.from(matchId.replace(/-/g, ''), 'hex').slice(0, 32); // Use matchId as seed
+      const [multisigPda] = PublicKey.findProgramAddressSync(
+        [
+          Buffer.from('multisig'),
+          createKey.publicKey.toBuffer(),
+          matchSeed,
+        ],
+        this.programId // Use network-specific program ID (devnet/mainnet)
+      );
+
+      // Fetch program config to get treasury address (required for v2)
+      let treasury: PublicKey | null = null;
+      try {
+        const [programConfigPda] = getProgramConfigPda({});
+        const programConfig = await accounts.ProgramConfig.fromAccountAddress(
+          this.connection,
+          programConfigPda
+        );
+        treasury = programConfig.treasury;
+        enhancedLogger.info('📋 Fetched treasury from ProgramConfig', {
+          treasury: treasury.toString()
+        });
+      } catch (configErr: any) {
+        enhancedLogger.warn('⚠️ Could not fetch ProgramConfig treasury, using null', {
+          error: configErr?.message
+        });
+        // Use null if ProgramConfig fetch fails (some networks/configs may allow this)
+        treasury = null;
+      }
+
+      // Define the multisig members with proper Permissions objects (required for v2)
+      const squadsMembers = [
+        { 
+          key: this.config.systemPublicKey, 
+          permissions: types.Permissions.all() // System has all permissions
+        },
+        { 
+          key: player1Pubkey, 
+          permissions: types.Permissions.fromPermissions([types.Permission.Vote]) // Player can vote
+        },
+        { 
+          key: player2Pubkey, 
+          permissions: types.Permissions.fromPermissions([types.Permission.Vote]) // Player can vote
+        },
+      ];
+
+      // Diagnostics
+      enhancedLogger.info('🧪 Squads create diagnostics', {
+        programId: PROGRAM_ID.toString(),
+        multisigPda: multisigPda.toString(),
+        members: squadsMembers.map(m => ({ 
+          key: m.key.toString(), 
+          permissions: m.permissions.toString() // Permissions object as string
+        })),
+        threshold: this.config.threshold,
+        feePayer: createKey.publicKey.toString(),
+        creator: createKey.publicKey.toString(),
+        configAuthority: this.config.systemPublicKey.toString(),
+        treasury: treasury?.toString() || 'null',
+        rentCollector: 'null',
+      });
+
+      // Extra strict parameter object (no undefined)
+      const paramsPreview = {
+        connection: '[Connection]',
+        createKey: '[Keypair]',
+        creator: '[Keypair]',
+        multisigPda: multisigPda.toString(),
+        configAuthority: this.config.systemPublicKey.toString(),
+        timeLock: 0,
+        members: squadsMembers.map(m => ({ 
+          key: m.key.toString(), 
+          permissions: m.permissions.toString() 
+        })),
+        threshold: this.config.threshold,
+        rentCollector: 'null',
+        treasury: treasury?.toString() || 'null',
+        sendOptions: '{ skipPreflight: true }',
+      };
+      enhancedLogger.info('🧾 Squads v2 param preview', paramsPreview);
+
+      // Create the multisig using v2 API (recommended by Squads docs for v4 protocol)
+      let signature: string;
+      try {
+        // Use v2 API which is the current recommended approach for Squads Protocol v4
+        // Reference: https://docs.squads.so/main/development
+        signature = await rpc.multisigCreateV2({
+          connection: this.connection,
+          createKey, // Keypair for derivation
+          creator: createKey, // Keypair that signs and pays fees
+          multisigPda, // Explicitly pass the derived PDA
+          configAuthority: this.config.systemPublicKey,
+          timeLock: 0,
+          members: squadsMembers,
+          threshold: this.config.threshold,
+          rentCollector: null, // Can be null or a PublicKey
+          treasury: treasury, // From ProgramConfig or null
+          sendOptions: { skipPreflight: true }, // Recommended by docs
+        });
+      } catch (createErr: any) {
+        enhancedLogger.error('❌ multisigCreateV2 failed', {
+          matchId,
+          error: createErr?.message || String(createErr),
+          stack: createErr?.stack,
+          details: {
+            programId: PROGRAM_ID.toString(),
+            multisigPda: multisigPda.toString(),
+            members: squadsMembers.map(m => ({ 
+              key: m.key.toString(), 
+              permissions: m.permissions.toString() 
+            })),
+            threshold: this.config.threshold,
+            creator: createKey.publicKey.toString(),
+            configAuthority: this.config.systemPublicKey.toString(),
+            treasury: treasury?.toString() || 'null',
+            rentCollector: 'null',
+          }
+        });
+        throw new Error(`Multisig vault creation failed: ${createErr?.message || String(createErr)}`);
+      }
+
+      enhancedLogger.info('✅ Squads multisig vault created', {
+        matchId,
+        multisigAddress: multisigPda.toString(),
+        vaultAddress: multisigPda.toString(), // Same as multisig address
+        signature,
+      });
+
+      // Update match with vault information
+      const matchRepository = AppDataSource.getRepository(Match);
+      const match = await matchRepository.findOne({ where: { id: matchId } });
+      
+      if (!match) {
+        return {
+          success: false,
+          error: 'Match not found',
+        };
+      }
+
+      match.squadsVaultAddress = multisigPda.toString();
+      match.matchStatus = 'VAULT_CREATED';
+      
+      // Save match directly (helper file doesn't exist)
+      await matchRepository.save(match);
+
+      // Log vault creation
+      await this.logAuditEvent(matchId, 'SQUADS_VAULT_CREATED', {
+        multisigAddress: multisigPda.toString(),
+        members: members.map(m => m.toString()),
+        threshold: this.config.threshold,
+        player1: player1Pubkey.toString(),
+        player2: player2Pubkey.toString(),
+        entryFee,
+      });
+
+      return {
+        success: true,
+        vaultAddress: multisigPda.toString(),
+        multisigAddress: multisigPda.toString(),
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to create Squads multisig vault', {
+        matchId,
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Propose winner payout transaction
+   * Requires 2 signatures: system + winner
+   */
+  async proposeWinnerPayout(
+    vaultAddress: string,
+    winner: PublicKey,
+    winnerAmount: number,
+    feeWallet: PublicKey,
+    feeAmount: number
+  ): Promise<ProposalResult> {
+    try {
+      // Defensive checks: Validate all required values
+      if (!this.config || !this.config.systemKeypair || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemKeypair is undefined. Check FEE_WALLET_PRIVATE_KEY environment variable.';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          hasConfig: !!this.config,
+          hasSystemKeypair: !!(this.config?.systemKeypair),
+          hasSystemPublicKey: !!(this.config?.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate keypair has signing capability
+      if (!this.config.systemKeypair.secretKey || this.config.systemKeypair.secretKey.length === 0) {
+        const errorMsg = 'System keypair does not have a valid secret key for signing';
+        enhancedLogger.error('❌ ' + errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      if (!vaultAddress || typeof vaultAddress !== 'string') {
+        const errorMsg = 'Invalid vaultAddress provided to proposeWinnerPayout';
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate PublicKeys
+      const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+      if (!isPk(winner) || !isPk(feeWallet) || !isPk(this.config.systemPublicKey)) {
+        const errorMsg = 'Invalid PublicKey provided to proposeWinnerPayout';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          winnerOk: isPk(winner),
+          feeWalletOk: isPk(feeWallet),
+          systemPublicKeyOk: isPk(this.config.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      enhancedLogger.info('💸 Proposing winner payout via Squads', {
+        vaultAddress,
+        multisigAddress: vaultAddress, // vaultAddress is the multisig PDA
+        winner: winner.toString(),
+        winnerAmount,
+        feeWallet: feeWallet.toString(),
+        feeAmount,
+        systemPublicKey: this.config.systemPublicKey.toString(),
+      });
+
+      // Create real Squads transaction for winner payout
+      let multisigAddress: PublicKey;
+      try {
+        multisigAddress = new PublicKey(vaultAddress);
+      } catch (pkError: any) {
+        const errorMsg = `Invalid vaultAddress PublicKey format: ${vaultAddress}`;
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress, error: pkError?.message });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Derive the vault PDA from the multisig PDA
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0, // Using vault index 0 (matches vaultTransactionCreate parameter)
+      });
+
+      enhancedLogger.info('📍 Derived vault PDA', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+      });
+      
+      // Fetch multisig account to get current transaction index
+      // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
+      // This ensures the transactionIndex matches what the multisig account expects
+      let transactionIndex: BigInt;
+      try {
+        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigAddress,
+          { commitment: 'confirmed' }
+        );
+        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
+        transactionIndex = BigInt(currentTransactionIndex + 1);
+        
+        enhancedLogger.info('📊 Fetched multisig transaction index', {
+          multisigAddress: multisigAddress.toString(),
+          currentTransactionIndex,
+          nextTransactionIndex: transactionIndex.toString(),
+        });
+      } catch (fetchError: any) {
+        const errorMsg = `Failed to fetch multisig account for transaction index: ${fetchError?.message || String(fetchError)}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          multisigAddress: multisigAddress.toString(),
+          error: fetchError?.message || String(fetchError),
+          stack: fetchError?.stack,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+      
+      // Create transfer instructions using SystemProgram
+      const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
+      const feeLamports = Math.floor(feeAmount * LAMPORTS_PER_SOL);
+      
+      // Ensure all PublicKeys are properly instantiated
+      const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
+      const winnerKey = typeof winner === 'string' ? new PublicKey(winner) : winner;
+      const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
+      
+      // Create System Program transfer instruction for winner using SystemProgram.transfer directly
+      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
+      const winnerTransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: winnerKey,
+        lamports: winnerLamports,
+      });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      winnerTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      
+      // Create System Program transfer instruction for fee
+      const feeTransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: feeWalletKey,
+        lamports: feeLamports,
+      });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      
+      // Log instruction keys for debugging
+      enhancedLogger.info('🔍 Instruction keys check', {
+        winnerIxKeys: winnerTransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        feeIxKeys: feeTransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        winnerIxProgramId: winnerTransferIx.programId.toString(),
+        feeIxProgramId: feeTransferIx.programId.toString(),
+      });
+      
+      // Create transaction message (uncompiled - Squads SDK compiles it internally)
+      // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
+      // The vault PDA holds funds but cannot pay fees (it's not a signer)
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+      const transactionMessage = new TransactionMessage({
+        payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
+        recentBlockhash: blockhash,
+        instructions: [winnerTransferIx, feeTransferIx],
+      });
+      
+      // Create the Squads vault transaction
+      // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
+      enhancedLogger.info('📝 Creating vault transaction...', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+        transactionIndex: transactionIndex.toString(),
+        winner: winner.toString(),
+        winnerAmount,
+      });
+      
+      let signature: string;
+      try {
+        signature = await rpc.vaultTransactionCreate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
+          multisigPda: multisigAddress,
+          transactionIndex,
+          creator: this.config.systemKeypair.publicKey, // Creator public key
+          vaultIndex: 0, // First vault
+          ephemeralSigners: 0, // No ephemeral signers needed
+          transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
+          memo: `Winner payout: ${winner.toString()}`,
+          programId: this.programId, // Use network-specific program ID
+        });
+      } catch (createError: any) {
+        enhancedLogger.error('❌ vaultTransactionCreate failed', {
+          error: createError?.message || String(createError),
+          stack: createError?.stack,
+          vaultAddress,
+          winner: winner.toString(),
+        });
+        throw createError;
+      }
+      
+      // Generate a numeric proposal ID for frontend compatibility
+      const proposalId = transactionIndex.toString();
+      
+      enhancedLogger.info('✅ Vault transaction created successfully', {
+        signature,
+        proposalId,
+      });
+      
+      enhancedLogger.info('📝 Created real Squads payout transaction', {
+        proposalId,
+        transactionSignature: signature,
+        multisigAddress: vaultAddress,
+        winner: winner.toString(),
+        winnerAmount,
+        feeWallet: feeWallet.toString(),
+        feeAmount,
+        transactionIndex: transactionIndex.toString(),
+      });
+
+      enhancedLogger.info('✅ Winner payout proposal created', {
+        vaultAddress,
+        proposalId,
+        winner: winner.toString(),
+        winnerAmount,
+        feeAmount,
+      });
+
+      // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
+      try {
+        const feeWalletKeypair = getFeeWalletKeypair();
+        const approveResult = await this.approveProposal(vaultAddress, proposalId, feeWalletKeypair);
+        if (approveResult.success) {
+          enhancedLogger.info('✅ System signature added to proposal', {
+            vaultAddress,
+            proposalId,
+            signature: approveResult.signature,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ Failed to auto-approve system signature', {
+            vaultAddress,
+            proposalId,
+            error: approveResult.error,
+          });
+        }
+      } catch (approveError: any) {
+        enhancedLogger.warn('⚠️ Error auto-approving system signature (non-critical)', {
+          vaultAddress,
+          proposalId,
+          error: approveError?.message || String(approveError),
+        });
+      }
+
+      return {
+        success: true,
+        proposalId,
+        needsSignatures: 1, // 1 more signature needed (system already signed)
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to propose winner payout', {
+        vaultAddress,
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Propose tie refund transaction
+   * Requires 2 signatures: system + either player
+   */
+  async proposeTieRefund(
+    vaultAddress: string,
+    player1: PublicKey,
+    player2: PublicKey,
+    refundAmount: number
+  ): Promise<ProposalResult> {
+    try {
+      // Defensive checks: Validate all required values
+      if (!this.config || !this.config.systemKeypair || !this.config.systemPublicKey) {
+        const errorMsg = 'SquadsVaultService config or systemKeypair is undefined. Check FEE_WALLET_PRIVATE_KEY environment variable.';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          hasConfig: !!this.config,
+          hasSystemKeypair: !!(this.config?.systemKeypair),
+          hasSystemPublicKey: !!(this.config?.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate keypair has signing capability
+      if (!this.config.systemKeypair.secretKey || this.config.systemKeypair.secretKey.length === 0) {
+        const errorMsg = 'System keypair does not have a valid secret key for signing';
+        enhancedLogger.error('❌ ' + errorMsg);
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      if (!vaultAddress || typeof vaultAddress !== 'string') {
+        const errorMsg = 'Invalid vaultAddress provided to proposeTieRefund';
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Validate PublicKeys
+      const isPk = (k: any) => k && typeof k.toBase58 === 'function';
+      if (!isPk(player1) || !isPk(player2) || !isPk(this.config.systemPublicKey)) {
+        const errorMsg = 'Invalid PublicKey provided to proposeTieRefund';
+        enhancedLogger.error('❌ ' + errorMsg, {
+          player1Ok: isPk(player1),
+          player2Ok: isPk(player2),
+          systemPublicKeyOk: isPk(this.config.systemPublicKey),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      enhancedLogger.info('🔄 Proposing tie refund via Squads', {
+        vaultAddress,
+        multisigAddress: vaultAddress, // vaultAddress is the multisig PDA
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundAmount,
+        systemPublicKey: this.config.systemPublicKey.toString(),
+      });
+
+      // Create real Squads transaction for refunds
+      let multisigAddress: PublicKey;
+      try {
+        multisigAddress = new PublicKey(vaultAddress);
+      } catch (pkError: any) {
+        const errorMsg = `Invalid vaultAddress PublicKey format: ${vaultAddress}`;
+        enhancedLogger.error('❌ ' + errorMsg, { vaultAddress, error: pkError?.message });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      // Derive the vault PDA from the multisig PDA
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0,
+      });
+
+      enhancedLogger.info('📍 Derived vault PDA for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+      });
+      
+      // Fetch multisig account to get current transaction index
+      // Squads Protocol requires sequential transaction indices - must fetch from on-chain account
+      // This ensures the transactionIndex matches what the multisig account expects
+      let transactionIndex: BigInt;
+      try {
+        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigAddress,
+          { commitment: 'confirmed' }
+        );
+        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
+        transactionIndex = BigInt(currentTransactionIndex + 1);
+        
+        enhancedLogger.info('📊 Fetched multisig transaction index for tie refund', {
+          multisigAddress: multisigAddress.toString(),
+          currentTransactionIndex,
+          nextTransactionIndex: transactionIndex.toString(),
+        });
+      } catch (fetchError: any) {
+        const errorMsg = `Failed to fetch multisig account for transaction index: ${fetchError?.message || String(fetchError)}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          multisigAddress: multisigAddress.toString(),
+          error: fetchError?.message || String(fetchError),
+          stack: fetchError?.stack,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+      
+      // Create transfer instructions using SystemProgram
+      const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
+      
+      // Ensure all PublicKeys are properly instantiated
+      const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
+      const player1Key = typeof player1 === 'string' ? new PublicKey(player1) : player1;
+      const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
+      
+      // Create System Program transfer instruction for player 1 using SystemProgram.transfer directly
+      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
+      const player1TransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: player1Key,
+        lamports: refundLamports,
+      });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      
+      // Create System Program transfer instruction for player 2
+      const player2TransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: player2Key,
+        lamports: refundLamports,
+      });
+      // Correct the keys: vaultPda is a PDA and cannot be a signer
+      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      
+      // Log instruction keys for debugging
+      enhancedLogger.info('🔍 Instruction keys check for tie refund', {
+        player1IxKeys: player1TransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        player2IxKeys: player2TransferIx.keys.map(k => ({
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
+        player1IxProgramId: player1TransferIx.programId.toString(),
+        player2IxProgramId: player2TransferIx.programId.toString(),
+      });
+      
+      // Create transaction message (uncompiled - Squads SDK compiles it internally)
+      // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
+      // The vault PDA holds funds but cannot pay fees (it's not a signer)
+      const { blockhash: blockhash2, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+      const transactionMessage = new TransactionMessage({
+        payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
+        recentBlockhash: blockhash2,
+        instructions: [player1TransferIx, player2TransferIx],
+      });
+      
+      // Create the Squads vault transaction
+      // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
+      enhancedLogger.info('📝 Creating vault transaction for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+        blockhash: blockhash2,
+        lastValidBlockHeight,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundLamports,
+      });
+      
+      let signature: string;
+      try {
+        signature = await rpc.vaultTransactionCreate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
+          multisigPda: multisigAddress,
+          transactionIndex,
+          creator: this.config.systemKeypair.publicKey, // Creator public key
+          vaultIndex: 0, // First vault
+          ephemeralSigners: 0, // No ephemeral signers needed
+          transactionMessage: transactionMessage, // Pass uncompiled TransactionMessage
+          memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
+          programId: this.programId, // Use network-specific program ID
+        });
+      } catch (createError: any) {
+        enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', {
+          error: createError?.message || String(createError),
+          stack: createError?.stack,
+          vaultAddress,
+          player1: player1.toString(),
+          player2: player2.toString(),
+        });
+        throw createError;
+      }
+      
+      // Generate a numeric proposal ID for frontend compatibility
+      const proposalId = transactionIndex.toString();
+      
+      enhancedLogger.info('📝 Created real Squads refund transaction', {
+        proposalId,
+        transactionSignature: signature,
+        multisigAddress: vaultAddress,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundAmount,
+        transactionIndex: transactionIndex.toString(),
+      });
+
+      enhancedLogger.info('✅ Tie refund proposal created', {
+        vaultAddress,
+        proposalId,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundAmount,
+      });
+
+      // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
+      try {
+        const feeWalletKeypair = getFeeWalletKeypair();
+        const approveResult = await this.approveProposal(vaultAddress, proposalId, feeWalletKeypair);
+        if (approveResult.success) {
+          enhancedLogger.info('✅ System signature added to tie refund proposal', {
+            vaultAddress,
+            proposalId,
+            signature: approveResult.signature,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ Failed to auto-approve system signature', {
+            vaultAddress,
+            proposalId,
+            error: approveResult.error,
+          });
+        }
+      } catch (approveError: any) {
+        enhancedLogger.warn('⚠️ Error auto-approving system signature (non-critical)', {
+          vaultAddress,
+          proposalId,
+          error: approveError?.message || String(approveError),
+        });
+      }
+
+      return {
+        success: true,
+        proposalId,
+        needsSignatures: 1, // 1 more signature needed (system already signed)
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to propose tie refund', {
+        vaultAddress,
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Check proposal status
+   */
+  async checkProposalStatus(
+    vaultAddress: string,
+    proposalId: string
+  ): Promise<ProposalStatus> {
+    try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const transactionIndex = parseInt(proposalId);
+
+      // For now, return a simplified status that maintains frontend compatibility
+      // TODO: Implement full Squads transaction status checking with numeric proposal IDs
+      const signers: PublicKey[] = []; // No signers yet
+      const needsSignatures = this.config.threshold;
+
+      enhancedLogger.info('📊 Checked proposal status (simplified)', {
+        vaultAddress,
+        proposalId,
+        needsSignatures,
+      });
+
+      return {
+        executed: false,
+        signers,
+        needsSignatures: Math.max(0, needsSignatures),
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to check proposal status', {
+        vaultAddress,
+        proposalId,
+        error: errorMessage,
+      });
+
+      return {
+        executed: false,
+        signers: [],
+        needsSignatures: this.config.threshold,
+      };
+    }
+  }
+
+  /**
+   * Approve a Squads vault transaction proposal
+   * This allows players (multisig members) to sign proposals
+   */
+  async approveProposal(
+    vaultAddress: string,
+    proposalId: string,
+    signer: Keypair
+  ): Promise<{ success: boolean; signature?: string; error?: string }> {
+    try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const transactionIndex = BigInt(proposalId);
+
+      enhancedLogger.info('📝 Approving Squads proposal', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+      });
+
+      // Use rpc.vaultTransactionApprove to approve the transaction
+      // @ts-ignore - vaultTransactionApprove exists in runtime but not in types
+      const signature = await rpc.vaultTransactionApprove({
+        connection: this.connection,
+        feePayer: signer.publicKey,
+        multisigPda: multisigAddress,
+        transactionIndex,
+        member: signer,
+      });
+
+      enhancedLogger.info('✅ Proposal approved', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        signature,
+      });
+
+      return { success: true, signature };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to approve proposal', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Sign a proposal (for system signatures) - DEPRECATED, use approveProposal instead
+   */
+  async signProposal(
+    vaultAddress: string,
+    proposalId: string,
+    signer: PublicKey
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Only allow system to use this deprecated method
+      if (!signer.equals(this.config.systemPublicKey)) {
+        return {
+          success: false,
+          error: 'Only system can sign proposals from backend. Use approveProposal for player signatures.',
+        };
+      }
+
+      const feeWalletKeypair = getFeeWalletKeypair();
+      return await this.approveProposal(vaultAddress, proposalId, feeWalletKeypair);
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to sign proposal', {
+        vaultAddress,
+        proposalId,
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Verify a deposit transaction on Solana
+   * This checks if a player has actually sent money to the Squads vault
+   */
+  async verifyDeposit(matchId: string, playerWallet: string, expectedAmount: number, depositTxSignature?: string): Promise<{
+    success: boolean;
+    transactionId?: string;
+    error?: string;
+  }> {
+    try {
+      enhancedLogger.info('🔍 Verifying deposit on Squads vault', {
+        matchId,
+        playerWallet,
+        expectedAmount,
+      });
+
+      // Get match from database
+      const matchRepository = AppDataSource.getRepository(Match);
+      const match = await matchRepository.findOne({ where: { id: matchId } });
+
+      if (!match || !match.squadsVaultAddress) {
+        return {
+          success: false,
+          error: 'Match or vault not found',
+        };
+      }
+
+      // TypeScript assertion after null check
+      const vaultAddress: string = match.squadsVaultAddress as string;
+      const vaultPublicKey = new PublicKey(vaultAddress);
+
+      // Check vault balance on Solana
+      const balance = await this.connection.getBalance(vaultPublicKey);
+      const balanceSOL = balance / LAMPORTS_PER_SOL;
+
+      enhancedLogger.info('💰 Current Squads vault balance', {
+        matchId,
+        vaultAddress: match.squadsVaultAddress,
+        balanceLamports: balance,
+        balanceSOL,
+      });
+
+      // Track which player's deposit we're verifying
+      const isPlayer1 = playerWallet === match.player1;
+      const expectedLamports = expectedAmount * LAMPORTS_PER_SOL;
+      const expectedTotalLamports = expectedAmount * 2 * LAMPORTS_PER_SOL;
+      
+      // Get current confirmation status to avoid overwriting
+      const currentDepositA = match.depositAConfirmations ?? 0;
+      const currentDepositB = match.depositBConfirmations ?? 0;
+      
+      // Save deposit transaction signature if provided
+      if (depositTxSignature) {
+        if (isPlayer1 && !match.depositATx) {
+          match.depositATx = depositTxSignature;
+          enhancedLogger.info('💾 Saved Player 1 deposit TX', { matchId, tx: depositTxSignature });
+        } else if (!isPlayer1 && !match.depositBTx) {
+          match.depositBTx = depositTxSignature;
+          enhancedLogger.info('💾 Saved Player 2 deposit TX', { matchId, tx: depositTxSignature });
+        }
+      }
+      
+      // Determine which player's deposit to confirm based on who is calling AND balance changes
+      // Use transaction signatures as the source of truth if available
+      const hasExistingTx = isPlayer1 ? !!match.depositATx : !!match.depositBTx;
+      
+      // Only confirm deposits if we have sufficient balance AND either:
+      // 1. This is the first verification for this player (balance changed from 0 to expected)
+      // 2. OR we have a transaction signature confirming the deposit
+      if (isPlayer1 && currentDepositA === 0) {
+        // Player 1: Confirm if balance is at least one full deposit
+        if (balance >= expectedLamports && (hasExistingTx || depositTxSignature)) {
+          match.depositAConfirmations = 1;
+          enhancedLogger.info('✅ Player 1 deposit confirmed', { 
+            matchId, 
+            balanceSOL,
+            playerWallet,
+            depositTx: depositTxSignature || match.depositATx
+          });
+        }
+      } else if (!isPlayer1 && currentDepositB === 0) {
+        // Player 2: Confirm if balance is at full pot AND we have a signature
+        if (balance >= expectedTotalLamports && (hasExistingTx || depositTxSignature)) {
+          match.depositBConfirmations = 1;
+          enhancedLogger.info('✅ Player 2 deposit confirmed', { 
+            matchId, 
+            balanceSOL,
+            playerWallet,
+            depositTx: depositTxSignature || match.depositBTx
+          });
+          
+          // If Player 2 deposited and we have full balance, Player 1 must have also deposited
+          // But only update Player 1 if they haven't been confirmed yet
+          if (currentDepositA === 0 && balance >= expectedTotalLamports && match.depositATx) {
+            match.depositAConfirmations = 1;
+            enhancedLogger.info('✅ Player 1 deposit also confirmed (both players deposited, found TX)', { 
+              matchId,
+              player1Tx: match.depositATx
+            });
+          }
+        }
+      } else {
+        // Deposit already confirmed for this player, just log it
+        enhancedLogger.info('✅ Deposit already confirmed for player', { 
+          matchId,
+          playerWallet,
+          isPlayer1,
+          currentDepositA,
+          currentDepositB
+        });
+      }
+
+      await matchRepository.save(match);
+
+      // Both deposits confirmed - set match to active for game start
+      if ((match.depositAConfirmations ?? 0) >= 1 && (match.depositBConfirmations ?? 0) >= 1) {
+        enhancedLogger.info('🎮 Both deposits confirmed, activating match', {
+          matchId,
+          depositA: match.depositAConfirmations,
+          depositB: match.depositBConfirmations,
+          currentStatus: match.status,
+        });
+        
+        match.matchStatus = 'READY';
+        match.status = 'active'; // Set status to active so frontend can redirect to game
+        
+        // Ensure word is set if not already present
+        if (!match.word) {
+          const { getRandomWord } = require('../wordList');
+          match.word = getRandomWord();
+        }
+        
+        // Set game start time if not already set
+        if (!match.gameStartTime) {
+          match.gameStartTime = new Date();
+        }
+        
+        // Save match directly (helper file doesn't exist)
+        await matchRepository.save(match);
+        
+        // Initialize Redis game state for active gameplay
+        try {
+          const newGameState = {
+            startTime: Date.now(),
+            player1StartTime: Date.now(),
+            player2StartTime: Date.now(),
+            player1Guesses: [],
+            player2Guesses: [],
+            player1Solved: false,
+            player2Solved: false,
+            word: match.word,
+            matchId: matchId,
+            lastActivity: Date.now(),
+            completed: false
+          };
+          await setGameState(matchId, newGameState);
+          enhancedLogger.info('✅ Redis game state initialized for match', {
+            matchId,
+            word: match.word,
+          });
+        } catch (gameStateError: unknown) {
+          const errorMessage = gameStateError instanceof Error ? gameStateError.message : String(gameStateError);
+          enhancedLogger.error('❌ Failed to initialize Redis game state', {
+            matchId,
+            error: errorMessage,
+          });
+          // Continue anyway - game state can be reinitialized by getGameStateHandler if needed
+        }
+        
+        // Reload match to verify it was saved correctly
+        const reloadedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        enhancedLogger.info('✅ Match activated and saved successfully', {
+          matchId,
+          status: reloadedMatch?.status,
+          matchStatus: reloadedMatch?.matchStatus,
+          word: reloadedMatch?.word,
+          gameStartTime: reloadedMatch?.gameStartTime,
+        });
+      }
+
+      await this.logAuditEvent(matchId, 'DEPOSIT_VERIFIED', {
+        playerWallet,
+        expectedAmount,
+        actualBalance: balanceSOL,
+        confirmations: isPlayer1 ? match.depositAConfirmations : match.depositBConfirmations,
+      });
+
+      return {
+        success: true,
+        transactionId: `verified_${matchId}_${Date.now()}`,
+      };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to verify deposit', {
+        matchId,
+        playerWallet,
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+  async checkVaultStatus(vaultAddress: string): Promise<{
+    balance: number;
+    confirmations: number;
+    isReady: boolean;
+  }> {
+    try {
+      const vaultPublicKey = new PublicKey(vaultAddress);
+      const balance = await this.connection.getBalance(vaultPublicKey, 'confirmed');
+      
+      const isReady = balance > 0;
+
+      enhancedLogger.info('💰 Squads vault status checked', {
+        vaultAddress,
+        balanceLamports: balance,
+        balanceSOL: balance / LAMPORTS_PER_SOL,
+        isReady,
+      });
+
+      return {
+        balance: balance,
+        confirmations: isReady ? 1 : 0,
+        isReady: isReady,
+      };
+    } catch (error) {
+      enhancedLogger.error('❌ Failed to check Squads vault status', {
+        vaultAddress,
+        error,
+      });
+      
+      return {
+        balance: 0,
+        confirmations: 0,
+        isReady: false,
+      };
+    }
+  }
+
+  /**
+   * Log audit event
+   */
+  private async logAuditEvent(matchId: string, eventType: string, eventData: any): Promise<void> {
+    try {
+      const auditLogRepository = AppDataSource.getRepository(MatchAuditLog);
+      const auditLog = new MatchAuditLog();
+      auditLog.matchId = matchId;
+      auditLog.eventType = eventType;
+      auditLog.eventData = eventData;
+      await auditLogRepository.save(auditLog);
+    } catch (error) {
+      enhancedLogger.error('❌ Failed to log audit event', {
+        matchId,
+        eventType,
+        error,
+      });
+    }
+  }
+}
+
+// Export singleton instance
+export const squadsVaultService = new SquadsVaultService();
