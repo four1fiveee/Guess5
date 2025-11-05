@@ -6415,10 +6415,24 @@ const signProposalHandler = async (req: any, res: any) => {
       });
     }
 
-    // Verify player hasn't already signed
+    // Verify player hasn't already signed (make idempotent)
     const signers = match.getProposalSigners();
     if (signers.includes(wallet)) {
-      return res.status(400).json({ error: 'You have already signed this proposal' });
+      console.log('✅ Player already signed proposal, returning success (idempotent)', {
+        matchId,
+        wallet,
+        proposalId: proposalId,
+        needsSignatures: (match as any).needsSignatures,
+        proposalStatus: (match as any).proposalStatus,
+      });
+      // Return success to prevent frontend retry loops
+      return res.json({
+        success: true,
+        message: 'Proposal already signed',
+        proposalId: proposalId,
+        needsSignatures: (match as any).needsSignatures,
+        proposalStatus: (match as any).proposalStatus,
+      });
     }
 
     console.log('📝 Processing signed proposal:', {
