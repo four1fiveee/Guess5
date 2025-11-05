@@ -1355,10 +1355,12 @@ const submitResultHandler = async (req: any, res: any) => {
 
 
     // Create server-validated result object
+    // For timeout submissions, always use exactly 120000ms (2 minutes)
+    const finalTotalTime = isTimeoutSubmission ? 120000 : serverTotalTime;
     const serverValidatedResult = {
       won: result.won,
       numGuesses: result.numGuesses,
-      totalTime: serverTotalTime, // Use server time, not client time
+      totalTime: finalTotalTime, // Use exact 120000ms for timeouts, server time otherwise
       guesses: result.guesses,
       reason: isTimeoutSubmission ? 'timeout' : 'server-validated'
     };
@@ -5139,10 +5141,10 @@ const generateReportHandler = async (req: any, res: any) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Build date filter
-    let dateFilter = `DATE("createdAt") >= '${startDate}'`;
+    // Build date filter - use timestamp comparison for better compatibility
+    let dateFilter = `"createdAt" >= '${startDate}T00:00:00.000Z'::timestamp`;
     if (endDate) {
-      dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
+      dateFilter += ` AND "createdAt" <= '${endDate}T23:59:59.999Z'::timestamp`;
     }
     
     // Try to get matches with all columns, but fallback to minimal query if columns don't exist
@@ -5219,8 +5221,14 @@ const generateReportHandler = async (req: any, res: any) => {
             -- Cancelled with refunds
             (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
             OR
-            -- Matches with both players paid (even if not fully executed)
-            ("player1Paid" = true AND "player2Paid" = true AND "proposalTransactionId" IS NOT NULL)
+            -- Matches with transaction IDs (payouts executed)
+            ("proposalTransactionId" IS NOT NULL)
+            OR
+            -- Matches with both players paid
+            ("player1Paid" = true AND "player2Paid" = true)
+            OR
+            -- Matches with results (games that finished)
+            ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
           )
         ORDER BY "createdAt" DESC
       `);
@@ -5242,7 +5250,6 @@ const generateReportHandler = async (req: any, res: any) => {
             "player1",
             "player2",
             "entryFee",
-            "entryFeeUSD",
             status,
             "squadsVaultAddress",
             "depositATx",
@@ -5265,16 +5272,13 @@ const generateReportHandler = async (req: any, res: any) => {
           FROM "match" 
           WHERE ${dateFilter}
             AND "squadsVaultAddress" IS NOT NULL
-            AND (
-              (status = 'completed' AND "isCompleted" = true)
-              OR ("proposalTransactionId" IS NOT NULL)
-              OR ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
-            )
           ORDER BY "createdAt" DESC
           LIMIT 100
         `);
         console.log(`✅ Relaxed query found ${relaxedMatches.length} matches`);
-        matches = relaxedMatches;
+        if (relaxedMatches.length > 0) {
+          matches = relaxedMatches;
+        }
       }
     } catch (queryError: any) {
       const errorMsg = queryError?.message || String(queryError);

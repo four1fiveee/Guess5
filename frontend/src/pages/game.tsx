@@ -95,7 +95,8 @@ const Game: React.FC = () => {
     // Use custom guesses if provided (for testing), otherwise use current guesses
     const finalGuesses = customGuesses || guesses;
     const endTime = Date.now();
-    const totalTime = startTime > 0 ? endTime - startTime : 120000; // Use 2 minutes if startTime not set
+    // For timeout, always use exactly 120000ms (2 minutes)
+    const totalTime = (reason === 'timeout') ? 120000 : (startTime > 0 ? endTime - startTime : 120000);
 
     const result = {
       won,

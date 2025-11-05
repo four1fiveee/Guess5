@@ -174,19 +174,38 @@ const Result: React.FC = () => {
         const data = JSON.parse(event.data);
         if (data.matchId === matchId) {
           console.log('📢 Received proposal signed notification:', data);
-          setNotification('Opponent has signed the transaction! Redirecting...');
+          setNotification('Opponent has signed the transaction! Updating...');
           
-          // Refresh payout data to get updated status
-          setTimeout(() => {
+          // If proposal is ready to execute or executed, automatically refresh and show updated status
+          if (data.needsSignatures === 0 || data.proposalStatus === 'EXECUTED' || data.proposalStatus === 'READY_TO_EXECUTE') {
+            // Refresh payout data immediately
             loadPayoutData();
-            // Redirect after 2 seconds
-            setTimeout(() => {
-              router.push(`/result?matchId=${matchId}`);
-            }, 2000);
-          }, 500);
+            // Update notification
+            setNotification('Proposal is ready! Payment will be processed shortly.');
+          } else {
+            setNotification(`Opponent signed. ${data.needsSignatures} signature(s) remaining.`);
+          }
+          
+          // Refresh data periodically to catch execution
+          const refreshInterval = setInterval(() => {
+            loadPayoutData();
+          }, 2000);
+          
+          // Stop refreshing after 10 seconds
+          setTimeout(() => {
+            clearInterval(refreshInterval);
+          }, 10000);
         }
       } catch (error) {
         console.error('❌ Error parsing proposal_signed event:', error);
+      }
+    });
+    
+    // Also listen for balance updates which might indicate payment execution
+    eventSource.addEventListener('balance_update', () => {
+      // Refresh payout data when balance updates (might indicate payment received)
+      if (matchId) {
+        loadPayoutData();
       }
     });
 
@@ -422,9 +441,13 @@ const Result: React.FC = () => {
                   <div className={`
                     ${payoutData.won && payoutData.proposalStatus === 'EXECUTED' 
                       ? 'bg-gradient-to-br from-accent/20 to-yellow-500/20 border-2 border-accent shadow-lg shadow-accent/50' 
+                      : payoutData.isTie && payoutData.proposalStatus === 'EXECUTED'
+                      ? 'bg-gradient-to-br from-blue-500/20 to-purple-500/20 border-2 border-blue-400 shadow-lg shadow-blue-400/50'
+                      : !payoutData.won && payoutData.proposalStatus === 'EXECUTED'
+                      ? 'bg-gradient-to-br from-gray-500/20 to-gray-600/20 border-2 border-gray-400 shadow-lg shadow-gray-400/50'
                       : 'bg-secondary bg-opacity-10 border border-accent'
                     } rounded-lg p-6 transform transition-all duration-300
-                    ${payoutData.won && payoutData.proposalStatus === 'EXECUTED' ? 'animate-pulse hover:scale-105' : ''}
+                    ${(payoutData.won || payoutData.isTie || !payoutData.won) && payoutData.proposalStatus === 'EXECUTED' ? 'animate-pulse hover:scale-105' : ''}
                   `}>
                   <div className="text-center">
                       <div className="text-accent text-lg font-semibold mb-2">
@@ -476,28 +499,40 @@ const Result: React.FC = () => {
                        </div>
                      ) : payoutData.isTie ? (
                         <div className="text-white">
-                          <p className="text-lg font-semibold text-accent mb-2">🤝 It's a Tie!</p>
+                          <div className="text-3xl font-bold text-accent mb-3 animate-bounce">
+                            🤝 IT'S A TIE! 🤝
+                          </div>
                          {payoutData.isWinningTie ? (
                           <>
-                              <p className="text-sm text-white/80 mb-2">Perfect Match - Both players solved with same moves and time!</p>
-                              <p className="text-sm text-white/60 mb-3">
-                                You get a full refund: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
-                                {payoutData.proposalStatus === 'EXECUTED' ? 
-                                  ' (Refund sent to your wallet)' :
-                                  ' (Sign proposal to claim refund)'
-                                }
-                            </p>
+                              <p className="text-lg text-white/90 mb-2 font-semibold">Perfect Match - Both players solved with same moves and time!</p>
+                              <div className="text-3xl font-bold text-yellow-400 mb-2">
+                                {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
+                              </div>
+                              {payoutData.proposalStatus === 'EXECUTED' ? (
+                                <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
+                                  ✅ Full Refund Sent to Your Wallet!
+                                </div>
+                              ) : (
+                                <p className="text-sm text-white/80 mb-3">
+                                  Full refund: Sign proposal to claim
+                                </p>
+                              )}
                           </>
                         ) : (
                           <>
-                              <p className="text-sm text-white/80 mb-2">Both players failed to solve the puzzle</p>
-                              <p className="text-sm text-white/60 mb-3">
-                                You get a 95% refund: {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
-                                {payoutData.proposalStatus === 'EXECUTED' ? 
-                                  ' (Refund sent to your wallet)' :
-                                  ' (Sign proposal to claim refund)'
-                                }
-                            </p>
+                              <p className="text-lg text-white/90 mb-2 font-semibold">Both players failed to solve the puzzle</p>
+                              <div className="text-3xl font-bold text-yellow-400 mb-2">
+                                {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
+                              </div>
+                              {payoutData.proposalStatus === 'EXECUTED' ? (
+                                <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
+                                  ✅ 95% Refund Sent to Your Wallet!
+                                </div>
+                              ) : (
+                                <p className="text-sm text-white/80 mb-3">
+                                  95% refund: Sign proposal to claim
+                                </p>
+                              )}
                           </>
                         )}
                           
@@ -524,14 +559,19 @@ const Result: React.FC = () => {
                       </div>
                     ) : (
                         <div className="text-white">
-                          <p className="text-lg font-semibold text-red-400 mb-2">😔 You Lost</p>
-                          <p className="text-sm text-white/80 mb-2">Better luck next time!</p>
-                          <p className="text-sm text-white/60 mb-3">
-                            {payoutData.proposalStatus === 'EXECUTED' ? 
-                              'The winner has been paid.' :
-                              'Sign the proposal to help process the payout and get back to playing faster.'
-                            }
-                          </p>
+                          <div className="text-3xl font-bold text-red-400 mb-3 animate-pulse">
+                            😔 YOU LOST
+                          </div>
+                          <p className="text-lg text-white/90 mb-2 font-semibold">Better luck next time!</p>
+                          {payoutData.proposalStatus === 'EXECUTED' ? (
+                            <div className="text-green-400 text-lg font-semibold mb-3">
+                              ✅ Winner has been paid. You can play again!
+                            </div>
+                          ) : (
+                            <p className="text-sm text-white/80 mb-3">
+                              Sign the proposal to help process the payout and get back to playing faster.
+                            </p>
+                          )}
                           
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
                             <div className="mt-4">
