@@ -2587,15 +2587,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         // Add helper methods
         (match as any).getPlayer1Result = () => {
           try {
-            return row.player1Result ? JSON.parse(row.player1Result) : null;
-          } catch {
+            if (!row.player1Result) return null;
+            // Handle both string and already-parsed object cases
+            return typeof row.player1Result === 'string' ? JSON.parse(row.player1Result) : row.player1Result;
+          } catch (error) {
+            console.warn('⚠️ Failed to parse player1Result:', error);
             return null;
           }
         };
         (match as any).getPlayer2Result = () => {
           try {
-            return row.player2Result ? JSON.parse(row.player2Result) : null;
-          } catch {
+            if (!row.player2Result) return null;
+            // Handle both string and already-parsed object cases
+            return typeof row.player2Result === 'string' ? JSON.parse(row.player2Result) : row.player2Result;
+          } catch (error) {
+            console.warn('⚠️ Failed to parse player2Result:', error);
             return null;
           }
         };
