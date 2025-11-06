@@ -2331,29 +2331,45 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     try {
       const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
-      // Use explicit column selection to avoid issues with missing columns like proposalExpiresAt
-      match = await matchRepository
-        .createQueryBuilder('match')
-        .select([
-          'match.id',
-          'match.player1',
-          'match.player2',
-          'match.entryFee',
-          'match.status',
-          'match.word',
-          'match.squadsVaultAddress',
-          'match.player1Paid',
-          'match.player2Paid',
-          'match.player1Result',
-          'match.player2Result',
-          'match.payoutResult',
-          'match.winner',
-          'match.isCompleted',
-          'match.createdAt',
-          'match.updatedAt'
-        ])
-        .where('match.id = :id', { id: matchId })
-        .getOne();
+      // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
+      const matchRows = await matchRepository.query(`
+        SELECT 
+          id, "player1", "player2", "entryFee", status, word,
+          "squadsVaultAddress", "player1Paid", "player2Paid",
+          "player1Result", "player2Result", "payoutResult",
+          winner, "isCompleted", "createdAt", "updatedAt"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchId]);
+      
+      if (matchRows && matchRows.length > 0) {
+        const row = matchRows[0];
+        match = new Match();
+        Object.assign(match, row);
+        // Add helper methods
+        (match as any).getPlayer1Result = () => {
+          try {
+            return row.player1Result ? JSON.parse(row.player1Result) : null;
+          } catch {
+            return null;
+          }
+        };
+        (match as any).getPlayer2Result = () => {
+          try {
+            return row.player2Result ? JSON.parse(row.player2Result) : null;
+          } catch {
+            return null;
+          }
+        };
+        (match as any).getPayoutResult = () => {
+          try {
+            return row.payoutResult ? JSON.parse(row.payoutResult) : null;
+          } catch {
+            return null;
+          }
+        };
+      }
       if (match) {
         console.log('✅ Found match in database');
       }
@@ -2847,58 +2863,76 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     // Find matches where player has pending winnings (completed matches with active proposals)
     // Exclude matches where proposalStatus = 'EXECUTED' or needsSignatures = 0
     // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
-    const pendingWinnings = await matchRepository
-      .createQueryBuilder('match')
-      .select([
-        'match.id',
-        'match.player1',
-        'match.player2',
-        'match.entryFee',
-        'match.winner',
-        'match.isCompleted',
-        'match.payoutProposalId',
-        'match.proposalStatus',
-        'match.proposalCreatedAt',
-        'match.needsSignatures',
-        'match.player1Result',
-        'match.player2Result'
-      ])
-      .where('match.isCompleted = :completed', { completed: true })
-      .andWhere('match.winner != :tie', { tie: 'tie' })
-      .andWhere('match.winner IS NOT NULL')
-      .andWhere('match.payoutProposalId IS NOT NULL')
-      .andWhere('(match.proposalStatus = :proposalStatus OR match.proposalStatus IS NULL)', { proposalStatus: 'ACTIVE' })
-      .andWhere('match.proposalStatus != :executed', { executed: 'EXECUTED' })
-      .andWhere('match.needsSignatures > 0')
-      .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
-      .getMany();
+    const pendingWinningsRaw = await matchRepository.query(`
+      SELECT 
+        id, "player1", "player2", "entryFee", winner, "isCompleted",
+        "payoutProposalId", "proposalStatus", "proposalCreatedAt", 
+        "needsSignatures", "player1Result", "player2Result"
+      FROM "match"
+      WHERE "isCompleted" = $1
+        AND winner != $2
+        AND winner IS NOT NULL
+        AND "payoutProposalId" IS NOT NULL
+        AND ("proposalStatus" = $3 OR "proposalStatus" IS NULL)
+        AND "proposalStatus" != $4
+        AND "needsSignatures" > 0
+        AND ("player1" = $5 OR "player2" = $5)
+    `, [true, 'tie', 'ACTIVE', 'EXECUTED', wallet]);
+    
+    // Convert raw results to Match entities
+    const pendingWinnings = pendingWinningsRaw.map((row: any) => {
+      const match = new Match();
+      Object.assign(match, row);
+      // Add helper methods
+      (match as any).getPlayer1Result = () => {
+        try {
+          return row.player1Result ? JSON.parse(row.player1Result) : null;
+        } catch {
+          return null;
+        }
+      };
+      (match as any).getPlayer2Result = () => {
+        try {
+          return row.player2Result ? JSON.parse(row.player2Result) : null;
+        } catch {
+          return null;
+        }
+      };
+      return match;
+    });
 
     // Find matches where player has pending refunds (tie/timeout but proposal not executed)
     // Exclude matches where proposalStatus = 'EXECUTED' or needsSignatures = 0
     // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
-    const pendingRefunds = await matchRepository
-      .createQueryBuilder('match')
-      .select([
-        'match.id',
-        'match.player1',
-        'match.player2',
-        'match.entryFee',
-        'match.winner',
-        'match.isCompleted',
-        'match.payoutProposalId',
-        'match.proposalStatus',
-        'match.proposalCreatedAt',
-        'match.needsSignatures',
-        'match.proposalSigners'
-      ])
-      .where('match.isCompleted = :completed', { completed: true })
-      .andWhere('match.winner = :tie', { tie: 'tie' })
-      .andWhere('match.payoutProposalId IS NOT NULL')
-      .andWhere('(match.proposalStatus = :proposalStatus OR match.proposalStatus IS NULL)', { proposalStatus: 'ACTIVE' })
-      .andWhere('match.proposalStatus != :executed', { executed: 'EXECUTED' })
-      .andWhere('match.needsSignatures > 0')
-      .andWhere('(match.player1 = :wallet OR match.player2 = :wallet)', { wallet })
-      .getMany();
+    const pendingRefundsRaw = await matchRepository.query(`
+      SELECT 
+        id, "player1", "player2", "entryFee", winner, "isCompleted",
+        "payoutProposalId", "proposalStatus", "proposalCreatedAt", 
+        "needsSignatures", "proposalSigners"
+      FROM "match"
+      WHERE "isCompleted" = $1
+        AND winner = $2
+        AND "payoutProposalId" IS NOT NULL
+        AND ("proposalStatus" = $3 OR "proposalStatus" IS NULL)
+        AND "proposalStatus" != $4
+        AND "needsSignatures" > 0
+        AND ("player1" = $5 OR "player2" = $5)
+    `, [true, 'tie', 'ACTIVE', 'EXECUTED', wallet]);
+    
+    // Convert raw results to Match entities
+    const pendingRefunds = pendingRefundsRaw.map((row: any) => {
+      const match = new Match();
+      Object.assign(match, row);
+      // Add helper method
+      (match as any).getProposalSigners = () => {
+        try {
+          return row.proposalSigners ? JSON.parse(row.proposalSigners) : [];
+        } catch {
+          return [];
+        }
+      };
+      return match;
+    });
 
     // Check if player has any pending claims
     const hasPendingWinnings = pendingWinnings.length > 0;
