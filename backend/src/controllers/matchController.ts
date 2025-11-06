@@ -2640,7 +2640,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     const reloadedRows = await matchRepository.query(`
                       SELECT 
                         "payoutProposalId", "tieRefundProposalId", 
-                        "proposalStatus", "proposalCreatedAt"
+                        "proposalStatus", "proposalCreatedAt", "needsSignatures"
                       FROM "match"
                       WHERE id = $1
                       LIMIT 1
@@ -2651,7 +2651,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                       (match as any).tieRefundProposalId = reloadedRow.tieRefundProposalId;
                       (match as any).proposalStatus = reloadedRow.proposalStatus;
                       (match as any).proposalCreatedAt = reloadedRow.proposalCreatedAt;
-                      (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
+                      (match as any).needsSignatures = reloadedRow.needsSignatures;
                     }
                   } else {
                     console.error('❌ Failed to create tie refund proposal:', {
