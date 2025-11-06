@@ -381,10 +381,37 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       newMatch.createdAt = new Date(matchData.createdAt);
       newMatch.updatedAt = new Date();
       
+      // CRITICAL: Save match to database FIRST and ensure it's committed
+      // This ensures both players can find the match immediately via checkPlayerMatch
       await matchRepository.save(newMatch);
-      console.log(`✅ Database record created for Redis match: ${matchData.matchId}`);
       
-      // Create Squads vault for fund custody AFTER database record exists
+      // Verify the match was saved by reloading it using raw SQL
+      const savedMatchRows = await matchRepository.query(`
+        SELECT 
+          id, "player1", "player2", "entryFee", status, "matchStatus", word,
+          "squadsVaultAddress", "createdAt", "updatedAt"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchData.matchId]);
+      
+      if (!savedMatchRows || savedMatchRows.length === 0) {
+        throw new Error('Failed to save match to database');
+      }
+      
+      // Convert raw row to Match entity
+      const savedMatchRow = savedMatchRows[0];
+      const savedMatch = new Match();
+      Object.assign(savedMatch, savedMatchRow);
+      
+      console.log(`✅ Database record created and verified for Redis match: ${matchData.matchId}`, {
+        matchId: savedMatch.id,
+        player1: savedMatch.player1,
+        player2: savedMatch.player2,
+        status: savedMatch.status
+      });
+      
+      // Create Squads vault for fund custody AFTER database record is confirmed
       console.log('🔧 Creating Squads vault for fund custody...', {
         matchId: matchData.matchId,
         player1: matchData.player1,
@@ -413,15 +440,29 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         const vaultErrorMessage = vaultError instanceof Error ? vaultError.message : String(vaultError);
         console.error('❌ Exception during vault creation:', vaultErrorMessage);
         console.error('❌ Vault creation stack:', vaultError instanceof Error ? vaultError.stack : 'No stack');
-        throw new Error(`Multisig vault creation failed: ${vaultErrorMessage}`);
+        // Don't throw - return match without vault, on-demand creation will handle it
+        console.warn('⚠️ Vault creation failed, but match is saved - on-demand creation will handle it');
+        savedMatch.matchStatus = 'VAULT_PENDING';
+        await matchRepository.save(savedMatch);
+        
+        return {
+          status: 'matched',
+          matchId: matchData.matchId,
+          player1: matchData.player1,
+          player2: matchData.player2,
+          entryFee: matchData.entryFee,
+          squadsVaultAddress: null,
+          vaultAddress: null,
+          message: 'Match created - vault creation in progress, please wait'
+        };
       }
       
       if (!vaultResult || !vaultResult.success) {
         console.error('❌ Failed to create multisig vault:', vaultResult?.error || 'Unknown error');
         // Don't throw - return match without vault, on-demand creation will handle it
         console.warn('⚠️ Returning match without vault - on-demand creation will handle it');
-        newMatch.matchStatus = 'VAULT_PENDING';
-        await matchRepository.save(newMatch);
+        savedMatch.matchStatus = 'VAULT_PENDING';
+        await matchRepository.save(savedMatch);
         
         return {
           status: 'matched',
@@ -440,9 +481,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       });
 
       // Update match with vault address
-      newMatch.squadsVaultAddress = vaultResult.vaultAddress;
-      newMatch.matchStatus = 'VAULT_CREATED';
-      await matchRepository.save(newMatch);
+      savedMatch.squadsVaultAddress = vaultResult.vaultAddress;
+      savedMatch.matchStatus = 'VAULT_CREATED';
+      await matchRepository.save(savedMatch);
+      
+      console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
       
       return {
         status: 'matched',
