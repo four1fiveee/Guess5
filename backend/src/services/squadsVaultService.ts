@@ -313,6 +313,77 @@ export class SquadsVaultService {
       };
       enhancedLogger.info('🧾 Squads v2 param preview', paramsPreview);
 
+      // CRITICAL: Check if multisig already exists before creating
+      // This prevents "AlreadyInUse" errors (custom error 0)
+      let existingMultisig: any = null;
+      try {
+        existingMultisig = await accounts.Multisig.fromAccountAddress(
+          this.connection,
+          multisigPda
+        );
+        enhancedLogger.warn('⚠️ Multisig already exists for this match', {
+          matchId,
+          multisigAddress: multisigPda.toString(),
+          existingThreshold: existingMultisig.threshold,
+          existingMembers: existingMultisig.members.map((m: any) => m.key.toString()),
+        });
+        
+        // Verify it matches our expected configuration
+        const existingMemberKeys = existingMultisig.members.map((m: any) => m.key.toString()).sort();
+        const expectedMemberKeys = squadsMembers.map(m => m.key.toString()).sort();
+        const membersMatch = JSON.stringify(existingMemberKeys) === JSON.stringify(expectedMemberKeys);
+        const thresholdMatches = existingMultisig.threshold === this.config.threshold;
+        
+        if (membersMatch && thresholdMatches) {
+          enhancedLogger.info('✅ Existing multisig matches expected configuration, reusing it', {
+            matchId,
+            multisigAddress: multisigPda.toString(),
+          });
+          // Return existing multisig - no need to create
+          return {
+            success: true,
+            vaultAddress: multisigPda.toString(),
+            multisigAddress: multisigPda.toString(),
+          };
+        } else {
+          enhancedLogger.error('❌ Existing multisig has different configuration', {
+            matchId,
+            multisigAddress: multisigPda.toString(),
+            existingMembers: existingMemberKeys,
+            expectedMembers: expectedMemberKeys,
+            existingThreshold: existingMultisig.threshold,
+            expectedThreshold: this.config.threshold,
+          });
+          throw new Error(`Multisig ${multisigPda.toString()} already exists with different configuration. Cannot create new multisig for match ${matchId}.`);
+        }
+      } catch (checkErr: any) {
+        // If account doesn't exist, that's fine - we'll create it
+        if (checkErr?.message?.includes('Account does not exist') || 
+            checkErr?.message?.includes('Invalid account data') ||
+            checkErr?.code === 'InvalidAccountData') {
+          enhancedLogger.info('✅ Multisig does not exist, proceeding with creation', {
+            matchId,
+            multisigAddress: multisigPda.toString(),
+          });
+        } else {
+          // Re-throw if it's a different error (like configuration mismatch)
+          throw checkErr;
+        }
+      }
+
+      // Check fee wallet balance before creating
+      const feeWalletBalance = await this.connection.getBalance(creatorKeypair.publicKey);
+      const minRequiredBalance = 0.1 * LAMPORTS_PER_SOL; // 0.1 SOL minimum for rent + fees
+      if (feeWalletBalance < minRequiredBalance) {
+        enhancedLogger.error('❌ Fee wallet has insufficient balance', {
+          matchId,
+          feeWallet: creatorKeypair.publicKey.toString(),
+          balance: feeWalletBalance / LAMPORTS_PER_SOL,
+          required: minRequiredBalance / LAMPORTS_PER_SOL,
+        });
+        throw new Error(`Fee wallet ${creatorKeypair.publicKey.toString()} has insufficient balance: ${feeWalletBalance / LAMPORTS_PER_SOL} SOL (required: ${minRequiredBalance / LAMPORTS_PER_SOL} SOL)`);
+      }
+
       // Create the multisig using v2 API (recommended by Squads docs for v4 protocol)
       let signature: string;
       try {
@@ -320,6 +391,7 @@ export class SquadsVaultService {
         // Reference: https://docs.squads.so/main/development
         // CRITICAL: createKey is used for PDA derivation (must match getMultisigPda derivation)
         // creator is the keypair that signs and pays fees (fee wallet)
+        // NOTE: Changed skipPreflight to false to catch errors earlier
         signature = await rpc.multisigCreateV2({
           connection: this.connection,
           createKey: createKeyKeypair, // Unique keypair per match for PDA derivation
@@ -331,29 +403,62 @@ export class SquadsVaultService {
           threshold: this.config.threshold,
           rentCollector: null, // Can be null or a PublicKey
           treasury: treasury, // From ProgramConfig or null
-          sendOptions: { skipPreflight: true }, // Recommended by docs
+          sendOptions: { 
+            skipPreflight: false, // Changed to false to catch errors in simulation
+            maxRetries: 3,
+          },
           programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
         });
       } catch (createErr: any) {
-        enhancedLogger.error('❌ multisigCreateV2 failed', {
+        // Enhanced error logging with more details
+        const errorDetails: any = {
           matchId,
           error: createErr?.message || String(createErr),
+          errorName: createErr?.name,
+          errorCode: createErr?.code,
           stack: createErr?.stack,
-          details: {
-            programId: PROGRAM_ID.toString(),
-            multisigPda: multisigPda.toString(),
-            members: squadsMembers.map(m => ({ 
-              key: m.key.toString(), 
-              permissions: m.permissions.toString() 
-            })),
-            threshold: this.config.threshold,
-            createKey: createKeyKeypair.publicKey.toString(),
-            creator: creatorKeypair.publicKey.toString(),
-            configAuthority: this.config.systemPublicKey.toString(),
-            treasury: treasury?.toString() || 'null',
-            rentCollector: 'null',
+          programId: this.programId.toString(),
+          multisigPda: multisigPda.toString(),
+          members: squadsMembers.map(m => ({ 
+            key: m.key.toString(), 
+            permissions: m.permissions.toString() 
+          })),
+          threshold: this.config.threshold,
+          createKey: createKeyKeypair.publicKey.toString(),
+          creator: creatorKeypair.publicKey.toString(),
+          configAuthority: this.config.systemPublicKey.toString(),
+          treasury: treasury?.toString() || 'null',
+          rentCollector: 'null',
+          feeWalletBalance: feeWalletBalance / LAMPORTS_PER_SOL,
+        };
+        
+        // Check if error is about account already existing
+        if (createErr?.message?.includes('already in use') || 
+            createErr?.message?.includes('AlreadyInUse') ||
+            createErr?.code === 'AccountAlreadyInUse') {
+          enhancedLogger.error('❌ Multisig account already exists (caught during creation)', errorDetails);
+          // Try to fetch and return existing multisig
+          try {
+            const existingMultisig = await accounts.Multisig.fromAccountAddress(
+              this.connection,
+              multisigPda
+            );
+            enhancedLogger.info('✅ Found existing multisig, returning it', {
+              matchId,
+              multisigAddress: multisigPda.toString(),
+            });
+            return {
+              success: true,
+              vaultAddress: multisigPda.toString(),
+              multisigAddress: multisigPda.toString(),
+            };
+          } catch (fetchErr) {
+            // If we can't fetch it, throw the original error
+            throw new Error(`Multisig vault creation failed: Account already exists but could not be fetched. ${createErr?.message || String(createErr)}`);
           }
-        });
+        }
+        
+        enhancedLogger.error('❌ multisigCreateV2 failed', errorDetails);
         throw new Error(`Multisig vault creation failed: ${createErr?.message || String(createErr)}`);
       }
 
@@ -370,12 +475,63 @@ export class SquadsVaultService {
         
         if (confirmation.value.err) {
           const errorDetails = JSON.stringify(confirmation.value.err);
+          
+          // Try to get more details about the error from transaction logs
+          let transactionDetails: any = null;
+          try {
+            const tx = await this.connection.getTransaction(signature, {
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: 0,
+            });
+            transactionDetails = {
+              logs: tx?.meta?.logMessages || [],
+              computeUnitsConsumed: tx?.meta?.computeUnitsConsumed,
+              err: tx?.meta?.err,
+            };
+          } catch (txErr) {
+            // Ignore if we can't fetch transaction details
+          }
+          
           enhancedLogger.error('❌ Multisig creation transaction failed on-chain', {
             matchId,
             signature,
             multisigAddress: multisigPda.toString(),
             error: errorDetails,
+            transactionDetails,
+            // Check if it's the "AlreadyInUse" error (custom error 0)
+            isAlreadyInUse: errorDetails.includes('Custom') && errorDetails.includes('0'),
+            note: 'Custom error 0 often means "AlreadyInUse" - the multisig may already exist',
           });
+          
+          // If it's a custom error 0 (AlreadyInUse), try to fetch existing multisig
+          if (errorDetails.includes('Custom') && errorDetails.includes('0')) {
+            enhancedLogger.warn('⚠️ Detected custom error 0 (likely AlreadyInUse), checking if multisig exists', {
+              matchId,
+              multisigAddress: multisigPda.toString(),
+            });
+            try {
+              const existingMultisig = await accounts.Multisig.fromAccountAddress(
+                this.connection,
+                multisigPda
+              );
+              enhancedLogger.info('✅ Found existing multisig after error, returning it', {
+                matchId,
+                multisigAddress: multisigPda.toString(),
+              });
+              return {
+                success: true,
+                vaultAddress: multisigPda.toString(),
+                multisigAddress: multisigPda.toString(),
+              };
+            } catch (fetchErr) {
+              // If we can't fetch it, continue with the error
+              enhancedLogger.warn('⚠️ Could not fetch existing multisig after error', {
+                matchId,
+                error: fetchErr instanceof Error ? fetchErr.message : String(fetchErr),
+              });
+            }
+          }
+          
           throw new Error(`Multisig creation transaction failed: ${errorDetails}`);
         }
 
