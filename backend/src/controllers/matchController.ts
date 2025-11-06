@@ -1759,8 +1759,25 @@ const submitResultHandler = async (req: any, res: any) => {
                 const { proposalExpirationService } = require('../services/proposalExpirationService');
                 proposalExpirationService.setProposalExpiration(updatedMatch);
                 
-                // Save the match with proposal information
-                await matchRepository.save(updatedMatch);
+                // Save the match with proposal information using raw SQL
+                await matchRepository.query(`
+                  UPDATE "match"
+                  SET "payoutProposalId" = $1,
+                      "proposalCreatedAt" = $2,
+                      "proposalStatus" = $3,
+                      "needsSignatures" = $4,
+                      "matchStatus" = $5,
+                      "updatedAt" = $6
+                  WHERE id = $7
+                `, [
+                  proposalResult.proposalId,
+                  new Date(),
+                  'ACTIVE',
+                  1,
+                  'PROPOSAL_CREATED',
+                  new Date(),
+                  updatedMatch.id
+                ]);
                 console.log('✅ Match saved with proposal information (solved case):', {
                   matchId: updatedMatch.id,
                   proposalId: proposalResult.proposalId,
