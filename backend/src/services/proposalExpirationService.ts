@@ -123,8 +123,8 @@ class ProposalExpirationService {
     const refundAmount = entryFee * 0.95; // 95% refund for losing tie
 
     try {
-      // Lazy import to avoid initialization order issues
-      const { squadsVaultService } = await import('./squadsVaultService');
+      // Lazy require to avoid initialization order issues
+      const { squadsVaultService } = require('./squadsVaultService');
       
       // Use proposeTieRefund to refund both players
       const refundProposal = await squadsVaultService.proposeTieRefund(
@@ -166,8 +166,8 @@ class ProposalExpirationService {
     const entryFee = match.entryFee;
 
     try {
-      // Lazy import to avoid initialization order issues
-      const { squadsVaultService } = await import('./squadsVaultService');
+      // Lazy require to avoid initialization order issues
+      const { squadsVaultService } = require('./squadsVaultService');
       
       // Use proposeTieRefund to refund both players their full entry fees
       // Note: proposeTieRefund refunds both players, so we use entryFee as the refund amount
