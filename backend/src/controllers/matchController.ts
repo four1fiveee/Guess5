@@ -8134,10 +8134,11 @@ const signProposalHandler = async (req: any, res: any) => {
 
     res.json({
       success: true,
+      message: 'Proposal signed successfully',
       signature,
-      proposalId: proposalId,
-      needsSignatures: (match as any).needsSignatures,
-      proposalStatus: (match as any).proposalStatus,
+      proposalId: proposalIdString,
+      needsSignatures: newNeedsSignatures,
+      proposalStatus: newProposalStatus,
     });
 
   } catch (error: unknown) {
