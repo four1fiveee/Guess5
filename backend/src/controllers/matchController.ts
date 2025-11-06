@@ -6571,24 +6571,24 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       return res.status(500).json({ error: 'Database not initialized' });
     }
     
-    // Check connection limits (max 3 connections per wallet)
+    // Check connection limits (max 5 connections per wallet - increased from 3)
     const walletConnections = activeSSEConnections.get(wallet) || { count: 0, lastActivity: Date.now() };
-    if (walletConnections.count >= 3) {
+    if (walletConnections.count >= 5) {
       console.log('⚠️ Too many SSE connections for wallet:', wallet, 'count:', walletConnections.count);
       return res.status(429).json({ error: 'Too many connections for this wallet' });
     }
     
-    // Update connection count
-    activeSSEConnections.set(wallet, { 
-      count: walletConnections.count + 1, 
-      lastActivity: Date.now() 
-    });
-    
-    // Store response object for this connection
+    // Store response object for this connection FIRST (before incrementing count)
     if (!activeSSEResponses.has(wallet)) {
       activeSSEResponses.set(wallet, new Set());
     }
     activeSSEResponses.get(wallet)!.add(res);
+    
+    // Update connection count AFTER storing response (so cleanup can happen)
+    activeSSEConnections.set(wallet, { 
+      count: walletConnections.count + 1, 
+      lastActivity: Date.now() 
+    });
     
     console.log('🔌 SSE connection requested for wallet:', wallet, 'active connections:', walletConnections.count + 1);
     
@@ -6757,6 +6757,30 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
       const errorName = error instanceof Error ? error.name : undefined;
     console.error('❌ Error in wallet balance SSE handler:', error);
     
+    // Clean up connection on error
+    const wallet = req.params.wallet;
+    if (wallet) {
+      // Remove response object
+      const responses = activeSSEResponses.get(wallet);
+      if (responses) {
+        responses.delete(res);
+        if (responses.size === 0) {
+          activeSSEResponses.delete(wallet);
+        }
+      }
+      
+      // Decrement connection count
+      const walletConnections = activeSSEConnections.get(wallet);
+      if (walletConnections) {
+        walletConnections.count = Math.max(0, walletConnections.count - 1);
+        if (walletConnections.count === 0) {
+          activeSSEConnections.delete(wallet);
+        } else {
+          activeSSEConnections.set(wallet, walletConnections);
+        }
+      }
+    }
+    
     if (!res.headersSent) {
       res.status(500).json({ 
         error: 'Internal server error',
@@ -6764,13 +6788,17 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
         wallet: req.params.wallet 
       });
     } else {
-      const errorMessage = {
+      const errorMessageObj = {
         type: 'error',
         wallet: req.params.wallet || 'unknown',
         message: 'Internal server error',
         timestamp: new Date().toISOString()
       };
-      res.write(`data: ${JSON.stringify(errorMessage)}\n\n`);
+      try {
+        res.write(`data: ${JSON.stringify(errorMessageObj)}\n\n`);
+      } catch (writeError) {
+        // Connection already closed, ignore
+      }
     }
   }
 };
