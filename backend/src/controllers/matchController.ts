@@ -1698,9 +1698,11 @@ const submitResultHandler = async (req: any, res: any) => {
         });
         
         // IMPORTANT: Reload match after transaction to ensure we have the latest winner using raw SQL
+        // Include all fields needed for proposal creation
         const matchRepository = AppDataSource.getRepository(Match);
         const finalMatchRows = await matchRepository.query(`
-          SELECT id, winner, "isCompleted", "player1Result", "player2Result"
+          SELECT id, winner, "isCompleted", "player1Result", "player2Result", 
+                 "player1", "player2", "entryFee", "squadsVaultAddress"
           FROM "match"
           WHERE id = $1
         `, [matchId]);
