@@ -7370,9 +7370,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     
     try {
       multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
-      // Convert proposalId to BigInt - handle both string and number
-      const proposalIdForBigInt = typeof proposalId === 'string' ? proposalId : String(proposalId);
-      transactionIndex = BigInt(proposalIdForBigInt);
+      // Use the validated proposalIdString
+      transactionIndex = BigInt(proposalIdString);
       memberPublicKey = new PublicKey(wallet);
       
       console.log('✅ Created PublicKey instances:', {
