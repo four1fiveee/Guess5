@@ -435,13 +435,12 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           player1: player1Pubkey.toString(),
           player2: player2Pubkey.toString()
         });
-        // Use retry logic for vault creation
-        vaultResult = await squadsVaultService.createMatchVaultWithRetry(
+        // Create vault (with built-in retry logic in the service)
+        vaultResult = await squadsVaultService.createMatchVault(
           matchData.matchId,
           player1Pubkey,
           player2Pubkey,
-          matchData.entryFee,
-          3 // 3 retry attempts with exponential backoff
+          matchData.entryFee
         );
         console.log('🔧 Vault creation result:', { success: vaultResult?.success, error: vaultResult?.error });
       } catch (vaultError: unknown) {
