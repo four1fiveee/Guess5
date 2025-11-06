@@ -5568,8 +5568,8 @@ const generateReportHandler = async (req: any, res: any) => {
             const player2Address = match.player2 ? new PublicKey(match.player2) : null;
             const feeWalletAddress = new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
             
-            // Get recent transactions from vault (last 100, should include execution)
-            const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 100 });
+            // Get recent transactions from vault (increase limit to 500 for better coverage)
+            const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 500 });
             
             // Find the execution transaction by checking transactions that involve relevant addresses
             // Use proposal execution time if available, otherwise use proposal creation time
@@ -5577,7 +5577,10 @@ const generateReportHandler = async (req: any, res: any) => {
             const proposalCreatedAt = match.proposalCreatedAt ? new Date(match.proposalCreatedAt).getTime() : 0;
             const referenceTime = proposalExecutedAt || proposalCreatedAt;
             
-            console.log(`🔍 Backfilling execution signature for match ${match.id}, proposalId: ${proposalId}, referenceTime: ${referenceTime ? new Date(referenceTime).toISOString() : 'unknown'}`);
+            console.log(`🔍 Backfilling execution signature for match ${match.id}, proposalId: ${proposalId}, winner: ${match.winner}, referenceTime: ${referenceTime ? new Date(referenceTime).toISOString() : 'unknown'}, checking ${vaultSignatures.length} transactions`);
+            
+            // Track best candidate transaction
+            let bestMatch: { signature: string; txTime: number; score: number } | null = null;
             
             for (const sigInfo of vaultSignatures) {
               try {
@@ -5606,39 +5609,92 @@ const generateReportHandler = async (req: any, res: any) => {
                       post !== tx.meta.preBalances[idx]
                     );
                   
+                  // Calculate balance change magnitude (for tie refunds, both players should receive funds)
+                  let balanceChangeScore = 0;
+                  if (hasBalanceChanges && tx.meta.postBalances && tx.meta.preBalances) {
+                    for (let i = 0; i < tx.meta.postBalances.length; i++) {
+                      const change = tx.meta.postBalances[i] - tx.meta.preBalances[i];
+                      if (change > 0) {
+                        balanceChangeScore += change;
+                      }
+                    }
+                  }
+                  
                   // For tie matches, check if either player is involved (refunds)
                   // For winner matches, check if winner or fee wallet is involved
                   const isRelevantTransaction = (match.winner === 'tie' && (player1Involved || player2Involved || feeWalletInvolved)) ||
                                                  (winnerAddress && (winnerInvolved || feeWalletInvolved));
                   
-                  // Time check: transaction should be after proposal creation (or within 1 hour before/after for safety)
-                  // If no reference time, accept any transaction with balance changes
-                  const timeMatch = referenceTime === 0 || 
-                    (txTime >= referenceTime - 3600000 && txTime <= referenceTime + 3600000); // 1 hour window
-                  
-                  // If we have a relevant transaction with balance changes and time match, use it
-                  // OR if we have balance changes and it's close to execution time, use it
-                  if ((isRelevantTransaction && timeMatch) || (hasBalanceChanges && timeMatch && referenceTime > 0)) {
-                    // This is likely the execution transaction
-                    match.proposalTransactionId = sigInfo.signature;
-                    match.winnerPayoutSignature = sigInfo.signature;
-                    match.winnerPayoutBlockTime = tx.blockTime ? new Date(tx.blockTime * 1000) : undefined;
-                    match.winnerPayoutBlockNumber = tx.slot ? tx.slot.toString() : undefined;
-                    
-                    // Save to database
-                    try {
-                      await matchRepository.save(match);
-                      console.log(`✅ Backfilled and saved execution signature for match ${match.id}: ${sigInfo.signature}, txTime: ${new Date(txTime).toISOString()}`);
-                    } catch (saveError: any) {
-                      console.error(`❌ Failed to save backfilled signature for match ${match.id}:`, saveError?.message);
+                  // Time check: transaction should be within 2 hours before/after execution time
+                  // Prefer transactions closer to execution time
+                  let timeScore = 0;
+                  let timeMatch = false;
+                  if (referenceTime > 0) {
+                    const timeDiff = Math.abs(txTime - referenceTime);
+                    timeMatch = timeDiff <= 7200000; // 2 hour window
+                    if (timeMatch) {
+                      // Score higher for transactions closer to execution time (inverse of time diff)
+                      timeScore = 1 / (1 + timeDiff / 1000); // Normalize to seconds
                     }
-                    break;
+                  } else {
+                    // If no reference time, accept any transaction with balance changes
+                    timeMatch = true;
+                    timeScore = 0.5;
+                  }
+                  
+                  // Calculate overall score
+                  const score = (isRelevantTransaction ? 10 : 0) + 
+                                (hasBalanceChanges ? 5 : 0) + 
+                                timeScore + 
+                                (balanceChangeScore > 0 ? Math.min(Math.log10(balanceChangeScore / 1e9), 3) : 0); // Log scale for SOL amounts
+                  
+                  // Track best match
+                  if (timeMatch && (isRelevantTransaction || hasBalanceChanges) && score > 0) {
+                    if (!bestMatch || score > bestMatch.score) {
+                      bestMatch = {
+                        signature: sigInfo.signature,
+                        txTime: txTime,
+                        score: score
+                      };
+                      console.log(`  📌 Found candidate transaction: ${sigInfo.signature.substring(0, 16)}..., score: ${score.toFixed(2)}, time: ${new Date(txTime).toISOString()}, winner: ${winnerInvolved}, p1: ${player1Involved}, p2: ${player2Involved}, fee: ${feeWalletInvolved}, balanceChange: ${balanceChangeScore}`);
+                    }
                   }
                 }
               } catch (txError: any) {
                 // Skip if we can't fetch this transaction
                 continue;
               }
+            }
+            
+            // Use best match if found
+            if (bestMatch) {
+              match.proposalTransactionId = bestMatch.signature;
+              match.winnerPayoutSignature = bestMatch.signature;
+              
+              // Get full transaction details for block time/slot
+              try {
+                const finalTx = await connection.getTransaction(bestMatch.signature, {
+                  commitment: 'confirmed',
+                  maxSupportedTransactionVersion: 0
+                });
+                if (finalTx) {
+                  match.winnerPayoutBlockTime = finalTx.blockTime ? new Date(finalTx.blockTime * 1000) : undefined;
+                  match.winnerPayoutBlockNumber = finalTx.slot ? finalTx.slot.toString() : undefined;
+                }
+              } catch (e) {
+                // Use best match time if we can't fetch full details
+                match.winnerPayoutBlockTime = new Date(bestMatch.txTime);
+              }
+              
+              // Save to database
+              try {
+                await matchRepository.save(match);
+                console.log(`✅ Backfilled and saved execution signature for match ${match.id}: ${bestMatch.signature}, txTime: ${new Date(bestMatch.txTime).toISOString()}, score: ${bestMatch.score.toFixed(2)}`);
+              } catch (saveError: any) {
+                console.error(`❌ Failed to save backfilled signature for match ${match.id}:`, saveError?.message);
+              }
+            } else {
+              console.log(`⚠️ Could not find execution transaction for match ${match.id} - checked ${vaultSignatures.length} transactions`);
             }
             
             // If we didn't find a match, log for debugging
