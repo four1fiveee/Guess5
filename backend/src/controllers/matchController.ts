@@ -5560,12 +5560,14 @@ const generateReportHandler = async (req: any, res: any) => {
             // from the vault that transferred funds to the winner or fee wallet
             const vaultAddress = new PublicKey(match.squadsVaultAddress);
             const winnerAddress = match.winner && match.winner !== 'tie' ? new PublicKey(match.winner) : null;
+            const player1Address = match.player1 ? new PublicKey(match.player1) : null;
+            const player2Address = match.player2 ? new PublicKey(match.player2) : null;
             const feeWalletAddress = new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
             
             // Get recent transactions from vault (last 100, should include execution)
             const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 100 });
             
-            // Find the execution transaction by checking transactions that involve the winner or fee wallet
+            // Find the execution transaction by checking transactions that involve relevant addresses
             for (const sigInfo of vaultSignatures) {
               try {
                 const tx = await connection.getTransaction(sigInfo.signature, {
@@ -5574,27 +5576,44 @@ const generateReportHandler = async (req: any, res: any) => {
                 });
                 
                 if (tx && tx.meta && !tx.meta.err) {
-                  // Check if transaction involves winner or fee wallet
+                  // Check if transaction involves winner, players (for tie refunds), or fee wallet
                   const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
                     typeof key === 'string' ? key : key.pubkey.toString()
                   );
                   
-                  // Check if winner or fee wallet received funds in this transaction
+                  // Check if relevant addresses are involved
                   const winnerInvolved = winnerAddress && accountKeys.includes(winnerAddress.toString());
+                  const player1Involved = player1Address && accountKeys.includes(player1Address.toString());
+                  const player2Involved = player2Address && accountKeys.includes(player2Address.toString());
                   const feeWalletInvolved = accountKeys.includes(feeWalletAddress.toString());
                   
-                  // Check execution time is after proposal creation
+                  // Check execution time is after proposal creation (with 5 minute window before for safety)
                   const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
                   const proposalTime = match.proposalCreatedAt ? new Date(match.proposalCreatedAt).getTime() : 0;
                   
-                  if ((winnerInvolved || feeWalletInvolved) && txTime >= proposalTime - 60000) {
+                  // For tie matches, check if either player is involved (refunds)
+                  // For winner matches, check if winner or fee wallet is involved
+                  const isRelevantTransaction = (match.winner === 'tie' && (player1Involved || player2Involved || feeWalletInvolved)) ||
+                                                 (winnerAddress && (winnerInvolved || feeWalletInvolved));
+                  
+                  // More lenient time check: transaction should be after proposal creation (or within 10 minutes before)
+                  // This accounts for clock differences and proposal creation timing
+                  const timeMatch = proposalTime === 0 || txTime >= proposalTime - 600000; // 10 minute window
+                  
+                  if (isRelevantTransaction && timeMatch) {
                     // This is likely the execution transaction
                     match.proposalTransactionId = sigInfo.signature;
                     match.winnerPayoutSignature = sigInfo.signature;
                     match.winnerPayoutBlockTime = tx.blockTime ? new Date(tx.blockTime * 1000) : undefined;
                     match.winnerPayoutBlockNumber = tx.slot ? tx.slot.toString() : undefined;
                     
-                    console.log(`✅ Backfilled execution signature for match ${match.id}: ${sigInfo.signature}`);
+                    // Save to database
+                    try {
+                      await matchRepository.save(match);
+                      console.log(`✅ Backfilled and saved execution signature for match ${match.id}: ${sigInfo.signature}`);
+                    } catch (saveError: any) {
+                      console.error(`❌ Failed to save backfilled signature for match ${match.id}:`, saveError?.message);
+                    }
                     break;
                   }
                 }
@@ -7382,10 +7401,12 @@ const signProposalHandler = async (req: any, res: any) => {
           // Find execution transaction by looking for recent transactions from vault
           const vaultAddress = multisigAddress;
           const winnerAddress = match.winner && match.winner !== 'tie' ? new PublicKey(match.winner) : null;
+          const player1Address = match.player1 ? new PublicKey(match.player1) : null;
+          const player2Address = match.player2 ? new PublicKey(match.player2) : null;
           const feeWalletAddress = new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
           
           // Get recent transactions from vault
-          const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 50 });
+          const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 100 });
           
           // Find execution transaction
           let executionSignature: string | null = null;
@@ -7402,12 +7423,33 @@ const signProposalHandler = async (req: any, res: any) => {
                 );
                 
                 const winnerInvolved = winnerAddress && accountKeys.includes(winnerAddress.toString());
+                const player1Involved = player1Address && accountKeys.includes(player1Address.toString());
+                const player2Involved = player2Address && accountKeys.includes(player2Address.toString());
                 const feeWalletInvolved = accountKeys.includes(feeWalletAddress.toString());
                 const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
                 const proposalTime = (match as any).proposalCreatedAt ? new Date((match as any).proposalCreatedAt).getTime() : 0;
                 
-                if ((winnerInvolved || feeWalletInvolved) && txTime >= proposalTime - 60000) {
+                // For tie matches, check if either player is involved (refunds)
+                // For winner matches, check if winner or fee wallet is involved
+                const isRelevantTransaction = (match.winner === 'tie' && (player1Involved || player2Involved || feeWalletInvolved)) ||
+                                               (winnerAddress && (winnerInvolved || feeWalletInvolved));
+                
+                // More lenient time check: transaction should be after proposal creation (or within 10 minutes before)
+                const timeMatch = proposalTime === 0 || txTime >= proposalTime - 600000; // 10 minute window
+                
+                if (isRelevantTransaction && timeMatch) {
                   executionSignature = sigInfo.signature;
+                  console.log('✅ Found execution transaction:', {
+                    signature: sigInfo.signature,
+                    matchId,
+                    winner: match.winner,
+                    winnerInvolved,
+                    player1Involved,
+                    player2Involved,
+                    feeWalletInvolved,
+                    txTime: new Date(txTime).toISOString(),
+                    proposalTime: proposalTime ? new Date(proposalTime).toISOString() : 'unknown'
+                  });
                   break;
                 }
               }
