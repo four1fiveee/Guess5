@@ -5575,8 +5575,6 @@ const generateReportHandler = async (req: any, res: any) => {
                 
                 if (tx && tx.meta && !tx.meta.err) {
                   // Check if transaction involves winner or fee wallet
-                  const postTokenBalances = tx.meta.postTokenBalances || [];
-                  const postBalances = tx.meta.postBalances || [];
                   const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
                     typeof key === 'string' ? key : key.pubkey.toString()
                   );
@@ -5730,7 +5728,7 @@ const generateReportHandler = async (req: any, res: any) => {
         feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
         (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) ? `https://explorer.solana.com/tx/${matchWithSignature.proposalTransactionId}?cluster=${network}` : ''
       ];
-    });
+    }));
     
     // Combine headers and rows
     const csvContent = [csvHeaders, ...csvRows]
