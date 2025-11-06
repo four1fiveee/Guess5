@@ -2826,9 +2826,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               (match as any).payoutProposalId = reloadedRow.payoutProposalId;
               (match as any).tieRefundProposalId = reloadedRow.tieRefundProposalId;
               (match as any).proposalStatus = reloadedRow.proposalStatus;
-              (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
-              (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
-              match.isCompleted = reloadedMatch.isCompleted;
+              (match as any).proposalCreatedAt = reloadedRow.proposalCreatedAt;
+              (match as any).needsSignatures = reloadedRow.needsSignatures;
+              match.winner = reloadedRow.winner || match.winner;
+              match.isCompleted = reloadedRow.isCompleted || match.isCompleted;
             }
             
             console.log('✅ FINAL FALLBACK: Tie refund proposal created and saved successfully', {
