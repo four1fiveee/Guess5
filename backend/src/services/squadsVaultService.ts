@@ -358,15 +358,23 @@ export class SquadsVaultService {
         }
       } catch (checkErr: any) {
         // If account doesn't exist, that's fine - we'll create it
-        if (checkErr?.message?.includes('Account does not exist') || 
-            checkErr?.message?.includes('Invalid account data') ||
+        const errorMessage = checkErr?.message || String(checkErr);
+        if (errorMessage.includes('Account does not exist') || 
+            errorMessage.includes('Invalid account data') ||
+            errorMessage.includes('Unable to find Multisig account') ||
             checkErr?.code === 'InvalidAccountData') {
           enhancedLogger.info('✅ Multisig does not exist, proceeding with creation', {
             matchId,
             multisigAddress: multisigPda.toString(),
+            errorMessage: errorMessage.substring(0, 100), // Log first 100 chars for debugging
           });
         } else {
           // Re-throw if it's a different error (like configuration mismatch)
+          enhancedLogger.warn('⚠️ Unexpected error checking for existing multisig, re-throwing', {
+            matchId,
+            errorMessage: errorMessage.substring(0, 200),
+            errorCode: checkErr?.code,
+          });
           throw checkErr;
         }
       }
