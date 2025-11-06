@@ -226,13 +226,6 @@ class ProposalExpirationService {
   }
 }
 
-// Export singleton instance (lazy initialization to avoid AppDataSource dependency issues)
-let _proposalExpirationService: ProposalExpirationService | null = null;
-
-export const proposalExpirationService = (): ProposalExpirationService => {
-  if (!_proposalExpirationService) {
-    _proposalExpirationService = new ProposalExpirationService();
-  }
-  return _proposalExpirationService;
-};
+// Export singleton instance
+export const proposalExpirationService = new ProposalExpirationService();
 

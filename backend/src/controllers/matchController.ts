@@ -1560,7 +1560,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 
                 // CRITICAL: Set proposal expiration (30 minutes after creation)
                 const { proposalExpirationService } = require('../services/proposalExpirationService');
-                proposalExpirationService().setProposalExpiration(updatedMatch);
+                proposalExpirationService.setProposalExpiration(updatedMatch);
                 
                 // Save the match with proposal information
                 await matchRepository.save(updatedMatch);
@@ -2566,7 +2566,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     
                     // CRITICAL: Set proposal expiration (30 minutes after creation)
                     const { proposalExpirationService } = require('../services/proposalExpirationService');
-                    proposalExpirationService().setProposalExpiration(match);
+                    proposalExpirationService.setProposalExpiration(match);
                     
                     await matchRepository.save(match);
                     console.log('✅ Tie refund proposal created:', { matchId: match.id, proposalId: proposalResult.proposalId });
