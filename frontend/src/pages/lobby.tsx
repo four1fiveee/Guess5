@@ -44,13 +44,14 @@ const fetchSolPrice = async () => {
 // Lobby: choose entry fee
 export default function Lobby() {
   const router = useRouter()
-  const { publicKey } = useWallet()
+  const { publicKey, signTransaction } = useWallet()
   const { pendingClaims, hasBlockingClaims, checkPendingClaims } = usePendingClaims()
   const [checkingBalance, setCheckingBalance] = useState(false)
   const [isMatchmaking, setIsMatchmaking] = useState(false)
   const [solPrice, setSolPrice] = useState<number | null>(null)
   const [solAmounts, setSolAmounts] = useState<number[]>([])
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
+  const [signingRefund, setSigningRefund] = useState<string | null>(null)
 
   useEffect(() => {
     const getPrice = async () => {
@@ -334,6 +335,93 @@ export default function Lobby() {
                 </div>
                 <div className="text-white/60 text-xs">
                   Please claim your funds before starting a new game.
+                </div>
+              </div>
+            )}
+
+            {/* Pending Refunds That Need Signing (Non-Blocking) */}
+            {pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
+              <div className="bg-blue-500 bg-opacity-20 border border-blue-500 rounded-lg p-4 mb-4">
+                <div className="text-blue-400 font-semibold mb-2">📝 Sign Pending Refunds</div>
+                <div className="text-white/80 text-sm mb-3">
+                  You have {pendingClaims.pendingRefunds.length} pending refund(s) waiting for signatures. 
+                  Sign now to help process them faster (you can still play new matches).
+                </div>
+                <div className="space-y-2">
+                  {pendingClaims.pendingRefunds.map((refund) => (
+                    <div key={refund.matchId} className="bg-black bg-opacity-30 rounded p-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-white/90 text-sm">
+                          Match: {refund.matchId.substring(0, 8)}... | 
+                          Amount: {refund.refundAmount?.toFixed(4) || refund.entryFee.toFixed(4)} SOL
+                        </div>
+                        <button
+                          onClick={async () => {
+                            if (!publicKey || !signTransaction || signingRefund === refund.matchId) return;
+                            
+                            setSigningRefund(refund.matchId);
+                            try {
+                              const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+                              
+                              // Get the approval transaction from backend
+                              const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${refund.matchId}&wallet=${publicKey.toString()}`);
+                              
+                              if (!getTxResponse.ok) {
+                                const errorData = await getTxResponse.json();
+                                throw new Error(errorData.error || 'Failed to get approval transaction');
+                              }
+                              
+                              const txData = await getTxResponse.json();
+                              
+                              // Deserialize and sign the transaction
+                              const { VersionedTransaction } = await import('@solana/web3.js');
+                              const txBuffer = Buffer.from(txData.transaction, 'base64');
+                              const approveTx = VersionedTransaction.deserialize(txBuffer);
+                              
+                              // Sign the transaction with the wallet
+                              const signedTx = await signTransaction(approveTx);
+                              
+                              // Serialize the signed transaction
+                              const serialized = signedTx.serialize();
+                              const base64Tx = Buffer.from(serialized).toString('base64');
+                              
+                              // Send to backend to submit
+                              const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
+                                method: 'POST',
+                                headers: {
+                                  'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify({
+                                  matchId: refund.matchId,
+                                  wallet: publicKey.toString(),
+                                  signedTransaction: base64Tx,
+                                }),
+                              });
+                              
+                              if (!response.ok) {
+                                const errorData = await response.json();
+                                throw new Error(errorData.error || 'Failed to sign proposal');
+                              }
+                              
+                              console.log('✅ Refund proposal signed successfully');
+                              // Refresh pending claims
+                              await checkPendingClaims();
+                              alert('✅ Refund proposal signed! The refund will be processed once the other player signs.');
+                            } catch (err) {
+                              console.error('❌ Error signing refund proposal:', err);
+                              alert(err instanceof Error ? err.message : 'Failed to sign refund proposal');
+                            } finally {
+                              setSigningRefund(null);
+                            }
+                          }}
+                          disabled={signingRefund === refund.matchId || !signTransaction}
+                          className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-1.5 px-4 rounded text-sm transition-colors"
+                        >
+                          {signingRefund === refund.matchId ? 'Signing...' : 'Sign Refund'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
                 </div>
               </div>
             )}
