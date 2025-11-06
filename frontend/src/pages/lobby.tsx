@@ -200,10 +200,11 @@ export default function Lobby() {
         return;
       }
       
-      // If there are pending refunds but they can't be executed yet, show different message
+      // If there are pending refunds but they can't be executed yet, allow matchmaking
+      // (non-executable refunds shouldn't block new games)
       if (pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted) {
-        alert('You have pending refunds from previous matches. Please wait for the refund to become available or contact support.');
-        return;
+        console.log('⏳ Player has pending refunds but cannot execute yet - allowing new matchmaking');
+        // Don't block - allow player to continue
       }
     }
     

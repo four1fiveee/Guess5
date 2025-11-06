@@ -2489,26 +2489,58 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     // Auto-create Squads vault if missing and match requires escrow
     try {
       if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
-        console.log('🏦 No vault on match yet; attempting on-demand creation...', { matchId: match.id });
-        const creation = await squadsVaultService.createMatchVault(
-          match.id,
-          new PublicKey(match.player1),
-          new PublicKey(match.player2),
-          match.entryFee
-        );
-        if (creation?.success && creation.vaultAddress) {
-          const { AppDataSource } = require('../db/index');
-          const matchRepository = AppDataSource.getRepository(Match);
-          (match as any).squadsVaultAddress = creation.vaultAddress;
-          await matchRepository.update({ id: match.id }, { squadsVaultAddress: creation.vaultAddress, matchStatus: 'VAULT_CREATED' });
-          console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress });
+        // Rate limit vault creation attempts - only try once per 30 seconds per match
+        const vaultCreationKey = `vault_creation_${match.id}`;
+        const { getRedisMM } = require('../config/redis');
+        const redis = getRedisMM();
+        const lastAttempt = await redis.get(vaultCreationKey);
+        const now = Date.now();
+        const cooldownPeriod = 30000; // 30 seconds
+        
+        if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
+          console.log('🏦 No vault on match yet; attempting on-demand creation...', { matchId: match.id });
+          // Mark that we're attempting vault creation
+          await redis.set(vaultCreationKey, now.toString(), 'EX', 60); // Expire after 60 seconds
+          
+          try {
+            const creation = await squadsVaultService.createMatchVault(
+              match.id,
+              new PublicKey(match.player1),
+              new PublicKey(match.player2),
+              match.entryFee
+            );
+            if (creation?.success && creation.vaultAddress) {
+              const { AppDataSource } = require('../db/index');
+              const matchRepository = AppDataSource.getRepository(Match);
+              (match as any).squadsVaultAddress = creation.vaultAddress;
+              await matchRepository.update({ id: match.id }, { squadsVaultAddress: creation.vaultAddress, matchStatus: 'VAULT_CREATED' });
+              console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress });
+              // Clear the rate limit key on success
+              await redis.del(vaultCreationKey);
+            } else {
+              console.warn('⚠️ On-demand vault creation failed', {
+                matchId: match.id,
+                error: creation?.error || 'Unknown error'
+              });
+            }
+          } catch (creationErr) {
+            console.warn('⚠️ On-demand vault creation exception', {
+              matchId: match.id,
+              error: creationErr instanceof Error ? creationErr.message : String(creationErr)
+            });
+          }
+        } else {
+          const timeSinceLastAttempt = now - parseInt(lastAttempt);
+          const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
+          console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
         }
       }
     } catch (onDemandErr) {
-      console.warn('⚠️ On-demand vault creation failed (will retry on next poll)', {
+      console.warn('⚠️ On-demand vault creation check failed (non-blocking)', {
         matchId: match?.id,
         error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr)
       });
+      // Don't throw - allow the response to continue
     }
 
     // Check if this match already has results for the requesting player
