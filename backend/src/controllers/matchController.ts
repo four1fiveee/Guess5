@@ -418,7 +418,21 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       if (!vaultResult || !vaultResult.success) {
         console.error('❌ Failed to create multisig vault:', vaultResult?.error || 'Unknown error');
-        throw new Error(`Multisig vault creation failed: ${vaultResult?.error || 'Unknown error'}`);
+        // Don't throw - return match without vault, on-demand creation will handle it
+        console.warn('⚠️ Returning match without vault - on-demand creation will handle it');
+        newMatch.matchStatus = 'VAULT_PENDING';
+        await matchRepository.save(newMatch);
+        
+        return {
+          status: 'matched',
+          matchId: matchData.matchId,
+          player1: matchData.player1,
+          player2: matchData.player2,
+          entryFee: matchData.entryFee,
+          squadsVaultAddress: null,
+          vaultAddress: null,
+          message: 'Match created - vault creation in progress, please wait'
+        };
       }
       
       console.log('✅ Multisig vault created:', {
@@ -2317,9 +2331,31 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     try {
       const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
-      match = await matchRepository.findOne({ where: { id: matchId } });
+      // Use explicit column selection to avoid issues with missing columns like proposalExpiresAt
+      match = await matchRepository
+        .createQueryBuilder('match')
+        .select([
+          'match.id',
+          'match.player1',
+          'match.player2',
+          'match.entryFee',
+          'match.status',
+          'match.word',
+          'match.squadsVaultAddress',
+          'match.player1Paid',
+          'match.player2Paid',
+          'match.player1Result',
+          'match.player2Result',
+          'match.payoutResult',
+          'match.winner',
+          'match.isCompleted',
+          'match.createdAt',
+          'match.updatedAt'
+        ])
+        .where('match.id = :id', { id: matchId })
+        .getOne();
       if (match) {
-    
+        console.log('✅ Found match in database');
       }
     } catch (dbError: unknown) {
       const dbErrorMessage = dbError instanceof Error ? dbError.message : String(dbError);
@@ -2810,8 +2846,23 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     
     // Find matches where player has pending winnings (completed matches with active proposals)
     // Exclude matches where proposalStatus = 'EXECUTED' or needsSignatures = 0
+    // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
     const pendingWinnings = await matchRepository
       .createQueryBuilder('match')
+      .select([
+        'match.id',
+        'match.player1',
+        'match.player2',
+        'match.entryFee',
+        'match.winner',
+        'match.isCompleted',
+        'match.payoutProposalId',
+        'match.proposalStatus',
+        'match.proposalCreatedAt',
+        'match.needsSignatures',
+        'match.player1Result',
+        'match.player2Result'
+      ])
       .where('match.isCompleted = :completed', { completed: true })
       .andWhere('match.winner != :tie', { tie: 'tie' })
       .andWhere('match.winner IS NOT NULL')
@@ -2824,8 +2875,22 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
 
     // Find matches where player has pending refunds (tie/timeout but proposal not executed)
     // Exclude matches where proposalStatus = 'EXECUTED' or needsSignatures = 0
+    // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
     const pendingRefunds = await matchRepository
       .createQueryBuilder('match')
+      .select([
+        'match.id',
+        'match.player1',
+        'match.player2',
+        'match.entryFee',
+        'match.winner',
+        'match.isCompleted',
+        'match.payoutProposalId',
+        'match.proposalStatus',
+        'match.proposalCreatedAt',
+        'match.needsSignatures',
+        'match.proposalSigners'
+      ])
       .where('match.isCompleted = :completed', { completed: true })
       .andWhere('match.winner = :tie', { tie: 'tie' })
       .andWhere('match.payoutProposalId IS NOT NULL')

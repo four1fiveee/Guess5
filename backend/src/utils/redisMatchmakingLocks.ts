@@ -25,7 +25,7 @@ export const setMatchmakingLock = async (lockKey: string, lock: MatchmakingLock)
   try {
     const redis = getRedisMM();
     await redis.hSet(`lock:${lockKey}`, 'data', JSON.stringify(lock));
-    await redis.expire(`lock:${lockKey}`, 300); // 5 minutes TTL
+    await redis.expire(`lock:${lockKey}`, 30); // 30 seconds TTL - shorter to prevent blocking
     enhancedLogger.info(`✅ Matchmaking lock set in Redis: ${lockKey}`);
   } catch (error: unknown) {
     enhancedLogger.error('❌ Error setting matchmaking lock in Redis:', error);
