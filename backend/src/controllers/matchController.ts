@@ -7265,7 +7265,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     // Check if match has a payout proposal (either payout or tie refund)
     const hasPayoutProposal = !!matchRow.payoutProposalId;
     const hasTieRefundProposal = !!matchRow.tieRefundProposalId;
-    const proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+    let proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
     
     if (!matchRow.squadsVaultAddress || !proposalId) {
       return res.status(400).json({ 
@@ -7273,6 +7273,43 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         hasPayoutProposal,
         hasTieRefundProposal,
         squadsVaultAddress: matchRow.squadsVaultAddress,
+        payoutProposalId: matchRow.payoutProposalId,
+        tieRefundProposalId: matchRow.tieRefundProposalId,
+      });
+    }
+    
+    // Ensure proposalId is a valid string/number that can be converted to BigInt
+    if (proposalId === null || proposalId === undefined) {
+      console.error('❌ proposalId is null or undefined');
+      return res.status(400).json({ 
+        error: 'Proposal ID is null or undefined',
+        hasPayoutProposal,
+        hasTieRefundProposal,
+      });
+    }
+    
+    // Convert to string and validate
+    const proposalIdString = String(proposalId).trim();
+    if (!proposalIdString || proposalIdString === 'null' || proposalIdString === 'undefined' || proposalIdString === '') {
+      console.error('❌ Invalid proposalId value:', proposalIdString);
+      return res.status(400).json({ 
+        error: 'Invalid proposal ID format',
+        proposalId: proposalIdString,
+      });
+    }
+    
+    // Try to parse as BigInt to validate it's a valid number
+    try {
+      BigInt(proposalIdString);
+    } catch (bigIntError: any) {
+      console.error('❌ proposalId cannot be converted to BigInt:', {
+        proposalId: proposalIdString,
+        error: bigIntError?.message,
+      });
+      return res.status(400).json({ 
+        error: 'Proposal ID is not a valid number',
+        proposalId: proposalIdString,
+        details: bigIntError?.message,
       });
     }
 
@@ -7320,9 +7357,9 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     console.log('🔍 Building approval transaction:', {
       matchId,
       wallet,
-      squadsVaultAddress: (match as any).squadsVaultAddress,
-      payoutProposalId: (match as any).payoutProposalId,
-      tieRefundProposalId: (match as any).tieRefundProposalId,
+      squadsVaultAddress: matchRow.squadsVaultAddress,
+      payoutProposalId: matchRow.payoutProposalId,
+      tieRefundProposalId: matchRow.tieRefundProposalId,
       proposalId: proposalId,
       programId: programId.toString(),
     });
@@ -7333,10 +7370,27 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     
     try {
       multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
-      transactionIndex = BigInt(proposalId);
+      // Convert proposalId to BigInt - handle both string and number
+      const proposalIdForBigInt = typeof proposalId === 'string' ? proposalId : String(proposalId);
+      transactionIndex = BigInt(proposalIdForBigInt);
       memberPublicKey = new PublicKey(wallet);
+      
+      console.log('✅ Created PublicKey instances:', {
+        multisigAddress: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        memberPublicKey: memberPublicKey.toString(),
+        proposalIdOriginal: proposalId,
+        proposalIdType: typeof proposalId,
+      });
     } catch (keyError: any) {
-      console.error('❌ Failed to create PublicKey instances:', keyError?.message);
+      console.error('❌ Failed to create PublicKey instances:', {
+        error: keyError?.message,
+        stack: keyError?.stack,
+        squadsVaultAddress: matchRow.squadsVaultAddress,
+        proposalId: proposalId,
+        proposalIdType: typeof proposalId,
+        wallet: wallet,
+      });
       throw new Error(`Invalid address format: ${keyError?.message || String(keyError)}`);
     }
 
