@@ -1461,15 +1461,21 @@ const submitResultHandler = async (req: any, res: any) => {
     const playerGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
     const hasGuesses = playerGuesses && playerGuesses.length > 0;
     
-    // If player has guesses, allow up to 10 minutes (more lenient for active players)
-    // If no guesses yet, use strict 2-minute limit
-    const maxTimeAllowed = hasGuesses ? 600000 : 120000; // 10 minutes if has guesses, 2 minutes otherwise
+    // Check if opponent has already submitted (game might be in completion state)
+    const opponentResultRaw = isPlayer1 ? match.player2Result : match.player1Result;
+    const opponentHasResult = opponentResultRaw ? true : false;
+    
+    // If player has guesses OR opponent has submitted, be very lenient (game is clearly in progress/completed)
+    // This handles cases where player reloaded page after game was completed
+    // If no guesses yet and opponent hasn't submitted, use strict 2-minute limit
+    const maxTimeAllowed = (hasGuesses || opponentHasResult) ? 3600000 : 120000; // 1 hour if has guesses/opponent submitted, 2 minutes otherwise
     
     if (serverTotalTime > maxTimeAllowed && !isTimeoutSubmission) {
       console.log('⏰ Time validation failed:', { 
         serverTotalTime, 
         maxTimeAllowed,
         hasGuesses,
+        opponentHasResult,
         reason: result.reason, 
         isTimeoutSubmission 
       });
@@ -1477,7 +1483,8 @@ const submitResultHandler = async (req: any, res: any) => {
     }
 
     // SERVER-SIDE VALIDATION: Check for impossibly fast times (less than 1 second)
-    if (serverTotalTime < 1000) {
+    // Only check this if player has guesses (to avoid false positives on first submission)
+    if (hasGuesses && serverTotalTime < 1000) {
       return res.status(400).json({ error: 'Suspiciously fast completion time detected' });
     }
 
