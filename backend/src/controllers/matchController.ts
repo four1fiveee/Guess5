@@ -5310,6 +5310,146 @@ const manualMatchHandler = async (req: any, res: any) => {
   }
 };
 
+// Manual endpoint to force proposal creation for stuck matches
+const forceProposalCreationHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.body;
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID required' });
+    }
+    
+    console.log(`🔧 Force proposal creation requested for match: ${matchId}`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get match using raw SQL to avoid proposalExpiresAt column issues
+    const matchRows = await matchRepository.query(`
+      SELECT 
+        id, "player1", "player2", "entryFee", "squadsVaultAddress",
+        "player1Result", "player2Result", winner, "isCompleted",
+        "payoutProposalId", "tieRefundProposalId", "payoutResult"
+      FROM "match"
+      WHERE id = $1
+      LIMIT 1
+    `, [matchId]);
+    
+    if (!matchRows || matchRows.length === 0) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    const matchRow = matchRows[0];
+    
+    if (!matchRow.squadsVaultAddress) {
+      return res.status(400).json({ error: 'Match has no vault address' });
+    }
+    
+    // Parse player results
+    const player1Result = matchRow.player1Result ? (typeof matchRow.player1Result === 'string' ? JSON.parse(matchRow.player1Result) : matchRow.player1Result) : null;
+    const player2Result = matchRow.player2Result ? (typeof matchRow.player2Result === 'string' ? JSON.parse(matchRow.player2Result) : matchRow.player2Result) : null;
+    
+    // Determine winner if not already set
+    let winner = matchRow.winner;
+    if (!winner && (player1Result || player2Result)) {
+      console.log('🏆 Determining winner for stuck match...');
+      const payoutResult = await determineWinnerAndPayout(matchId, player1Result, player2Result);
+      winner = payoutResult?.winner || null;
+      
+      // Reload match to get updated winner
+      const updatedRows = await matchRepository.query(`
+        SELECT winner, "payoutResult"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchId]);
+      if (updatedRows && updatedRows.length > 0) {
+        winner = updatedRows[0].winner;
+      }
+    }
+    
+    if (!winner) {
+      return res.status(400).json({ error: 'Cannot determine winner - no player results found' });
+    }
+    
+    // Create proposal based on winner
+    const { PublicKey } = require('@solana/web3.js');
+    const { squadsVaultService } = require('../services/squadsVaultService');
+    
+    let proposalId = null;
+    let proposalType = null;
+    
+    if (winner === 'tie') {
+      // Create tie refund proposal
+      console.log('💰 Creating tie refund proposal...');
+      const tieResult = await squadsVaultService.proposeTieRefund(
+        matchRow.squadsVaultAddress,
+        new PublicKey(matchRow.player1),
+        new PublicKey(matchRow.player2),
+        matchRow.entryFee
+      );
+      
+      if (tieResult?.proposalId) {
+        proposalId = tieResult.proposalId.toString();
+        proposalType = 'tieRefund';
+        
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "tieRefundProposalId" = $1, "proposalStatus" = 'pending', "proposalCreatedAt" = $2
+          WHERE id = $3
+        `, [proposalId, new Date(), matchId]);
+      }
+    } else {
+      // Create winner payout proposal
+      console.log('💰 Creating winner payout proposal...');
+      const totalPot = matchRow.entryFee * 2;
+      const winnerAmount = totalPot * 0.95;
+      const feeAmount = totalPot * 0.05;
+      
+      const payoutResult = await squadsVaultService.proposeWinnerPayout(
+        matchRow.squadsVaultAddress,
+        new PublicKey(winner),
+        winnerAmount,
+        feeAmount
+      );
+      
+      if (payoutResult?.proposalId) {
+        proposalId = payoutResult.proposalId.toString();
+        proposalType = 'winnerPayout';
+        
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "payoutProposalId" = $1, "proposalStatus" = 'pending', "proposalCreatedAt" = $2
+          WHERE id = $3
+        `, [proposalId, new Date(), matchId]);
+      }
+    }
+    
+    if (!proposalId) {
+      return res.status(500).json({ error: 'Failed to create proposal' });
+    }
+    
+    console.log(`✅ Proposal created successfully: ${proposalId} (${proposalType})`);
+    
+    res.json({
+      success: true,
+      message: 'Proposal created successfully',
+      matchId: matchId,
+      proposalId: proposalId,
+      proposalType: proposalType,
+      winner: winner
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error forcing proposal creation:', errorMessage);
+    res.status(500).json({ 
+      error: 'Failed to create proposal',
+      details: errorMessage 
+    });
+  }
+};
+
 // Database migration endpoint (for adding new columns)
 const runMigrationHandler = async (req: any, res: any) => {
   try {
@@ -8576,6 +8716,7 @@ module.exports = {
   manualRefundHandler,
   manualMatchHandler,
   clearMatchmakingDataHandler,
+  forceProposalCreationHandler,
   runMigrationHandler,
   generateReportHandler,
   verifyBlockchainDataHandler,

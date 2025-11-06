@@ -153,6 +153,9 @@ router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHa
 // Manual match endpoint for testing
 router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHandler));
 
+// Force proposal creation for stuck matches (for testing/devnet)
+router.post('/force-proposal', asyncHandlerWrapper(matchController.forceProposalCreationHandler));
+
 // Clear Redis matchmaking data endpoint (for testing)
 router.post('/clear-matchmaking-data', asyncHandlerWrapper(matchController.clearMatchmakingDataHandler));
 
