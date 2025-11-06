@@ -8040,25 +8040,35 @@ const signProposalHandler = async (req: any, res: any) => {
       `, [updatedSignersJson, newNeedsSignatures, newProposalStatus, matchId]);
       
       // Check if proposal has executed on-chain (since Squads may auto-execute with 1 signature)
-      if (true) {
-        // Check if proposal has executed on-chain and capture execution transaction
-        try {
-          const { squadsVaultService } = require('../services/squadsVaultService');
-          const { Connection, PublicKey } = require('@solana/web3.js');
-          const connection = new Connection(
-            process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-            'confirmed'
-          );
-          
-          // Get the transaction PDA to check if it's been executed
-          const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
-          const transactionIndex = BigInt(proposalIdString);
+      try {
+        const { Connection, PublicKey } = require('@solana/web3.js');
+        const connection = new Connection(
+          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+          'confirmed'
+        );
+        
+        // Get the transaction PDA to check if it's been executed
+        const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+        const transactionIndex = BigInt(proposalIdString);
         
         // Derive transaction PDA using the same method as getProposalApprovalTransactionHandler
         const { PROGRAM_ID } = require('@sqds/multisig');
-        const programId = process.env.SQUADS_PROGRAM_ID 
-          ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
-          : PROGRAM_ID;
+        let programId;
+        try {
+          if (process.env.SQUADS_PROGRAM_ID) {
+            try {
+              programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+            } catch (pkError: any) {
+              programId = PROGRAM_ID;
+            }
+          } else {
+            programId = PROGRAM_ID;
+          }
+        } catch (progIdError: any) {
+          console.error('❌ Failed to get program ID for execution check:', progIdError?.message);
+          // Continue without execution check if program ID fails
+          programId = PROGRAM_ID;
+        }
         
         const indexBuffer = Buffer.alloc(8);
         indexBuffer.writeBigUInt64LE(transactionIndex, 0);
