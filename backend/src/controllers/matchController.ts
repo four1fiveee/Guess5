@@ -7657,31 +7657,62 @@ const signProposalHandler = async (req: any, res: any) => {
 
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
     
-    if (!match) {
+    // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
+    const matchRows = await matchRepository.query(`
+      SELECT 
+        id, "player1", "player2", "entryFee", status,
+        "squadsVaultAddress", "payoutProposalId", "tieRefundProposalId",
+        "proposalSigners", "proposalStatus", "needsSignatures",
+        "proposalExecutedAt", "gameEndTime", "gameEndTimeUtc",
+        "player1Result", "player2Result", "matchStatus"
+      FROM "match"
+      WHERE id = $1
+      LIMIT 1
+    `, [matchId]);
+    
+    if (!matchRows || matchRows.length === 0) {
       return res.status(404).json({ error: 'Match not found' });
     }
-
+    
+    const matchRow = matchRows[0];
+    
     // Verify player is part of this match
-    const isPlayer1 = wallet === match.player1;
-    const isPlayer2 = wallet === match.player2;
+    const isPlayer1 = wallet === matchRow.player1;
+    const isPlayer2 = wallet === matchRow.player2;
     
     if (!isPlayer1 && !isPlayer2) {
       return res.status(403).json({ error: 'You are not part of this match' });
     }
 
     // Check if match has a payout proposal (either payout or tie refund)
-    const hasPayoutProposal = !!(match as any).payoutProposalId;
-    const hasTieRefundProposal = !!(match as any).tieRefundProposalId;
-    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    const hasPayoutProposal = !!matchRow.payoutProposalId;
+    const hasTieRefundProposal = !!matchRow.tieRefundProposalId;
+    let proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
     
-    if (!(match as any).squadsVaultAddress || !proposalId) {
+    if (!matchRow.squadsVaultAddress || !proposalId) {
       return res.status(400).json({ 
         error: 'No payout proposal exists for this match',
         hasPayoutProposal,
         hasTieRefundProposal,
-        squadsVaultAddress: (match as any).squadsVaultAddress,
+        squadsVaultAddress: matchRow.squadsVaultAddress,
+      });
+    }
+    
+    // Validate proposalId
+    if (proposalId === null || proposalId === undefined) {
+      return res.status(400).json({ 
+        error: 'Proposal ID is null or undefined',
+        hasPayoutProposal,
+        hasTieRefundProposal,
+      });
+    }
+    
+    const proposalIdString = String(proposalId).trim();
+    if (!proposalIdString || proposalIdString === 'null' || proposalIdString === 'undefined' || proposalIdString === '') {
+      return res.status(400).json({ 
+        error: 'Invalid proposal ID format',
+        proposalId: proposalIdString,
       });
     }
 
@@ -7690,7 +7721,7 @@ const signProposalHandler = async (req: any, res: any) => {
       const { PublicKey, Connection } = require('@solana/web3.js');
       const { PROGRAM_ID } = require('@sqds/multisig');
       
-      const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+      const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
       const programId = process.env.SQUADS_PROGRAM_ID 
         ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
         : PROGRAM_ID;
@@ -7699,7 +7730,7 @@ const signProposalHandler = async (req: any, res: any) => {
       let transactionPda;
       try {
         const indexBuffer = Buffer.alloc(8);
-        indexBuffer.writeBigUInt64LE(BigInt(proposalId), 0);
+        indexBuffer.writeBigUInt64LE(BigInt(proposalIdString), 0);
         const [pda] = PublicKey.findProgramAddressSync(
           [multisigAddress.toBuffer(), indexBuffer, Buffer.from('transaction')],
           programId
@@ -7715,21 +7746,24 @@ const signProposalHandler = async (req: any, res: any) => {
         if (!transactionAccount) {
           // Transaction account doesn't exist - could be executed or cancelled
           // Check database status to see if it was executed
-          const proposalStatus = (match as any).proposalStatus;
-          const proposalExecutedAt = (match as any).proposalExecutedAt;
+          const proposalStatus = matchRow.proposalStatus;
+          const proposalExecutedAt = matchRow.proposalExecutedAt;
           
           if (proposalStatus === 'EXECUTED' || proposalExecutedAt) {
             console.log('✅ Proposal was already executed (transaction account closed)', {
-              proposalId,
+              proposalId: proposalIdString,
               proposalStatus,
               proposalExecutedAt,
             });
             
             // Ensure needsSignatures is 0 if executed
-            if ((match as any).needsSignatures > 0) {
+            if (matchRow.needsSignatures > 0) {
               try {
-                (match as any).needsSignatures = 0;
-                await matchRepository.save(match);
+                await matchRepository.query(`
+                  UPDATE "match" 
+                  SET "needsSignatures" = 0 
+                  WHERE id = $1
+                `, [matchId]);
                 console.log('✅ Updated needsSignatures to 0 for executed proposal');
               } catch (dbUpdateError: any) {
                 console.warn('⚠️ Failed to update needsSignatures:', dbUpdateError?.message);
@@ -7739,7 +7773,7 @@ const signProposalHandler = async (req: any, res: any) => {
             return res.json({
               success: true,
               message: 'Proposal was already executed. Payout has been completed.',
-              proposalId: proposalId,
+              proposalId: proposalIdString,
               proposalStatus: 'EXECUTED',
               executed: true,
             });
@@ -7747,17 +7781,17 @@ const signProposalHandler = async (req: any, res: any) => {
           
           // If not executed, check if this is an old match (completed status)
           // For old matches, if transaction doesn't exist, it was likely executed
-          const matchStatus = match.status;
-          const gameEndTime = match.gameEndTime;
-          const gameEndTimeUtc = match.gameEndTimeUtc;
+          const matchStatus = matchRow.status;
+          const gameEndTime = matchRow.gameEndTime;
+          const gameEndTimeUtc = matchRow.gameEndTimeUtc;
           const hasGameEnded = !!(gameEndTime || gameEndTimeUtc);
           
           // Check if match is completed based on multiple criteria
           const isOldMatch = matchStatus === 'completed' || 
                            matchStatus === 'settled' || 
                            hasGameEnded ||
-                           (match as any).player1Result || 
-                           (match as any).player2Result;
+                           matchRow.player1Result || 
+                           matchRow.player2Result;
           
           // If transaction account doesn't exist and this looks like an old match,
           // assume it was executed (transaction accounts are closed after execution)
@@ -7765,11 +7799,11 @@ const signProposalHandler = async (req: any, res: any) => {
             console.log('ℹ️ Old match - transaction account not found, likely already executed', {
               matchId,
               matchStatus,
-              matchStatusField: (match as any).matchStatus,
+              matchStatusField: matchRow.matchStatus,
               hasGameEnded,
               gameEndTime,
               gameEndTimeUtc,
-              proposalId,
+              proposalId: proposalIdString,
               proposalStatus,
               transactionPda: transactionPda.toString(),
             });
@@ -7777,12 +7811,13 @@ const signProposalHandler = async (req: any, res: any) => {
             // For old matches, assume execution happened if transaction doesn't exist
             // Update database status to reflect this
             try {
-              (match as any).proposalStatus = 'EXECUTED';
-              (match as any).needsSignatures = 0; // Mark as fully signed/executed
-              if (!(match as any).proposalExecutedAt) {
-                (match as any).proposalExecutedAt = new Date();
-              }
-              await matchRepository.save(match);
+              await matchRepository.query(`
+                UPDATE "match" 
+                SET "proposalStatus" = 'EXECUTED',
+                    "needsSignatures" = 0,
+                    "proposalExecutedAt" = COALESCE("proposalExecutedAt", NOW())
+                WHERE id = $1
+              `, [matchId]);
               console.log('✅ Updated match proposal status to EXECUTED and needsSignatures to 0');
             } catch (dbUpdateError: any) {
               console.warn('⚠️ Failed to update proposal status in database:', dbUpdateError?.message);
@@ -7791,7 +7826,7 @@ const signProposalHandler = async (req: any, res: any) => {
             return res.json({
               success: true,
               message: 'This proposal appears to have been executed previously. Your payout should have been completed.',
-              proposalId: proposalId,
+              proposalId: proposalIdString,
               proposalStatus: 'EXECUTED',
               executed: true,
               note: 'Transaction account was closed after execution. Please check your wallet balance to confirm payout.',
@@ -7800,14 +7835,14 @@ const signProposalHandler = async (req: any, res: any) => {
           
           // For active/new matches, return error
           console.warn('⚠️ Transaction account not found, but proposal not marked as executed', {
-            proposalId,
+            proposalId: proposalIdString,
             proposalStatus,
             matchStatus,
             transactionPda: transactionPda.toString(),
           });
           return res.status(400).json({ 
             error: 'Transaction proposal does not exist on-chain. It may have been executed, cancelled, or never created.',
-            proposalId: proposalId,
+            proposalId: proposalIdString,
             proposalStatus: proposalStatus,
             matchStatus: matchStatus,
             transactionPda: transactionPda.toString(),
@@ -7825,22 +7860,29 @@ const signProposalHandler = async (req: any, res: any) => {
     }
 
     // Verify player hasn't already signed (make idempotent)
-    const signers = match.getProposalSigners();
+    let signers: string[] = [];
+    try {
+      signers = matchRow.proposalSigners ? JSON.parse(matchRow.proposalSigners) : [];
+    } catch (parseError) {
+      // If parsing fails, assume empty array
+      signers = [];
+    }
+    
     if (signers.includes(wallet)) {
       console.log('✅ Player already signed proposal, returning success (idempotent)', {
         matchId,
         wallet,
-        proposalId: proposalId,
-        needsSignatures: (match as any).needsSignatures,
-        proposalStatus: (match as any).proposalStatus,
+        proposalId: proposalIdString,
+        needsSignatures: matchRow.needsSignatures,
+        proposalStatus: matchRow.proposalStatus,
       });
       // Return success to prevent frontend retry loops
       return res.json({
         success: true,
         message: 'Proposal already signed',
-        proposalId: proposalId,
-        needsSignatures: (match as any).needsSignatures,
-        proposalStatus: (match as any).proposalStatus,
+        proposalId: proposalIdString,
+        needsSignatures: matchRow.needsSignatures,
+        proposalStatus: matchRow.proposalStatus,
       });
     }
 
@@ -7848,10 +7890,10 @@ const signProposalHandler = async (req: any, res: any) => {
       matchId,
       wallet,
       signedTransactionLength: signedTransaction?.length,
-      squadsVaultAddress: (match as any).squadsVaultAddress,
-      payoutProposalId: (match as any).payoutProposalId,
-      tieRefundProposalId: (match as any).tieRefundProposalId,
-      proposalId: proposalId,
+      squadsVaultAddress: matchRow.squadsVaultAddress,
+      payoutProposalId: matchRow.payoutProposalId,
+      tieRefundProposalId: matchRow.tieRefundProposalId,
+      proposalId: proposalIdString,
     });
 
     // Submit the signed transaction
@@ -7968,38 +8010,49 @@ const signProposalHandler = async (req: any, res: any) => {
       matchId,
       wallet,
       signature,
-      proposalId: proposalId,
-      payoutProposalId: (match as any).payoutProposalId,
-      tieRefundProposalId: (match as any).tieRefundProposalId,
+      proposalId: proposalIdString,
+      payoutProposalId: matchRow.payoutProposalId,
+      tieRefundProposalId: matchRow.tieRefundProposalId,
     });
 
     // Update match with new signer
     try {
-    match.addProposalSigner(wallet);
-    
-    // Update needsSignatures count
-    // Only ONE signature needed total between both players
-    // After first signature, set to 0 and mark as ready to execute
-    const currentNeedsSignatures = (match as any).needsSignatures || 1;
-    (match as any).needsSignatures = 0; // After first signature, proposal is ready
-    
-    // Mark as ready to execute since we only need 1 signature
-    (match as any).proposalStatus = 'READY_TO_EXECUTE';
-    
-    // Check if proposal has executed on-chain (since Squads may auto-execute with 1 signature)
-    if (true) {
-      // Check if proposal has executed on-chain and capture execution transaction
-      try {
-        const { squadsVaultService } = require('../services/squadsVaultService');
-        const { Connection, PublicKey } = require('@solana/web3.js');
-        const connection = new Connection(
-          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-          'confirmed'
-        );
-        
-        // Get the transaction PDA to check if it's been executed
-        const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
-        const transactionIndex = BigInt(proposalId);
+      // Add wallet to signers list
+      signers.push(wallet);
+      const updatedSignersJson = JSON.stringify(signers);
+      
+      // Update needsSignatures count
+      // Only ONE signature needed total between both players
+      // After first signature, set to 0 and mark as ready to execute
+      const currentNeedsSignatures = matchRow.needsSignatures || 1;
+      const newNeedsSignatures = 0; // After first signature, proposal is ready
+      
+      // Mark as ready to execute since we only need 1 signature
+      const newProposalStatus = 'READY_TO_EXECUTE';
+      
+      // Update database using raw SQL
+      await matchRepository.query(`
+        UPDATE "match" 
+        SET "proposalSigners" = $1,
+            "needsSignatures" = $2,
+            "proposalStatus" = $3
+        WHERE id = $4
+      `, [updatedSignersJson, newNeedsSignatures, newProposalStatus, matchId]);
+      
+      // Check if proposal has executed on-chain (since Squads may auto-execute with 1 signature)
+      if (true) {
+        // Check if proposal has executed on-chain and capture execution transaction
+        try {
+          const { squadsVaultService } = require('../services/squadsVaultService');
+          const { Connection, PublicKey } = require('@solana/web3.js');
+          const connection = new Connection(
+            process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+            'confirmed'
+          );
+          
+          // Get the transaction PDA to check if it's been executed
+          const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+          const transactionIndex = BigInt(proposalIdString);
         
         // Derive transaction PDA
         const [transactionPda] = PublicKey.findProgramAddressSync(
@@ -8017,266 +8070,56 @@ const signProposalHandler = async (req: any, res: any) => {
           // Transaction has been executed (account no longer exists)
           console.log('✅ Proposal executed - transaction account no longer exists');
           
-          // Find execution transaction by looking for recent transactions from vault
-          const vaultAddress = multisigAddress;
-          const winnerAddress = match.winner && match.winner !== 'tie' ? new PublicKey(match.winner) : null;
-          const player1Address = match.player1 ? new PublicKey(match.player1) : null;
-          const player2Address = match.player2 ? new PublicKey(match.player2) : null;
-          const feeWalletAddress = new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
-          
-          // Get recent transactions from vault
-          const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 100 });
-          
-          // Find execution transaction
-          let executionSignature: string | null = null;
-          for (const sigInfo of vaultSignatures) {
-            try {
-              const tx = await connection.getTransaction(sigInfo.signature, {
-                commitment: 'confirmed',
-                maxSupportedTransactionVersion: 0
-              });
-              
-              if (tx && tx.meta && !tx.meta.err) {
-                const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
-                  typeof key === 'string' ? key : key.pubkey.toString()
-                );
-                
-                const winnerInvolved = winnerAddress && accountKeys.includes(winnerAddress.toString());
-                const player1Involved = player1Address && accountKeys.includes(player1Address.toString());
-                const player2Involved = player2Address && accountKeys.includes(player2Address.toString());
-                const feeWalletInvolved = accountKeys.includes(feeWalletAddress.toString());
-                const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
-                const proposalTime = (match as any).proposalCreatedAt ? new Date((match as any).proposalCreatedAt).getTime() : 0;
-                
-                // For tie matches, check if either player is involved (refunds)
-                // For winner matches, check if winner or fee wallet is involved
-                const isRelevantTransaction = (match.winner === 'tie' && (player1Involved || player2Involved || feeWalletInvolved)) ||
-                                               (winnerAddress && (winnerInvolved || feeWalletInvolved));
-                
-                // More lenient time check: transaction should be after proposal creation (or within 10 minutes before)
-                const timeMatch = proposalTime === 0 || txTime >= proposalTime - 600000; // 10 minute window
-                
-                // CRITICAL: Verify vault balance changes match expected payout amounts
-                let balanceChangeMatches = false;
-                if (tx.meta && tx.meta.postBalances && tx.meta.preBalances) {
-                  // Calculate expected payout amounts
-                  const entryFee = match.entryFee;
-                  let expectedWinnerAmount = 0;
-                  let expectedFeeAmount = 0;
-                  
-                  if (match.winner === 'tie') {
-                    // For ties, check if refunds match expected amounts
-                    const isWinningTie = match.getPayoutResult()?.isWinningTie;
-                    if (isWinningTie) {
-                      // Full refund - each player gets entryFee back
-                      expectedWinnerAmount = entryFee * 2; // Total refunded
-                    } else {
-                      // 95% refund - each player gets 0.95 * entryFee
-                      expectedWinnerAmount = entryFee * 0.95 * 2; // Total refunded
-                      expectedFeeAmount = entryFee * 0.05 * 2; // Total fee
-                    }
-                  } else if (winnerAddress) {
-                    // Winner payout - 95% of total pot to winner, 5% to fee wallet
-                    const totalPot = entryFee * 2;
-                    expectedWinnerAmount = totalPot * 0.95;
-                    expectedFeeAmount = totalPot * 0.05;
-                  }
-                  
-                  // Check balance changes in transaction
-                  const winnerIndex = winnerAddress ? accountKeys.findIndex((key: string) => key === winnerAddress.toString()) : -1;
-                  const feeWalletIndex = accountKeys.findIndex((key: string) => key === feeWalletAddress.toString());
-                  const player1Index = accountKeys.findIndex((key: string) => key === player1Address.toString());
-                  const player2Index = accountKeys.findIndex((key: string) => key === player2Address.toString());
-                  
-                  // Calculate actual balance changes
-                  let actualWinnerAmount = 0;
-                  let actualFeeAmount = 0;
-                  
-                  if (winnerIndex !== -1) {
-                    const winnerChange = tx.meta.postBalances[winnerIndex] - tx.meta.preBalances[winnerIndex];
-                    actualWinnerAmount = winnerChange / 1e9; // Convert lamports to SOL
-                  }
-                  
-                  if (feeWalletIndex !== -1) {
-                    const feeChange = tx.meta.postBalances[feeWalletIndex] - tx.meta.preBalances[feeWalletIndex];
-                    actualFeeAmount = feeChange / 1e9; // Convert lamports to SOL
-                  }
-                  
-                  // For tie matches, check player balance changes
-                  if (match.winner === 'tie') {
-                    let totalRefunded = 0;
-                    if (player1Index !== -1) {
-                      const p1Change = tx.meta.postBalances[player1Index] - tx.meta.preBalances[player1Index];
-                      totalRefunded += p1Change / 1e9;
-                    }
-                    if (player2Index !== -1) {
-                      const p2Change = tx.meta.postBalances[player2Index] - tx.meta.preBalances[player2Index];
-                      totalRefunded += p2Change / 1e9;
-                    }
-                    // Allow 0.001 SOL tolerance for fees
-                    balanceChangeMatches = Math.abs(totalRefunded - expectedWinnerAmount) <= 0.001;
-                  } else {
-                    // For winner matches, check winner and fee wallet amounts
-                    const winnerMatches = Math.abs(actualWinnerAmount - expectedWinnerAmount) <= 0.001;
-                    const feeMatches = Math.abs(actualFeeAmount - expectedFeeAmount) <= 0.001;
-                    balanceChangeMatches = winnerMatches && feeMatches;
-                  }
-                  
-                  console.log('🔍 Balance change verification:', {
-                    matchId,
-                    expectedWinnerAmount,
-                    expectedFeeAmount,
-                    actualWinnerAmount,
-                    actualFeeAmount,
-                    balanceChangeMatches,
-                    winner: match.winner
-                  });
-                }
-                
-                // Validate execution signature is valid Solana transaction hash (length and format)
-                const isValidSignature = sigInfo.signature && 
-                                        sigInfo.signature.length > 40 && 
-                                        !/^\d+$/.test(sigInfo.signature); // Not just digits
-                
-                if (isRelevantTransaction && timeMatch && isValidSignature && balanceChangeMatches) {
-                  executionSignature = sigInfo.signature;
-                  console.log('✅ Found execution transaction with verified balance changes:', {
-                    signature: sigInfo.signature,
-                    matchId,
-                    winner: match.winner,
-                    winnerInvolved,
-                    player1Involved,
-                    player2Involved,
-                    feeWalletInvolved,
-                    balanceChangeMatches,
-                    txTime: new Date(txTime).toISOString(),
-                    proposalTime: proposalTime ? new Date(proposalTime).toISOString() : 'unknown'
-                  });
-                  break;
-                }
-              }
-            } catch (txError: any) {
-              continue;
-            }
-          }
-          
-          if (executionSignature) {
-            // Retry logic for execution verification if blockchain query fails
-            let txDetails = null;
-            let retries = 3;
-            let retryDelay = 1000; // Start with 1 second
-            
-            while (retries > 0 && !txDetails) {
-              try {
-                txDetails = await connection.getTransaction(executionSignature, {
-                  commitment: 'confirmed',
-                  maxSupportedTransactionVersion: 0
-                });
-                
-                if (!txDetails) {
-                  retries--;
-                  if (retries > 0) {
-                    console.log(`⏳ Retrying execution transaction fetch (${retries} retries left)...`);
-                    await new Promise(resolve => setTimeout(resolve, retryDelay));
-                    retryDelay *= 2; // Exponential backoff
-                  }
-                }
-              } catch (fetchError: any) {
-                retries--;
-                if (retries > 0) {
-                  console.warn(`⚠️ Error fetching execution transaction, retrying (${retries} retries left):`, fetchError?.message);
-                  await new Promise(resolve => setTimeout(resolve, retryDelay));
-                  retryDelay *= 2;
-                } else {
-                  console.error(`❌ Failed to fetch execution transaction after retries:`, fetchError?.message);
-                }
-              }
-            }
-            
-            if (txDetails) {
-              // Validate execution transaction signature format
-              const isValidTxHash = executionSignature.length > 40 && !/^\d+$/.test(executionSignature);
-              
-              if (!isValidTxHash) {
-                console.error(`❌ Invalid execution transaction signature format: ${executionSignature}`);
-                // Fallback: mark as executed but without valid signature
-                (match as any).proposalStatus = 'EXECUTED';
-                (match as any).proposalExecutedAt = new Date();
-                console.log('⚠️ Proposal executed but execution signature is invalid format');
-              } else {
-                (match as any).proposalStatus = 'EXECUTED';
-                (match as any).proposalTransactionId = executionSignature;
-                (match as any).winnerPayoutSignature = executionSignature;
-                (match as any).proposalExecutedAt = new Date(txDetails.blockTime ? txDetails.blockTime * 1000 : Date.now());
-                (match as any).winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
-                (match as any).winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
-                
-                console.log('✅ Captured and verified execution transaction:', {
-                  matchId,
-                  executionSignature,
-                  blockTime: txDetails.blockTime,
-                  slot: txDetails.slot,
-                  isValidTxHash,
-                  executionVerifiedAt: new Date().toISOString()
-                });
-              }
-            } else {
-              // Fallback: mark as executed but without signature details
-              (match as any).proposalStatus = 'EXECUTED';
-              (match as any).proposalExecutedAt = new Date();
-              console.log('⚠️ Proposal executed but could not fetch execution transaction details');
-            }
-          } else {
-            // Fallback: mark as executed but without signature
-            (match as any).proposalStatus = 'EXECUTED';
-            (match as any).proposalExecutedAt = new Date();
-            console.log('⚠️ Proposal executed but execution signature not found');
-          }
+          // Update status to EXECUTED
+          await matchRepository.query(`
+            UPDATE "match" 
+            SET "proposalStatus" = 'EXECUTED',
+                "proposalExecutedAt" = COALESCE("proposalExecutedAt", NOW())
+            WHERE id = $1
+          `, [matchId]);
         } else {
-          // Transaction still exists, not executed yet
-          (match as any).proposalStatus = 'READY_TO_EXECUTE';
+          // Transaction still exists, not executed yet - already updated above
+          console.log('✅ Transaction proposal still exists, marked as READY_TO_EXECUTE');
         }
       } catch (executionCheckError: any) {
         console.error('❌ Error checking proposal execution:', executionCheckError);
-        // Fallback: mark as ready to execute
-        (match as any).proposalStatus = 'READY_TO_EXECUTE';
+        // Continue - transaction was already submitted successfully
       }
-    } else {
-      (match as any).proposalStatus = 'ACTIVE';
-    }
-
-    await matchRepository.save(match);
+      
       console.log('✅ Match updated with signer:', {
         matchId,
         wallet,
-        needsSignatures: (match as any).needsSignatures,
-        proposalStatus: (match as any).proposalStatus,
+        needsSignatures: newNeedsSignatures,
+        proposalStatus: newProposalStatus,
       });
       
       // Notify opponent via SSE if they're connected
-      const opponentWallet = isPlayer1 ? match.player2 : match.player1;
-      const opponentResponses = activeSSEResponses.get(opponentWallet);
-      if (opponentResponses && opponentResponses.size > 0) {
-        const eventData = {
-          type: 'proposal_signed',
-          matchId: matchId,
-          signer: wallet,
-          needsSignatures: (match as any).needsSignatures,
-          proposalStatus: (match as any).proposalStatus,
-          message: 'Opponent has signed the transaction'
-        };
-        
-        // Broadcast to all opponent's SSE connections
-        opponentResponses.forEach((response: any) => {
-          try {
-            response.write(`data: ${JSON.stringify(eventData)}\n\n`);
-            console.log(`📢 SSE notification sent to opponent ${opponentWallet} for match ${matchId}`);
-          } catch (error: any) {
-            console.error('❌ Failed to send SSE notification:', error);
-            // Remove dead connection
-            opponentResponses.delete(response);
-          }
-        });
+      const opponentWallet = isPlayer1 ? matchRow.player2 : matchRow.player1;
+      const { activeSSEResponses } = require('../controllers/matchController');
+      if (activeSSEResponses) {
+        const opponentResponses = activeSSEResponses.get(opponentWallet);
+        if (opponentResponses && opponentResponses.size > 0) {
+          const eventData = {
+            type: 'proposal_signed',
+            matchId: matchId,
+            signer: wallet,
+            needsSignatures: newNeedsSignatures,
+            proposalStatus: newProposalStatus,
+            message: 'Opponent has signed the transaction'
+          };
+          
+          // Broadcast to all opponent's SSE connections
+          opponentResponses.forEach((response: any) => {
+            try {
+              response.write(`data: ${JSON.stringify(eventData)}\n\n`);
+              console.log(`📢 SSE notification sent to opponent ${opponentWallet} for match ${matchId}`);
+            } catch (error: any) {
+              console.error('❌ Failed to send SSE notification:', error);
+              // Remove dead connection
+              opponentResponses.delete(response);
+            }
+          });
+        }
       }
     } catch (dbError: any) {
       console.error('❌ Failed to update match in database:', {
