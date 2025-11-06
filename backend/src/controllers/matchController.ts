@@ -1531,7 +1531,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = proposalResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.needsSignatures = 2;
+                updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // Save the match with proposal information
@@ -1678,7 +1678,7 @@ const submitResultHandler = async (req: any, res: any) => {
             (finalMatchForSolved as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
             (finalMatchForSolved as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
             (finalMatchForSolved as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-            (finalMatchForSolved as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+            (finalMatchForSolved as any).needsSignatures = (updatedMatch as any).needsSignatures || 1;
             console.log('✅ Preserving proposal fields in final save (solved case):', {
               matchId: finalMatchForSolved.id,
               proposalId: (finalMatchForSolved as any).payoutProposalId,
@@ -1823,7 +1823,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = proposalResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE'; // CRITICAL: Set proposalStatus for frontend
-                updatedMatch.needsSignatures = 2; // 2-of-3 multisig
+                updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // IMPORTANT: Save the match with proposal information
@@ -1977,7 +1977,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = refundResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.needsSignatures = 2; // 2-of-3 multisig
+                updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // Save the match with proposal information
@@ -2073,7 +2073,7 @@ const submitResultHandler = async (req: any, res: any) => {
               (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
               (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
               (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-              (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+              (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 1;
               console.log('✅ Preserving proposal fields in final save:', {
                 matchId: finalMatch.id,
                 proposalId: (finalMatch as any).payoutProposalId,
@@ -5688,15 +5688,16 @@ const generateReportHandler = async (req: any, res: any) => {
 
       // Fee wallet payout transaction is same as executed transaction for completed matches
       // proposalTransactionId should be the execution transaction signature, not the proposal ID
-      const feeWalletPayoutTx = (matchWithSignature.proposalStatus === 'EXECUTED' && matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) 
+      // Solana transaction signatures are base58 encoded, typically 88 characters, but we check for > 40 to be safe
+      const feeWalletPayoutTx = (matchWithSignature.proposalStatus === 'EXECUTED' && matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId)) 
         ? matchWithSignature.proposalTransactionId 
         : '';
       
       // Winner payout signature should be the same as execution transaction
-      // Only use if it's an actual signature (length > 20), not a proposal ID
-      const winnerPayoutTx = (matchWithSignature.winnerPayoutSignature && matchWithSignature.winnerPayoutSignature.length > 20) 
+      // Only use if it's an actual signature (length > 40 and not just digits), not a proposal ID
+      const winnerPayoutTx = (matchWithSignature.winnerPayoutSignature && matchWithSignature.winnerPayoutSignature.length > 40 && !/^\d+$/.test(matchWithSignature.winnerPayoutSignature)) 
         ? matchWithSignature.winnerPayoutSignature 
-        : (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) 
+        : (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId)) 
           ? matchWithSignature.proposalTransactionId 
           : '';
       
@@ -5750,7 +5751,7 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(matchWithSignature.winnerPayoutBlockTime ? convertToEST(matchWithSignature.winnerPayoutBlockTime) : ''),
         sanitizeCsvValue(matchWithSignature.winnerPayoutBlockNumber || ''),
         sanitizeCsvValue(feeWalletPayoutTx),
-        sanitizeCsvValue(matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20 ? matchWithSignature.proposalTransactionId : ''),
+        sanitizeCsvValue(matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId) ? matchWithSignature.proposalTransactionId : ''),
         
         // Proposal Info
         sanitizeCsvValue(matchWithSignature.payoutProposalId || ''),
@@ -5768,7 +5769,7 @@ const generateReportHandler = async (req: any, res: any) => {
         matchWithSignature.player2PaymentSignature ? `https://explorer.solana.com/tx/${matchWithSignature.player2PaymentSignature}?cluster=${network}` : '',
         winnerPayoutTx ? `https://explorer.solana.com/tx/${winnerPayoutTx}?cluster=${network}` : '',
         feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
-        (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) ? `https://explorer.solana.com/tx/${matchWithSignature.proposalTransactionId}?cluster=${network}` : ''
+        (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId)) ? `https://explorer.solana.com/tx/${matchWithSignature.proposalTransactionId}?cluster=${network}` : ''
       ];
     }));
     
@@ -7387,11 +7388,16 @@ const signProposalHandler = async (req: any, res: any) => {
     match.addProposalSigner(wallet);
     
     // Update needsSignatures count
-    const currentNeedsSignatures = (match as any).needsSignatures || 2;
-    (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
+    // Only ONE signature needed total between both players
+    // After first signature, set to 0 and mark as ready to execute
+    const currentNeedsSignatures = (match as any).needsSignatures || 1;
+    (match as any).needsSignatures = 0; // After first signature, proposal is ready
     
-    // If enough signatures, check if proposal has executed on-chain
-    if ((match as any).needsSignatures === 0) {
+    // Mark as ready to execute since we only need 1 signature
+    (match as any).proposalStatus = 'READY_TO_EXECUTE';
+    
+    // Check if proposal has executed on-chain (since Squads may auto-execute with 1 signature)
+    if (true) {
       // Check if proposal has executed on-chain and capture execution transaction
       try {
         const { squadsVaultService } = require('../services/squadsVaultService');

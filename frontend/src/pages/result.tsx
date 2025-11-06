@@ -174,27 +174,30 @@ const Result: React.FC = () => {
         const data = JSON.parse(event.data);
         if (data.matchId === matchId) {
           console.log('📢 Received proposal signed notification:', data);
-          setNotification('Opponent has signed the transaction! Updating...');
           
-          // If proposal is ready to execute or executed, automatically refresh and show updated status
-          if (data.needsSignatures === 0 || data.proposalStatus === 'EXECUTED' || data.proposalStatus === 'READY_TO_EXECUTE') {
-            // Refresh payout data immediately
-            loadPayoutData();
-            // Update notification
-            setNotification('Proposal is ready! Payment will be processed shortly.');
-          } else {
-            setNotification(`Opponent signed. ${data.needsSignatures} signature(s) remaining.`);
-          }
+          // Since only 1 signature is needed total, when opponent signs, proposal is ready
+          // Immediately refresh and update UI
+          setNotification('Opponent has signed! Proposal is ready to execute.');
+          loadPayoutData();
+          
+          // Hide sign button since only 1 signature needed
+          setSigningProposal(false);
           
           // Refresh data periodically to catch execution
           const refreshInterval = setInterval(() => {
             loadPayoutData();
           }, 2000);
           
-          // Stop refreshing after 10 seconds
+          // Stop refreshing after 15 seconds
           setTimeout(() => {
             clearInterval(refreshInterval);
-          }, 10000);
+            // Update notification based on final status
+            if (data.proposalStatus === 'EXECUTED') {
+              setNotification('Payment has been processed!');
+            } else if (data.proposalStatus === 'READY_TO_EXECUTE') {
+              setNotification('Proposal is ready! Payment will be processed shortly.');
+            }
+          }, 15000);
         }
       } catch (error) {
         console.error('❌ Error parsing proposal_signed event:', error);
@@ -476,13 +479,13 @@ const Result: React.FC = () => {
                               <p className="text-sm text-white/60 mb-2">
                                 {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
                                   ? '✓ You have already signed this proposal' 
-                                  : payoutData.needsSignatures === 1
-                                  ? 'Waiting for opponent to sign...'
-                                  : 'Sign this proposal to execute the payout'
+                                  : payoutData.needsSignatures === 0
+                                  ? 'Proposal is ready to execute'
+                                  : 'Sign this proposal to execute the payout (only 1 signature needed)'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 1 && (
+                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 0 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
