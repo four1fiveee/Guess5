@@ -596,23 +596,6 @@ export default function Lobby() {
                             </div>
                           </div>
                           
-                          {/* Value Proposition */}
-                          {usdAmount === 5 && !isDisabled && (
-                            <div className="mt-3 text-xs text-green-300/80 font-medium">
-                              Low Friction • Casual Play
-                            </div>
-                          )}
-                          {isHighValue && !isDisabled && (
-                            <div className="mt-3 text-xs text-blue-300/80 font-medium">
-                              Serious Players • Higher Rewards
-                            </div>
-                          )}
-                          {isPremium && !isDisabled && (
-                            <div className="mt-3 text-xs text-purple-300/80 font-medium">
-                              Top Tier • Biggest Rewards
-                            </div>
-                          )}
-                          
                           {/* Status Messages */}
                           <div className="mt-5 sm:mt-6 w-full">
                             {!hasEnoughBalance && walletBalance !== null && (
