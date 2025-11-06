@@ -2,7 +2,6 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { PublicKey } from '@solana/web3.js';
-import { squadsVaultService } from './squadsVaultService';
 
 /**
  * Service to handle expired proposals and create refunds
@@ -124,6 +123,9 @@ class ProposalExpirationService {
     const refundAmount = entryFee * 0.95; // 95% refund for losing tie
 
     try {
+      // Lazy import to avoid initialization order issues
+      const { squadsVaultService } = await import('./squadsVaultService');
+      
       // Use proposeTieRefund to refund both players
       const refundProposal = await squadsVaultService.proposeTieRefund(
         match.squadsVaultAddress,
@@ -164,6 +166,9 @@ class ProposalExpirationService {
     const entryFee = match.entryFee;
 
     try {
+      // Lazy import to avoid initialization order issues
+      const { squadsVaultService } = await import('./squadsVaultService');
+      
       // Use proposeTieRefund to refund both players their full entry fees
       // Note: proposeTieRefund refunds both players, so we use entryFee as the refund amount
       const refundProposal = await squadsVaultService.proposeTieRefund(
