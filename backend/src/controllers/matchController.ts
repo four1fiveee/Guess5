@@ -5561,7 +5561,7 @@ const generateReportHandler = async (req: any, res: any) => {
           const transactionAccount = await connection.getAccountInfo(transactionPda);
           if (!transactionAccount) {
             // Transaction executed - find execution transaction by looking for recent transactions
-            // from the vault that transferred funds to the winner or fee wallet
+            // from the vault, players (for tie refunds), or winner (for winner payouts)
             const vaultAddress = new PublicKey(match.squadsVaultAddress);
             const winnerAddress = match.winner && match.winner !== 'tie' ? new PublicKey(match.winner) : null;
             const player1Address = match.player1 ? new PublicKey(match.player1) : null;
@@ -5571,18 +5571,41 @@ const generateReportHandler = async (req: any, res: any) => {
             // Get recent transactions from vault (increase limit to 500 for better coverage)
             const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 500 });
             
+            // For tie matches, also check transactions from player addresses (they receive refunds)
+            let playerSignatures: any[] = [];
+            if (match.winner === 'tie' && player1Address && player2Address) {
+              try {
+                const p1Sigs = await connection.getSignaturesForAddress(player1Address, { limit: 200 });
+                const p2Sigs = await connection.getSignaturesForAddress(player2Address, { limit: 200 });
+                playerSignatures = [...p1Sigs, ...p2Sigs];
+                console.log(`  📋 Checking ${playerSignatures.length} additional transactions from player addresses for tie match`);
+              } catch (e) {
+                console.log(`  ⚠️ Could not fetch player transactions: ${(e as Error).message}`);
+              }
+            }
+            
+            // Combine all signatures (remove duplicates)
+            const allSignatures = [...vaultSignatures];
+            const seenSignatures = new Set(vaultSignatures.map(s => s.signature));
+            for (const sig of playerSignatures) {
+              if (!seenSignatures.has(sig.signature)) {
+                allSignatures.push(sig);
+                seenSignatures.add(sig.signature);
+              }
+            }
+            
             // Find the execution transaction by checking transactions that involve relevant addresses
             // Use proposal execution time if available, otherwise use proposal creation time
             const proposalExecutedAt = match.proposalExecutedAt ? new Date(match.proposalExecutedAt).getTime() : 0;
             const proposalCreatedAt = match.proposalCreatedAt ? new Date(match.proposalCreatedAt).getTime() : 0;
             const referenceTime = proposalExecutedAt || proposalCreatedAt;
             
-            console.log(`🔍 Backfilling execution signature for match ${match.id}, proposalId: ${proposalId}, winner: ${match.winner}, referenceTime: ${referenceTime ? new Date(referenceTime).toISOString() : 'unknown'}, checking ${vaultSignatures.length} transactions`);
+            console.log(`🔍 Backfilling execution signature for match ${match.id}, proposalId: ${proposalId}, winner: ${match.winner}, referenceTime: ${referenceTime ? new Date(referenceTime).toISOString() : 'unknown'}, checking ${allSignatures.length} transactions (${vaultSignatures.length} from vault, ${playerSignatures.length} from players)`);
             
             // Track best candidate transaction
             let bestMatch: { signature: string; txTime: number; score: number } | null = null;
             
-            for (const sigInfo of vaultSignatures) {
+            for (const sigInfo of allSignatures) {
               try {
                 const tx = await connection.getTransaction(sigInfo.signature, {
                   commitment: 'confirmed',
@@ -5694,7 +5717,7 @@ const generateReportHandler = async (req: any, res: any) => {
                 console.error(`❌ Failed to save backfilled signature for match ${match.id}:`, saveError?.message);
               }
             } else {
-              console.log(`⚠️ Could not find execution transaction for match ${match.id} - checked ${vaultSignatures.length} transactions`);
+              console.log(`⚠️ Could not find execution transaction for match ${match.id} - checked ${allSignatures.length} transactions (${vaultSignatures.length} from vault, ${playerSignatures.length} from players)`);
             }
           }
         } catch (error: any) {
