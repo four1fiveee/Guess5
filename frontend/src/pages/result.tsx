@@ -663,13 +663,35 @@ const Result: React.FC = () => {
               </div>
               
               {/* Action Buttons */}
-              <div className="flex justify-center">
+              <div className="flex flex-col gap-4 items-center">
                 <button
                   onClick={handlePlayAgain}
                   className="bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center"
                 >
                   Play Again
                 </button>
+                
+                {/* Social Links */}
+                <div className="flex gap-3 justify-center items-center mt-2">
+                  <a
+                    href="https://discord.gg/CcXWUv7r"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-medium px-4 py-2 rounded-lg shadow border border-indigo-500/30 hover:border-indigo-400/50 transition-all duration-200 min-h-[36px] flex items-center justify-center gap-1.5"
+                  >
+                    <span>💬</span>
+                    <span>Discord</span>
+                  </a>
+                  <a
+                    href="https://instagram.com/Guess5.io"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-xs font-medium px-4 py-2 rounded-lg shadow border border-purple-500/30 hover:border-purple-400/50 transition-all duration-200 min-h-[36px] flex items-center justify-center gap-1.5"
+                  >
+                    <span>📷</span>
+                    <span>@Guess5.io</span>
+                  </a>
+                </div>
               </div>
             </div>
           </div>

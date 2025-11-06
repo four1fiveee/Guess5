@@ -97,6 +97,28 @@ export default function Home() {
             </button>
           </Link>
         </div>
+
+        {/* Social Links */}
+        <div className="flex gap-4 mt-4 mb-6 justify-center items-center">
+          <a
+            href="https://discord.gg/CcXWUv7r"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg shadow border border-indigo-500/30 hover:border-indigo-400/50 transition-all duration-200 min-h-[44px] flex items-center justify-center gap-2"
+          >
+            <span>💬</span>
+            <span>Join Discord</span>
+          </a>
+          <a
+            href="https://instagram.com/Guess5.io"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg shadow border border-purple-500/30 hover:border-purple-400/50 transition-all duration-200 min-h-[44px] flex items-center justify-center gap-2"
+          >
+            <span>📷</span>
+            <span>@Guess5.io</span>
+          </a>
+        </div>
       </div>
     </div>
   );
