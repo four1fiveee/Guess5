@@ -2561,7 +2561,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           id, "player1", "player2", "entryFee", status, word,
           "squadsVaultAddress", "player1Paid", "player2Paid",
           "player1Result", "player2Result", "payoutResult",
-          winner, "isCompleted", "createdAt", "updatedAt"
+          winner, "isCompleted", "createdAt", "updatedAt",
+          "payoutProposalId", "tieRefundProposalId", "proposalStatus",
+          "proposalSigners", "needsSignatures", "proposalExecutedAt",
+          "proposalTransactionId"
         FROM "match"
         WHERE id = $1
         LIMIT 1
@@ -2571,6 +2574,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         const row = matchRows[0];
         match = new Match();
         Object.assign(match, row);
+        // Parse JSON fields
+        if (row.proposalSigners) {
+          try {
+            (match as any).proposalSigners = typeof row.proposalSigners === 'string' ? JSON.parse(row.proposalSigners) : row.proposalSigners;
+          } catch {
+            (match as any).proposalSigners = [];
+          }
+        } else {
+          (match as any).proposalSigners = [];
+        }
         // Add helper methods
         (match as any).getPlayer1Result = () => {
           try {
