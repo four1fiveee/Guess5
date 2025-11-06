@@ -1373,7 +1373,7 @@ const submitResultHandler = async (req: any, res: any) => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const matchRows = await matchRepository.query(`
-      SELECT id, "player1", "player2", "player1Result", "player2Result"
+      SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime"
       FROM "match"
       WHERE id = $1
     `, [matchId]);
@@ -1440,15 +1440,40 @@ const submitResultHandler = async (req: any, res: any) => {
     }
 
     // SERVER-SIDE VALIDATION: Use server-side time tracking
-    const serverStartTime = isPlayer1 ? serverGameState.player1StartTime : serverGameState.player2StartTime;
+    // Prefer database gameStartTime if available (more accurate), otherwise use Redis start time
+    let serverStartTime: number;
+    if (match.gameStartTime) {
+      // Use database gameStartTime (when game actually started)
+      serverStartTime = new Date(match.gameStartTime).getTime();
+    } else {
+      // Fall back to Redis start time
+      serverStartTime = isPlayer1 ? serverGameState.player1StartTime : serverGameState.player2StartTime;
+    }
+    
     const serverEndTime = Date.now();
     const serverTotalTime = serverEndTime - serverStartTime;
 
     // SERVER-SIDE VALIDATION: Validate time limits (allow timeout submissions)
     const isTimeoutSubmission = result.reason === 'timeout';
-    if (serverTotalTime > 120000 && !isTimeoutSubmission) { // 2 minutes, but allow timeout submissions
-      console.log('⏰ Time validation failed:', { serverTotalTime, reason: result.reason, isTimeoutSubmission });
-      return res.status(400).json({ error: 'Game time exceeded 2-minute limit' });
+    
+    // Check if player has made guesses - if so, be more lenient with time validation
+    // (player might have been thinking, or page was reloaded)
+    const playerGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
+    const hasGuesses = playerGuesses && playerGuesses.length > 0;
+    
+    // If player has guesses, allow up to 10 minutes (more lenient for active players)
+    // If no guesses yet, use strict 2-minute limit
+    const maxTimeAllowed = hasGuesses ? 600000 : 120000; // 10 minutes if has guesses, 2 minutes otherwise
+    
+    if (serverTotalTime > maxTimeAllowed && !isTimeoutSubmission) {
+      console.log('⏰ Time validation failed:', { 
+        serverTotalTime, 
+        maxTimeAllowed,
+        hasGuesses,
+        reason: result.reason, 
+        isTimeoutSubmission 
+      });
+      return res.status(400).json({ error: 'Game time exceeded limit' });
     }
 
     // SERVER-SIDE VALIDATION: Check for impossibly fast times (less than 1 second)
