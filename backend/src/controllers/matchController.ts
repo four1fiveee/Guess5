@@ -5136,16 +5136,20 @@ const getFiscalInfo = (date: any) => {
 // Match report endpoint (exports to CSV) - Updated with high-impact security fixes
 const generateReportHandler = async (req: any, res: any) => {
   try {
-    const { startDate = '2025-08-16', endDate } = req.query;
+    // Default to 11/4/2025 to only include recent matches (after migration/testing)
+    const { startDate = '2025-11-04', endDate } = req.query;
     
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Build date filter - use DATE() function for compatibility
+    // >= includes the startDate (so 11/4/2025 and later matches)
     let dateFilter = `DATE("createdAt") >= '${startDate}'`;
     if (endDate) {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
+    
+    console.log(`📅 CSV Export Date Filter: ${dateFilter}`);
     
     // Try to get matches with all columns, but fallback to minimal query if columns don't exist
     let matches: any[];
