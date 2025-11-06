@@ -5568,6 +5568,13 @@ const generateReportHandler = async (req: any, res: any) => {
             const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 100 });
             
             // Find the execution transaction by checking transactions that involve relevant addresses
+            // Use proposal execution time if available, otherwise use proposal creation time
+            const proposalExecutedAt = match.proposalExecutedAt ? new Date(match.proposalExecutedAt).getTime() : 0;
+            const proposalCreatedAt = match.proposalCreatedAt ? new Date(match.proposalCreatedAt).getTime() : 0;
+            const referenceTime = proposalExecutedAt || proposalCreatedAt;
+            
+            console.log(`🔍 Backfilling execution signature for match ${match.id}, proposalId: ${proposalId}, referenceTime: ${referenceTime ? new Date(referenceTime).toISOString() : 'unknown'}`);
+            
             for (const sigInfo of vaultSignatures) {
               try {
                 const tx = await connection.getTransaction(sigInfo.signature, {
@@ -5576,6 +5583,8 @@ const generateReportHandler = async (req: any, res: any) => {
                 });
                 
                 if (tx && tx.meta && !tx.meta.err) {
+                  const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
+                  
                   // Check if transaction involves winner, players (for tie refunds), or fee wallet
                   const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
                     typeof key === 'string' ? key : key.pubkey.toString()
@@ -5587,20 +5596,25 @@ const generateReportHandler = async (req: any, res: any) => {
                   const player2Involved = player2Address && accountKeys.includes(player2Address.toString());
                   const feeWalletInvolved = accountKeys.includes(feeWalletAddress.toString());
                   
-                  // Check execution time is after proposal creation (with 5 minute window before for safety)
-                  const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
-                  const proposalTime = match.proposalCreatedAt ? new Date(match.proposalCreatedAt).getTime() : 0;
+                  // Check if transaction shows balance changes (indicates funds were transferred)
+                  const hasBalanceChanges = tx.meta.postBalances && tx.meta.preBalances && 
+                    tx.meta.postBalances.some((post: number, idx: number) => 
+                      post !== tx.meta.preBalances[idx]
+                    );
                   
                   // For tie matches, check if either player is involved (refunds)
                   // For winner matches, check if winner or fee wallet is involved
                   const isRelevantTransaction = (match.winner === 'tie' && (player1Involved || player2Involved || feeWalletInvolved)) ||
                                                  (winnerAddress && (winnerInvolved || feeWalletInvolved));
                   
-                  // More lenient time check: transaction should be after proposal creation (or within 10 minutes before)
-                  // This accounts for clock differences and proposal creation timing
-                  const timeMatch = proposalTime === 0 || txTime >= proposalTime - 600000; // 10 minute window
+                  // Time check: transaction should be after proposal creation (or within 1 hour before/after for safety)
+                  // If no reference time, accept any transaction with balance changes
+                  const timeMatch = referenceTime === 0 || 
+                    (txTime >= referenceTime - 3600000 && txTime <= referenceTime + 3600000); // 1 hour window
                   
-                  if (isRelevantTransaction && timeMatch) {
+                  // If we have a relevant transaction with balance changes and time match, use it
+                  // OR if we have balance changes and it's close to execution time, use it
+                  if ((isRelevantTransaction && timeMatch) || (hasBalanceChanges && timeMatch && referenceTime > 0)) {
                     // This is likely the execution transaction
                     match.proposalTransactionId = sigInfo.signature;
                     match.winnerPayoutSignature = sigInfo.signature;
@@ -5610,7 +5624,7 @@ const generateReportHandler = async (req: any, res: any) => {
                     // Save to database
                     try {
                       await matchRepository.save(match);
-                      console.log(`✅ Backfilled and saved execution signature for match ${match.id}: ${sigInfo.signature}`);
+                      console.log(`✅ Backfilled and saved execution signature for match ${match.id}: ${sigInfo.signature}, txTime: ${new Date(txTime).toISOString()}`);
                     } catch (saveError: any) {
                       console.error(`❌ Failed to save backfilled signature for match ${match.id}:`, saveError?.message);
                     }
@@ -5621,6 +5635,11 @@ const generateReportHandler = async (req: any, res: any) => {
                 // Skip if we can't fetch this transaction
                 continue;
               }
+            }
+            
+            // If we didn't find a match, log for debugging
+            if (!match.proposalTransactionId || match.proposalTransactionId.length <= 20) {
+              console.log(`⚠️ Could not find execution transaction for match ${match.id} - checked ${vaultSignatures.length} transactions`);
             }
           }
         } catch (error: any) {
