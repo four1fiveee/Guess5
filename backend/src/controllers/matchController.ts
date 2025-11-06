@@ -2504,13 +2504,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     // Auto-create Squads vault if missing and match requires escrow
     try {
       if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
-        // Rate limit vault creation attempts - only try once per 30 seconds per match
+        // Rate limit vault creation attempts - only try once per 5 seconds per match
         const vaultCreationKey = `vault_creation_${match.id}`;
         const { getRedisMM } = require('../config/redis');
         const redis = getRedisMM();
         const lastAttempt = await redis.get(vaultCreationKey);
         const now = Date.now();
-        const cooldownPeriod = 30000; // 30 seconds
+        const cooldownPeriod = 5000; // 5 seconds (reduced from 30s for faster retries)
         
         if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
           console.log('🏦 No vault on match yet; attempting on-demand creation...', { matchId: match.id });
