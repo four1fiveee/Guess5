@@ -5696,11 +5696,6 @@ const generateReportHandler = async (req: any, res: any) => {
             } else {
               console.log(`⚠️ Could not find execution transaction for match ${match.id} - checked ${vaultSignatures.length} transactions`);
             }
-            
-            // If we didn't find a match, log for debugging
-            if (!match.proposalTransactionId || match.proposalTransactionId.length <= 20) {
-              console.log(`⚠️ Could not find execution transaction for match ${match.id} - checked ${vaultSignatures.length} transactions`);
-            }
           }
         } catch (error: any) {
           console.error(`❌ Error backfilling execution signature for match ${match.id}:`, error?.message);
