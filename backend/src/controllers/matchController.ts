@@ -5525,29 +5525,91 @@ const generateReportHandler = async (req: any, res: any) => {
     const { FEE_WALLET_ADDRESS } = require('../config/wallet');
     const feeWalletAddress = FEE_WALLET_ADDRESS;
     
+    // Helper function to backfill execution signatures for old matches
+    const backfillExecutionSignature = async (match: any) => {
+      // Only backfill if proposal is EXECUTED but has invalid transaction ID
+      if (match.proposalStatus === 'EXECUTED' && 
+          (!match.proposalTransactionId || match.proposalTransactionId.length <= 20)) {
+        try {
+          const { Connection, PublicKey } = require('@solana/web3.js');
+          const connection = new Connection(
+            process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+            'confirmed'
+          );
+          
+          const proposalId = match.payoutProposalId || match.tieRefundProposalId;
+          if (!proposalId || !match.squadsVaultAddress) return match;
+          
+          const multisigAddress = new PublicKey(match.squadsVaultAddress);
+          const transactionIndex = BigInt(proposalId);
+          
+          // Derive transaction PDA
+          const [transactionPda] = PublicKey.findProgramAddressSync(
+            [
+              Buffer.from('transaction'),
+              multisigAddress.toBuffer(),
+              Buffer.from(transactionIndex.toString()),
+            ],
+            new PublicKey('SQDS4ep65F869WDCN3hqc7UyqZUr7gDqgF2e1K6gF3T')
+          );
+          
+          // Check if transaction account exists (if not, it's been executed)
+          const transactionAccount = await connection.getAccountInfo(transactionPda);
+          if (!transactionAccount) {
+            // Transaction executed, find execution signature
+            const signatures = await connection.getSignaturesForAddress(transactionPda, { limit: 1 });
+            if (signatures.length > 0) {
+              const executionSignature = signatures[0].signature;
+              match.proposalTransactionId = executionSignature;
+              match.winnerPayoutSignature = executionSignature;
+              
+              // Get transaction details for timestamps
+              const txDetails = await connection.getTransaction(executionSignature, {
+                commitment: 'confirmed',
+                maxSupportedTransactionVersion: 0
+              });
+              
+              if (txDetails) {
+                match.winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
+                match.winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
+              }
+              
+              console.log(`✅ Backfilled execution signature for match ${match.id}: ${executionSignature}`);
+            }
+          }
+        } catch (error: any) {
+          console.error(`❌ Error backfilling execution signature for match ${match.id}:`, error?.message);
+        }
+      }
+      return match;
+    };
+    
     // Generate CSV rows with available data
-    const csvRows = matches.map((match: any) => {
+    const csvRows = await Promise.all(matches.map(async (match: any) => {
+      // Backfill execution signatures for old matches
+      const matchWithSignature = await backfillExecutionSignature(match);
+      
       // Determine explorer network
       const network = getExplorerNetwork();
       
       // Parse player results for meaningful data
-      const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
-      const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
-      const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
+      const player1Result = matchWithSignature.player1Result ? JSON.parse(matchWithSignature.player1Result) : null;
+      const player2Result = matchWithSignature.player2Result ? JSON.parse(matchWithSignature.player2Result) : null;
+      const payoutResult = matchWithSignature.payoutResult ? JSON.parse(matchWithSignature.payoutResult) : null;
       
       // Calculate total pot and amounts based on match status
-      const totalPot = match.entryFee * 2;
-      let winnerAmount = match.payoutAmount || 0;
-      let winnerAmountUSD = match.payoutAmountUSD || 0;
-      let platformFee = match.platformFee || 0;
+      const totalPot = matchWithSignature.entryFee * 2;
+      let winnerAmount = matchWithSignature.payoutAmount || 0;
+      let winnerAmountUSD = matchWithSignature.payoutAmountUSD || 0;
+      let platformFee = matchWithSignature.platformFee || 0;
       let winner = '';
       
-      if (match.status === 'completed' && payoutResult) {
-        winnerAmount = match.payoutAmount || payoutResult.winnerAmount || 0;
-        winnerAmountUSD = match.payoutAmountUSD || 0;
-        platformFee = match.platformFee || payoutResult.feeAmount || 0;
-        winner = payoutResult.winner || match.winner || '';
-      } else if (match.status === 'cancelled') {
+      if (matchWithSignature.status === 'completed' && payoutResult) {
+        winnerAmount = matchWithSignature.payoutAmount || payoutResult.winnerAmount || 0;
+        winnerAmountUSD = matchWithSignature.payoutAmountUSD || 0;
+        platformFee = matchWithSignature.platformFee || payoutResult.feeAmount || 0;
+        winner = payoutResult.winner || matchWithSignature.winner || '';
+      } else if (matchWithSignature.status === 'cancelled') {
         // For cancelled matches, show refund amounts
         winnerAmount = 0; // No winner
         winnerAmountUSD = 0;
@@ -5557,47 +5619,47 @@ const generateReportHandler = async (req: any, res: any) => {
 
       // Fee wallet payout transaction is same as executed transaction for completed matches
       // proposalTransactionId should be the execution transaction signature, not the proposal ID
-      const feeWalletPayoutTx = (match.proposalStatus === 'EXECUTED' && match.proposalTransactionId && match.proposalTransactionId.length > 20) 
-        ? match.proposalTransactionId 
+      const feeWalletPayoutTx = (matchWithSignature.proposalStatus === 'EXECUTED' && matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) 
+        ? matchWithSignature.proposalTransactionId 
         : '';
       
       // Winner payout signature should be the same as execution transaction
       // Only use if it's an actual signature (length > 20), not a proposal ID
-      const winnerPayoutTx = (match.winnerPayoutSignature && match.winnerPayoutSignature.length > 20) 
-        ? match.winnerPayoutSignature 
-        : (match.proposalTransactionId && match.proposalTransactionId.length > 20) 
-          ? match.proposalTransactionId 
+      const winnerPayoutTx = (matchWithSignature.winnerPayoutSignature && matchWithSignature.winnerPayoutSignature.length > 20) 
+        ? matchWithSignature.winnerPayoutSignature 
+        : (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) 
+          ? matchWithSignature.proposalTransactionId 
           : '';
       
       return [
         // Core Match Info
-        sanitizeCsvValue(match.id),
-        sanitizeCsvValue(match.player1),
-        sanitizeCsvValue(match.player2),
-        sanitizeCsvValue(match.entryFee),
-        sanitizeCsvValue(match.entryFeeUSD || ''),
+        sanitizeCsvValue(matchWithSignature.id),
+        sanitizeCsvValue(matchWithSignature.player1),
+        sanitizeCsvValue(matchWithSignature.player2),
+        sanitizeCsvValue(matchWithSignature.entryFee),
+        sanitizeCsvValue(matchWithSignature.entryFeeUSD || ''),
         sanitizeCsvValue(totalPot),
-        sanitizeCsvValue(match.status),
+        sanitizeCsvValue(matchWithSignature.status),
         sanitizeCsvValue(winner),
         sanitizeCsvValue(winnerAmount),
         sanitizeCsvValue(winnerAmountUSD),
         sanitizeCsvValue(platformFee),
         sanitizeCsvValue(feeWalletAddress),
-        sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
+        sanitizeCsvValue(matchWithSignature.status === 'completed' ? 'Yes' : 'No'),
         
         // Vault & Deposits
-        sanitizeCsvValue(match.squadsVaultAddress),
-        sanitizeCsvValue(match.depositATx),
-        sanitizeCsvValue(match.depositBTx),
+        sanitizeCsvValue(matchWithSignature.squadsVaultAddress),
+        sanitizeCsvValue(matchWithSignature.depositATx),
+        sanitizeCsvValue(matchWithSignature.depositBTx),
         
         // Payment Verification
-        sanitizeCsvValue(match.player1PaymentSignature || ''),
-        sanitizeCsvValue(match.player2PaymentSignature || ''),
-        sanitizeCsvValue(match.player1PaymentTime ? convertToEST(match.player1PaymentTime) : ''),
-        sanitizeCsvValue(match.player2PaymentTime ? convertToEST(match.player2PaymentTime) : ''),
-        sanitizeCsvValue(match.player1PaymentBlockNumber || ''),
-        sanitizeCsvValue(match.player2PaymentBlockNumber || ''),
-        sanitizeCsvValue(match.solPriceAtTransaction || ''),
+        sanitizeCsvValue(matchWithSignature.player1PaymentSignature || ''),
+        sanitizeCsvValue(matchWithSignature.player2PaymentSignature || ''),
+        sanitizeCsvValue(matchWithSignature.player1PaymentTime ? convertToEST(matchWithSignature.player1PaymentTime) : ''),
+        sanitizeCsvValue(matchWithSignature.player2PaymentTime ? convertToEST(matchWithSignature.player2PaymentTime) : ''),
+        sanitizeCsvValue(matchWithSignature.player1PaymentBlockNumber || ''),
+        sanitizeCsvValue(matchWithSignature.player2PaymentBlockNumber || ''),
+        sanitizeCsvValue(matchWithSignature.solPriceAtTransaction || ''),
         
         // Game Results
         sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
@@ -5610,34 +5672,34 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(player2Result && player2Result.reason ? player2Result.reason : ''),
         
         // Timestamps
-        convertToEST(match.createdAt),
-        convertToEST(match.gameStartTimeUtc),
-        convertToEST(match.gameEndTimeUtc),
+        convertToEST(matchWithSignature.createdAt),
+        convertToEST(matchWithSignature.gameStartTimeUtc),
+        convertToEST(matchWithSignature.gameEndTimeUtc),
         
         // Payout Transactions
         sanitizeCsvValue(winnerPayoutTx),
-        sanitizeCsvValue(match.winnerPayoutBlockTime ? convertToEST(match.winnerPayoutBlockTime) : ''),
-        sanitizeCsvValue(match.winnerPayoutBlockNumber || ''),
+        sanitizeCsvValue(matchWithSignature.winnerPayoutBlockTime ? convertToEST(matchWithSignature.winnerPayoutBlockTime) : ''),
+        sanitizeCsvValue(matchWithSignature.winnerPayoutBlockNumber || ''),
         sanitizeCsvValue(feeWalletPayoutTx),
-        sanitizeCsvValue(match.proposalTransactionId && match.proposalTransactionId.length > 20 ? match.proposalTransactionId : ''),
+        sanitizeCsvValue(matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20 ? matchWithSignature.proposalTransactionId : ''),
         
         // Proposal Info
-        sanitizeCsvValue(match.payoutProposalId || ''),
-        sanitizeCsvValue(match.tieRefundProposalId || ''),
-        sanitizeCsvValue(match.proposalStatus || ''),
-        sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
-        sanitizeCsvValue(match.proposalExecutedAt ? convertToEST(match.proposalExecutedAt) : ''),
-        sanitizeCsvValue(match.needsSignatures || ''),
+        sanitizeCsvValue(matchWithSignature.payoutProposalId || ''),
+        sanitizeCsvValue(matchWithSignature.tieRefundProposalId || ''),
+        sanitizeCsvValue(matchWithSignature.proposalStatus || ''),
+        sanitizeCsvValue(matchWithSignature.proposalCreatedAt ? convertToEST(matchWithSignature.proposalCreatedAt) : ''),
+        sanitizeCsvValue(matchWithSignature.proposalExecutedAt ? convertToEST(matchWithSignature.proposalExecutedAt) : ''),
+        sanitizeCsvValue(matchWithSignature.needsSignatures || ''),
         
         // Explorer Links
-        match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
-        match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
-        match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
-        match.player1PaymentSignature ? `https://explorer.solana.com/tx/${match.player1PaymentSignature}?cluster=${network}` : '',
-        match.player2PaymentSignature ? `https://explorer.solana.com/tx/${match.player2PaymentSignature}?cluster=${network}` : '',
+        matchWithSignature.squadsVaultAddress ? `https://explorer.solana.com/address/${matchWithSignature.squadsVaultAddress}?cluster=${network}` : '',
+        matchWithSignature.depositATx ? `https://explorer.solana.com/tx/${matchWithSignature.depositATx}?cluster=${network}` : '',
+        matchWithSignature.depositBTx ? `https://explorer.solana.com/tx/${matchWithSignature.depositBTx}?cluster=${network}` : '',
+        matchWithSignature.player1PaymentSignature ? `https://explorer.solana.com/tx/${matchWithSignature.player1PaymentSignature}?cluster=${network}` : '',
+        matchWithSignature.player2PaymentSignature ? `https://explorer.solana.com/tx/${matchWithSignature.player2PaymentSignature}?cluster=${network}` : '',
         winnerPayoutTx ? `https://explorer.solana.com/tx/${winnerPayoutTx}?cluster=${network}` : '',
         feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
-        (match.proposalTransactionId && match.proposalTransactionId.length > 20) ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
+        (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 20) ? `https://explorer.solana.com/tx/${matchWithSignature.proposalTransactionId}?cluster=${network}` : ''
       ];
     });
     
