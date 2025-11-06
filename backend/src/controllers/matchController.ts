@@ -2532,21 +2532,33 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (player1Result && player2Result) {
       try {
         const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
-        // Reload match to get the updated winner and all fields
+        // Reload match to get the updated winner and all fields using raw SQL
         const { AppDataSource } = require('../db/index');
         const matchRepository = AppDataSource.getRepository(Match);
-        const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
-        if (reloadedMatch) {
-          match.winner = reloadedMatch.winner;
-          const reloadedPayoutResult = reloadedMatch.getPayoutResult();
-          if (reloadedPayoutResult) {
-            match.setPayoutResult(reloadedPayoutResult);
+        const reloadedRows = await matchRepository.query(`
+          SELECT 
+            id, winner, "payoutResult", "payoutProposalId", 
+            "proposalStatus", "proposalCreatedAt", "needsSignatures"
+          FROM "match"
+          WHERE id = $1
+          LIMIT 1
+        `, [match.id]);
+        if (reloadedRows && reloadedRows.length > 0) {
+          const reloadedRow = reloadedRows[0];
+          match.winner = reloadedRow.winner;
+          try {
+            const reloadedPayoutResult = reloadedRow.payoutResult ? JSON.parse(reloadedRow.payoutResult) : null;
+            if (reloadedPayoutResult) {
+              match.setPayoutResult(reloadedPayoutResult);
+            }
+          } catch (e) {
+            // Ignore parse errors
           }
           // Copy proposal fields
-          (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
-          (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
-          (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
-          (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
+          (match as any).payoutProposalId = reloadedRow.payoutProposalId;
+          (match as any).proposalStatus = reloadedRow.proposalStatus;
+          (match as any).proposalCreatedAt = reloadedRow.proposalCreatedAt;
+          (match as any).needsSignatures = reloadedRow.needsSignatures;
           console.log('✅ Winner recalculated and saved:', { 
             matchId: match.id, 
             winner: match.winner,
@@ -2624,12 +2636,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     console.log('✅ Tie refund proposal created:', { matchId: match.id, proposalId: proposalResult.proposalId });
                     
                     // Reload match to ensure we have the latest proposal data
-                    const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
-                    if (reloadedMatch) {
-                      (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
-                      (match as any).tieRefundProposalId = (reloadedMatch as any).tieRefundProposalId;
-                      (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
-                      (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
+                    // Use raw SQL to avoid proposalExpiresAt column errors
+                    const reloadedRows = await matchRepository.query(`
+                      SELECT 
+                        "payoutProposalId", "tieRefundProposalId", 
+                        "proposalStatus", "proposalCreatedAt"
+                      FROM "match"
+                      WHERE id = $1
+                      LIMIT 1
+                    `, [match.id]);
+                    if (reloadedRows && reloadedRows.length > 0) {
+                      const reloadedRow = reloadedRows[0];
+                      (match as any).payoutProposalId = reloadedRow.payoutProposalId;
+                      (match as any).tieRefundProposalId = reloadedRow.tieRefundProposalId;
+                      (match as any).proposalStatus = reloadedRow.proposalStatus;
+                      (match as any).proposalCreatedAt = reloadedRow.proposalCreatedAt;
                       (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
                     }
                   } else {
@@ -2682,9 +2703,23 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   try {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
-    const reloaded = await matchRepository.findOne({ where: { id: match.id } });
-    if (reloaded) {
-      freshMatch = reloaded;
+    // Use raw SQL to avoid proposalExpiresAt column errors
+    const reloadedRows = await matchRepository.query(`
+      SELECT 
+        id, "squadsVaultAddress", "payoutProposalId", "tieRefundProposalId",
+        winner, "isCompleted", "player1Result", "player2Result", "payoutResult"
+      FROM "match"
+      WHERE id = $1
+      LIMIT 1
+    `, [match.id]);
+    if (reloadedRows && reloadedRows.length > 0) {
+      const reloadedRow = reloadedRows[0];
+      // Update match object with reloaded data
+      (freshMatch as any).squadsVaultAddress = reloadedRow.squadsVaultAddress || (freshMatch as any).squadsVaultAddress;
+      (freshMatch as any).payoutProposalId = reloadedRow.payoutProposalId || (freshMatch as any).payoutProposalId;
+      (freshMatch as any).tieRefundProposalId = reloadedRow.tieRefundProposalId || (freshMatch as any).tieRefundProposalId;
+      freshMatch.winner = reloadedRow.winner || freshMatch.winner;
+      freshMatch.isCompleted = reloadedRow.isCompleted || freshMatch.isCompleted;
       // Copy any methods that might be missing
       if (!freshMatch.getPlayer1Result) {
         freshMatch.getPlayer1Result = match.getPlayer1Result;
@@ -2777,12 +2812,20 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             await matchRepository.save(freshMatch);
             
             // Reload to ensure we have the latest data and update the match reference
-            const reloadedMatch = await matchRepository.findOne({ where: { id: freshMatch.id } });
-            if (reloadedMatch) {
-              Object.assign(match, reloadedMatch);
-              (match as any).payoutProposalId = (reloadedMatch as any).payoutProposalId;
-              (match as any).tieRefundProposalId = (reloadedMatch as any).tieRefundProposalId;
-              (match as any).proposalStatus = (reloadedMatch as any).proposalStatus;
+            // Use raw SQL to avoid proposalExpiresAt column errors
+            const reloadedRows = await matchRepository.query(`
+              SELECT 
+                "payoutProposalId", "tieRefundProposalId", "proposalStatus",
+                "proposalCreatedAt", "needsSignatures", winner, "isCompleted"
+              FROM "match"
+              WHERE id = $1
+              LIMIT 1
+            `, [freshMatch.id]);
+            if (reloadedRows && reloadedRows.length > 0) {
+              const reloadedRow = reloadedRows[0];
+              (match as any).payoutProposalId = reloadedRow.payoutProposalId;
+              (match as any).tieRefundProposalId = reloadedRow.tieRefundProposalId;
+              (match as any).proposalStatus = reloadedRow.proposalStatus;
               (match as any).proposalCreatedAt = (reloadedMatch as any).proposalCreatedAt;
               (match as any).needsSignatures = (reloadedMatch as any).needsSignatures;
               match.isCompleted = reloadedMatch.isCompleted;
