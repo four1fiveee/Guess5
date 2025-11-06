@@ -200,13 +200,14 @@ export default function Lobby() {
         router.push(`/result?matchId=${firstRefund.matchId}`);
         return;
       }
-      
-      // If there are pending refunds but they can't be executed yet, allow matchmaking
-      // (non-executable refunds shouldn't block new games)
-      if (pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted) {
-        console.log('⏳ Player has pending refunds but cannot execute yet - allowing new matchmaking');
-        // Don't block - allow player to continue
-      }
+    }
+    
+    // BLOCK matchmaking if there are pending refunds that need signing
+    // (even if they can't be executed yet - player must sign first)
+    if (pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0) {
+      const totalRefunds = pendingClaims.pendingRefunds.length;
+      alert(`You have ${totalRefunds} pending refund(s) that need your signature. Please sign for all refunds before starting a new match.`);
+      return;
     }
     
     // Prevent multiple clicks
@@ -339,39 +340,65 @@ export default function Lobby() {
               </div>
             )}
 
-            {/* Pending Refunds That Need Signing (Non-Blocking) */}
+            {/* Pending Refunds That Need Signing - Show Only Oldest, Block Matchmaking */}
             {pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
-              <div className="bg-blue-500 bg-opacity-20 border border-blue-500 rounded-lg p-4 mb-4">
-                <div className="text-blue-400 font-semibold mb-2">📝 Sign Pending Refunds</div>
-                <div className="text-white/80 text-sm mb-3">
-                  You have {pendingClaims.pendingRefunds.length} pending refund(s) waiting for signatures. 
-                  Sign now to help process them faster (you can still play new matches).
+              <div className="bg-orange-500 bg-opacity-20 border border-orange-500 rounded-lg p-4 mb-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-orange-400 font-semibold">
+                    📝 Sign Pending Refunds ({pendingClaims.pendingRefunds.length} total)
+                  </div>
                 </div>
-                <div className="space-y-2">
-                  {pendingClaims.pendingRefunds.map((refund) => (
-                    <div key={refund.matchId} className="bg-black bg-opacity-30 rounded p-3">
-                      <div className="flex items-center justify-between">
-                        <div className="text-white/90 text-sm">
-                          Match: {refund.matchId.substring(0, 8)}... | 
-                          Amount: {refund.refundAmount?.toFixed(4) || refund.entryFee.toFixed(4)} SOL
+                <div className="text-white/80 text-sm mb-3">
+                  You must sign for all pending refunds before starting a new match. 
+                  Showing oldest refund first.
+                </div>
+                {/* Show only the oldest refund (first in array, sorted by proposalCreatedAt) */}
+                {(() => {
+                  // Sort by proposalCreatedAt (oldest first) - assuming backend returns them sorted
+                  const sortedRefunds = [...pendingClaims.pendingRefunds].sort((a, b) => {
+                    const aTime = a.proposalCreatedAt ? new Date(a.proposalCreatedAt).getTime() : 0;
+                    const bTime = b.proposalCreatedAt ? new Date(b.proposalCreatedAt).getTime() : 0;
+                    return aTime - bTime;
+                  });
+                  const oldestRefund = sortedRefunds[0];
+                  
+                  return (
+                    <div className="bg-black bg-opacity-30 rounded-lg p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="flex-1">
+                          <div className="text-white/90 text-sm font-medium mb-1">
+                            Match: {oldestRefund.matchId.substring(0, 8)}...
+                          </div>
+                          <div className="text-accent text-sm font-semibold">
+                            Amount: {oldestRefund.refundAmount?.toFixed(4) || oldestRefund.entryFee.toFixed(4)} SOL
+                          </div>
+                          {pendingClaims.pendingRefunds.length > 1 && (
+                            <div className="text-white/60 text-xs mt-2">
+                              + {pendingClaims.pendingRefunds.length - 1} more refund(s) to sign
+                            </div>
+                          )}
                         </div>
                         <button
                           onClick={async () => {
-                            if (!publicKey || !signTransaction || signingRefund === refund.matchId) return;
+                            if (!publicKey || !signTransaction || signingRefund === oldestRefund.matchId) return;
                             
-                            setSigningRefund(refund.matchId);
+                            setSigningRefund(oldestRefund.matchId);
                             try {
                               const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
                               
                               // Get the approval transaction from backend
-                              const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${refund.matchId}&wallet=${publicKey.toString()}`);
+                              const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${oldestRefund.matchId}&wallet=${publicKey.toString()}`);
                               
                               if (!getTxResponse.ok) {
-                                const errorData = await getTxResponse.json();
-                                throw new Error(errorData.error || 'Failed to get approval transaction');
+                                const errorData = await getTxResponse.json().catch(() => ({ error: 'Unknown error' }));
+                                throw new Error(errorData.error || errorData.details || 'Failed to get approval transaction');
                               }
                               
                               const txData = await getTxResponse.json();
+                              
+                              if (!txData.transaction) {
+                                throw new Error('No transaction data received from server');
+                              }
                               
                               // Deserialize and sign the transaction
                               const { VersionedTransaction } = await import('@solana/web3.js');
@@ -392,21 +419,22 @@ export default function Lobby() {
                                   'Content-Type': 'application/json',
                                 },
                                 body: JSON.stringify({
-                                  matchId: refund.matchId,
+                                  matchId: oldestRefund.matchId,
                                   wallet: publicKey.toString(),
                                   signedTransaction: base64Tx,
                                 }),
                               });
                               
                               if (!response.ok) {
-                                const errorData = await response.json();
-                                throw new Error(errorData.error || 'Failed to sign proposal');
+                                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                                throw new Error(errorData.error || errorData.details || 'Failed to sign proposal');
                               }
                               
                               console.log('✅ Refund proposal signed successfully');
                               // Refresh pending claims
                               await checkPendingClaims();
-                              alert('✅ Refund proposal signed! The refund will be processed once the other player signs.');
+                              // Show success message
+                              alert(`✅ Refund proposal signed! ${pendingClaims.pendingRefunds.length - 1 > 0 ? `You have ${pendingClaims.pendingRefunds.length - 1} more refund(s) to sign.` : 'All refunds signed!'}`);
                             } catch (err) {
                               console.error('❌ Error signing refund proposal:', err);
                               alert(err instanceof Error ? err.message : 'Failed to sign refund proposal');
@@ -414,15 +442,22 @@ export default function Lobby() {
                               setSigningRefund(null);
                             }
                           }}
-                          disabled={signingRefund === refund.matchId || !signTransaction}
-                          className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-1.5 px-4 rounded text-sm transition-colors"
+                          disabled={signingRefund === oldestRefund.matchId || !signTransaction}
+                          className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-2.5 px-6 rounded-lg transition-colors min-w-[140px] flex items-center justify-center"
                         >
-                          {signingRefund === refund.matchId ? 'Signing...' : 'Sign Refund'}
+                          {signingRefund === oldestRefund.matchId ? (
+                            <>
+                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-black mr-2"></div>
+                              Signing...
+                            </>
+                          ) : (
+                            'Sign Refund'
+                          )}
                         </button>
                       </div>
                     </div>
-                  ))}
-                </div>
+                  );
+                })()}
               </div>
             )}
             
@@ -430,13 +465,15 @@ export default function Lobby() {
               {ENTRY_FEES_USD.map((usdAmount, index) => {
                 const solAmount = solAmounts[index];
                 const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
-                const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims;
+                // Block if: insufficient balance, already matchmaking, has blocking claims, OR has unsigned refunds
+                const hasUnsignedRefunds = pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0;
+                const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims || hasUnsignedRefunds;
                 
                 return (
                   <button
                     key={usdAmount}
                     className={`w-full p-4 sm:p-5 rounded-lg font-bold transition-all duration-200 shadow min-h-[100px] flex flex-col items-center justify-center ${
-                      hasEnoughBalance && !hasBlockingClaims && !isMatchmaking
+                      hasEnoughBalance && !hasBlockingClaims && !isMatchmaking && !hasUnsignedRefunds
                         ? 'bg-accent text-primary hover:bg-yellow-400 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] border-2 border-transparent hover:border-yellow-300'
                         : 'bg-gray-700 text-gray-400 cursor-not-allowed border-2 border-gray-600'
                     } ${isMatchmaking ? 'opacity-60' : ''}`}
@@ -455,6 +492,11 @@ export default function Lobby() {
                     {hasBlockingClaims && (
                       <div className="text-xs text-yellow-400 mt-2 font-medium">
                         ⚠ Claim pending funds first
+                      </div>
+                    )}
+                    {hasUnsignedRefunds && (
+                      <div className="text-xs text-orange-400 mt-2 font-medium">
+                        ⚠ Sign pending refunds first
                       </div>
                     )}
                   </button>

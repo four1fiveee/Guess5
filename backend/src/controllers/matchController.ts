@@ -7236,36 +7236,54 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
     
-    if (!match) {
+    // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
+    const matchRows = await matchRepository.query(`
+      SELECT 
+        id, "player1", "player2", "entryFee", status,
+        "squadsVaultAddress", "payoutProposalId", "tieRefundProposalId",
+        "proposalSigners", "proposalStatus", "needsSignatures"
+      FROM "match"
+      WHERE id = $1
+      LIMIT 1
+    `, [matchId]);
+    
+    if (!matchRows || matchRows.length === 0) {
       return res.status(404).json({ error: 'Match not found' });
     }
-
+    
+    const matchRow = matchRows[0];
+    
     // Verify player is part of this match
-    const isPlayer1 = wallet === match.player1;
-    const isPlayer2 = wallet === match.player2;
+    const isPlayer1 = wallet === matchRow.player1;
+    const isPlayer2 = wallet === matchRow.player2;
     
     if (!isPlayer1 && !isPlayer2) {
       return res.status(403).json({ error: 'You are not part of this match' });
     }
 
     // Check if match has a payout proposal (either payout or tie refund)
-    const hasPayoutProposal = !!(match as any).payoutProposalId;
-    const hasTieRefundProposal = !!(match as any).tieRefundProposalId;
-    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    const hasPayoutProposal = !!matchRow.payoutProposalId;
+    const hasTieRefundProposal = !!matchRow.tieRefundProposalId;
+    const proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
     
-    if (!(match as any).squadsVaultAddress || !proposalId) {
+    if (!matchRow.squadsVaultAddress || !proposalId) {
       return res.status(400).json({ 
         error: 'No payout proposal exists for this match',
         hasPayoutProposal,
         hasTieRefundProposal,
-        squadsVaultAddress: (match as any).squadsVaultAddress,
+        squadsVaultAddress: matchRow.squadsVaultAddress,
       });
     }
 
     // Verify player hasn't already signed
-    const signers = match.getProposalSigners();
+    let signers: string[] = [];
+    try {
+      signers = matchRow.proposalSigners ? JSON.parse(matchRow.proposalSigners) : [];
+    } catch (parseError) {
+      // If parsing fails, assume empty array
+      signers = [];
+    }
     if (signers.includes(wallet)) {
       return res.status(400).json({ error: 'You have already signed this proposal' });
     }
@@ -7314,7 +7332,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     let memberPublicKey;
     
     try {
-      multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+      multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
       transactionIndex = BigInt(proposalId);
       memberPublicKey = new PublicKey(wallet);
     } catch (keyError: any) {
