@@ -6925,10 +6925,18 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         }
       }
 
+      // Reload match one more time to get final status
+      const finalMatchRows = await matchRepository.query(`
+        SELECT "player1Paid", "player2Paid", status
+        FROM "match"
+        WHERE id = $1
+      `, [matchId]);
+      const finalMatch = finalMatchRows?.[0];
+      
       console.log(`🔍 Payment status for match ${matchId}:`, {
-        player1Paid: match.player1Paid,
-        player2Paid: match.player2Paid,
-        status: match.status,
+        player1Paid: finalMatch?.player1Paid,
+        player2Paid: finalMatch?.player2Paid,
+        status: finalMatch?.status,
         bothPaid
       });
 
