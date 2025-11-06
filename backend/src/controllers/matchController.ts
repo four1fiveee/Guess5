@@ -6855,12 +6855,11 @@ const generateReportHandler = async (req: any, res: any) => {
         };
         
         // Helper function to calculate Entry Fee USD from SOL amount
-        // Since entry fees are standardized (5, 10, 25, 100 USD), we can use a lookup
+        // Since entry fees are standardized (10, 25, 100 USD), we can use a lookup
         const calculateEntryFeeUSD = (entryFeeSOL: number): number => {
           // Approximate SOL amounts for standard fees (at ~$158 SOL price)
           // Allow for some variance due to price fluctuations
           const feeLookup: { [key: number]: number } = {
-            0.0316: 5,   // ~$5 at $158 SOL
             0.0632: 10,  // ~$10 at $158 SOL
             0.1580: 25,  // ~$25 at $158 SOL
             0.6320: 100  // ~$100 at $158 SOL
