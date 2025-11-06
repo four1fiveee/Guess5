@@ -2,7 +2,7 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { PublicKey } from '@solana/web3.js';
-// Note: squadsVaultService imported lazily in methods to avoid circular dependency
+import { squadsVaultService } from './squadsVaultService';
 
 /**
  * Service to handle expired proposals and create refunds
@@ -124,9 +124,6 @@ class ProposalExpirationService {
     const refundAmount = entryFee * 0.95; // 95% refund for losing tie
 
     try {
-      // Lazy import to avoid circular dependency issues
-      const { squadsVaultService } = require('./squadsVaultService');
-      
       // Use proposeTieRefund to refund both players
       const refundProposal = await squadsVaultService.proposeTieRefund(
         match.squadsVaultAddress,
@@ -167,9 +164,6 @@ class ProposalExpirationService {
     const entryFee = match.entryFee;
 
     try {
-      // Lazy import to avoid circular dependency issues
-      const { squadsVaultService } = require('./squadsVaultService');
-      
       // Use proposeTieRefund to refund both players their full entry fees
       // Note: proposeTieRefund refunds both players, so we use entryFee as the refund amount
       const refundProposal = await squadsVaultService.proposeTieRefund(

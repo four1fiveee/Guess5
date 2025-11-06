@@ -1559,8 +1559,8 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // CRITICAL: Set proposal expiration (30 minutes after creation)
-                const { proposalExpirationServiceDirect } = require('../services/proposalExpirationService');
-                proposalExpirationServiceDirect.setProposalExpiration(updatedMatch);
+                const { proposalExpirationService } = require('../services/proposalExpirationService');
+                proposalExpirationService.setProposalExpiration(updatedMatch);
                 
                 // Save the match with proposal information
                 await matchRepository.save(updatedMatch);
