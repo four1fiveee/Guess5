@@ -3005,24 +3005,31 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   }
   
   // Log current state for debugging
+  const player1Result = freshMatch.getPlayer1Result();
+  const player2Result = freshMatch.getPlayer2Result();
+  const hasResults = !!player1Result && !!player2Result;
+  const isTieMatch = freshMatch.winner === 'tie';
+  const hasWinner = freshMatch.winner && freshMatch.winner !== 'tie';
+  const needsProposal = !(freshMatch as any).payoutProposalId && !(freshMatch as any).tieRefundProposalId;
+  const hasVault = !!(freshMatch as any).squadsVaultAddress;
+  
   console.log('🔍 FINAL FALLBACK CHECK:', {
     matchId: freshMatch.id,
     isCompleted: freshMatch.isCompleted,
     winner: freshMatch.winner,
     hasPayoutProposalId: !!(freshMatch as any).payoutProposalId,
     hasTieRefundProposalId: !!(freshMatch as any).tieRefundProposalId,
-    hasSquadsVaultAddress: !!(freshMatch as any).squadsVaultAddress,
+    hasSquadsVaultAddress: hasVault,
     squadsVaultAddress: (freshMatch as any).squadsVaultAddress,
-    player1Result: freshMatch.getPlayer1Result() ? { won: freshMatch.getPlayer1Result()?.won } : null,
-    player2Result: freshMatch.getPlayer2Result() ? { won: freshMatch.getPlayer2Result()?.won } : null,
+    player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+    player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
+    hasResults,
+    isTieMatch,
+    hasWinner,
+    needsProposal,
+    willCreateWinnerProposal: hasResults && hasWinner && needsProposal && hasVault,
+    willCreateTieProposal: hasResults && isTieMatch && needsProposal && hasVault,
   });
-  
-  // More lenient check: if match has results and needs a proposal, try to create it
-  const hasResults = freshMatch.getPlayer1Result() && freshMatch.getPlayer2Result();
-  const isTieMatch = freshMatch.winner === 'tie';
-  const hasWinner = freshMatch.winner && freshMatch.winner !== 'tie';
-  const needsProposal = !(freshMatch as any).payoutProposalId && !(freshMatch as any).tieRefundProposalId;
-  const hasVault = !!(freshMatch as any).squadsVaultAddress;
   
   // Create proposal for winner payout (non-tie matches)
   if (hasResults && hasWinner && needsProposal && hasVault) {
