@@ -3016,9 +3016,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   }
   
   // Log current state for debugging
-  const player1Result = freshMatch.getPlayer1Result();
-  const player2Result = freshMatch.getPlayer2Result();
-  const hasResults = !!player1Result && !!player2Result;
+  // Reuse player1Result and player2Result from earlier in the function (line 2788-2789)
+  // If freshMatch was reloaded, get results from it, otherwise use the existing variables
+  const finalPlayer1Result = freshMatch.getPlayer1Result ? freshMatch.getPlayer1Result() : player1Result;
+  const finalPlayer2Result = freshMatch.getPlayer2Result ? freshMatch.getPlayer2Result() : player2Result;
+  const hasResults = !!finalPlayer1Result && !!finalPlayer2Result;
   const isTieMatch = freshMatch.winner === 'tie';
   const hasWinner = freshMatch.winner && freshMatch.winner !== 'tie';
   const needsProposal = !(freshMatch as any).payoutProposalId && !(freshMatch as any).tieRefundProposalId;
@@ -3032,8 +3034,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     hasTieRefundProposalId: !!(freshMatch as any).tieRefundProposalId,
     hasSquadsVaultAddress: hasVault,
     squadsVaultAddress: (freshMatch as any).squadsVaultAddress,
-    player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-    player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
+    player1Result: finalPlayer1Result ? { won: finalPlayer1Result.won, numGuesses: finalPlayer1Result.numGuesses } : null,
+    player2Result: finalPlayer2Result ? { won: finalPlayer2Result.won, numGuesses: finalPlayer2Result.numGuesses } : null,
     hasResults,
     isTieMatch,
     hasWinner,
