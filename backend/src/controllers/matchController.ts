@@ -2800,7 +2800,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     if (player1Result && player2Result) {
       try {
+        console.log('🔄 Calling determineWinnerAndPayout with:', {
+          matchId: match.id,
+          player1Result: { won: player1Result.won, numGuesses: player1Result.numGuesses },
+          player2Result: { won: player2Result.won, numGuesses: player2Result.numGuesses }
+        });
         const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
+        console.log('✅ determineWinnerAndPayout completed, payoutResult:', recalculatedPayout ? { winner: recalculatedPayout.winner } : null);
         // Reload match to get the updated winner and all fields using raw SQL
         const { AppDataSource } = require('../db/index');
         const matchRepository = AppDataSource.getRepository(Match);
@@ -2814,6 +2820,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         `, [match.id]);
         if (reloadedRows && reloadedRows.length > 0) {
           const reloadedRow = reloadedRows[0];
+          console.log('🔄 Reloaded match after determineWinnerAndPayout:', {
+            matchId: match.id,
+            winner: reloadedRow.winner,
+            hasPayoutResult: !!reloadedRow.payoutResult
+          });
           match.winner = reloadedRow.winner;
           try {
             const reloadedPayoutResult = reloadedRow.payoutResult ? JSON.parse(reloadedRow.payoutResult) : null;
