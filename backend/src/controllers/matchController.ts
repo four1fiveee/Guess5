@@ -3467,14 +3467,20 @@ const submitGameGuessHandler = async (req: any, res: any) => {
       return res.status(404).json({ error: 'Game not found or already completed' });
     }
 
-    // Validate player is part of this match
+    // Validate player is part of this match using raw SQL
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
+    const matchRows = await matchRepository.query(`
+      SELECT id, "player1", "player2"
+      FROM "match"
+      WHERE id = $1
+    `, [matchId]);
     
-    if (!match) {
+    if (!matchRows || matchRows.length === 0) {
       return res.status(404).json({ error: 'Match not found' });
     }
+
+    const match = matchRows[0];
 
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
@@ -3542,14 +3548,21 @@ const getGameStateHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    // Validate player is part of this match first
+    // Validate player is part of this match first using raw SQL
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
+    const matchRows = await matchRepository.query(`
+      SELECT id, "player1", "player2", status, word, "isCompleted", "gameStartTime", 
+             "player1Result", "player2Result"
+      FROM "match"
+      WHERE id = $1
+    `, [matchId]);
     
-    if (!match) {
+    if (!matchRows || matchRows.length === 0) {
       return res.status(404).json({ error: 'Match not found' });
     }
+
+    const match = matchRows[0];
 
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
@@ -3600,8 +3613,12 @@ const getGameStateHandler = async (req: any, res: any) => {
           // Only generate word if database doesn't have one (shouldn't happen, but handle gracefully)
           console.warn(`⚠️ No word in database for active match ${matchId}, generating new word`);
           word = getRandomWord();
+          await matchRepository.query(`
+            UPDATE "match"
+            SET word = $1, "updatedAt" = $2
+            WHERE id = $3
+          `, [word, new Date(), matchId]);
           match.word = word;
-          await matchRepository.save(match);
         }
         
         const newGameState = {
@@ -3618,11 +3635,15 @@ const getGameStateHandler = async (req: any, res: any) => {
           completed: false
         };
         
-        // Update match directly in database
+        // Update match directly in database using raw SQL
         if (!match.gameStartTime) {
+          await matchRepository.query(`
+            UPDATE "match"
+            SET "gameStartTime" = $1, "updatedAt" = $2
+            WHERE id = $3
+          `, [new Date(), new Date(), matchId]);
           match.gameStartTime = new Date();
         }
-        await matchRepository.save(match);
         
         await setGameState(matchId as string, newGameState);
         console.log(`✅ Reinitialized game state for match ${matchId} using database word: ${word}`);
@@ -3675,8 +3696,9 @@ const getGameStateHandler = async (req: any, res: any) => {
     // Return safe game state (don't reveal the word or opponent's guesses)
     // Game should remain active until BOTH players have finished (solved or run out of guesses)
     // Also check database results to ensure completion status is accurate
-    const player1Result = match.getPlayer1Result();
-    const player2Result = match.getPlayer2Result();
+    // Parse player results from JSON strings (they're stored as JSON in the database)
+    const player1Result = match.player1Result ? (typeof match.player1Result === 'string' ? JSON.parse(match.player1Result) : match.player1Result) : null;
+    const player2Result = match.player2Result ? (typeof match.player2Result === 'string' ? JSON.parse(match.player2Result) : match.player2Result) : null;
     const bothPlayersFinished = (serverGameState.player1Solved || serverGameState.player1Guesses.length >= 7 || !!player1Result) && 
                                (serverGameState.player2Solved || serverGameState.player2Guesses.length >= 7 || !!player2Result);
     
