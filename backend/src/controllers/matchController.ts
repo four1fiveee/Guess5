@@ -5177,8 +5177,6 @@ const generateReportHandler = async (req: any, res: any) => {
           "payoutAmount",
           "payoutAmountUSD",
           "proposalTransactionId",
-          "player1RefundSignature",
-          "player2RefundSignature",
           "matchOutcome",
           "totalFeesCollected",
           "platformFee",
@@ -5219,7 +5217,7 @@ const generateReportHandler = async (req: any, res: any) => {
             (status = 'completed' AND "isCompleted" = true)
             OR
             -- Cancelled with refunds
-            (status = 'cancelled' AND ("player1RefundSignature" IS NOT NULL OR "player2RefundSignature" IS NOT NULL OR "proposalTransactionId" IS NOT NULL))
+            (status = 'cancelled' AND "proposalTransactionId" IS NOT NULL)
             OR
             -- Matches with transaction IDs (payouts executed)
             ("proposalTransactionId" IS NOT NULL)
@@ -5324,21 +5322,31 @@ const generateReportHandler = async (req: any, res: any) => {
           FROM "match" 
           WHERE ${dateFilter}
             AND "squadsVaultAddress" IS NOT NULL
-            AND "player1Paid" = true
-            AND "player2Paid" = true
             AND (
-              -- Executed payouts (winners or ties with refunds)
-              (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
-              OR
-              -- Cancelled matches with refunds
-              (status = 'cancelled' AND ("proposalTransactionId" IS NOT NULL))
-              OR
-              -- Any match with executed transaction
+              -- Executed payouts
               ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
+              OR
+              -- Completed matches
+              (status = 'completed' AND "isCompleted" = true)
+              OR
+              -- Matches with both players paid
+              ("player1Paid" = true AND "player2Paid" = true)
+              OR
+              -- Matches with results
+              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+              OR
+              -- Matches with transaction IDs
+              ("proposalTransactionId" IS NOT NULL)
             )
           ORDER BY "createdAt" DESC
+          LIMIT 100
         `);
         console.log(`✅ Fallback query succeeded with ${matches.length} matches`);
+        console.log(`📊 Fallback query stats:`, {
+          dateFilter,
+          hasSquadsVault: matches.filter((m: any) => m.squadsVaultAddress).length,
+          bothPaid: matches.filter((m: any) => m.player1Paid && m.player2Paid).length,
+        });
       } catch (fallbackError: any) {
         const fallbackMsg = fallbackError?.message || String(fallbackError);
         console.log(`⚠️ Fallback query also failed, trying minimal query: ${fallbackMsg}`);
@@ -5372,18 +5380,30 @@ const generateReportHandler = async (req: any, res: any) => {
           FROM "match" 
           WHERE ${dateFilter}
             AND "squadsVaultAddress" IS NOT NULL
-            AND "player1Paid" = true
-            AND "player2Paid" = true
             AND (
               -- Executed payouts
-              (status = 'completed' AND "isCompleted" = true AND "proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
-              OR
-              -- Any match with executed transaction
               ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
+              OR
+              -- Completed matches
+              (status = 'completed' AND "isCompleted" = true)
+              OR
+              -- Matches with both players paid
+              ("player1Paid" = true AND "player2Paid" = true)
+              OR
+              -- Matches with results
+              ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+              OR
+              -- Matches with transaction IDs
+              ("proposalTransactionId" IS NOT NULL)
             )
           ORDER BY "createdAt" DESC
+          LIMIT 100
         `);
         console.log(`✅ Minimal query succeeded with ${matches.length} matches`);
+        console.log(`📊 Minimal query stats:`, {
+          dateFilter,
+          hasSquadsVault: matches.filter((m: any) => m.squadsVaultAddress).length,
+        });
       }
     }
     
