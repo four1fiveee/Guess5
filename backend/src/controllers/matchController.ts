@@ -2795,7 +2795,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       matchId: match.id,
       isCompleted: match.isCompleted,
       hasWinner: !!match.winner,
-      bothHaveResults
+      bothHaveResults,
+      hasPlayer1Result: !!player1Result,
+      hasPlayer2Result: !!player2Result,
+      player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+      player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
     });
     
     if (player1Result && player2Result) {
@@ -2960,6 +2964,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('❌ Error recalculating winner:', errorMessage);
       }
+    } else {
+      console.warn('⚠️ Cannot recalculate winner: missing player results', {
+        matchId: match.id,
+        hasPlayer1Result: !!player1Result,
+        hasPlayer2Result: !!player2Result,
+        player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+        player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+      });
     }
   }
 
