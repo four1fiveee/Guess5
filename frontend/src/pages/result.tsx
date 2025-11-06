@@ -546,11 +546,13 @@ const Result: React.FC = () => {
                               <p className="text-sm text-white/60 mb-2">
                                 {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
                                   ? 'You have already signed this proposal' 
-                                  : 'Sign this proposal to execute the refund'
+                                  : payoutData.needsSignatures === 0
+                                  ? 'Proposal is ready to execute'
+                                  : 'Sign this proposal to execute the refund (only 1 signature needed)'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && (
+                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 0 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -583,11 +585,13 @@ const Result: React.FC = () => {
                               <p className="text-sm text-white/60 mb-2">
                                 {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
                                   ? 'You have already signed this proposal' 
-                                  : 'Signing helps process the payout (you can still sign even though you lost)'
+                                  : payoutData.needsSignatures === 0
+                                  ? 'Proposal is ready to execute'
+                                  : 'Signing helps process the payout (only 1 signature needed total)'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && (
+                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 0 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
