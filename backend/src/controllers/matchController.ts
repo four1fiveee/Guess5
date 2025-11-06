@@ -8054,14 +8054,21 @@ const signProposalHandler = async (req: any, res: any) => {
           const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
           const transactionIndex = BigInt(proposalIdString);
         
-        // Derive transaction PDA
+        // Derive transaction PDA using the same method as getProposalApprovalTransactionHandler
+        const { PROGRAM_ID } = require('@sqds/multisig');
+        const programId = process.env.SQUADS_PROGRAM_ID 
+          ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+          : PROGRAM_ID;
+        
+        const indexBuffer = Buffer.alloc(8);
+        indexBuffer.writeBigUInt64LE(transactionIndex, 0);
         const [transactionPda] = PublicKey.findProgramAddressSync(
           [
-            Buffer.from('transaction'),
             multisigAddress.toBuffer(),
-            Buffer.from(transactionIndex.toString()),
+            indexBuffer,
+            Buffer.from('transaction'),
           ],
-          new PublicKey('SQDS4ep65F869WDCN3hqc7UyqZUr7gDqgF2e1K6gF3T')
+          programId
         );
         
         // Check if transaction exists and get execution details
@@ -8093,10 +8100,10 @@ const signProposalHandler = async (req: any, res: any) => {
         proposalStatus: newProposalStatus,
       });
       
-      // Notify opponent via SSE if they're connected
-      const opponentWallet = isPlayer1 ? matchRow.player2 : matchRow.player1;
-      const { activeSSEResponses } = require('../controllers/matchController');
-      if (activeSSEResponses) {
+      // Notify opponent via SSE if they're connected (optional, non-critical)
+      try {
+        const opponentWallet = isPlayer1 ? matchRow.player2 : matchRow.player1;
+        // activeSSEResponses is defined at module level (line ~6544), accessible via closure
         const opponentResponses = activeSSEResponses.get(opponentWallet);
         if (opponentResponses && opponentResponses.size > 0) {
           const eventData = {
@@ -8120,6 +8127,9 @@ const signProposalHandler = async (req: any, res: any) => {
             }
           });
         }
+      } catch (sseError: any) {
+        // SSE notification is non-critical, just log and continue
+        console.warn('⚠️ Failed to send SSE notification:', sseError?.message);
       }
     } catch (dbError: any) {
       console.error('❌ Failed to update match in database:', {
