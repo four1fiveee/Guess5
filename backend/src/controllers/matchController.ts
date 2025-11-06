@@ -5728,9 +5728,31 @@ const generateReportHandler = async (req: any, res: any) => {
     };
     
     // Generate CSV rows with available data
-    const csvRows = await Promise.all(matches.map(async (match: any) => {
-      // Backfill execution signatures for old matches
-      const matchWithSignature = await backfillExecutionSignature(match);
+    // For CSV generation, only backfill a limited number of matches to avoid timeout
+    // Process matches in batches and skip backfill for most matches (use cached data)
+    const csvRows = await Promise.all(matches.map(async (match: any, index: number) => {
+      // Only backfill first 10 matches to avoid timeout - others use existing data
+      // If proposalTransactionId is already valid, skip backfill
+      const hasValidTxId = match.proposalTransactionId && 
+                           match.proposalTransactionId.length > 40 && 
+                           !/^\d+$/.test(match.proposalTransactionId);
+      
+      let matchWithSignature = match;
+      if (index < 10 && !hasValidTxId && match.proposalStatus === 'EXECUTED') {
+        // Quick backfill with timeout for first few matches only
+        try {
+          matchWithSignature = await Promise.race([
+            backfillExecutionSignature(match),
+            new Promise((resolve) => setTimeout(() => resolve(match), 5000)) // 5 second timeout
+          ]) as any;
+        } catch (e) {
+          // Use original match if backfill fails
+          matchWithSignature = match;
+        }
+      } else {
+        // Use existing match data for rest
+        matchWithSignature = match;
+      }
       
       // Determine explorer network
       const network = getExplorerNetwork();

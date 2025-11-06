@@ -175,9 +175,18 @@ const Result: React.FC = () => {
         if (data.matchId === matchId) {
           console.log('📢 Received proposal signed notification:', data);
           
-          // Since only 1 signature is needed total, when opponent signs, proposal is ready
-          // Immediately refresh and update UI
-          setNotification('Opponent has signed! Proposal is ready to execute.');
+          // Check if opponent signed (not current user)
+          const currentUserSigned = data.proposalSigners?.includes(publicKey?.toString() || '');
+          
+          if (!currentUserSigned && data.proposalSigners && data.proposalSigners.length > 0) {
+            // Opponent signed - show notification
+            setNotification('🎉 Other player has signed! Proposal is ready to execute.');
+          } else if (currentUserSigned) {
+            // Current user signed - show waiting message
+            setNotification('✅ You have signed! Waiting for other player...');
+          }
+          
+          // Immediately refresh payout data to get latest status
           loadPayoutData();
           
           // Hide sign button since only 1 signature needed
@@ -188,16 +197,14 @@ const Result: React.FC = () => {
             loadPayoutData();
           }, 2000);
           
-          // Stop refreshing after 15 seconds
+          // Stop refreshing after 20 seconds
           setTimeout(() => {
             clearInterval(refreshInterval);
             // Update notification based on final status
-            if (data.proposalStatus === 'EXECUTED') {
-              setNotification('Payment has been processed!');
-            } else if (data.proposalStatus === 'READY_TO_EXECUTE') {
-              setNotification('Proposal is ready! Payment will be processed shortly.');
-            }
-          }, 15000);
+            loadPayoutData().then(() => {
+              // Notification will be updated by loadPayoutData
+            });
+          }, 20000);
         }
       } catch (error) {
         console.error('❌ Error parsing proposal_signed event:', error);
@@ -474,18 +481,23 @@ const Result: React.FC = () => {
                             </p>
                           )}
                           
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
+                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
                               <p className="text-sm text-white/60 mb-2">
-                                {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
-                                  ? '✓ You have already signed this proposal' 
-                                  : payoutData.needsSignatures === 0
-                                  ? 'Proposal is ready to execute'
-                                  : 'Sign this proposal to execute the payout (only 1 signature needed)'
+                                {payoutData.needsSignatures === 0 
+                                  ? '✅ Proposal is ready to execute - waiting for processing...'
+                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  ? '✓ You have signed. Waiting for other player to sign...'
+                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  ? '⏳ Other player has signed! Waiting for you to sign...'
+                                  : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 0 && (
+                              {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
+                              {payoutData.needsSignatures > 0 && 
+                               !payoutData.proposalSigners?.includes(publicKey?.toString() || '') && 
+                               (!payoutData.proposalSigners || payoutData.proposalSigners.length === 0) && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -541,18 +553,23 @@ const Result: React.FC = () => {
                           </>
                         )}
                           
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
+                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
                               <p className="text-sm text-white/60 mb-2">
-                                {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
-                                  ? 'You have already signed this proposal' 
-                                  : payoutData.needsSignatures === 0
-                                  ? 'Proposal is ready to execute'
-                                  : 'Sign this proposal to execute the refund (only 1 signature needed)'
+                                {payoutData.needsSignatures === 0 
+                                  ? '✅ Proposal is ready to execute - waiting for processing...'
+                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  ? '✓ You have signed. Waiting for other player to sign...'
+                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  ? '⏳ Other player has signed! Waiting for you to sign...'
+                                  : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 0 && (
+                              {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
+                              {payoutData.needsSignatures > 0 && 
+                               !payoutData.proposalSigners?.includes(publicKey?.toString() || '') && 
+                               (!payoutData.proposalSigners || payoutData.proposalSigners.length === 0) && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -580,18 +597,23 @@ const Result: React.FC = () => {
                             </p>
                           )}
                           
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0 && (
+                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
                               <p className="text-sm text-white/60 mb-2">
-                                {payoutData.proposalSigners?.includes(publicKey?.toString() || '') 
-                                  ? 'You have already signed this proposal' 
-                                  : payoutData.needsSignatures === 0
-                                  ? 'Proposal is ready to execute'
-                                  : 'Signing helps process the payout (only 1 signature needed total)'
+                                {payoutData.needsSignatures === 0 
+                                  ? '✅ Proposal is ready to execute - waiting for processing...'
+                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  ? '✓ You have signed. Waiting for other player to sign...'
+                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  ? '⏳ Other player has signed! Waiting for you to sign...'
+                                  : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>
                               
-                              {!payoutData.proposalSigners?.includes(publicKey?.toString() || '') && payoutData.needsSignatures > 0 && (
+                              {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
+                              {payoutData.needsSignatures > 0 && 
+                               !payoutData.proposalSigners?.includes(publicKey?.toString() || '') && 
+                               (!payoutData.proposalSigners || payoutData.proposalSigners.length === 0) && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
