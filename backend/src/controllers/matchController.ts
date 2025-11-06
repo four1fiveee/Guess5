@@ -2794,6 +2794,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   const player1Result = match.getPlayer1Result();
   const player2Result = match.getPlayer2Result();
   const bothHaveResults = !!player1Result && !!player2Result;
+  const atLeastOneHasResult = !!player1Result || !!player2Result;
   const shouldRecalculate = (match.isCompleted && !match.winner) || (bothHaveResults && (!match.isCompleted || !match.winner));
   
   if (shouldRecalculate) {
@@ -2802,13 +2803,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       isCompleted: match.isCompleted,
       hasWinner: !!match.winner,
       bothHaveResults,
+      atLeastOneHasResult,
       hasPlayer1Result: !!player1Result,
       hasPlayer2Result: !!player2Result,
       player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
       player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
     });
     
-    if (player1Result && player2Result) {
+    // determineWinnerAndPayout can handle cases where only one player has results
+    // It will determine winner based on who has results and whether they won
+    if (atLeastOneHasResult) {
       try {
         console.log('🔄 Calling determineWinnerAndPayout with:', {
           matchId: match.id,
@@ -2971,8 +2975,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         console.error('❌ Error recalculating winner:', errorMessage);
       }
     } else {
-      console.warn('⚠️ Cannot recalculate winner: missing player results', {
+      console.warn('⚠️ Cannot recalculate winner: no player results found', {
         matchId: match.id,
+        isCompleted: match.isCompleted,
         hasPlayer1Result: !!player1Result,
         hasPlayer2Result: !!player2Result,
         player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
