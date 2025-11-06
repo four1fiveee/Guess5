@@ -1,9 +1,7 @@
-import { AppDataSource } from '../db/index';
+import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { PublicKey } from '@solana/web3.js';
-
-const FEE_WALLET_ADDRESS = process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt';
 
 /**
  * Service to handle expired proposals and create refunds
