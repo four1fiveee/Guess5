@@ -5375,6 +5375,7 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
     // Create proposal based on winner
     const { PublicKey } = require('@solana/web3.js');
     const { squadsVaultService } = require('../services/squadsVaultService');
+    const { FEE_WALLET_ADDRESS } = require('../config/wallet');
     
     let proposalId = null;
     let proposalType = null;
@@ -5401,7 +5402,13 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
       }
     } else {
       // Create winner payout proposal
-      console.log('💰 Creating winner payout proposal...');
+      console.log('💰 Creating winner payout proposal...', { winner, player1: matchRow.player1, player2: matchRow.player2 });
+      
+      // Validate winner is a valid wallet address
+      if (winner !== matchRow.player1 && winner !== matchRow.player2) {
+        return res.status(400).json({ error: `Invalid winner: ${winner} is not one of the players` });
+      }
+      
       const totalPot = matchRow.entryFee * 2;
       const winnerAmount = totalPot * 0.95;
       const feeAmount = totalPot * 0.05;
@@ -5410,6 +5417,7 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
         matchRow.squadsVaultAddress,
         new PublicKey(winner),
         winnerAmount,
+        new PublicKey(FEE_WALLET_ADDRESS),
         feeAmount
       );
       
