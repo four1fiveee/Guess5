@@ -1,6 +1,7 @@
 import { depositWatcherService } from './depositWatcherService';
 import { timeoutScannerService } from './timeoutScannerService';
 import { reconciliationWorkerService } from './reconciliationWorkerService';
+import { proposalExpirationService } from './proposalExpirationService';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 export class BackgroundServicesManager {
@@ -30,6 +31,17 @@ export class BackgroundServicesManager {
       // Start reconciliation worker service
       reconciliationWorkerService.start();
       enhancedLogger.info('✅ Reconciliation worker service started');
+
+      // Start proposal expiration scanner
+      // Scan for expired proposals every 5 minutes
+      setInterval(async () => {
+        try {
+          await proposalExpirationService.scanForExpiredProposals();
+        } catch (error) {
+          enhancedLogger.error('❌ Error during proposal expiration scan:', error);
+        }
+      }, 5 * 60 * 1000); // 5 minutes
+      enhancedLogger.info('✅ Proposal expiration scanner started');
 
       enhancedLogger.info('🎉 All background services started successfully');
     } catch (error) {

@@ -60,6 +60,17 @@ async function startServer() {
       }
     }, 60000); // Run cleanup every minute
 
+    // Start proposal expiration scanner
+    const { proposalExpirationService } = require('./services/proposalExpirationService');
+    setInterval(async () => {
+      try {
+        await proposalExpirationService.scanForExpiredProposals();
+      } catch (error) {
+        enhancedLogger.error('❌ Error during proposal expiration scan:', error);
+      }
+    }, 5 * 60 * 1000); // Scan every 5 minutes
+    enhancedLogger.info('✅ Proposal expiration scanner started');
+
     // Create HTTP server for WebSocket support
     const server = createServer(app);
 

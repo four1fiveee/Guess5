@@ -391,11 +391,11 @@ export class TimeoutScannerService {
           proposalId: updatedMatch.payoutProposalId,
         });
 
-          enhancedLogger.info('✅ Abandoned game completed, winner determined', {
-            matchId: match.id,
-            winner: (payoutResult as any).winner,
-            proposalId: updatedMatch.payoutProposalId,
-          });
+        enhancedLogger.info('✅ Abandoned game completed, winner determined', {
+          matchId: match.id,
+          winner: (payoutResult as any).winner,
+          proposalId: updatedMatch.payoutProposalId,
+        });
         }
       } catch (error) {
         enhancedLogger.error('❌ Error processing abandoned game', {
