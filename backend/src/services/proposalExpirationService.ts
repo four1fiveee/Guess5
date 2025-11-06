@@ -2,6 +2,7 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { PublicKey } from '@solana/web3.js';
+// Note: squadsVaultService imported lazily in methods to avoid circular dependency
 
 /**
  * Service to handle expired proposals and create refunds
