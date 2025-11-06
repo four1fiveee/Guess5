@@ -8,7 +8,7 @@ import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
 
-const ENTRY_FEES_USD = [5, 20, 100];
+const ENTRY_FEES_USD = [5, 10, 25, 100];
 
 // Fetch live SOL/USD price from backend (avoids CORS issues)
 const fetchSolPrice = async () => {
@@ -502,7 +502,7 @@ export default function Lobby() {
                   const hasUnsignedRefunds = pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0;
                   const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims || hasUnsignedRefunds;
                   const potentialWinnings = calculatePotentialWinnings(usdAmount);
-                  const isPopular = usdAmount === 20; // Mark $20 as popular
+                  const isPopular = usdAmount === 25; // Mark $25 as popular
                   
                   return (
                     <button

@@ -148,3 +148,4 @@ solana config get
 **Last Updated**: November 2025
 **SDK Version**: @sqds/multisig@^2.1.4
 
+

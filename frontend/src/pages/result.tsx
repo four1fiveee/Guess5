@@ -64,11 +64,21 @@ const Result: React.FC = () => {
             setPayoutData(payoutData);
             setLoading(false);
 
-            // If proposalId exists, stop polling
-            if (payoutData.proposalId) {
+            // Continue polling if:
+            // 1. No proposalId yet (waiting for proposal creation)
+            // 2. Proposal exists but is ACTIVE and needs signatures (waiting for signing/execution)
+            // Stop polling only when proposal is EXECUTED or needsSignatures is 0
+            if (!payoutData.proposalId) {
+              // No proposal yet - start polling
+              setIsPolling(true);
+            } else if (payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0) {
+              // Proposal exists but needs signatures - continue polling
+              setIsPolling(true);
+            } else if (payoutData.proposalStatus === 'EXECUTED' || payoutData.needsSignatures === 0) {
+              // Proposal executed or ready - stop polling
               setIsPolling(false);
             } else {
-              // Start polling if no proposalId yet
+              // Other status - continue polling to catch updates
               setIsPolling(true);
             }
             return;
@@ -98,8 +108,12 @@ const Result: React.FC = () => {
         setPayoutData(data);
         setLoading(false);
 
-        // If proposalId exists, stop polling; otherwise start polling
-        if (data.proposalId) {
+        // Continue polling if proposal is active and needs signatures
+        if (!data.proposalId) {
+          setIsPolling(true);
+        } else if (data.proposalStatus === 'ACTIVE' && data.needsSignatures > 0) {
+          setIsPolling(true);
+        } else if (data.proposalStatus === 'EXECUTED' || data.needsSignatures === 0) {
           setIsPolling(false);
         } else {
           setIsPolling(true);
@@ -132,7 +146,7 @@ const Result: React.FC = () => {
     loadPayoutData();
   }, [publicKey, router]);
 
-  // Poll for proposal updates when no proposalId exists
+  // Poll for proposal updates when polling is active
   useEffect(() => {
     if (!isPolling || !router.query.matchId || !publicKey) {
       return;
@@ -144,6 +158,7 @@ const Result: React.FC = () => {
     }, 3000); // Poll every 3 seconds
 
     return () => clearInterval(pollInterval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPolling, router.query.matchId, publicKey]);
 
   // Debug logging for payout data
@@ -442,7 +457,7 @@ const Result: React.FC = () => {
                   <p className="text-accent font-semibold text-lg">{notification}</p>
                 </div>
               )}
-
+              
               {/* Payout Information - Non-Custodial Proposal System */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
@@ -476,20 +491,28 @@ const Result: React.FC = () => {
                               ✅ Payment Sent to Your Wallet!
                             </div>
                           ) : (
-                            <p className="text-sm text-white/80 mb-3">
+                          <p className="text-sm text-white/80 mb-3">
                               Sign the proposal below to claim your winnings.
-                            </p>
+                          </p>
                           )}
                           
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
-                              <p className="text-sm text-white/60 mb-2">
+                              <p className={`text-sm mb-2 ${
+                                payoutData.needsSignatures === 0 
+                                  ? 'text-green-400 font-semibold'
+                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  ? 'text-yellow-400'
+                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  ? 'text-green-400 font-semibold'
+                                  : 'text-white/60'
+                              }`}>
                                 {payoutData.needsSignatures === 0 
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
                                   : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for other player to sign...'
+                                  ? '✓ You have signed. Waiting for proposal execution...'
                                   : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
-                                  ? '⏳ Other player has signed! Waiting for you to sign...'
+                                  ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>
@@ -532,7 +555,7 @@ const Result: React.FC = () => {
                               ) : (
                                 <p className="text-sm text-white/80 mb-3">
                                   Full refund: Sign proposal to claim
-                                </p>
+                            </p>
                               )}
                           </>
                         ) : (
@@ -548,20 +571,28 @@ const Result: React.FC = () => {
                               ) : (
                                 <p className="text-sm text-white/80 mb-3">
                                   95% refund: Sign proposal to claim
-                                </p>
+                            </p>
                               )}
                           </>
                         )}
                           
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
-                              <p className="text-sm text-white/60 mb-2">
+                              <p className={`text-sm mb-2 ${
+                                payoutData.needsSignatures === 0 
+                                  ? 'text-green-400 font-semibold'
+                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  ? 'text-yellow-400'
+                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  ? 'text-green-400 font-semibold'
+                                  : 'text-white/60'
+                              }`}>
                                 {payoutData.needsSignatures === 0 
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
                                   : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for other player to sign...'
+                                  ? '✓ You have signed. Waiting for proposal execution...'
                                   : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
-                                  ? '⏳ Other player has signed! Waiting for you to sign...'
+                                  ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>
@@ -594,18 +625,26 @@ const Result: React.FC = () => {
                           ) : (
                             <p className="text-sm text-white/80 mb-3">
                               Sign the proposal to help process the payout and get back to playing faster.
-                            </p>
+                          </p>
                           )}
                           
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
-                              <p className="text-sm text-white/60 mb-2">
+                              <p className={`text-sm mb-2 ${
+                                payoutData.needsSignatures === 0 
+                                  ? 'text-green-400 font-semibold'
+                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  ? 'text-yellow-400'
+                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  ? 'text-green-400 font-semibold'
+                                  : 'text-white/60'
+                              }`}>
                                 {payoutData.needsSignatures === 0 
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
                                   : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for other player to sign...'
+                                  ? '✓ You have signed. Waiting for proposal execution...'
                                   : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
-                                  ? '⏳ Other player has signed! Waiting for you to sign...'
+                                  ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>

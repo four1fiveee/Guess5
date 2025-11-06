@@ -6347,15 +6347,6 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 1 Deposit TX',
       'Player 2 Deposit TX',
       
-      // Payment Verification
-      'Player 1 Payment TX',
-      'Player 2 Payment TX',
-      'Player 1 Payment Time (EST)',
-      'Player 2 Payment Time (EST)',
-      'Player 1 Payment Block',
-      'Player 2 Payment Block',
-      'SOL Price at Transaction',
-      
       // Game Results
       'Player 1 Solved',
       'Player 1 Guesses',
@@ -6372,10 +6363,6 @@ const generateReportHandler = async (req: any, res: any) => {
       'Game Ended (EST)',
       
       // Payout Transactions
-      'Winner Payout TX',
-      'Winner Payout Time (EST)',
-      'Winner Payout Block',
-      'Fee Wallet Payout TX',
       'Executed Transaction Hash',
       
       // Proposal Info
@@ -6390,10 +6377,6 @@ const generateReportHandler = async (req: any, res: any) => {
       'Squads Vault Link',
       'Player 1 Deposit Link',
       'Player 2 Deposit Link',
-      'Player 1 Payment Link',
-      'Player 2 Payment Link',
-      'Winner Payout Link',
-      'Fee Wallet Payout Link',
       'Executed Transaction Link'
     ];
     
@@ -6694,15 +6677,6 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(matchWithSignature.depositATx),
         sanitizeCsvValue(matchWithSignature.depositBTx),
         
-        // Payment Verification
-        sanitizeCsvValue(matchWithSignature.player1PaymentSignature || ''),
-        sanitizeCsvValue(matchWithSignature.player2PaymentSignature || ''),
-        sanitizeCsvValue(matchWithSignature.player1PaymentTime ? convertToEST(matchWithSignature.player1PaymentTime) : ''),
-        sanitizeCsvValue(matchWithSignature.player2PaymentTime ? convertToEST(matchWithSignature.player2PaymentTime) : ''),
-        sanitizeCsvValue(matchWithSignature.player1PaymentBlockNumber || ''),
-        sanitizeCsvValue(matchWithSignature.player2PaymentBlockNumber || ''),
-        sanitizeCsvValue(matchWithSignature.solPriceAtTransaction || ''),
-        
         // Game Results
         sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
         sanitizeCsvValue(player1Result && player1Result.numGuesses ? player1Result.numGuesses : ''),
@@ -6719,10 +6693,6 @@ const generateReportHandler = async (req: any, res: any) => {
         convertToEST(matchWithSignature.gameEndTimeUtc),
         
         // Payout Transactions
-        sanitizeCsvValue(winnerPayoutTx),
-        sanitizeCsvValue(matchWithSignature.winnerPayoutBlockTime ? convertToEST(matchWithSignature.winnerPayoutBlockTime) : ''),
-        sanitizeCsvValue(matchWithSignature.winnerPayoutBlockNumber || ''),
-        sanitizeCsvValue(feeWalletPayoutTx),
         sanitizeCsvValue(matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId) ? matchWithSignature.proposalTransactionId : ''),
         
         // Proposal Info
@@ -6737,10 +6707,6 @@ const generateReportHandler = async (req: any, res: any) => {
         matchWithSignature.squadsVaultAddress ? `https://explorer.solana.com/address/${matchWithSignature.squadsVaultAddress}?cluster=${network}` : '',
         matchWithSignature.depositATx ? `https://explorer.solana.com/tx/${matchWithSignature.depositATx}?cluster=${network}` : '',
         matchWithSignature.depositBTx ? `https://explorer.solana.com/tx/${matchWithSignature.depositBTx}?cluster=${network}` : '',
-        matchWithSignature.player1PaymentSignature ? `https://explorer.solana.com/tx/${matchWithSignature.player1PaymentSignature}?cluster=${network}` : '',
-        matchWithSignature.player2PaymentSignature ? `https://explorer.solana.com/tx/${matchWithSignature.player2PaymentSignature}?cluster=${network}` : '',
-        winnerPayoutTx ? `https://explorer.solana.com/tx/${winnerPayoutTx}?cluster=${network}` : '',
-        feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
         (matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId)) ? `https://explorer.solana.com/tx/${matchWithSignature.proposalTransactionId}?cluster=${network}` : ''
       ];
     }));
@@ -6755,7 +6721,7 @@ const generateReportHandler = async (req: any, res: any) => {
     const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
     
     // Set response headers for CSV download
-    const filename = `guess5_matches_${startDate}${endDate ? '_to_' + endDate : ''}.csv`;
+    const filename = `Guess5.io_historical_data_${startDate}${endDate ? '_to_' + endDate : ''}.csv`;
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -6853,7 +6819,7 @@ const generateReportHandler = async (req: any, res: any) => {
         const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet-beta';
         const csvHeaders = [
           // Core Match Info
-          'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Total Pot (SOL)',
+          'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Entry Fee (USD)', 'Total Pot (SOL)',
           'Match Status', 'Winner', 'Winner Amount (SOL)', 'Platform Fee (SOL)', 'Fee Wallet Address', 'Game Completed',
           // Vault & Deposits
           'Squads Vault Address', 'Player 1 Deposit TX', 'Player 2 Deposit TX',
@@ -6863,12 +6829,12 @@ const generateReportHandler = async (req: any, res: any) => {
           // Timestamps
           'Match Created (EST)', 'Game Started (EST)', 'Game Ended (EST)',
           // Payout Transactions
-          'Executed Transaction Hash', 'Fee Wallet Payout TX',
+          'Executed Transaction Hash',
           // Proposal Info
           'Proposal ID', 'Proposal Status', 'Proposal Created At', 'Needs Signatures',
           // Explorer Links
           'Squads Vault Link', 'Player 1 Deposit Link', 'Player 2 Deposit Link',
-          'Fee Wallet Payout Link', 'Executed Transaction Link'
+          'Executed Transaction Link'
         ];
         
         const sanitizeCsvValue = (value: any) => {
@@ -6888,6 +6854,35 @@ const generateReportHandler = async (req: any, res: any) => {
           }
         };
         
+        // Helper function to calculate Entry Fee USD from SOL amount
+        // Since entry fees are standardized (5, 10, 25, 100 USD), we can use a lookup
+        const calculateEntryFeeUSD = (entryFeeSOL: number): number => {
+          // Approximate SOL amounts for standard fees (at ~$158 SOL price)
+          // Allow for some variance due to price fluctuations
+          const feeLookup: { [key: number]: number } = {
+            0.0316: 5,   // ~$5 at $158 SOL
+            0.0632: 10,  // ~$10 at $158 SOL
+            0.1580: 25,  // ~$25 at $158 SOL
+            0.6320: 100  // ~$100 at $158 SOL
+          };
+          
+          // Try exact match first
+          if (feeLookup[entryFeeSOL]) {
+            return feeLookup[entryFeeSOL];
+          }
+          
+          // Try approximate match (within 5% variance)
+          for (const [solAmount, usdAmount] of Object.entries(feeLookup)) {
+            const sol = parseFloat(solAmount);
+            if (Math.abs(entryFeeSOL - sol) / sol < 0.05) {
+              return usdAmount;
+            }
+          }
+          
+          // If no match, return empty (will be blank in CSV)
+          return 0;
+        };
+        
         const csvRows = fallbackMatches.map((match: any) => {
           const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
           const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
@@ -6896,11 +6891,7 @@ const generateReportHandler = async (req: any, res: any) => {
           const winnerAmount = match.platformFee ? totalPot - match.platformFee : (payoutResult?.winnerAmount || 0);
           const platformFee = match.platformFee || (payoutResult?.feeAmount || 0);
           const winner = payoutResult?.winner || match.winner || '';
-          
-          // Fee wallet payout transaction is same as executed transaction for completed matches
-          const feeWalletPayoutTx = (match.proposalStatus === 'EXECUTED' && match.proposalTransactionId) 
-            ? match.proposalTransactionId 
-            : '';
+          const entryFeeUSD = calculateEntryFeeUSD(match.entryFee);
           
           return [
             // Core Match Info
@@ -6908,6 +6899,7 @@ const generateReportHandler = async (req: any, res: any) => {
             sanitizeCsvValue(match.player1),
             sanitizeCsvValue(match.player2),
             sanitizeCsvValue(match.entryFee),
+            sanitizeCsvValue(entryFeeUSD || ''),
             sanitizeCsvValue(totalPot),
             sanitizeCsvValue(match.status),
             sanitizeCsvValue(winner),
@@ -6934,7 +6926,6 @@ const generateReportHandler = async (req: any, res: any) => {
             convertToEST(match.gameEndTimeUtc),
             // Payout Transactions
             sanitizeCsvValue(match.proposalTransactionId || ''),
-            sanitizeCsvValue(feeWalletPayoutTx),
             // Proposal Info
             sanitizeCsvValue(match.payoutProposalId || ''),
             sanitizeCsvValue(match.proposalStatus || ''),
@@ -6944,7 +6935,6 @@ const generateReportHandler = async (req: any, res: any) => {
             match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
             match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
             match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
-            feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
             match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
           ];
         });
@@ -6955,7 +6945,7 @@ const generateReportHandler = async (req: any, res: any) => {
         
         const crypto = require('crypto');
         const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
-        const filename = `guess5_matches_${req.query.startDate || '2025-08-16'}${req.query.endDate ? '_to_' + req.query.endDate : ''}.csv`;
+        const filename = `Guess5.io_historical_data_${req.query.startDate || '2025-08-16'}${req.query.endDate ? '_to_' + req.query.endDate : ''}.csv`;
         
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

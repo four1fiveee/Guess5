@@ -28,19 +28,19 @@ export default function Home() {
 
         {/* Main CTA */}
         <Link href="/lobby">
-          <button className="bg-accent text-primary text-lg sm:text-xl font-bold px-8 py-4 rounded-lg shadow-lg hover:bg-yellow-400 hover:shadow-xl transition-all duration-200 transform hover:scale-105 active:scale-95 mb-2 min-h-[52px] flex items-center justify-center">
-            Play Now
+          <button className="bg-gradient-to-r from-accent to-yellow-400 text-primary text-lg sm:text-xl font-bold px-10 py-5 rounded-2xl shadow-2xl hover:shadow-accent/50 hover:from-yellow-300 hover:to-accent transition-all duration-300 transform hover:scale-110 active:scale-95 mb-3 min-h-[56px] flex items-center justify-center border-2 border-accent/30 hover:border-accent/60">
+            🎮 Play Now
           </button>
         </Link>
-        <p className="text-xs sm:text-sm text-white/80 mb-4 sm:mb-6 text-center">Stake your skill, win with words</p>
+        <p className="text-xs sm:text-sm text-white/80 mb-6 sm:mb-8 text-center font-medium">Stake your skill, win with words</p>
 
         {/* How to Play - Simplified */}
-        <div className="bg-secondary bg-opacity-10 rounded-lg p-4 sm:p-6 max-w-4xl w-full text-accent shadow mb-4 sm:mb-6">
-          <h2 className="text-base sm:text-lg font-bold text-accent mb-3 sm:mb-4 text-center">How It Works</h2>
+        <div className="bg-gradient-to-br from-white/5 via-white/10 to-white/5 backdrop-blur-sm rounded-2xl p-6 sm:p-8 max-w-4xl w-full text-accent shadow-xl border border-white/20 mb-6 sm:mb-8 hover:shadow-2xl transition-all duration-300">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4 sm:mb-6 text-center">How It Works</h2>
           <div className="text-xs sm:text-sm text-white/90 space-y-2.5 sm:space-y-3">
             <div className="flex items-start space-x-2.5">
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">1.</span>
-              <span><b>Choose your stake:</b> Select $5, $20, or $100 (paid in SOL). Entry fees are held in a secure multisig vault</span>
+              <span><b>Choose your stake:</b> Select $5, $10, $25, or $100 (paid in SOL). Entry fees are held in a secure multisig vault</span>
             </div>
             <div className="flex items-start space-x-2.5">
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">2.</span>
@@ -58,9 +58,9 @@ export default function Home() {
         </div>
 
         {/* Non-Custodial Security - Improved hierarchy */}
-        <div className="bg-green-900 bg-opacity-20 border border-green-400 rounded-lg p-4 sm:p-6 max-w-4xl w-full text-accent shadow">
-          <h2 className="text-base sm:text-lg font-bold text-green-400 mb-3 text-center flex items-center justify-center gap-2">
-            <span>🔒</span>
+        <div className="bg-gradient-to-br from-green-900/30 via-green-800/20 to-green-900/30 backdrop-blur-sm border-2 border-green-400/50 rounded-2xl p-6 sm:p-8 max-w-4xl w-full text-accent shadow-xl hover:shadow-green-400/20 transition-all duration-300">
+          <h2 className="text-xl sm:text-2xl font-bold text-green-400 mb-4 text-center flex items-center justify-center gap-3">
+            <span className="text-2xl">🔒</span>
             <span>Your Funds Are Protected</span>
           </h2>
           <p className="text-xs sm:text-sm text-white/90 mb-4 text-center leading-relaxed">
@@ -90,21 +90,21 @@ export default function Home() {
         </div>
 
         {/* Quick Links */}
-        <div className="flex gap-3 mt-4 sm:mt-6 mb-4 sm:mb-6 flex-wrap justify-center">
+        <div className="flex gap-4 mt-6 sm:mt-8 mb-6 sm:mb-8 flex-wrap justify-center">
           <Link href="/info">
-            <button className="bg-white/10 hover:bg-white/20 text-white text-xs sm:text-sm font-medium px-5 py-2.5 sm:py-3 rounded-lg shadow border border-white/20 hover:border-white/30 transition-all duration-200 min-h-[44px] flex items-center justify-center">
+            <button className="bg-gradient-to-r from-white/10 to-white/5 hover:from-white/20 hover:to-white/10 text-white text-sm sm:text-base font-semibold px-6 py-3 sm:py-3.5 rounded-xl shadow-lg border border-white/20 hover:border-white/40 transition-all duration-300 min-h-[48px] flex items-center justify-center transform hover:scale-105 active:scale-95">
               📚 Rules, FAQ & Match History
             </button>
           </Link>
         </div>
 
         {/* Social Links */}
-        <div className="flex gap-4 mt-4 mb-6 justify-center items-center">
+        <div className="flex gap-4 mt-6 mb-8 justify-center items-center">
           <a
             href="https://discord.gg/CcXWUv7r"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg shadow border border-indigo-500/30 hover:border-indigo-400/50 transition-all duration-200 min-h-[44px] flex items-center justify-center gap-2"
+            className="bg-gradient-to-r from-indigo-600 to-indigo-700 hover:from-indigo-500 hover:to-indigo-600 text-white text-sm font-semibold px-6 py-3 rounded-xl shadow-lg border border-indigo-400/40 hover:border-indigo-300/60 transition-all duration-300 min-h-[48px] flex items-center justify-center gap-2 transform hover:scale-105 active:scale-95"
           >
             <span>💬</span>
             <span>Join Discord</span>
@@ -113,7 +113,7 @@ export default function Home() {
             href="https://instagram.com/Guess5.io"
             target="_blank"
             rel="noopener noreferrer"
-            className="bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-700 hover:to-pink-700 text-white text-sm font-medium px-5 py-2.5 rounded-lg shadow border border-purple-500/30 hover:border-purple-400/50 transition-all duration-200 min-h-[44px] flex items-center justify-center gap-2"
+            className="bg-gradient-to-r from-purple-600 via-pink-600 to-purple-600 hover:from-purple-500 hover:via-pink-500 hover:to-purple-500 text-white text-sm font-semibold px-6 py-3 rounded-xl shadow-lg border border-purple-400/40 hover:border-purple-300/60 transition-all duration-300 min-h-[48px] flex items-center justify-center gap-2 transform hover:scale-105 active:scale-95"
           >
             <span>📷</span>
             <span>@Guess5.io</span>

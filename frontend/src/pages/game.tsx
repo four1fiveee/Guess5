@@ -792,12 +792,12 @@ const Game: React.FC = () => {
               Return to Game
             </button>
           ) : (
-            <button
-              onClick={() => router.push('/lobby')}
-              className="bg-accent hover:bg-yellow-400 text-primary px-6 py-2.5 rounded-lg font-bold transition-all duration-200 min-h-[44px] flex items-center justify-center mx-auto"
-            >
-              Back to Lobby
-            </button>
+          <button
+            onClick={() => router.push('/lobby')}
+            className="bg-accent hover:bg-yellow-400 text-primary px-6 py-2.5 rounded-lg font-bold transition-all duration-200 min-h-[44px] flex items-center justify-center mx-auto"
+          >
+            Back to Lobby
+          </button>
           )}
         </div>
       </div>
@@ -813,21 +813,27 @@ const Game: React.FC = () => {
         
         {/* Timer */}
         {gameState === 'playing' && (
-          <div className="text-accent text-lg mb-6 font-semibold text-center">
-            <div className="flex items-center justify-center gap-2 mb-2">
-              <span>⏰</span>
-              <span>Time Remaining: {formatTime(timeRemaining)}</span>
+          <div className="bg-gradient-to-br from-white/5 via-white/10 to-white/5 backdrop-blur-sm rounded-2xl p-4 sm:p-6 mb-6 border border-white/20 shadow-xl w-full max-w-md">
+            <div className="flex items-center justify-center gap-3 mb-3">
+              <span className="text-2xl">⏰</span>
+              <span className="text-accent text-xl sm:text-2xl font-bold">Time Remaining: {formatTime(timeRemaining)}</span>
             </div>
             {/* Network Status Indicator */}
-            <div className="text-sm mt-2">
+            <div className="flex items-center justify-center gap-2 mt-3">
               {networkStatus === 'connected' && (
-                <span className="text-green-400">🟢 Connected</span>
+                <div className="flex items-center gap-2 bg-green-500/10 border border-green-400/30 rounded-full px-3 py-1">
+                  <span className="text-green-400 text-sm font-semibold">🟢 Connected</span>
+                </div>
               )}
               {networkStatus === 'reconnecting' && (
-                <span className="text-yellow-400">🟡 Reconnecting...</span>
+                <div className="flex items-center gap-2 bg-yellow-500/10 border border-yellow-400/30 rounded-full px-3 py-1">
+                  <span className="text-yellow-400 text-sm font-semibold animate-pulse">🟡 Reconnecting...</span>
+                </div>
               )}
               {networkStatus === 'disconnected' && (
-                <span className="text-red-400">🔴 Disconnected</span>
+                <div className="flex items-center gap-2 bg-red-500/10 border border-red-400/30 rounded-full px-3 py-1">
+                  <span className="text-red-400 text-sm font-semibold">🔴 Disconnected</span>
+                </div>
               )}
             </div>
           </div>
@@ -835,28 +841,32 @@ const Game: React.FC = () => {
         
         {/* Error Display */}
         {error && (
-          <div className="bg-red-500/10 border border-red-500/30 text-red-400 px-4 py-2.5 rounded-lg mb-4 text-center max-w-md w-full">
-            ❌ {error}
+          <div className="bg-gradient-to-r from-red-500/10 to-red-600/10 border-2 border-red-400/40 text-red-400 px-6 py-3 rounded-xl mb-4 text-center max-w-md w-full shadow-lg backdrop-blur-sm">
+            <div className="flex items-center justify-center gap-2">
+              <span className="text-xl">❌</span>
+              <span className="font-semibold">{error}</span>
+            </div>
           </div>
         )}
         
         {/* Waiting Message */}
         {gameState === 'waiting' && (
-          <div className="text-center mb-6">
-            <div className="text-2xl font-bold text-accent mb-2">
+          <div className="bg-gradient-to-br from-accent/10 via-yellow-500/10 to-accent/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 border-2 border-accent/30 shadow-xl max-w-md w-full text-center">
+            <div className="text-3xl sm:text-4xl font-bold text-accent mb-3 animate-bounce">
               {playerResult?.won ? '🎉 You solved it!' : '🏁 You finished!'}
             </div>
-            <div className="text-white text-lg mb-4">
+            <div className="text-white text-lg sm:text-xl mb-4 font-semibold">
               Your Guesses: {playerResult?.numGuesses || guesses.length}/7
               {playerResult?.numGuesses === 7 && ' (All guesses used)'}
             </div>
-            <div className="text-accent text-lg font-semibold mb-4">
-              ⏳ Waiting for opponent to finish...
+            <div className="text-accent text-xl font-bold mb-4 flex items-center justify-center gap-2">
+              <span className="animate-spin">⏳</span>
+              <span>Waiting for opponent to finish...</span>
             </div>
-            <div className="text-white/60 text-sm mb-4">
+            <div className="text-white/70 text-sm mb-3">
               Results will be available once both players complete the game
             </div>
-            <div className="text-white/40 text-xs">
+            <div className="text-white/50 text-xs">
               Processing your result... Please wait
             </div>
           </div>
@@ -878,11 +888,11 @@ const Game: React.FC = () => {
 
         {/* Game Results */}
         {gameState === 'solved' && (
-          <div className="text-center mb-6">
-            <div className="text-2xl font-bold text-accent mb-2">
+          <div className="bg-gradient-to-br from-white/5 via-white/10 to-white/5 backdrop-blur-sm rounded-2xl p-6 mb-6 border border-white/20 shadow-xl max-w-md w-full text-center">
+            <div className="text-3xl font-bold text-accent mb-3">
               {playerResult?.won ? '🎉 You solved it!' : '❌ Game Over'}
             </div>
-            <div className="text-white text-lg">
+            <div className="text-white text-xl font-semibold">
               Guesses: {playerResult?.numGuesses || 0}/7
             </div>
           </div>
@@ -890,12 +900,12 @@ const Game: React.FC = () => {
 
         {/* Game Completed */}
         {gameState === 'completed' && (
-          <div className="text-center mb-6 animate-fade-in">
-            <div className="text-2xl font-bold text-accent mb-3">
+          <div className="bg-gradient-to-br from-accent/10 via-yellow-500/10 to-accent/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 border-2 border-accent/30 shadow-xl max-w-md w-full text-center animate-fade-in">
+            <div className="text-3xl sm:text-4xl font-bold text-accent mb-4">
               {playerResult?.won ? '🏆 You Won!' : '😔 You Lost'}
             </div>
-            <div className="flex items-center justify-center text-white/80 text-lg">
-              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent mr-2"></div>
+            <div className="flex items-center justify-center text-white/90 text-lg font-semibold">
+              <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
               Processing payment...
             </div>
           </div>
