@@ -5556,9 +5556,13 @@ const generateReportHandler = async (req: any, res: any) => {
       }
 
       // Fee wallet payout transaction is same as executed transaction for completed matches
-      const feeWalletPayoutTx = (match.proposalStatus === 'EXECUTED' && match.proposalTransactionId) 
+      // proposalTransactionId should be the execution transaction signature, not the proposal ID
+      const feeWalletPayoutTx = (match.proposalStatus === 'EXECUTED' && match.proposalTransactionId && match.proposalTransactionId.length > 20) 
         ? match.proposalTransactionId 
         : '';
+      
+      // Winner payout signature should be the same as execution transaction
+      const winnerPayoutTx = match.winnerPayoutSignature || match.proposalTransactionId || '';
       
       return [
         // Core Match Info
