@@ -1369,14 +1369,20 @@ const submitResultHandler = async (req: any, res: any) => {
       return res.status(404).json({ error: 'Game not found or already completed' });
     }
 
-    // SERVER-SIDE VALIDATION: Validate player is part of this match
+    // SERVER-SIDE VALIDATION: Validate player is part of this match using raw SQL
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
+    const matchRows = await matchRepository.query(`
+      SELECT id, "player1", "player2", "player1Result", "player2Result"
+      FROM "match"
+      WHERE id = $1
+    `, [matchId]);
     
-    if (!match) {
+    if (!matchRows || matchRows.length === 0) {
       return res.status(404).json({ error: 'Match not found' });
     }
+
+    const match = matchRows[0];
 
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
@@ -1389,7 +1395,9 @@ const submitResultHandler = async (req: any, res: any) => {
 
     // SERVER-SIDE VALIDATION: Check if player already submitted
     // Make idempotent - if already submitted, return success (prevents duplicate submission errors)
-    const existingResult = isPlayer1 ? match.getPlayer1Result() : match.getPlayer2Result();
+    // Parse player results from JSON strings
+    const existingResultRaw = isPlayer1 ? match.player1Result : match.player2Result;
+    const existingResult = existingResultRaw ? (typeof existingResultRaw === 'string' ? JSON.parse(existingResultRaw) : existingResultRaw) : null;
     if (existingResult) {
       console.log('✅ Player already submitted result, returning existing result (idempotent)', {
         matchId,
@@ -1471,40 +1479,37 @@ const submitResultHandler = async (req: any, res: any) => {
     // Save updated game state to Redis
     await setGameState(matchId, serverGameState);
 
-    // Use database transaction to prevent race conditions
+    // Use database transaction to prevent race conditions with raw SQL
     await AppDataSource.transaction(async (manager: any) => {
-      // Reload the match within the transaction to get the latest state
-      const freshMatch = await manager.findOne(Match, { where: { id: matchId } });
-      if (!freshMatch) {
-        throw new Error('Match not found in transaction');
-      }
-      
-
-      
-      // Set the result for this player
-      if (isPlayer1) {
-        freshMatch.setPlayer1Result(serverValidatedResult);
-      } else {
-        freshMatch.setPlayer2Result(serverValidatedResult);
-      }
-      
-      // Save within the transaction
-      await manager.save(freshMatch);
+      // Update the result for this player using raw SQL
+      const resultColumn = isPlayer1 ? 'player1Result' : 'player2Result';
+      await manager.query(`
+        UPDATE "match"
+        SET "${resultColumn}" = $1, "updatedAt" = $2
+        WHERE id = $3
+      `, [JSON.stringify(serverValidatedResult), new Date(), matchId]);
       
       // Update the local match object for consistency
       if (isPlayer1) {
-        match.setPlayer1Result(serverValidatedResult);
+        match.player1Result = JSON.stringify(serverValidatedResult);
       } else {
-        match.setPlayer2Result(serverValidatedResult);
+        match.player2Result = JSON.stringify(serverValidatedResult);
       }
     });
 
 
 
-    // Check if both players have submitted results (regardless of win/loss)
-    const updatedMatch = await AppDataSource.manager.findOne(Match, { where: { id: matchId } });
-    const player1Result = updatedMatch?.getPlayer1Result();
-    const player2Result = updatedMatch?.getPlayer2Result();
+    // Check if both players have submitted results (regardless of win/loss) using raw SQL
+    const updatedMatchRows = await matchRepository.query(`
+      SELECT "player1Result", "player2Result"
+      FROM "match"
+      WHERE id = $1
+    `, [matchId]);
+    const updatedMatch = updatedMatchRows?.[0];
+    const player1ResultRaw = updatedMatch?.player1Result;
+    const player2ResultRaw = updatedMatch?.player2Result;
+    const player1Result = player1ResultRaw ? (typeof player1ResultRaw === 'string' ? JSON.parse(player1ResultRaw) : player1ResultRaw) : null;
+    const player2Result = player2ResultRaw ? (typeof player2ResultRaw === 'string' ? JSON.parse(player2ResultRaw) : player2ResultRaw) : null;
     
 
 
@@ -1529,19 +1534,29 @@ const submitResultHandler = async (req: any, res: any) => {
                            (player2Result && player2Result.reason === 'timeout' && !player1Result);
       
       if (shouldComplete) {
-        // Use transaction to ensure atomic winner determination
+        // Use transaction to ensure atomic winner determination with raw SQL
         let updatedMatch: any = null;
         const payoutResult = await AppDataSource.transaction(async (manager: any) => {
-          // Get the latest match data with both results within the transaction
-          updatedMatch = await manager.findOne(Match, { where: { id: matchId } });
-          if (!updatedMatch) {
+          // Get the latest match data with both results within the transaction using raw SQL
+          const matchRows = await manager.query(`
+            SELECT "player1Result", "player2Result", winner, "isCompleted"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          
+          if (!matchRows || matchRows.length === 0) {
             throw new Error('Match not found during winner determination');
           }
           
-          // Handle case where one player times out and the other never gets to the game
-          const player1Result = updatedMatch.getPlayer1Result();
-          const player2Result = updatedMatch.getPlayer2Result();
+          updatedMatch = matchRows[0];
           
+          // Parse player results from JSON strings
+          const player1ResultRaw = updatedMatch.player1Result;
+          const player2ResultRaw = updatedMatch.player2Result;
+          const player1Result = player1ResultRaw ? (typeof player1ResultRaw === 'string' ? JSON.parse(player1ResultRaw) : player1ResultRaw) : null;
+          const player2Result = player2ResultRaw ? (typeof player2ResultRaw === 'string' ? JSON.parse(player2ResultRaw) : player2ResultRaw) : null;
+          
+          // Handle case where one player times out and the other never gets to the game
           if ((player1Result && player1Result.reason === 'timeout' && !player2Result) ||
               (player2Result && player2Result.reason === 'timeout' && !player1Result)) {
             console.log('⏰ One player timed out, other player never got to game - creating timeout result for missing player');
@@ -1556,19 +1571,57 @@ const submitResultHandler = async (req: any, res: any) => {
             };
             
             if (!player1Result) {
-              updatedMatch.setPlayer1Result(timeoutResult);
+              await manager.query(`
+                UPDATE "match"
+                SET "player1Result" = $1, "updatedAt" = $2
+                WHERE id = $3
+              `, [JSON.stringify(timeoutResult), new Date(), matchId]);
             } else if (!player2Result) {
-              updatedMatch.setPlayer2Result(timeoutResult);
+              await manager.query(`
+                UPDATE "match"
+                SET "player2Result" = $1, "updatedAt" = $2
+                WHERE id = $3
+              `, [JSON.stringify(timeoutResult), new Date(), matchId]);
             }
             
-            // Save the updated match
-            await manager.save(updatedMatch);
+            // Reload results after update
+            const updatedRows = await manager.query(`
+              SELECT "player1Result", "player2Result"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            const updated = updatedRows?.[0];
+            const updatedPlayer1ResultRaw = updated?.player1Result;
+            const updatedPlayer2ResultRaw = updated?.player2Result;
+            const updatedPlayer1Result = updatedPlayer1ResultRaw ? (typeof updatedPlayer1ResultRaw === 'string' ? JSON.parse(updatedPlayer1ResultRaw) : updatedPlayer1ResultRaw) : null;
+            const updatedPlayer2Result = updatedPlayer2ResultRaw ? (typeof updatedPlayer2ResultRaw === 'string' ? JSON.parse(updatedPlayer2ResultRaw) : updatedPlayer2ResultRaw) : null;
+            
+            const result = await determineWinnerAndPayout(matchId, updatedPlayer1Result, updatedPlayer2Result, manager);
+            
+            // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
+            const matchWithWinnerRows = await manager.query(`
+              SELECT winner, "isCompleted"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            const matchWithWinner = matchWithWinnerRows?.[0];
+            if (matchWithWinner) {
+              updatedMatch.winner = matchWithWinner.winner;
+              updatedMatch.isCompleted = matchWithWinner.isCompleted;
+            }
+            
+            return result;
           }
           
-          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result(), manager);
+          const result = await determineWinnerAndPayout(matchId, player1Result, player2Result, manager);
           
           // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
-          const matchWithWinner = await manager.findOne(Match, { where: { id: matchId } });
+          const matchWithWinnerRows = await manager.query(`
+            SELECT winner, "isCompleted"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          const matchWithWinner = matchWithWinnerRows?.[0];
           if (matchWithWinner) {
             updatedMatch.winner = matchWithWinner.winner;
             updatedMatch.isCompleted = matchWithWinner.isCompleted;
@@ -1577,9 +1630,14 @@ const submitResultHandler = async (req: any, res: any) => {
           return result;
         });
         
-        // IMPORTANT: Reload match after transaction to ensure we have the latest winner
+        // IMPORTANT: Reload match after transaction to ensure we have the latest winner using raw SQL
         const matchRepository = AppDataSource.getRepository(Match);
-        updatedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        const finalMatchRows = await matchRepository.query(`
+          SELECT id, winner, "isCompleted", "player1Result", "player2Result"
+          FROM "match"
+          WHERE id = $1
+        `, [matchId]);
+        updatedMatch = finalMatchRows?.[0];
         if (!updatedMatch) {
           throw new Error('Match not found after transaction');
         }
@@ -1803,9 +1861,9 @@ const submitResultHandler = async (req: any, res: any) => {
           message: 'Game completed - winner determined'
         });
       } else {
-        // Both players haven't finished yet - save partial result and wait
+        // Both players haven't finished yet - save partial result and wait using raw SQL
         console.log('⏳ Not all players finished yet, waiting for other player');
-        await matchRepository.save(match);
+        // Result was already saved in the transaction above, no need to save again
         
         res.json({
           status: 'waiting',
@@ -2310,16 +2368,19 @@ const submitResultHandler = async (req: any, res: any) => {
                   );
 
                   if (proposalResult.success && proposalResult.proposalId) {
-                    (updatedMatch as any).payoutProposalId = proposalResult.proposalId;
-                    (updatedMatch as any).proposalCreatedAt = new Date();
-                    (updatedMatch as any).proposalStatus = 'ACTIVE';
-                    (updatedMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
-                    await matchRepository.save(updatedMatch);
+                    await matchRepository.query(`
+                      UPDATE "match"
+                      SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3, "needsSignatures" = $4, "updatedAt" = $5
+                      WHERE id = $6
+                    `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 1, new Date(), updatedMatch.id]);
                     console.log('✅ Winner payout proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                   }
                 } else {
-                  const player1Result = updatedMatch.getPlayer1Result();
-                  const player2Result = updatedMatch.getPlayer2Result();
+                  // Parse player results from JSON strings
+                  const player1ResultRaw = updatedMatch.player1Result;
+                  const player2ResultRaw = updatedMatch.player2Result;
+                  const player1Result = player1ResultRaw ? (typeof player1ResultRaw === 'string' ? JSON.parse(player1ResultRaw) : player1ResultRaw) : null;
+                  const player2Result = player2ResultRaw ? (typeof player2ResultRaw === 'string' ? JSON.parse(player2ResultRaw) : player2ResultRaw) : null;
                   const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
                   
                   if (isLosingTie) {
@@ -2334,12 +2395,11 @@ const submitResultHandler = async (req: any, res: any) => {
                     );
 
                     if (proposalResult.success && proposalResult.proposalId) {
-                      (updatedMatch as any).payoutProposalId = proposalResult.proposalId;
-                      (updatedMatch as any).tieRefundProposalId = proposalResult.proposalId;
-                      (updatedMatch as any).proposalCreatedAt = new Date();
-                      (updatedMatch as any).proposalStatus = 'ACTIVE';
-                      (updatedMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
-                      await matchRepository.save(updatedMatch);
+                      await matchRepository.query(`
+                        UPDATE "match"
+                        SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "updatedAt" = $6
+                        WHERE id = $7
+                      `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 1, new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                     }
                   }
@@ -2361,9 +2421,9 @@ const submitResultHandler = async (req: any, res: any) => {
           message: 'Game completed - winner determined'
         });
       } else {
-        // Both players haven't finished yet - save partial result and wait
+        // Both players haven't finished yet - save partial result and wait using raw SQL
         console.log('⏳ Not all players finished yet (non-solved case), waiting for other player');
-        await matchRepository.save(match);
+        // Result was already saved in the transaction above, no need to save again
         
         res.json({
           status: 'waiting',
