@@ -126,31 +126,23 @@ class ProposalExpirationService {
     const refundAmount = entryFee * 0.95; // 95% refund for losing tie
 
     try {
-      // Create refund proposal for player 1
-      const player1Refund = await squadsVaultService.proposeRefund(
+      // Use proposeTieRefund to refund both players
+      const refundProposal = await squadsVaultService.proposeTieRefund(
         match.squadsVaultAddress,
         new PublicKey(match.player1),
-        refundAmount
-      );
-
-      if (player1Refund.success) {
-        enhancedLogger.info(`✅ Created refund proposal for player 1 (expired match)`, {
-          matchId: match.id,
-          proposalId: player1Refund.proposalId
-        });
-      }
-
-      // Create refund proposal for player 2
-      const player2Refund = await squadsVaultService.proposeRefund(
-        match.squadsVaultAddress,
         new PublicKey(match.player2),
         refundAmount
       );
 
-      if (player2Refund.success) {
-        enhancedLogger.info(`✅ Created refund proposal for player 2 (expired match)`, {
+      if (refundProposal.success) {
+        enhancedLogger.info(`✅ Created tie refund proposal for expired match`, {
           matchId: match.id,
-          proposalId: player2Refund.proposalId
+          proposalId: refundProposal.proposalId
+        });
+      } else {
+        enhancedLogger.error(`❌ Failed to create tie refund proposal:`, {
+          matchId: match.id,
+          error: refundProposal.error
         });
       }
     } catch (error: unknown) {
@@ -174,30 +166,24 @@ class ProposalExpirationService {
     const entryFee = match.entryFee;
 
     try {
-      // Refund both players their full entry fees
-      const player1Refund = await squadsVaultService.proposeRefund(
+      // Use proposeTieRefund to refund both players their full entry fees
+      // Note: proposeTieRefund refunds both players, so we use entryFee as the refund amount
+      const refundProposal = await squadsVaultService.proposeTieRefund(
         match.squadsVaultAddress,
         new PublicKey(match.player1),
-        entryFee
-      );
-
-      if (player1Refund.success) {
-        enhancedLogger.info(`✅ Created full refund proposal for player 1 (expired match)`, {
-          matchId: match.id,
-          proposalId: player1Refund.proposalId
-        });
-      }
-
-      const player2Refund = await squadsVaultService.proposeRefund(
-        match.squadsVaultAddress,
         new PublicKey(match.player2),
-        entryFee
+        entryFee // Each player gets this amount back
       );
 
-      if (player2Refund.success) {
-        enhancedLogger.info(`✅ Created full refund proposal for player 2 (expired match)`, {
+      if (refundProposal.success) {
+        enhancedLogger.info(`✅ Created full refund proposal for expired match`, {
           matchId: match.id,
-          proposalId: player2Refund.proposalId
+          proposalId: refundProposal.proposalId
+        });
+      } else {
+        enhancedLogger.error(`❌ Failed to create full refund proposal:`, {
+          matchId: match.id,
+          error: refundProposal.error
         });
       }
     } catch (error: unknown) {
