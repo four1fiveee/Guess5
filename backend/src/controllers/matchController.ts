@@ -1719,6 +1719,15 @@ const submitResultHandler = async (req: any, res: any) => {
         }
         
         // Execute Squads proposal for winner payout (same as non-solved case)
+        console.log('🔍 Checking if proposal should be created:', {
+          hasPayoutResult: !!payoutResult,
+          winner: payoutResult?.winner,
+          isTie: payoutResult?.winner === 'tie',
+          hasVaultAddress: !!updatedMatch.squadsVaultAddress,
+          vaultAddress: updatedMatch.squadsVaultAddress,
+          entryFee: updatedMatch.entryFee,
+        });
+        
         if (payoutResult && payoutResult.winner && payoutResult.winner !== 'tie') {
           
           const winner = payoutResult.winner;
@@ -1729,6 +1738,17 @@ const submitResultHandler = async (req: any, res: any) => {
           const totalPot = entryFee * 2; // Total pot is both players' entry fees
           const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
           const feeAmount = totalPot * 0.05; // 5% fee from total pot
+          
+          console.log('💰 Creating winner payout proposal:', {
+            matchId: updatedMatch.id,
+            winner,
+            loser,
+            entryFee,
+            totalPot,
+            winnerAmount,
+            feeAmount,
+            vaultAddress: updatedMatch.squadsVaultAddress,
+          });
           
           // Create Squads proposal for winner payout
           if (!updatedMatch.squadsVaultAddress) {
