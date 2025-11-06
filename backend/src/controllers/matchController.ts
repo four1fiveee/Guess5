@@ -5556,25 +5556,54 @@ const generateReportHandler = async (req: any, res: any) => {
           // Check if transaction account exists (if not, it's been executed)
           const transactionAccount = await connection.getAccountInfo(transactionPda);
           if (!transactionAccount) {
-            // Transaction executed, find execution signature
-            const signatures = await connection.getSignaturesForAddress(transactionPda, { limit: 1 });
-            if (signatures.length > 0) {
-              const executionSignature = signatures[0].signature;
-              match.proposalTransactionId = executionSignature;
-              match.winnerPayoutSignature = executionSignature;
-              
-              // Get transaction details for timestamps
-              const txDetails = await connection.getTransaction(executionSignature, {
-                commitment: 'confirmed',
-                maxSupportedTransactionVersion: 0
-              });
-              
-              if (txDetails) {
-                match.winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
-                match.winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
+            // Transaction executed - find execution transaction by looking for recent transactions
+            // from the vault that transferred funds to the winner or fee wallet
+            const vaultAddress = new PublicKey(match.squadsVaultAddress);
+            const winnerAddress = match.winner && match.winner !== 'tie' ? new PublicKey(match.winner) : null;
+            const feeWalletAddress = new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
+            
+            // Get recent transactions from vault (last 100, should include execution)
+            const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 100 });
+            
+            // Find the execution transaction by checking transactions that involve the winner or fee wallet
+            for (const sigInfo of vaultSignatures) {
+              try {
+                const tx = await connection.getTransaction(sigInfo.signature, {
+                  commitment: 'confirmed',
+                  maxSupportedTransactionVersion: 0
+                });
+                
+                if (tx && tx.meta && !tx.meta.err) {
+                  // Check if transaction involves winner or fee wallet
+                  const postTokenBalances = tx.meta.postTokenBalances || [];
+                  const postBalances = tx.meta.postBalances || [];
+                  const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
+                    typeof key === 'string' ? key : key.pubkey.toString()
+                  );
+                  
+                  // Check if winner or fee wallet received funds in this transaction
+                  const winnerInvolved = winnerAddress && accountKeys.includes(winnerAddress.toString());
+                  const feeWalletInvolved = accountKeys.includes(feeWalletAddress.toString());
+                  
+                  // Check execution time is after proposal creation
+                  const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
+                  const proposalTime = match.proposalCreatedAt ? new Date(match.proposalCreatedAt).getTime() : 0;
+                  
+                  if ((winnerInvolved || feeWalletInvolved) && txTime >= proposalTime - 60000) {
+                    // This is likely the execution transaction
+                    match.proposalTransactionId = sigInfo.signature;
+                    match.winnerPayoutSignature = sigInfo.signature;
+                    match.winnerPayoutBlockTime = tx.blockTime ? new Date(tx.blockTime * 1000) : undefined;
+                    match.winnerPayoutBlockNumber = tx.slot ? tx.slot.toString() : undefined;
+                    
+                    console.log(`✅ Backfilled execution signature for match ${match.id}: ${sigInfo.signature}`);
+                    break;
+                  }
+                }
+              } catch (txError: any) {
+                // Skip if we can't fetch this transaction
+                continue;
               }
-              
-              console.log(`✅ Backfilled execution signature for match ${match.id}: ${executionSignature}`);
             }
           }
         } catch (error: any) {
@@ -7352,11 +7381,44 @@ const signProposalHandler = async (req: any, res: any) => {
           // Transaction has been executed (account no longer exists)
           console.log('✅ Proposal executed - transaction account no longer exists');
           
-          // Try to find the execution transaction by checking recent transactions
-          // Look for transactions that closed the transaction account
-          const signatures = await connection.getSignaturesForAddress(transactionPda, { limit: 1 });
-          if (signatures.length > 0) {
-            const executionSignature = signatures[0].signature;
+          // Find execution transaction by looking for recent transactions from vault
+          const vaultAddress = multisigAddress;
+          const winnerAddress = match.winner && match.winner !== 'tie' ? new PublicKey(match.winner) : null;
+          const feeWalletAddress = new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt');
+          
+          // Get recent transactions from vault
+          const vaultSignatures = await connection.getSignaturesForAddress(vaultAddress, { limit: 50 });
+          
+          // Find execution transaction
+          let executionSignature: string | null = null;
+          for (const sigInfo of vaultSignatures) {
+            try {
+              const tx = await connection.getTransaction(sigInfo.signature, {
+                commitment: 'confirmed',
+                maxSupportedTransactionVersion: 0
+              });
+              
+              if (tx && tx.meta && !tx.meta.err) {
+                const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
+                  typeof key === 'string' ? key : key.pubkey.toString()
+                );
+                
+                const winnerInvolved = winnerAddress && accountKeys.includes(winnerAddress.toString());
+                const feeWalletInvolved = accountKeys.includes(feeWalletAddress.toString());
+                const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
+                const proposalTime = (match as any).proposalCreatedAt ? new Date((match as any).proposalCreatedAt).getTime() : 0;
+                
+                if ((winnerInvolved || feeWalletInvolved) && txTime >= proposalTime - 60000) {
+                  executionSignature = sigInfo.signature;
+                  break;
+                }
+              }
+            } catch (txError: any) {
+              continue;
+            }
+          }
+          
+          if (executionSignature) {
             const txDetails = await connection.getTransaction(executionSignature, {
               commitment: 'confirmed',
               maxSupportedTransactionVersion: 0
@@ -7365,7 +7427,7 @@ const signProposalHandler = async (req: any, res: any) => {
             if (txDetails) {
               (match as any).proposalStatus = 'EXECUTED';
               (match as any).proposalTransactionId = executionSignature;
-              (match as any).winnerPayoutSignature = executionSignature; // Same transaction for winner payout
+              (match as any).winnerPayoutSignature = executionSignature;
               (match as any).proposalExecutedAt = new Date(txDetails.blockTime ? txDetails.blockTime * 1000 : Date.now());
               (match as any).winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
               (match as any).winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
@@ -7378,7 +7440,7 @@ const signProposalHandler = async (req: any, res: any) => {
               });
             }
           } else {
-            // Fallback: mark as executed but without signature (will need to be looked up later)
+            // Fallback: mark as executed but without signature
             (match as any).proposalStatus = 'EXECUTED';
             (match as any).proposalExecutedAt = new Date();
             console.log('⚠️ Proposal executed but execution signature not found');
