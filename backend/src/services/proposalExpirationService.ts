@@ -224,6 +224,27 @@ class ProposalExpirationService {
   }
 }
 
-// Export singleton instance
-export const proposalExpirationService = new ProposalExpirationService();
+// Export singleton instance via getter to avoid initialization issues
+let _proposalExpirationServiceInstance: ProposalExpirationService | null = null;
+
+export const proposalExpirationService = {
+  async scanForExpiredProposals(): Promise<void> {
+    if (!_proposalExpirationServiceInstance) {
+      _proposalExpirationServiceInstance = new ProposalExpirationService();
+    }
+    return _proposalExpirationServiceInstance.scanForExpiredProposals();
+  },
+  setProposalExpiration(match: Match): void {
+    if (!_proposalExpirationServiceInstance) {
+      _proposalExpirationServiceInstance = new ProposalExpirationService();
+    }
+    return _proposalExpirationServiceInstance.setProposalExpiration(match);
+  },
+  isProposalExpired(match: Match): boolean {
+    if (!_proposalExpirationServiceInstance) {
+      _proposalExpirationServiceInstance = new ProposalExpirationService();
+    }
+    return _proposalExpirationServiceInstance.isProposalExpired(match);
+  }
+};
 
