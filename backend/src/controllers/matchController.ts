@@ -5562,7 +5562,12 @@ const generateReportHandler = async (req: any, res: any) => {
         : '';
       
       // Winner payout signature should be the same as execution transaction
-      const winnerPayoutTx = match.winnerPayoutSignature || match.proposalTransactionId || '';
+      // Only use if it's an actual signature (length > 20), not a proposal ID
+      const winnerPayoutTx = (match.winnerPayoutSignature && match.winnerPayoutSignature.length > 20) 
+        ? match.winnerPayoutSignature 
+        : (match.proposalTransactionId && match.proposalTransactionId.length > 20) 
+          ? match.proposalTransactionId 
+          : '';
       
       return [
         // Core Match Info
