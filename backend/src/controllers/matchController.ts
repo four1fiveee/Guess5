@@ -5528,8 +5528,12 @@ const generateReportHandler = async (req: any, res: any) => {
     // Helper function to backfill execution signatures for old matches
     const backfillExecutionSignature = async (match: any) => {
       // Only backfill if proposal is EXECUTED but has invalid transaction ID
-      if (match.proposalStatus === 'EXECUTED' && 
-          (!match.proposalTransactionId || match.proposalTransactionId.length <= 20)) {
+      // Check if proposalTransactionId is missing, too short, or is just a numeric proposal ID (not a transaction signature)
+      const hasValidTxId = match.proposalTransactionId && 
+                           match.proposalTransactionId.length > 40 && 
+                           !/^\d+$/.test(match.proposalTransactionId); // Not just digits (proposal ID)
+      
+      if (match.proposalStatus === 'EXECUTED' && !hasValidTxId) {
         try {
           const { Connection, PublicKey } = require('@solana/web3.js');
           const connection = new Connection(
