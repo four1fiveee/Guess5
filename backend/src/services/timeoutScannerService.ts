@@ -223,6 +223,10 @@ export class TimeoutScannerService {
         const { determineWinnerAndPayout } = require('../controllers/matchController');
         const matchRepository = AppDataSource.getRepository(Match);
         
+        // Declare variables outside transaction so they're accessible after
+        let finalPlayer1Result: any = null;
+        let finalPlayer2Result: any = null;
+        
         // Use database transaction with FOR UPDATE lock to prevent concurrent modifications
         const payoutResult = await AppDataSource.transaction(async (manager: any) => {
           // Reload match with row-level lock
@@ -276,8 +280,8 @@ export class TimeoutScannerService {
             abandoned: true
           };
 
-          let finalPlayer1Result = freshPlayer1Result;
-          let finalPlayer2Result = freshPlayer2Result;
+          finalPlayer1Result = freshPlayer1Result;
+          finalPlayer2Result = freshPlayer2Result;
 
           // Set timeout result for missing player
           if (!freshPlayer1Result && player2Finished) {
