@@ -369,21 +369,29 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         throw new Error('Match data not found in Redis after creation');
       }
       
-      // Create database record for the match FIRST
-      const newMatch = new Match();
-      newMatch.id = matchData.matchId;
-      newMatch.player1 = matchData.player1;
-      newMatch.player2 = matchData.player2;
-      newMatch.entryFee = matchData.entryFee;
-      newMatch.status = 'payment_required';
-      newMatch.matchStatus = 'PENDING';
-      newMatch.word = getRandomWord();
-      newMatch.createdAt = new Date(matchData.createdAt);
-      newMatch.updatedAt = new Date();
-      
-      // CRITICAL: Save match to database FIRST and ensure it's committed
+      // Create database record for the match FIRST using raw SQL to avoid column issues
       // This ensures both players can find the match immediately via checkPlayerMatch
-      await matchRepository.save(newMatch);
+      const word = getRandomWord();
+      const now = new Date();
+      const createdAt = new Date(matchData.createdAt);
+      
+      await matchRepository.query(`
+        INSERT INTO "match" (
+          id, "player1", "player2", "entryFee", status, "matchStatus", word,
+          "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (id) DO NOTHING
+      `, [
+        matchData.matchId,
+        matchData.player1,
+        matchData.player2,
+        matchData.entryFee,
+        'payment_required',
+        'PENDING',
+        word,
+        createdAt,
+        now
+      ]);
       
       // Verify the match was saved by reloading it using raw SQL
       const savedMatchRows = await matchRepository.query(`
