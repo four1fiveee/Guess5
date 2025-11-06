@@ -8,7 +8,7 @@ import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
 
-const ENTRY_FEES_USD = [1, 5, 20, 100];
+const ENTRY_FEES_USD = [5, 20, 100];
 
 // Fetch live SOL/USD price from backend (avoids CORS issues)
 const fetchSolPrice = async () => {
@@ -267,252 +267,342 @@ export default function Lobby() {
     }
   }
 
+  // Calculate potential winnings for each tier
+  const calculatePotentialWinnings = (usdAmount: number) => {
+    return (usdAmount * 2 * 0.95).toFixed(2); // 95% of total pot
+  };
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 py-8 relative">
       <TopRightWallet />
-      <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6 sm:mb-8" />
-        
-                 {/* Back to Home Button */}
-         <button
-           onClick={() => router.push('/')}
-           className="mb-4 bg-white/10 hover:bg-white/20 text-white px-4 py-2.5 sm:py-3 rounded-lg transition-all duration-200 text-xs sm:text-sm border border-white/20 hover:border-white/30 min-h-[44px] flex items-center justify-center"
-         >
-           ← Back to Home
-         </button>
-        
-        <WalletConnectButton />
-        
+      
+      <div className="flex flex-col items-center w-full max-w-6xl">
+        {/* Logo and Header */}
+        <div className="flex flex-col items-center mb-6 sm:mb-8">
+          <Image 
+            src={logo} 
+            alt="Guess5 Logo" 
+            width={180} 
+            height={180} 
+            className="mb-4 sm:mb-6 drop-shadow-lg" 
+          />
+          <button
+            onClick={() => router.push('/')}
+            className="mb-4 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg transition-all duration-200 text-sm border border-white/20 hover:border-white/30 backdrop-blur-sm"
+          >
+            ← Back to Home
+          </button>
+        </div>
+
+        {/* Wallet Connection */}
+        <div className="mb-6">
+          <WalletConnectButton />
+        </div>
+
         {!publicKey ? (
-          <div className="text-white text-xl text-center">
-            Please connect your wallet to continue
+          <div className="bg-secondary bg-opacity-10 rounded-2xl p-8 max-w-md w-full text-center border border-white/10 backdrop-blur-sm">
+            <div className="text-white text-lg font-medium mb-2">Connect Your Wallet</div>
+            <div className="text-white/70 text-sm">Please connect your Phantom wallet to start playing</div>
           </div>
         ) : (
-          <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-accent shadow">
-            <h2 className="text-2xl font-bold text-accent mb-4 text-center">Choose Entry Fee</h2>
-            
-            {solPrice && (
-              <div className="text-white/80 text-center mb-4">
-                Current SOL Price: ${solPrice.toFixed(2)}
-                {solPrice === 100 && (
-                  <div className="text-yellow-400 text-sm mt-1">
-                    ⚠️ Using fallback price - live price fetch may have failed
+          <div className="w-full">
+            {/* Main Content Card */}
+            <div className="bg-gradient-to-br from-secondary/20 to-secondary/10 rounded-2xl p-6 sm:p-8 border border-white/10 backdrop-blur-sm shadow-2xl">
+              {/* Header Section */}
+              <div className="text-center mb-8">
+                <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-3 bg-gradient-to-r from-accent to-yellow-400 bg-clip-text text-transparent">
+                  Choose Your Entry Fee
+                </h1>
+                <p className="text-white/80 text-sm sm:text-base mb-4">
+                  Select your stake level and compete for the pot
+                </p>
+                
+                {/* SOL Price Display */}
+                {solPrice && (
+                  <div className="inline-flex items-center gap-3 bg-black/30 rounded-full px-4 py-2 border border-white/10">
+                    <span className="text-white/90 text-sm font-medium">SOL Price:</span>
+                    <span className="text-accent font-bold text-base">${solPrice.toFixed(2)}</span>
+                    <button
+                      onClick={async () => {
+                        console.log('🔄 Manual SOL price refresh requested');
+                        const price = await fetchSolPrice();
+                        setSolPrice(price);
+                        if (price && price > 0) {
+                          const calculatedAmounts = ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4));
+                          setSolAmounts(calculatedAmounts);
+                        }
+                      }}
+                      className="text-blue-400 hover:text-blue-300 text-sm transition-colors"
+                      title="Refresh SOL price"
+                    >
+                      🔄
+                    </button>
                   </div>
                 )}
-                <button
-                  onClick={async () => {
-                    console.log('🔄 Manual SOL price refresh requested');
-                    const price = await fetchSolPrice();
-                    setSolPrice(price);
-                    if (price && price > 0) {
-                      const calculatedAmounts = ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4));
-                      setSolAmounts(calculatedAmounts);
-                    }
-                  }}
-                  className="ml-2 text-blue-400 hover:text-blue-300 text-sm underline"
-                >
-                  🔄 Refresh
-                </button>
+                
+                {!solPrice && (
+                  <div className="text-yellow-400 text-sm">
+                    🔄 Loading SOL price...
+                  </div>
+                )}
               </div>
-            )}
-            
-            {!solPrice && (
-              <div className="text-yellow-400 text-center mb-4">
-                🔄 Loading SOL price...
-              </div>
-            )}
-            
-            {/* Pending Claims Warning */}
-            {hasBlockingClaims && (
-              <div className="bg-yellow-500 bg-opacity-20 border border-yellow-500 rounded-lg p-4 mb-4">
-                <div className="text-yellow-400 font-semibold mb-2">⚠️ You have unclaimed funds!</div>
-                <div className="text-white/80 text-sm mb-3">
-                  {pendingClaims?.hasPendingWinnings && pendingClaims.pendingWinnings.length > 0 && (
-                    <div>You have unclaimed winnings from {pendingClaims.pendingWinnings.length} previous match(es).</div>
-                  )}
-                  {pendingClaims?.hasPendingRefunds && pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
-                    <div>You have unclaimed refunds from {pendingClaims.pendingRefunds.length} previous match(es).</div>
-                  )}
-                </div>
-                <div className="text-white/60 text-xs">
-                  Please claim your funds before starting a new game.
-                </div>
-              </div>
-            )}
 
-            {/* Pending Refunds That Need Signing - Show Only Oldest, Block Matchmaking */}
-            {pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
-              <div className="bg-orange-500 bg-opacity-20 border border-orange-500 rounded-lg p-4 mb-4">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-orange-400 font-semibold">
-                    📝 Sign Pending Refunds ({pendingClaims.pendingRefunds.length} total)
+              {/* Wallet Balance Display */}
+              {walletBalance !== null && (
+                <div className="mb-6 text-center">
+                  <div className="inline-flex items-center gap-2 bg-black/30 rounded-full px-4 py-2 border border-white/10">
+                    <span className="text-white/70 text-xs">Your Balance:</span>
+                    <span className="text-white font-semibold text-sm">{walletBalance.toFixed(4)} SOL</span>
                   </div>
                 </div>
-                <div className="text-white/80 text-sm mb-3">
-                  You must sign for all pending refunds before starting a new match. 
-                  Showing oldest refund first.
+              )}
+
+              {/* Pending Claims Warning */}
+              {hasBlockingClaims && (
+                <div className="bg-yellow-500/20 border-2 border-yellow-500/50 rounded-xl p-5 mb-6 backdrop-blur-sm">
+                  <div className="flex items-start gap-3">
+                    <div className="text-yellow-400 text-2xl">⚠️</div>
+                    <div className="flex-1">
+                      <div className="text-yellow-400 font-bold text-lg mb-2">Unclaimed Funds Detected</div>
+                      <div className="text-white/90 text-sm space-y-1 mb-3">
+                        {pendingClaims?.hasPendingWinnings && pendingClaims.pendingWinnings.length > 0 && (
+                          <div>• {pendingClaims.pendingWinnings.length} unclaimed winning(s)</div>
+                        )}
+                        {pendingClaims?.hasPendingRefunds && pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
+                          <div>• {pendingClaims.pendingRefunds.length} unclaimed refund(s)</div>
+                        )}
+                      </div>
+                      <div className="text-white/70 text-xs">
+                        Please claim your funds before starting a new game.
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                {/* Show only the oldest refund (first in array, sorted by proposalCreatedAt) */}
-                {(() => {
-                  // Sort by proposalCreatedAt (oldest first) - assuming backend returns them sorted
-                  const sortedRefunds = [...pendingClaims.pendingRefunds].sort((a, b) => {
-                    const aTime = a.proposalCreatedAt ? new Date(a.proposalCreatedAt).getTime() : 0;
-                    const bTime = b.proposalCreatedAt ? new Date(b.proposalCreatedAt).getTime() : 0;
-                    return aTime - bTime;
-                  });
-                  const oldestRefund = sortedRefunds[0];
+              )}
+
+              {/* Pending Refunds That Need Signing */}
+              {pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
+                <div className="bg-orange-500/20 border-2 border-orange-500/50 rounded-xl p-5 mb-6 backdrop-blur-sm">
+                  <div className="flex items-start gap-3 mb-4">
+                    <div className="text-orange-400 text-2xl">📝</div>
+                    <div className="flex-1">
+                      <div className="text-orange-400 font-bold text-lg mb-1">
+                        Sign Pending Refunds ({pendingClaims.pendingRefunds.length} total)
+                      </div>
+                      <div className="text-white/80 text-sm">
+                        You must sign for all pending refunds before starting a new match.
+                      </div>
+                    </div>
+                  </div>
+                  {(() => {
+                    const sortedRefunds = [...pendingClaims.pendingRefunds].sort((a, b) => {
+                      const aTime = a.proposalCreatedAt ? new Date(a.proposalCreatedAt).getTime() : 0;
+                      const bTime = b.proposalCreatedAt ? new Date(b.proposalCreatedAt).getTime() : 0;
+                      return aTime - bTime;
+                    });
+                    const oldestRefund = sortedRefunds[0];
+                    
+                    return (
+                      <div className="bg-black/40 rounded-lg p-4 border border-white/10">
+                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                          <div className="flex-1">
+                            <div className="text-white/90 text-sm font-medium mb-1">
+                              Match: {oldestRefund.matchId.substring(0, 8)}...
+                            </div>
+                            <div className="text-accent text-base font-bold">
+                              {oldestRefund.refundAmount?.toFixed(4) || oldestRefund.entryFee.toFixed(4)} SOL
+                            </div>
+                            {pendingClaims.pendingRefunds.length > 1 && (
+                              <div className="text-white/60 text-xs mt-2">
+                                + {pendingClaims.pendingRefunds.length - 1} more refund(s) to sign
+                              </div>
+                            )}
+                          </div>
+                          <button
+                            onClick={async () => {
+                              if (!publicKey || !signTransaction || signingRefund === oldestRefund.matchId) return;
+                              
+                              setSigningRefund(oldestRefund.matchId);
+                              try {
+                                const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+                                
+                                const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${oldestRefund.matchId}&wallet=${publicKey.toString()}`);
+                                
+                                if (!getTxResponse.ok) {
+                                  const errorData = await getTxResponse.json().catch(() => ({ error: 'Unknown error' }));
+                                  throw new Error(errorData.error || errorData.details || 'Failed to get approval transaction');
+                                }
+                                
+                                const txData = await getTxResponse.json();
+                                
+                                if (!txData.transaction) {
+                                  throw new Error('No transaction data received from server');
+                                }
+                                
+                                const { VersionedTransaction } = await import('@solana/web3.js');
+                                const txBuffer = Buffer.from(txData.transaction, 'base64');
+                                const approveTx = VersionedTransaction.deserialize(txBuffer);
+                                
+                                const signedTx = await signTransaction(approveTx);
+                                
+                                const serialized = signedTx.serialize();
+                                const base64Tx = Buffer.from(serialized).toString('base64');
+                                
+                                const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
+                                  method: 'POST',
+                                  headers: {
+                                    'Content-Type': 'application/json',
+                                  },
+                                  body: JSON.stringify({
+                                    matchId: oldestRefund.matchId,
+                                    wallet: publicKey.toString(),
+                                    signedTransaction: base64Tx,
+                                  }),
+                                });
+                                
+                                if (!response.ok) {
+                                  const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
+                                  throw new Error(errorData.error || errorData.details || 'Failed to sign proposal');
+                                }
+                                
+                                console.log('✅ Refund proposal signed successfully');
+                                await checkPendingClaims();
+                                alert(`✅ Refund proposal signed! ${pendingClaims.pendingRefunds.length - 1 > 0 ? `You have ${pendingClaims.pendingRefunds.length - 1} more refund(s) to sign.` : 'All refunds signed!'}`);
+                              } catch (err) {
+                                console.error('❌ Error signing refund proposal:', err);
+                                alert(err instanceof Error ? err.message : 'Failed to sign refund proposal');
+                              } finally {
+                                setSigningRefund(null);
+                              }
+                            }}
+                            disabled={signingRefund === oldestRefund.matchId || !signTransaction}
+                            className="bg-accent hover:bg-yellow-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-3 px-8 rounded-lg transition-all duration-200 shadow-lg hover:shadow-xl transform hover:scale-105 active:scale-95 min-w-[160px] flex items-center justify-center"
+                          >
+                            {signingRefund === oldestRefund.matchId ? (
+                              <>
+                                <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-black mr-2"></div>
+                                Signing...
+                              </>
+                            ) : (
+                              'Sign Refund'
+                            )}
+                          </button>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
+              {/* Entry Fee Selection Cards */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 sm:gap-6 mb-6">
+                {ENTRY_FEES_USD.map((usdAmount, index) => {
+                  const solAmount = solAmounts[index];
+                  const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
+                  const hasUnsignedRefunds = pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0;
+                  const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims || hasUnsignedRefunds;
+                  const potentialWinnings = calculatePotentialWinnings(usdAmount);
+                  const isPopular = usdAmount === 20; // Mark $20 as popular
                   
                   return (
-                    <div className="bg-black bg-opacity-30 rounded-lg p-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div className="flex-1">
-                          <div className="text-white/90 text-sm font-medium mb-1">
-                            Match: {oldestRefund.matchId.substring(0, 8)}...
-                          </div>
-                          <div className="text-accent text-sm font-semibold">
-                            Amount: {oldestRefund.refundAmount?.toFixed(4) || oldestRefund.entryFee.toFixed(4)} SOL
-                          </div>
-                          {pendingClaims.pendingRefunds.length > 1 && (
-                            <div className="text-white/60 text-xs mt-2">
-                              + {pendingClaims.pendingRefunds.length - 1} more refund(s) to sign
-                            </div>
-                          )}
+                    <button
+                      key={usdAmount}
+                      onClick={() => handleSelect(usdAmount, solAmount)}
+                      disabled={isDisabled}
+                      className={`relative group bg-gradient-to-br ${
+                        isDisabled
+                          ? 'from-gray-800/50 to-gray-900/50 cursor-not-allowed'
+                          : isPopular
+                          ? 'from-accent/20 to-yellow-500/20 hover:from-accent/30 hover:to-yellow-500/30 border-2 border-accent/50'
+                          : 'from-white/5 to-white/10 hover:from-white/10 hover:to-white/15 border border-white/20'
+                      } rounded-2xl p-6 sm:p-8 transition-all duration-300 shadow-lg hover:shadow-2xl transform hover:scale-105 active:scale-95 ${
+                        isMatchmaking ? 'opacity-60' : ''
+                      }`}
+                    >
+                      {isPopular && (
+                        <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-accent text-black text-xs font-bold px-3 py-1 rounded-full shadow-lg">
+                          MOST POPULAR
                         </div>
-                        <button
-                          onClick={async () => {
-                            if (!publicKey || !signTransaction || signingRefund === oldestRefund.matchId) return;
-                            
-                            setSigningRefund(oldestRefund.matchId);
-                            try {
-                              const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
-                              
-                              // Get the approval transaction from backend
-                              const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${oldestRefund.matchId}&wallet=${publicKey.toString()}`);
-                              
-                              if (!getTxResponse.ok) {
-                                const errorData = await getTxResponse.json().catch(() => ({ error: 'Unknown error' }));
-                                throw new Error(errorData.error || errorData.details || 'Failed to get approval transaction');
-                              }
-                              
-                              const txData = await getTxResponse.json();
-                              
-                              if (!txData.transaction) {
-                                throw new Error('No transaction data received from server');
-                              }
-                              
-                              // Deserialize and sign the transaction
-                              const { VersionedTransaction } = await import('@solana/web3.js');
-                              const txBuffer = Buffer.from(txData.transaction, 'base64');
-                              const approveTx = VersionedTransaction.deserialize(txBuffer);
-                              
-                              // Sign the transaction with the wallet
-                              const signedTx = await signTransaction(approveTx);
-                              
-                              // Serialize the signed transaction
-                              const serialized = signedTx.serialize();
-                              const base64Tx = Buffer.from(serialized).toString('base64');
-                              
-                              // Send to backend to submit
-                              const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
-                                method: 'POST',
-                                headers: {
-                                  'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify({
-                                  matchId: oldestRefund.matchId,
-                                  wallet: publicKey.toString(),
-                                  signedTransaction: base64Tx,
-                                }),
-                              });
-                              
-                              if (!response.ok) {
-                                const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-                                throw new Error(errorData.error || errorData.details || 'Failed to sign proposal');
-                              }
-                              
-                              console.log('✅ Refund proposal signed successfully');
-                              // Refresh pending claims
-                              await checkPendingClaims();
-                              // Show success message
-                              alert(`✅ Refund proposal signed! ${pendingClaims.pendingRefunds.length - 1 > 0 ? `You have ${pendingClaims.pendingRefunds.length - 1} more refund(s) to sign.` : 'All refunds signed!'}`);
-                            } catch (err) {
-                              console.error('❌ Error signing refund proposal:', err);
-                              alert(err instanceof Error ? err.message : 'Failed to sign refund proposal');
-                            } finally {
-                              setSigningRefund(null);
-                            }
-                          }}
-                          disabled={signingRefund === oldestRefund.matchId || !signTransaction}
-                          className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-2.5 px-6 rounded-lg transition-colors min-w-[140px] flex items-center justify-center"
-                        >
-                          {signingRefund === oldestRefund.matchId ? (
-                            <>
-                              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-black mr-2"></div>
-                              Signing...
-                            </>
-                          ) : (
-                            'Sign Refund'
-                          )}
-                        </button>
+                      )}
+                      
+                      <div className="flex flex-col items-center text-center">
+                        <div className={`text-4xl sm:text-5xl font-bold mb-2 ${
+                          isDisabled ? 'text-gray-500' : 'text-accent'
+                        }`}>
+                          ${usdAmount}
+                        </div>
+                        
+                        <div className="text-white/70 text-sm mb-4">
+                          {solAmount ? `≈ ${solAmount} SOL` : 'Loading...'}
+                        </div>
+                        
+                        <div className="w-full h-px bg-white/10 mb-4"></div>
+                        
+                        <div className="text-white/60 text-xs mb-2">Potential Winnings</div>
+                        <div className={`text-2xl font-bold mb-4 ${
+                          isDisabled ? 'text-gray-500' : 'text-green-400'
+                        }`}>
+                          ${potentialWinnings}
+                        </div>
+                        
+                        <div className="text-white/50 text-xs mb-4">
+                          95% of ${(usdAmount * 2).toFixed(2)} pot
+                        </div>
+                        
+                        {!hasEnoughBalance && walletBalance !== null && (
+                          <div className="mt-2 text-xs text-red-400 font-medium bg-red-500/10 px-3 py-1 rounded-full">
+                            ⚠ Insufficient Balance
+                          </div>
+                        )}
+                        {hasBlockingClaims && (
+                          <div className="mt-2 text-xs text-yellow-400 font-medium bg-yellow-500/10 px-3 py-1 rounded-full">
+                            ⚠ Claim Funds First
+                          </div>
+                        )}
+                        {hasUnsignedRefunds && (
+                          <div className="mt-2 text-xs text-orange-400 font-medium bg-orange-500/10 px-3 py-1 rounded-full">
+                            ⚠ Sign Refunds First
+                          </div>
+                        )}
                       </div>
-                    </div>
+                    </button>
                   );
-                })()}
+                })}
               </div>
-            )}
-            
-                         <div className="grid grid-cols-2 gap-3">
-              {ENTRY_FEES_USD.map((usdAmount, index) => {
-                const solAmount = solAmounts[index];
-                const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
-                // Block if: insufficient balance, already matchmaking, has blocking claims, OR has unsigned refunds
-                const hasUnsignedRefunds = pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0;
-                const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims || hasUnsignedRefunds;
-                
-                return (
-                  <button
-                    key={usdAmount}
-                    className={`w-full p-4 sm:p-5 rounded-lg font-bold transition-all duration-200 shadow min-h-[100px] flex flex-col items-center justify-center ${
-                      hasEnoughBalance && !hasBlockingClaims && !isMatchmaking && !hasUnsignedRefunds
-                        ? 'bg-accent text-primary hover:bg-yellow-400 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98] border-2 border-transparent hover:border-yellow-300'
-                        : 'bg-gray-700 text-gray-400 cursor-not-allowed border-2 border-gray-600'
-                    } ${isMatchmaking ? 'opacity-60' : ''}`}
-                    onClick={() => handleSelect(usdAmount, solAmount)}
-                    disabled={isDisabled}
-                  >
-                    <div className="text-xl font-bold mb-1">${usdAmount}</div>
-                    <div className="text-xs opacity-90 font-medium">
-                      {solAmount ? `${solAmount} SOL` : '...'}
-                    </div>
-                    {!hasEnoughBalance && walletBalance !== null && (
-                      <div className="text-xs text-red-400 mt-2 font-medium">
-                        ⚠ Insufficient balance
-                      </div>
-                    )}
-                    {hasBlockingClaims && (
-                      <div className="text-xs text-yellow-400 mt-2 font-medium">
-                        ⚠ Claim pending funds first
-                      </div>
-                    )}
-                    {hasUnsignedRefunds && (
-                      <div className="text-xs text-orange-400 mt-2 font-medium">
-                        ⚠ Sign pending refunds first
-                      </div>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            
-            {isMatchmaking && (
-              <div className="text-center mt-4 animate-fade-in">
-                <div className="flex items-center justify-center mb-2">
-                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-accent mr-2"></div>
-                  <div className="text-accent text-lg font-semibold">Finding opponent...</div>
+
+              {/* Matchmaking Status */}
+              {isMatchmaking && (
+                <div className="text-center mt-6 animate-fade-in">
+                  <div className="inline-flex items-center gap-3 bg-accent/20 rounded-full px-6 py-4 border border-accent/30">
+                    <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-accent"></div>
+                    <div className="text-accent text-lg font-semibold">Finding Opponent...</div>
+                  </div>
+                  <div className="text-white/60 text-sm mt-3">Redirecting to matchmaking...</div>
                 </div>
-                <div className="text-white/60 text-xs">Redirecting to matchmaking...</div>
+              )}
+
+              {/* Trust Indicators */}
+              <div className="mt-8 pt-6 border-t border-white/10">
+                <div className="flex flex-wrap justify-center gap-4 text-xs text-white/60">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-400">✓</span>
+                    <span>Non-Custodial</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-400">✓</span>
+                    <span>2-of-3 Multisig</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-400">✓</span>
+                    <span>Squads Protocol</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-green-400">✓</span>
+                    <span>Winner Gets 95%</span>
+                  </div>
+                </div>
               </div>
-            )}
+            </div>
           </div>
         )}
       </div>
