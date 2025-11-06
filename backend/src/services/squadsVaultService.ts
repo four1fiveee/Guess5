@@ -1575,16 +1575,24 @@ export class SquadsVaultService {
         expectedAmount,
       });
 
-      // Get match from database
+      // Get match from database using raw SQL to avoid proposalExpiresAt column issues
       const matchRepository = AppDataSource.getRepository(Match);
-      const match = await matchRepository.findOne({ where: { id: matchId } });
+      const matchRows = await matchRepository.query(`
+        SELECT id, "player1", "player2", "entryFee", status, "matchStatus", 
+               "squadsVaultAddress", word, "gameStartTime", "depositAConfirmations", 
+               "depositBConfirmations", "depositATx", "depositBTx", "player1Paid", "player2Paid"
+        FROM "match"
+        WHERE id = $1
+      `, [matchId]);
 
-      if (!match || !match.squadsVaultAddress) {
+      if (!matchRows || matchRows.length === 0 || !matchRows[0].squadsVaultAddress) {
         return {
           success: false,
           error: 'Match or vault not found',
         };
       }
+
+      const match = matchRows[0];
 
       // TypeScript assertion after null check
       const vaultAddress: string = match.squadsVaultAddress as string;
@@ -1610,13 +1618,23 @@ export class SquadsVaultService {
       const currentDepositA = match.depositAConfirmations ?? 0;
       const currentDepositB = match.depositBConfirmations ?? 0;
       
+      // Track what needs to be updated
+      let updateDepositATx = false;
+      let updateDepositBTx = false;
+      let newDepositATx = match.depositATx;
+      let newDepositBTx = match.depositBTx;
+      let newDepositAConfirmations = currentDepositA;
+      let newDepositBConfirmations = currentDepositB;
+      
       // Save deposit transaction signature if provided
       if (depositTxSignature) {
         if (isPlayer1 && !match.depositATx) {
-          match.depositATx = depositTxSignature;
+          newDepositATx = depositTxSignature;
+          updateDepositATx = true;
           enhancedLogger.info('💾 Saved Player 1 deposit TX', { matchId, tx: depositTxSignature });
         } else if (!isPlayer1 && !match.depositBTx) {
-          match.depositBTx = depositTxSignature;
+          newDepositBTx = depositTxSignature;
+          updateDepositBTx = true;
           enhancedLogger.info('💾 Saved Player 2 deposit TX', { matchId, tx: depositTxSignature });
         }
       }
@@ -1631,7 +1649,7 @@ export class SquadsVaultService {
       if (isPlayer1 && currentDepositA === 0) {
         // Player 1: Confirm if balance is at least one full deposit
         if (balance >= expectedLamports && (hasExistingTx || depositTxSignature)) {
-          match.depositAConfirmations = 1;
+          newDepositAConfirmations = 1;
           enhancedLogger.info('✅ Player 1 deposit confirmed', { 
             matchId, 
             balanceSOL,
@@ -1642,7 +1660,7 @@ export class SquadsVaultService {
       } else if (!isPlayer1 && currentDepositB === 0) {
         // Player 2: Confirm if balance is at full pot AND we have a signature
         if (balance >= expectedTotalLamports && (hasExistingTx || depositTxSignature)) {
-          match.depositBConfirmations = 1;
+          newDepositBConfirmations = 1;
           enhancedLogger.info('✅ Player 2 deposit confirmed', { 
             matchId, 
             balanceSOL,
@@ -1653,7 +1671,7 @@ export class SquadsVaultService {
           // If Player 2 deposited and we have full balance, Player 1 must have also deposited
           // But only update Player 1 if they haven't been confirmed yet
           if (currentDepositA === 0 && balance >= expectedTotalLamports && match.depositATx) {
-            match.depositAConfirmations = 1;
+            newDepositAConfirmations = 1;
             enhancedLogger.info('✅ Player 1 deposit also confirmed (both players deposited, found TX)', { 
               matchId,
               player1Tx: match.depositATx
@@ -1671,33 +1689,69 @@ export class SquadsVaultService {
         });
       }
 
-      await matchRepository.save(match);
+      // Update database using raw SQL
+      const updateFields: string[] = [];
+      const updateValues: any[] = [];
+      let paramIndex = 1;
+
+      if (updateDepositATx) {
+        updateFields.push(`"depositATx" = $${paramIndex++}`);
+        updateValues.push(newDepositATx);
+      }
+      if (updateDepositBTx) {
+        updateFields.push(`"depositBTx" = $${paramIndex++}`);
+        updateValues.push(newDepositBTx);
+      }
+      if (newDepositAConfirmations !== currentDepositA) {
+        updateFields.push(`"depositAConfirmations" = $${paramIndex++}`);
+        updateValues.push(newDepositAConfirmations);
+      }
+      if (newDepositBConfirmations !== currentDepositB) {
+        updateFields.push(`"depositBConfirmations" = $${paramIndex++}`);
+        updateValues.push(newDepositBConfirmations);
+      }
+
+      if (updateFields.length > 0) {
+        updateFields.push(`"updatedAt" = $${paramIndex++}`);
+        updateValues.push(new Date());
+        updateValues.push(matchId);
+        
+        await matchRepository.query(`
+          UPDATE "match"
+          SET ${updateFields.join(', ')}
+          WHERE id = $${paramIndex}
+        `, updateValues);
+      }
 
       // Both deposits confirmed - set match to active for game start
-      if ((match.depositAConfirmations ?? 0) >= 1 && (match.depositBConfirmations ?? 0) >= 1) {
+      if (newDepositAConfirmations >= 1 && newDepositBConfirmations >= 1) {
         enhancedLogger.info('🎮 Both deposits confirmed, activating match', {
           matchId,
-          depositA: match.depositAConfirmations,
-          depositB: match.depositBConfirmations,
+          depositA: newDepositAConfirmations,
+          depositB: newDepositBConfirmations,
           currentStatus: match.status,
         });
         
-        match.matchStatus = 'READY';
-        match.status = 'active'; // Set status to active so frontend can redirect to game
-        
         // Ensure word is set if not already present
-        if (!match.word) {
+        let word = match.word;
+        if (!word) {
           const { getRandomWord } = require('../wordList');
-          match.word = getRandomWord();
+          word = getRandomWord();
         }
         
         // Set game start time if not already set
-        if (!match.gameStartTime) {
-          match.gameStartTime = new Date();
-        }
+        const gameStartTime = match.gameStartTime || new Date();
         
-        // Save match directly (helper file doesn't exist)
-        await matchRepository.save(match);
+        // Update match using raw SQL
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "matchStatus" = $1, 
+              status = $2,
+              word = COALESCE(word, $3),
+              "gameStartTime" = COALESCE("gameStartTime", $4),
+              "updatedAt" = $5
+          WHERE id = $6
+        `, ['READY', 'active', word, gameStartTime, new Date(), matchId]);
         
         // Initialize Redis game state for active gameplay
         try {
@@ -1709,7 +1763,7 @@ export class SquadsVaultService {
             player2Guesses: [],
             player1Solved: false,
             player2Solved: false,
-            word: match.word,
+            word: word,
             matchId: matchId,
             lastActivity: Date.now(),
             completed: false
@@ -1717,7 +1771,7 @@ export class SquadsVaultService {
           await setGameState(matchId, newGameState);
           enhancedLogger.info('✅ Redis game state initialized for match', {
             matchId,
-            word: match.word,
+            word: word,
           });
         } catch (gameStateError: unknown) {
           const errorMessage = gameStateError instanceof Error ? gameStateError.message : String(gameStateError);
@@ -1728,8 +1782,14 @@ export class SquadsVaultService {
           // Continue anyway - game state can be reinitialized by getGameStateHandler if needed
         }
         
-        // Reload match to verify it was saved correctly
-        const reloadedMatch = await matchRepository.findOne({ where: { id: matchId } });
+        // Reload match to verify it was saved correctly using raw SQL
+        const reloadedMatchRows = await matchRepository.query(`
+          SELECT id, status, "matchStatus", word, "gameStartTime"
+          FROM "match"
+          WHERE id = $1
+        `, [matchId]);
+        
+        const reloadedMatch = reloadedMatchRows?.[0];
         enhancedLogger.info('✅ Match activated and saved successfully', {
           matchId,
           status: reloadedMatch?.status,
@@ -1743,7 +1803,7 @@ export class SquadsVaultService {
         playerWallet,
         expectedAmount,
         actualBalance: balanceSOL,
-        confirmations: isPlayer1 ? match.depositAConfirmations : match.depositBConfirmations,
+        confirmations: isPlayer1 ? newDepositAConfirmations : newDepositBConfirmations,
       });
 
       return {

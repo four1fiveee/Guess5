@@ -6845,54 +6845,85 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         transactionId: result.transactionId
       });
 
-      // Get match from database to update payment status
+      // Get match from database to update payment status using raw SQL
       const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
-      const match = await matchRepository.findOne({ where: { id: matchId } });
+      const matchRows = await matchRepository.query(`
+        SELECT id, "player1", "player2", "player1Paid", "player2Paid", status, "matchStatus"
+        FROM "match"
+        WHERE id = $1
+      `, [matchId]);
 
-      if (!match) {
+      if (!matchRows || matchRows.length === 0) {
         return res.status(404).json({ 
           success: false,
           error: 'Match not found' 
         });
       }
 
+      const match = matchRows[0];
+
       // Determine which player made the deposit
       const isPlayer1 = playerWallet === match.player1;
 
-      // Mark player as paid
+      // Mark player as paid using raw SQL
       if (isPlayer1) {
-        match.player1Paid = true;
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "player1Paid" = true, "updatedAt" = $1
+          WHERE id = $2
+        `, [new Date(), matchId]);
         console.log(`✅ Marked Player 1 (${playerWallet}) as paid for match ${matchId}`);
       } else {
-        match.player2Paid = true;
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "player2Paid" = true, "updatedAt" = $1
+          WHERE id = $2
+        `, [new Date(), matchId]);
         console.log(`✅ Marked Player 2 (${playerWallet}) as paid for match ${matchId}`);
       }
 
-      // Check if both players have paid
-      const bothPaid = match.player1Paid && match.player2Paid;
+      // Check if both players have paid - reload match to get updated status
+      const updatedMatchRows = await matchRepository.query(`
+        SELECT "player1Paid", "player2Paid", status, "matchStatus"
+        FROM "match"
+        WHERE id = $1
+      `, [matchId]);
+      const updatedMatch = updatedMatchRows?.[0];
+      const bothPaid = updatedMatch?.player1Paid && updatedMatch?.player2Paid;
 
       if (bothPaid) {
         // Both players have paid - ensure match is active
-        if (match.status !== 'active') {
+        if (updatedMatch.status !== 'active') {
           console.log(`🎮 Both players have paid for match ${matchId}, activating game...`);
-          match.status = 'active';
           
-          // Ensure word is set if not already present
-          if (!match.word) {
+          // Get word if needed
+          const wordRows = await matchRepository.query(`
+            SELECT word, "gameStartTime"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          const currentMatch = wordRows?.[0];
+          
+          let word = currentMatch?.word;
+          if (!word) {
             const { getRandomWord } = require('../wordList');
-            match.word = getRandomWord();
+            word = getRandomWord();
           }
           
-          // Set game start time if not already set
-          if (!match.gameStartTime) {
-            match.gameStartTime = new Date();
-          }
+          const gameStartTime = currentMatch?.gameStartTime || new Date();
+          
+          // Update match using raw SQL
+          await matchRepository.query(`
+            UPDATE "match"
+            SET status = $1,
+                word = COALESCE(word, $2),
+                "gameStartTime" = COALESCE("gameStartTime", $3),
+                "updatedAt" = $4
+            WHERE id = $5
+          `, ['active', word, gameStartTime, new Date(), matchId]);
         }
       }
-
-      // Save match to database
-      await matchRepository.save(match);
 
       console.log(`🔍 Payment status for match ${matchId}:`, {
         player1Paid: match.player1Paid,
