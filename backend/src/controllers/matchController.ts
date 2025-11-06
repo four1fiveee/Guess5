@@ -450,8 +450,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         console.error('❌ Vault creation stack:', vaultError instanceof Error ? vaultError.stack : 'No stack');
         // Don't throw - return match without vault, on-demand creation will handle it
         console.warn('⚠️ Vault creation failed, but match is saved - on-demand creation will handle it');
-        savedMatch.matchStatus = 'VAULT_PENDING';
-        await matchRepository.save(savedMatch);
+        await matchRepository.query(`
+          UPDATE "match" 
+          SET "matchStatus" = $1, "updatedAt" = $2
+          WHERE id = $3
+        `, ['VAULT_PENDING', new Date(), matchData.matchId]);
         
         return {
           status: 'matched',
@@ -469,8 +472,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         console.error('❌ Failed to create multisig vault:', vaultResult?.error || 'Unknown error');
         // Don't throw - return match without vault, on-demand creation will handle it
         console.warn('⚠️ Returning match without vault - on-demand creation will handle it');
-        savedMatch.matchStatus = 'VAULT_PENDING';
-        await matchRepository.save(savedMatch);
+        await matchRepository.query(`
+          UPDATE "match" 
+          SET "matchStatus" = $1, "updatedAt" = $2
+          WHERE id = $3
+        `, ['VAULT_PENDING', new Date(), matchData.matchId]);
         
         return {
           status: 'matched',
@@ -488,10 +494,12 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         squadsVaultAddress: vaultResult.vaultAddress
       });
 
-      // Update match with vault address
-      savedMatch.squadsVaultAddress = vaultResult.vaultAddress;
-      savedMatch.matchStatus = 'VAULT_CREATED';
-      await matchRepository.save(savedMatch);
+      // Update match with vault address using raw SQL
+      await matchRepository.query(`
+        UPDATE "match" 
+        SET "squadsVaultAddress" = $1, "matchStatus" = $2, "updatedAt" = $3
+        WHERE id = $4
+      `, [vaultResult.vaultAddress, 'VAULT_CREATED', new Date(), matchData.matchId]);
       
       console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
       
