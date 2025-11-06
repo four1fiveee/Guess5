@@ -1111,24 +1111,42 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   const { AppDataSource } = require('../db/index');
   
   // Use row-level locking if in transaction (FOR UPDATE prevents concurrent modifications)
-  let match: Match;
+  // Use raw SQL to avoid querying non-existent proposalExpiresAt column
+  let match: any;
   if (manager) {
-    // Use query builder for FOR UPDATE lock in transaction
-    match = await manager
-      .createQueryBuilder(Match, 'match')
-      .setLock('pessimistic_write')
-      .where('match.id = :id', { id: matchId })
-      .getOne();
+    // Use raw SQL with FOR UPDATE lock in transaction
+    const matchRows = await manager.query(`
+      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", 
+             "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
+             "proposalSigners", "needsSignatures", "proposalExecutedAt", 
+             "proposalTransactionId", "player1Result", "player2Result", 
+             winner, "isCompleted", "matchStatus"
+      FROM "match"
+      WHERE id = $1
+      FOR UPDATE
+    `, [matchId]);
     
-    if (!match) {
+    if (!matchRows || matchRows.length === 0) {
       throw new Error('Match not found');
     }
+    match = matchRows[0];
   } else {
     const matchRepository = AppDataSource.getRepository(Match);
-    match = await matchRepository.findOne({ where: { id: matchId } });
-    if (!match) {
+    // Use raw SQL to avoid querying non-existent proposalExpiresAt column
+    const matchRows = await matchRepository.query(`
+      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", 
+             "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
+             "proposalSigners", "needsSignatures", "proposalExecutedAt", 
+             "proposalTransactionId", "player1Result", "player2Result", 
+             winner, "isCompleted", "matchStatus"
+      FROM "match"
+      WHERE id = $1
+    `, [matchId]);
+    
+    if (!matchRows || matchRows.length === 0) {
       throw new Error('Match not found');
     }
+    match = matchRows[0];
   }
 
   console.log('🏆 Determining winner for match:', matchId);
@@ -1319,28 +1337,45 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     console.log('🤝 Tie payout calculated:', payoutResult);
   }
 
-  // Update match with winner and payout
-  match.winner = winner;
-  match.setPayoutResult(payoutResult);
-  match.isCompleted = true;
+  // Update match with winner and payout using raw SQL
+  // Parse existing results from JSON strings
+  const player1ResultRaw = match.player1Result;
+  const player2ResultRaw = match.player2Result;
+  const existingPlayer1Result = player1ResultRaw ? (typeof player1ResultRaw === 'string' ? JSON.parse(player1ResultRaw) : player1ResultRaw) : null;
+  const existingPlayer2Result = player2ResultRaw ? (typeof player2ResultRaw === 'string' ? JSON.parse(player2ResultRaw) : player2ResultRaw) : null;
   
   console.log('💾 Saving match with winner:', {
     matchId: match.id,
-    winner: match.winner,
-    isCompleted: match.isCompleted,
-    player1Result: match.getPlayer1Result(),
-    player2Result: match.getPlayer2Result()
+    winner: winner,
+    isCompleted: true,
+    player1Result: existingPlayer1Result,
+    player2Result: existingPlayer2Result
   });
   
-  // Use manager if provided (for transaction), otherwise use repository
+  // Use raw SQL to update match (avoids proposalExpiresAt column issue)
+  const payoutResultJson = JSON.stringify(payoutResult);
   if (manager) {
-    await manager.save(match);
+    await manager.query(`
+      UPDATE "match"
+      SET winner = $1, 
+          "payoutResult" = $2,
+          "isCompleted" = $3,
+          "updatedAt" = $4
+      WHERE id = $5
+    `, [winner, payoutResultJson, true, new Date(), matchId]);
   } else {
     const matchRepository = AppDataSource.getRepository(Match);
-    await matchRepository.save(match);
+    await matchRepository.query(`
+      UPDATE "match"
+      SET winner = $1, 
+          "payoutResult" = $2,
+          "isCompleted" = $3,
+          "updatedAt" = $4
+      WHERE id = $5
+    `, [winner, payoutResultJson, true, new Date(), matchId]);
   }
   
-  console.log('✅ Match saved successfully with winner:', match.winner);
+  console.log('✅ Match saved successfully with winner:', winner);
 
   return payoutResult;
 };
