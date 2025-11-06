@@ -5606,11 +5606,11 @@ const generateReportHandler = async (req: any, res: any) => {
         convertToEST(match.gameEndTimeUtc),
         
         // Payout Transactions
-        sanitizeCsvValue(match.winnerPayoutSignature || ''),
+        sanitizeCsvValue(winnerPayoutTx),
         sanitizeCsvValue(match.winnerPayoutBlockTime ? convertToEST(match.winnerPayoutBlockTime) : ''),
         sanitizeCsvValue(match.winnerPayoutBlockNumber || ''),
         sanitizeCsvValue(feeWalletPayoutTx),
-        sanitizeCsvValue(match.proposalTransactionId || ''),
+        sanitizeCsvValue(match.proposalTransactionId && match.proposalTransactionId.length > 20 ? match.proposalTransactionId : ''),
         
         // Proposal Info
         sanitizeCsvValue(match.payoutProposalId || ''),
@@ -5626,9 +5626,9 @@ const generateReportHandler = async (req: any, res: any) => {
         match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
         match.player1PaymentSignature ? `https://explorer.solana.com/tx/${match.player1PaymentSignature}?cluster=${network}` : '',
         match.player2PaymentSignature ? `https://explorer.solana.com/tx/${match.player2PaymentSignature}?cluster=${network}` : '',
-        match.winnerPayoutSignature ? `https://explorer.solana.com/tx/${match.winnerPayoutSignature}?cluster=${network}` : '',
+        winnerPayoutTx ? `https://explorer.solana.com/tx/${winnerPayoutTx}?cluster=${network}` : '',
         feeWalletPayoutTx ? `https://explorer.solana.com/tx/${feeWalletPayoutTx}?cluster=${network}` : '',
-        match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
+        (match.proposalTransactionId && match.proposalTransactionId.length > 20) ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
       ];
     });
     
@@ -7250,9 +7250,77 @@ const signProposalHandler = async (req: any, res: any) => {
     const currentNeedsSignatures = (match as any).needsSignatures || 2;
     (match as any).needsSignatures = Math.max(0, currentNeedsSignatures - 1);
     
-    // If enough signatures, mark as ready to execute
+    // If enough signatures, check if proposal has executed on-chain
     if ((match as any).needsSignatures === 0) {
-      (match as any).proposalStatus = 'READY_TO_EXECUTE';
+      // Check if proposal has executed on-chain and capture execution transaction
+      try {
+        const { squadsVaultService } = require('../services/squadsVaultService');
+        const { Connection, PublicKey } = require('@solana/web3.js');
+        const connection = new Connection(
+          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+          'confirmed'
+        );
+        
+        // Get the transaction PDA to check if it's been executed
+        const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+        const transactionIndex = BigInt(proposalId);
+        
+        // Derive transaction PDA
+        const [transactionPda] = PublicKey.findProgramAddressSync(
+          [
+            Buffer.from('transaction'),
+            multisigAddress.toBuffer(),
+            Buffer.from(transactionIndex.toString()),
+          ],
+          new PublicKey('SQDS4ep65F869WDCN3hqc7UyqZUr7gDqgF2e1K6gF3T')
+        );
+        
+        // Check if transaction exists and get execution details
+        const transactionAccount = await connection.getAccountInfo(transactionPda);
+        if (!transactionAccount) {
+          // Transaction has been executed (account no longer exists)
+          console.log('✅ Proposal executed - transaction account no longer exists');
+          
+          // Try to find the execution transaction by checking recent transactions
+          // Look for transactions that closed the transaction account
+          const signatures = await connection.getSignaturesForAddress(transactionPda, { limit: 1 });
+          if (signatures.length > 0) {
+            const executionSignature = signatures[0].signature;
+            const txDetails = await connection.getTransaction(executionSignature, {
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: 0
+            });
+            
+            if (txDetails) {
+              (match as any).proposalStatus = 'EXECUTED';
+              (match as any).proposalTransactionId = executionSignature;
+              (match as any).winnerPayoutSignature = executionSignature; // Same transaction for winner payout
+              (match as any).proposalExecutedAt = new Date(txDetails.blockTime ? txDetails.blockTime * 1000 : Date.now());
+              (match as any).winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
+              (match as any).winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
+              
+              console.log('✅ Captured execution transaction:', {
+                matchId,
+                executionSignature,
+                blockTime: txDetails.blockTime,
+                slot: txDetails.slot,
+              });
+            }
+          } else {
+            // Fallback: mark as executed but without signature (will need to be looked up later)
+            (match as any).proposalStatus = 'EXECUTED';
+            (match as any).proposalExecutedAt = new Date();
+            console.log('⚠️ Proposal executed but execution signature not found');
+          }
+        } else {
+          // Transaction still exists, not executed yet
+          (match as any).proposalStatus = 'READY_TO_EXECUTE';
+        }
+      } catch (executionCheckError: any) {
+        console.error('❌ Error checking proposal execution:', executionCheckError);
+        // Fallback: mark as ready to execute
+        (match as any).proposalStatus = 'READY_TO_EXECUTE';
+      }
     } else {
       (match as any).proposalStatus = 'ACTIVE';
     }
