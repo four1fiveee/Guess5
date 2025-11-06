@@ -7576,8 +7576,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     res.json({
       transaction: base64Tx,
       matchId,
-      proposalId: (match as any).payoutProposalId,
-      vaultAddress: (match as any).squadsVaultAddress,
+      proposalId: proposalId,
+      vaultAddress: matchRow.squadsVaultAddress,
     });
 
   } catch (error: unknown) {
