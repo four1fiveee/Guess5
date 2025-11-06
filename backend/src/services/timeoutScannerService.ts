@@ -210,17 +210,16 @@ export class TimeoutScannerService {
     player2Result: any,
     auditLogRepository: any
   ): Promise<void> {
-    try {
-      // CRITICAL: Acquire distributed lock to prevent concurrent timeout processing
-      const { getTimeoutLock, releaseTimeoutLock } = require('../utils/timeoutLocks');
-      const lockAcquired = await getTimeoutLock(match.id);
-      
-      if (!lockAcquired) {
-        enhancedLogger.warn(`⚠️ Timeout lock not acquired for match ${match.id} - another process is handling it`);
-        return;
-      }
+    // CRITICAL: Acquire distributed lock to prevent concurrent timeout processing
+    const { getTimeoutLock, releaseTimeoutLock } = require('../utils/timeoutLocks');
+    const lockAcquired = await getTimeoutLock(match.id);
+    
+    if (!lockAcquired) {
+      enhancedLogger.warn(`⚠️ Timeout lock not acquired for match ${match.id} - another process is handling it`);
+      return;
+    }
 
-      try {
+    try {
         const { determineWinnerAndPayout } = require('../controllers/matchController');
         const matchRepository = AppDataSource.getRepository(Match);
         
@@ -397,16 +396,16 @@ export class TimeoutScannerService {
           proposalId: updatedMatch.payoutProposalId,
         });
         }
-      } catch (error) {
-        enhancedLogger.error('❌ Error processing abandoned game', {
-          matchId: match.id,
-          error,
-        });
-      } finally {
-        // Always release the distributed lock
-        await releaseTimeoutLock(match.id);
-      }
+    } catch (error) {
+      enhancedLogger.error('❌ Error processing abandoned game', {
+        matchId: match.id,
+        error,
+      });
+    } finally {
+      // Always release the distributed lock
+      await releaseTimeoutLock(match.id);
     }
+  }
 
   /**
    * Process a match that has timed out
