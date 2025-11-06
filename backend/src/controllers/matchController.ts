@@ -400,11 +400,13 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           player1: player1Pubkey.toString(),
           player2: player2Pubkey.toString()
         });
-        vaultResult = await squadsVaultService.createMatchVault(
+        // Use retry logic for vault creation
+        vaultResult = await squadsVaultService.createMatchVaultWithRetry(
           matchData.matchId,
           player1Pubkey,
           player2Pubkey,
-          matchData.entryFee
+          matchData.entryFee,
+          3 // 3 retry attempts with exponential backoff
         );
         console.log('🔧 Vault creation result:', { success: vaultResult?.success, error: vaultResult?.error });
       } catch (vaultError: unknown) {
@@ -1032,13 +1034,29 @@ const cleanupSelfMatchesHandler = async (req: any, res: any) => {
 };
 
 // Helper function to determine winner and calculate payout instructions
-const determineWinnerAndPayout = async (matchId: any, player1Result: any, player2Result: any) => {
+// Accepts optional transaction manager for atomic operations
+const determineWinnerAndPayout = async (matchId: any, player1Result: any, player2Result: any, manager?: any) => {
   const { AppDataSource } = require('../db/index');
-  const matchRepository = AppDataSource.getRepository(Match);
-  const match = await matchRepository.findOne({ where: { id: matchId } });
   
-  if (!match) {
-    throw new Error('Match not found');
+  // Use row-level locking if in transaction (FOR UPDATE prevents concurrent modifications)
+  let match: Match;
+  if (manager) {
+    // Use query builder for FOR UPDATE lock in transaction
+    match = await manager
+      .createQueryBuilder(Match, 'match')
+      .setLock('pessimistic_write')
+      .where('match.id = :id', { id: matchId })
+      .getOne();
+    
+    if (!match) {
+      throw new Error('Match not found');
+    }
+  } else {
+    const matchRepository = AppDataSource.getRepository(Match);
+    match = await matchRepository.findOne({ where: { id: matchId } });
+    if (!match) {
+      throw new Error('Match not found');
+    }
   }
 
   console.log('🏆 Determining winner for match:', matchId);
@@ -1242,7 +1260,13 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     player2Result: match.getPlayer2Result()
   });
   
-  await matchRepository.save(match);
+  // Use manager if provided (for transaction), otherwise use repository
+  if (manager) {
+    await manager.save(match);
+  } else {
+    const matchRepository = AppDataSource.getRepository(Match);
+    await matchRepository.save(match);
+  }
   
   console.log('✅ Match saved successfully with winner:', match.winner);
 
@@ -1469,7 +1493,7 @@ const submitResultHandler = async (req: any, res: any) => {
             await manager.save(updatedMatch);
           }
           
-          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
+          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result(), manager);
           
           // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
           const matchWithWinner = await manager.findOne(Match, { where: { id: matchId } });
@@ -1533,6 +1557,10 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.proposalStatus = 'ACTIVE';
                 updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
+                
+                // CRITICAL: Set proposal expiration (30 minutes after creation)
+                const { proposalExpirationService } = require('../services/proposalExpirationService');
+                proposalExpirationService.setProposalExpiration(updatedMatch);
                 
                 // Save the match with proposal information
                 await matchRepository.save(updatedMatch);
@@ -1749,7 +1777,7 @@ const submitResultHandler = async (req: any, res: any) => {
             isCompleted: updatedMatch.isCompleted
           });
           
-          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result());
+          const result = await determineWinnerAndPayout(matchId, updatedMatch.getPlayer1Result(), updatedMatch.getPlayer2Result(), manager);
           
           // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
           const matchWithWinner = await manager.findOne(Match, { where: { id: matchId } });
@@ -2535,6 +2563,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     (match as any).proposalCreatedAt = new Date();
                     (match as any).proposalStatus = 'ACTIVE';
                     (match as any).needsSignatures = proposalResult.needsSignatures || 1; // System auto-signs, so 1 more needed
+                    
+                    // CRITICAL: Set proposal expiration (30 minutes after creation)
+                    const { proposalExpirationService } = require('../services/proposalExpirationService');
+                    proposalExpirationService.setProposalExpiration(match);
+                    
                     await matchRepository.save(match);
                     console.log('✅ Tie refund proposal created:', { matchId: match.id, proposalId: proposalResult.proposalId });
                     
@@ -3290,7 +3323,19 @@ const getGameStateHandler = async (req: any, res: any) => {
     }
 
     // Get server-side game state from Redis
-    const serverGameState = await getGameState(matchId as string);
+    let serverGameState = await getGameState(matchId as string);
+    
+    // CRITICAL: If Redis state exists, validate word matches database (database is source of truth)
+    if (serverGameState && match?.word) {
+      if (serverGameState.word !== match.word) {
+        console.error(`❌ Word mismatch detected! Database: ${match.word}, Redis: ${serverGameState.word}`);
+        // Fix Redis to match database
+        serverGameState.word = match.word;
+        await setGameState(matchId as string, serverGameState);
+        console.log(`✅ Fixed Redis word to match database`);
+      }
+    }
+    
     if (!serverGameState) {
       console.log(`❌ Game state not found for match ${matchId}`);
       console.log(`🔍 Active games: Check Redis for game states`);
@@ -3311,7 +3356,21 @@ const getGameStateHandler = async (req: any, res: any) => {
       // If match is active but no game state, try to reinitialize
       if (match?.status === 'active') {
         console.log(`🔄 Attempting to reinitialize game state for match ${matchId}`);
-        const word = getRandomWord();
+        
+        // CRITICAL: Always use database word as source of truth - never generate new word
+        let word: string;
+        if (match.word) {
+          // Use existing word from database
+          word = match.word;
+          console.log(`✅ Using existing word from database: ${word}`);
+        } else {
+          // Only generate word if database doesn't have one (shouldn't happen, but handle gracefully)
+          console.warn(`⚠️ No word in database for active match ${matchId}, generating new word`);
+          word = getRandomWord();
+          match.word = word;
+          await matchRepository.save(match);
+        }
+        
         const newGameState = {
           startTime: Date.now(),
           player1StartTime: Date.now(),
@@ -3320,27 +3379,33 @@ const getGameStateHandler = async (req: any, res: any) => {
           player2Guesses: [],
           player1Solved: false,
           player2Solved: false,
-          word: word,
+          word: word, // Use word from database
           matchId: matchId,
           lastActivity: Date.now(),
           completed: false
         };
         
         // Update match directly in database
-        if (!match.word) {
-          match.word = word;
-        }
         if (!match.gameStartTime) {
           match.gameStartTime = new Date();
         }
         await matchRepository.save(match);
         
         await setGameState(matchId as string, newGameState);
-        console.log(`✅ Reinitialized game state for match ${matchId}`);
+        console.log(`✅ Reinitialized game state for match ${matchId} using database word: ${word}`);
         
         // Use the new game state
         const reinitializedGameState = await getGameState(matchId as string);
         if (reinitializedGameState) {
+          // Validate Redis word matches database word (database is source of truth)
+          if (reinitializedGameState.word !== match.word) {
+            console.error(`❌ Word mismatch in reinitialized state! Database: ${match.word}, Redis: ${reinitializedGameState.word}`);
+            // Fix Redis to match database
+            reinitializedGameState.word = match.word;
+            await setGameState(matchId as string, reinitializedGameState);
+            console.log(`✅ Fixed Redis word to match database`);
+          }
+          
           const isPlayer1 = wallet === match.player1;
           const playerGuesses = isPlayer1 ? reinitializedGameState.player1Guesses : reinitializedGameState.player2Guesses;
           
@@ -3878,6 +3943,30 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       return res.status(403).json({ error: 'Wallet not part of this match' });
     }
 
+    // CRITICAL: Validate vault address exists and matches match record
+    if (!match.squadsVaultAddress) {
+      console.error(`❌ Missing vault address for match ${matchId}`);
+      return res.status(400).json({ error: 'Match vault address not found. Please contact support.' });
+    }
+
+    // Verify vault address exists on-chain
+    try {
+      const { Connection, PublicKey } = require('@solana/web3.js');
+      const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com', 'confirmed');
+      const vaultPublicKey = new PublicKey(match.squadsVaultAddress);
+      const vaultAccount = await connection.getAccountInfo(vaultPublicKey);
+      
+      if (!vaultAccount) {
+        console.error(`❌ Vault address does not exist on-chain: ${match.squadsVaultAddress}`);
+        return res.status(400).json({ error: 'Invalid vault address - vault does not exist on-chain' });
+      }
+      
+      console.log(`✅ Vault address verified on-chain: ${match.squadsVaultAddress}`);
+    } catch (vaultError: any) {
+      console.error(`❌ Error verifying vault address: ${vaultError?.message}`);
+      return res.status(400).json({ error: `Invalid vault address: ${vaultError?.message}` });
+    }
+
     // Determine which player this is
     const isPlayer1 = wallet === match.player1;
     const playerKey = isPlayer1 ? 'player1' : 'player2';
@@ -3903,6 +3992,18 @@ const confirmPaymentHandler = async (req: any, res: any) => {
         player1Paid: match.player1Paid,
         player2Paid: match.player2Paid,
         message: 'Payment already confirmed'
+      });
+    }
+
+    // CRITICAL: Check signature uniqueness to prevent replay attacks
+    const { signatureTracker } = require('../utils/signatureTracker');
+    const isUnique = await signatureTracker.isSignatureUnique(paymentSignature, matchId);
+    
+    if (!isUnique) {
+      console.error(`❌ Payment signature already used: ${paymentSignature}`);
+      return res.status(400).json({ 
+        error: 'Payment signature has already been used. Please use a different transaction.',
+        signature: paymentSignature
       });
     }
 
@@ -3953,14 +4054,69 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       });
     }
 
+    // CRITICAL: Verify payment transaction includes the correct vault address
+    try {
+      const { Connection, PublicKey } = require('@solana/web3.js');
+      const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com', 'confirmed');
+      const transaction = await connection.getTransaction(paymentSignature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0
+      });
+
+      if (!transaction) {
+        console.error(`❌ Payment transaction not found: ${paymentSignature}`);
+        return res.status(400).json({ error: 'Payment transaction not found on blockchain' });
+      }
+
+      // Extract all account keys from transaction
+      const accountKeys = transaction.transaction.message.accountKeys.map((key: any) => 
+        typeof key === 'string' ? key : (key.pubkey ? key.pubkey.toString() : key.toString())
+      );
+
+      const vaultAddress = match.squadsVaultAddress;
+      const vaultInTransaction = accountKeys.includes(vaultAddress);
+
+      if (!vaultInTransaction) {
+        console.error(`❌ Payment transaction does not include vault address ${vaultAddress}`);
+        console.error(`Transaction account keys:`, accountKeys);
+        return res.status(400).json({ 
+          error: 'Payment transaction does not correspond to this match vault address',
+          expectedVault: vaultAddress
+        });
+      }
+
+      // Check if vault received funds (balance increased)
+      const vaultPublicKey = new PublicKey(vaultAddress);
+      const vaultIndex = accountKeys.findIndex((key: string) => key === vaultAddress);
+      
+      if (vaultIndex !== -1 && transaction.meta && transaction.meta.postBalances && transaction.meta.preBalances) {
+        const vaultBalanceChange = transaction.meta.postBalances[vaultIndex] - transaction.meta.preBalances[vaultIndex];
+        if (vaultBalanceChange <= 0) {
+          console.warn(`⚠️ Vault balance did not increase in payment transaction. Change: ${vaultBalanceChange}`);
+        } else {
+          console.log(`✅ Vault received ${vaultBalanceChange / 1e9} SOL in payment transaction`);
+        }
+      }
+
+      console.log(`✅ Payment transaction verified to include correct vault address: ${vaultAddress}`);
+    } catch (vaultVerifyError: any) {
+      console.error(`❌ Error verifying vault address in transaction: ${vaultVerifyError?.message}`);
+      // Don't fail payment if we can't verify - log warning but continue
+      console.warn(`⚠️ Continuing with payment despite vault verification error`);
+    }
+
     console.log(`✅ Payment verified for ${isPlayer1 ? 'Player 1' : 'Player 2'}:`, {
       matchId,
       wallet,
       paymentSignature,
       amount: verificationResult.amount,
       timestamp: verificationResult.timestamp,
-      slot: verificationResult.slot
+      slot: verificationResult.slot,
+      vaultAddress: match.squadsVaultAddress
     });
+
+    // CRITICAL: Mark signature as used to prevent replay attacks
+    await signatureTracker.markSignatureUsed(paymentSignature, matchId);
 
     // Mark player as paid (preserve existing payment status)
     if (isPlayer1) {
@@ -4065,12 +4221,23 @@ const confirmPaymentHandler = async (req: any, res: any) => {
         return res.status(500).json({ error: 'Failed to activate game' });
       }
       
-      // Initialize server-side game state with the SAME word for both players
-      const word = freshMatch.word || getRandomWord();
+      // CRITICAL: Always initialize word in database FIRST before creating Redis game state
+      // Database is the source of truth - Redis is just a cache
+      let word: string;
+      if (freshMatch.word) {
+        // Use existing word from database
+        word = freshMatch.word;
+        console.log(`✅ Using existing word from database: ${word}`);
+      } else {
+        // Generate word and save to database FIRST
+        word = getRandomWord();
+        freshMatch.word = word;
+        // Save word to database immediately before creating Redis state
+        await matchRepository.save(freshMatch);
+        console.log(`✅ Generated and saved word to database first: ${word}`);
+      }
       
-      // Ensure the word is saved to the database for both players to access
-      freshMatch.word = word;
-      
+      // Now create Redis game state using word from database
       const newGameState = {
         startTime: Date.now(),
         player1StartTime: Date.now(),
@@ -4079,12 +4246,22 @@ const confirmPaymentHandler = async (req: any, res: any) => {
         player2Guesses: [],
         player1Solved: false,
         player2Solved: false,
-        word: word, // SAME word for both players to compete
+        word: word, // Use word from database (source of truth)
         matchId: matchId,
         lastActivity: Date.now(),
         completed: false
       };
       await setGameState(matchId, newGameState);
+      
+      // Verify Redis word matches database word
+      const redisState = await getGameState(matchId);
+      if (redisState && redisState.word !== word) {
+        console.error(`❌ Word mismatch detected! Database: ${word}, Redis: ${redisState.word}`);
+        // Fix Redis to match database
+        redisState.word = word;
+        await setGameState(matchId, redisState);
+        console.log(`✅ Fixed Redis word to match database`);
+      }
 
           console.log(`🎮 Game started for match ${matchId}`);
     // Get active games count from Redis
@@ -7562,9 +7739,91 @@ const signProposalHandler = async (req: any, res: any) => {
                 // More lenient time check: transaction should be after proposal creation (or within 10 minutes before)
                 const timeMatch = proposalTime === 0 || txTime >= proposalTime - 600000; // 10 minute window
                 
-                if (isRelevantTransaction && timeMatch) {
+                // CRITICAL: Verify vault balance changes match expected payout amounts
+                let balanceChangeMatches = false;
+                if (tx.meta && tx.meta.postBalances && tx.meta.preBalances) {
+                  // Calculate expected payout amounts
+                  const entryFee = match.entryFee;
+                  let expectedWinnerAmount = 0;
+                  let expectedFeeAmount = 0;
+                  
+                  if (match.winner === 'tie') {
+                    // For ties, check if refunds match expected amounts
+                    const isWinningTie = match.getPayoutResult()?.isWinningTie;
+                    if (isWinningTie) {
+                      // Full refund - each player gets entryFee back
+                      expectedWinnerAmount = entryFee * 2; // Total refunded
+                    } else {
+                      // 95% refund - each player gets 0.95 * entryFee
+                      expectedWinnerAmount = entryFee * 0.95 * 2; // Total refunded
+                      expectedFeeAmount = entryFee * 0.05 * 2; // Total fee
+                    }
+                  } else if (winnerAddress) {
+                    // Winner payout - 95% of total pot to winner, 5% to fee wallet
+                    const totalPot = entryFee * 2;
+                    expectedWinnerAmount = totalPot * 0.95;
+                    expectedFeeAmount = totalPot * 0.05;
+                  }
+                  
+                  // Check balance changes in transaction
+                  const winnerIndex = winnerAddress ? accountKeys.findIndex((key: string) => key === winnerAddress.toString()) : -1;
+                  const feeWalletIndex = accountKeys.findIndex((key: string) => key === feeWalletAddress.toString());
+                  const player1Index = accountKeys.findIndex((key: string) => key === player1Address.toString());
+                  const player2Index = accountKeys.findIndex((key: string) => key === player2Address.toString());
+                  
+                  // Calculate actual balance changes
+                  let actualWinnerAmount = 0;
+                  let actualFeeAmount = 0;
+                  
+                  if (winnerIndex !== -1) {
+                    const winnerChange = tx.meta.postBalances[winnerIndex] - tx.meta.preBalances[winnerIndex];
+                    actualWinnerAmount = winnerChange / 1e9; // Convert lamports to SOL
+                  }
+                  
+                  if (feeWalletIndex !== -1) {
+                    const feeChange = tx.meta.postBalances[feeWalletIndex] - tx.meta.preBalances[feeWalletIndex];
+                    actualFeeAmount = feeChange / 1e9; // Convert lamports to SOL
+                  }
+                  
+                  // For tie matches, check player balance changes
+                  if (match.winner === 'tie') {
+                    let totalRefunded = 0;
+                    if (player1Index !== -1) {
+                      const p1Change = tx.meta.postBalances[player1Index] - tx.meta.preBalances[player1Index];
+                      totalRefunded += p1Change / 1e9;
+                    }
+                    if (player2Index !== -1) {
+                      const p2Change = tx.meta.postBalances[player2Index] - tx.meta.preBalances[player2Index];
+                      totalRefunded += p2Change / 1e9;
+                    }
+                    // Allow 0.001 SOL tolerance for fees
+                    balanceChangeMatches = Math.abs(totalRefunded - expectedWinnerAmount) <= 0.001;
+                  } else {
+                    // For winner matches, check winner and fee wallet amounts
+                    const winnerMatches = Math.abs(actualWinnerAmount - expectedWinnerAmount) <= 0.001;
+                    const feeMatches = Math.abs(actualFeeAmount - expectedFeeAmount) <= 0.001;
+                    balanceChangeMatches = winnerMatches && feeMatches;
+                  }
+                  
+                  console.log('🔍 Balance change verification:', {
+                    matchId,
+                    expectedWinnerAmount,
+                    expectedFeeAmount,
+                    actualWinnerAmount,
+                    actualFeeAmount,
+                    balanceChangeMatches,
+                    winner: match.winner
+                  });
+                }
+                
+                // Validate execution signature is valid Solana transaction hash (length and format)
+                const isValidSignature = sigInfo.signature && 
+                                        sigInfo.signature.length > 40 && 
+                                        !/^\d+$/.test(sigInfo.signature); // Not just digits
+                
+                if (isRelevantTransaction && timeMatch && isValidSignature && balanceChangeMatches) {
                   executionSignature = sigInfo.signature;
-                  console.log('✅ Found execution transaction:', {
+                  console.log('✅ Found execution transaction with verified balance changes:', {
                     signature: sigInfo.signature,
                     matchId,
                     winner: match.winner,
@@ -7572,6 +7831,7 @@ const signProposalHandler = async (req: any, res: any) => {
                     player1Involved,
                     player2Involved,
                     feeWalletInvolved,
+                    balanceChangeMatches,
                     txTime: new Date(txTime).toISOString(),
                     proposalTime: proposalTime ? new Date(proposalTime).toISOString() : 'unknown'
                   });
@@ -7584,25 +7844,70 @@ const signProposalHandler = async (req: any, res: any) => {
           }
           
           if (executionSignature) {
-            const txDetails = await connection.getTransaction(executionSignature, {
-              commitment: 'confirmed',
-              maxSupportedTransactionVersion: 0
-            });
+            // Retry logic for execution verification if blockchain query fails
+            let txDetails = null;
+            let retries = 3;
+            let retryDelay = 1000; // Start with 1 second
+            
+            while (retries > 0 && !txDetails) {
+              try {
+                txDetails = await connection.getTransaction(executionSignature, {
+                  commitment: 'confirmed',
+                  maxSupportedTransactionVersion: 0
+                });
+                
+                if (!txDetails) {
+                  retries--;
+                  if (retries > 0) {
+                    console.log(`⏳ Retrying execution transaction fetch (${retries} retries left)...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
+                    retryDelay *= 2; // Exponential backoff
+                  }
+                }
+              } catch (fetchError: any) {
+                retries--;
+                if (retries > 0) {
+                  console.warn(`⚠️ Error fetching execution transaction, retrying (${retries} retries left):`, fetchError?.message);
+                  await new Promise(resolve => setTimeout(resolve, retryDelay));
+                  retryDelay *= 2;
+                } else {
+                  console.error(`❌ Failed to fetch execution transaction after retries:`, fetchError?.message);
+                }
+              }
+            }
             
             if (txDetails) {
-              (match as any).proposalStatus = 'EXECUTED';
-              (match as any).proposalTransactionId = executionSignature;
-              (match as any).winnerPayoutSignature = executionSignature;
-              (match as any).proposalExecutedAt = new Date(txDetails.blockTime ? txDetails.blockTime * 1000 : Date.now());
-              (match as any).winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
-              (match as any).winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
+              // Validate execution transaction signature format
+              const isValidTxHash = executionSignature.length > 40 && !/^\d+$/.test(executionSignature);
               
-              console.log('✅ Captured execution transaction:', {
-                matchId,
-                executionSignature,
-                blockTime: txDetails.blockTime,
-                slot: txDetails.slot,
-              });
+              if (!isValidTxHash) {
+                console.error(`❌ Invalid execution transaction signature format: ${executionSignature}`);
+                // Fallback: mark as executed but without valid signature
+                (match as any).proposalStatus = 'EXECUTED';
+                (match as any).proposalExecutedAt = new Date();
+                console.log('⚠️ Proposal executed but execution signature is invalid format');
+              } else {
+                (match as any).proposalStatus = 'EXECUTED';
+                (match as any).proposalTransactionId = executionSignature;
+                (match as any).winnerPayoutSignature = executionSignature;
+                (match as any).proposalExecutedAt = new Date(txDetails.blockTime ? txDetails.blockTime * 1000 : Date.now());
+                (match as any).winnerPayoutBlockTime = txDetails.blockTime ? new Date(txDetails.blockTime * 1000) : undefined;
+                (match as any).winnerPayoutBlockNumber = txDetails.slot ? txDetails.slot.toString() : undefined;
+                
+                console.log('✅ Captured and verified execution transaction:', {
+                  matchId,
+                  executionSignature,
+                  blockTime: txDetails.blockTime,
+                  slot: txDetails.slot,
+                  isValidTxHash,
+                  executionVerifiedAt: new Date().toISOString()
+                });
+              }
+            } else {
+              // Fallback: mark as executed but without signature details
+              (match as any).proposalStatus = 'EXECUTED';
+              (match as any).proposalExecutedAt = new Date();
+              console.log('⚠️ Proposal executed but could not fetch execution transaction details');
             }
           } else {
             // Fallback: mark as executed but without signature

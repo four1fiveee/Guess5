@@ -45,6 +45,9 @@ export class Match {
   proposalExecutedAt?: Date;
 
   @Column({ nullable: true })
+  proposalExpiresAt?: Date;
+
+  @Column({ nullable: true })
   proposalTransactionId?: string;
 
   @Column({ nullable: true })

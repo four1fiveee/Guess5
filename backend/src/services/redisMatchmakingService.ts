@@ -81,7 +81,7 @@ export class RedisMatchmakingService {
       if (Object.keys(waitingPlayers).length === 0) {
         // No waiting players, add this player to the queue
         await this.redis.hSet(waitingKey, wallet, JSON.stringify(playerData));
-        await this.redis.expire(waitingKey, 300); // 5 minutes timeout
+        await this.redis.expire(waitingKey, 600); // Increased from 300 to 600 seconds (10 minutes)
         
         enhancedLogger.info(`👤 Player ${wallet} added to waiting queue for ${entryFee} SOL`);
         return { status: 'waiting', waitingCount: 1 };
@@ -131,13 +131,17 @@ export class RedisMatchmakingService {
 
             // Store match data
             await this.redis.hSet(`match:${matchId}`, 'data', JSON.stringify(matchData));
-            await this.redis.expire(`match:${matchId}`, 1800); // 30 minutes
+            await this.redis.expire(`match:${matchId}`, 1800); // 30 minutes (already aligned with match expiration)
 
             // Store player associations
             await this.redis.hSet(`player:${waitingPlayer.wallet}`, 'matchId', matchId);
             await this.redis.hSet(`player:${wallet}`, 'matchId', matchId);
-            await this.redis.expire(`player:${waitingPlayer.wallet}`, 1800); // 30 minutes
-            await this.redis.expire(`player:${wallet}`, 1800); // 30 minutes
+            await this.redis.expire(`player:${waitingPlayer.wallet}`, 1800); // 30 minutes (already aligned)
+            await this.redis.expire(`player:${wallet}`, 1800); // 30 minutes (already aligned)
+            
+            // Add heartbeat mechanism: extend TTL when match is accessed
+            // This ensures active matches don't expire prematurely
+            await this.redis.hSet(`match:${matchId}`, 'lastAccess', Date.now().toString());
 
             // Remove waiting player from queue
             await this.redis.hDel(waitingKey, waitingPlayer.wallet);
@@ -149,7 +153,7 @@ export class RedisMatchmakingService {
 
         // No compatible player found, add to queue
         await this.redis.hSet(waitingKey, wallet, JSON.stringify(playerData));
-        await this.redis.expire(waitingKey, 300);
+        await this.redis.expire(waitingKey, 600); // Increased from 300 to 600 seconds (10 minutes)
         
         const waitingCount = Object.keys(waitingPlayers).length + 1;
         enhancedLogger.info(`👤 Player ${wallet} added to waiting queue for ${entryFee} SOL (${waitingCount} waiting)`);
@@ -230,8 +234,14 @@ export class RedisMatchmakingService {
 
       const matchDataJson = await this.redis.hGet(`match:${matchId}`, 'data');
       if (!matchDataJson) {
+        // Match expired in Redis - try to recreate from database if needed
+        enhancedLogger.warn(`⚠️ Match ${matchId} expired in Redis, may need to recreate from database`);
         return null;
       }
+
+      // Heartbeat: Extend TTL when match is accessed (active match)
+      await this.redis.hSet(`match:${matchId}`, 'lastAccess', Date.now().toString());
+      await this.redis.expire(`match:${matchId}`, 1800); // Reset to 30 minutes
 
       return JSON.parse(matchDataJson as string) as MatchData;
     } catch (error: unknown) {
@@ -241,7 +251,20 @@ export class RedisMatchmakingService {
   }
 
   async getPlayerMatch(wallet: string): Promise<MatchData | null> {
-    return this.findMatch(wallet);
+    const match = await this.findMatch(wallet);
+    
+    // Heartbeat: If match found, extend TTL
+    if (match && this.redis) {
+      try {
+        await this.redis.hSet(`match:${match.matchId}`, 'lastAccess', Date.now().toString());
+        await this.redis.expire(`match:${match.matchId}`, 1800); // Reset to 30 minutes
+      } catch (error) {
+        // Don't fail if heartbeat fails
+        enhancedLogger.warn('⚠️ Failed to extend match TTL:', error);
+      }
+    }
+    
+    return match;
   }
 
   async updateMatchStatus(matchId: string, status: MatchData['status']): Promise<void> {

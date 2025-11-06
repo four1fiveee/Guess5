@@ -169,7 +169,12 @@ export class TimeoutScannerService {
           // One player finished, check how long it's been
           const timeSinceLastActivity = now - gameState.lastActivity;
           
-          if (timeSinceLastActivity > this.ABANDONED_GAME_TIMEOUT) {
+          // CRITICAL: Check timestamp - only process if match hasn't been updated in last 5 minutes
+          const matchUpdatedAt = match.updatedAt ? new Date(match.updatedAt).getTime() : match.createdAt ? new Date(match.createdAt).getTime() : 0;
+          const timeSinceUpdate = now - matchUpdatedAt;
+          const MIN_UPDATE_INTERVAL = 5 * 60 * 1000; // 5 minutes
+          
+          if (timeSinceLastActivity > this.ABANDONED_GAME_TIMEOUT && timeSinceUpdate >= MIN_UPDATE_INTERVAL) {
             enhancedLogger.info('⏰ Detected abandoned game - one player finished, other player timeout', {
               matchId: match.id,
               player1Finished,
@@ -177,6 +182,7 @@ export class TimeoutScannerService {
               player1HasResult: !!player1Result,
               player2HasResult: !!player2Result,
               timeSinceLastActivity: timeSinceLastActivity / 1000 + 's',
+              timeSinceUpdate: timeSinceUpdate / 1000 + 's',
             });
 
             await this.processAbandonedGame(match, player1Finished, player1Result, player2Finished, player2Result, auditLogRepository);
@@ -205,60 +211,105 @@ export class TimeoutScannerService {
     auditLogRepository: any
   ): Promise<void> {
     try {
-      const { determineWinnerAndPayout } = require('../controllers/matchController');
-      const matchRepository = AppDataSource.getRepository(Match);
+      // CRITICAL: Acquire distributed lock to prevent concurrent timeout processing
+      const { getTimeoutLock, releaseTimeoutLock } = require('../utils/timeoutLocks');
+      const lockAcquired = await getTimeoutLock(match.id);
       
-      // Reload match to get latest state
-      const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
-      if (!freshMatch || freshMatch.isCompleted) {
-        return; // Match already completed or doesn't exist
-      }
-
-      const freshPlayer1Result = freshMatch.getPlayer1Result();
-      const freshPlayer2Result = freshMatch.getPlayer2Result();
-
-      // If both have results now, skip (race condition)
-      if (freshPlayer1Result && freshPlayer2Result) {
+      if (!lockAcquired) {
+        enhancedLogger.warn(`⚠️ Timeout lock not acquired for match ${match.id} - another process is handling it`);
         return;
       }
 
-      // Create timeout result for the missing player
-      const timeoutResult = {
-        won: false,
-        numGuesses: 7, // Max guesses = lost
-        totalTime: this.ABANDONED_GAME_TIMEOUT,
-        guesses: [],
-        reason: 'abandoned',
-        abandoned: true
-      };
+      try {
+        const { determineWinnerAndPayout } = require('../controllers/matchController');
+        const matchRepository = AppDataSource.getRepository(Match);
+        
+        // Use database transaction with FOR UPDATE lock to prevent concurrent modifications
+        const payoutResult = await AppDataSource.transaction(async (manager: any) => {
+          // Reload match with row-level lock
+          const freshMatch = await manager
+            .createQueryBuilder(Match, 'match')
+            .setLock('pessimistic_write')
+            .where('match.id = :id', { id: match.id })
+            .getOne();
+          
+          if (!freshMatch || freshMatch.isCompleted) {
+            enhancedLogger.info(`⏭️ Match ${match.id} already completed or doesn't exist, skipping timeout processing`);
+            return null; // Match already completed or doesn't exist
+          }
 
-      let finalPlayer1Result = freshPlayer1Result;
-      let finalPlayer2Result = freshPlayer2Result;
+          const freshPlayer1Result = freshMatch.getPlayer1Result();
+          const freshPlayer2Result = freshMatch.getPlayer2Result();
 
-      // Set timeout result for missing player
-      if (!freshPlayer1Result && player2Finished) {
-        freshMatch.setPlayer1Result(timeoutResult);
-        finalPlayer1Result = timeoutResult;
-        enhancedLogger.info('⏰ Created timeout result for Player 1 (abandoned)', { matchId: match.id });
-      } else if (!freshPlayer2Result && player1Finished) {
-        freshMatch.setPlayer2Result(timeoutResult);
-        finalPlayer2Result = timeoutResult;
-        enhancedLogger.info('⏰ Created timeout result for Player 2 (abandoned)', { matchId: match.id });
-      }
+          // CRITICAL: Idempotency check - if timeout result already exists, skip
+          const hasTimeoutResult = (freshPlayer1Result && freshPlayer1Result.reason === 'abandoned') ||
+                                  (freshPlayer2Result && freshPlayer2Result.reason === 'abandoned');
+          
+          if (hasTimeoutResult) {
+            enhancedLogger.info(`⏭️ Timeout result already exists for match ${match.id}, skipping`);
+            return null;
+          }
 
-      // Save the timeout result
-      await matchRepository.save(freshMatch);
+          // If both have results now, skip (race condition)
+          if (freshPlayer1Result && freshPlayer2Result) {
+            enhancedLogger.info(`⏭️ Both players have results for match ${match.id}, skipping timeout processing`);
+            return null;
+          }
 
-      // Determine winner and create payout
-      const payoutResult = await determineWinnerAndPayout(match.id, finalPlayer1Result, finalPlayer2Result);
+          // CRITICAL: Check if either player result was submitted in last 30 seconds
+          const now = Date.now();
+          const matchUpdatedAt = freshMatch.updatedAt ? new Date(freshMatch.updatedAt).getTime() : 0;
+          const timeSinceUpdate = now - matchUpdatedAt;
+          const RECENT_UPDATE_THRESHOLD = 30 * 1000; // 30 seconds
+          
+          if (timeSinceUpdate < RECENT_UPDATE_THRESHOLD) {
+            enhancedLogger.info(`⏭️ Match ${match.id} updated ${timeSinceUpdate}ms ago, skipping timeout processing to avoid race condition`);
+            return null;
+          }
 
-      if (payoutResult) {
-        // Reload match to get latest state after determineWinnerAndPayout
-        const updatedMatch = await matchRepository.findOne({ where: { id: match.id } });
-        if (!updatedMatch) {
-          enhancedLogger.error('❌ Match not found after winner determination', { matchId: match.id });
-          return;
-        }
+          // Create timeout result for the missing player
+          const timeoutResult = {
+            won: false,
+            numGuesses: 7, // Max guesses = lost
+            totalTime: this.ABANDONED_GAME_TIMEOUT,
+            guesses: [],
+            reason: 'abandoned',
+            abandoned: true
+          };
+
+          let finalPlayer1Result = freshPlayer1Result;
+          let finalPlayer2Result = freshPlayer2Result;
+
+          // Set timeout result for missing player
+          if (!freshPlayer1Result && player2Finished) {
+            freshMatch.setPlayer1Result(timeoutResult);
+            finalPlayer1Result = timeoutResult;
+            enhancedLogger.info('⏰ Created timeout result for Player 1 (abandoned)', { matchId: match.id });
+          } else if (!freshPlayer2Result && player1Finished) {
+            freshMatch.setPlayer2Result(timeoutResult);
+            finalPlayer2Result = timeoutResult;
+            enhancedLogger.info('⏰ Created timeout result for Player 2 (abandoned)', { matchId: match.id });
+          }
+
+          // Save the timeout result within transaction
+          await manager.save(freshMatch);
+
+          // Determine winner and create payout (within transaction with manager)
+          const payoutResult = await determineWinnerAndPayout(match.id, finalPlayer1Result, finalPlayer2Result, manager);
+          
+          // Return payout result from transaction
+          return payoutResult;
+        });
+        
+        // After transaction completes, create proposals if needed
+        if (payoutResult) {
+          // Reload match to get latest state after determineWinnerAndPayout
+          const matchRepository = AppDataSource.getRepository(Match);
+          const updatedMatch = await matchRepository.findOne({ where: { id: match.id } });
+          if (!updatedMatch) {
+            enhancedLogger.error('❌ Match not found after winner determination', { matchId: match.id });
+            return;
+          }
 
         // Create Squads proposal if there's a winner (not a tie)
         if (payoutResult.winner && payoutResult.winner !== 'tie' && updatedMatch.squadsVaultAddress) {
@@ -340,19 +391,22 @@ export class TimeoutScannerService {
           proposalId: updatedMatch.payoutProposalId,
         });
 
-        enhancedLogger.info('✅ Abandoned game completed, winner determined', {
+          enhancedLogger.info('✅ Abandoned game completed, winner determined', {
+            matchId: match.id,
+            winner: (payoutResult as any).winner,
+            proposalId: updatedMatch.payoutProposalId,
+          });
+        }
+      } catch (error) {
+        enhancedLogger.error('❌ Error processing abandoned game', {
           matchId: match.id,
-          winner: (payoutResult as any).winner,
-          proposalId: updatedMatch.payoutProposalId,
+          error,
         });
+      } finally {
+        // Always release the distributed lock
+        await releaseTimeoutLock(match.id);
       }
-    } catch (error) {
-      enhancedLogger.error('❌ Error processing abandoned game', {
-        matchId: match.id,
-        error,
-      });
     }
-  }
 
   /**
    * Process a match that has timed out
