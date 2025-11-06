@@ -40,7 +40,7 @@ export default function Home() {
           <div className="text-xs sm:text-sm text-white/90 space-y-2.5 sm:space-y-3">
             <div className="flex items-start space-x-2.5">
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">1.</span>
-              <span><b>Choose your stake:</b> Select $10, $25, or $100 (paid in SOL). Entry fees are held in a secure multisig vault</span>
+              <span><b>Choose your stake:</b> Select $5, $20, $50, or $100 (paid in SOL). Entry fees are held in a secure multisig vault</span>
             </div>
             <div className="flex items-start space-x-2.5">
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">2.</span>

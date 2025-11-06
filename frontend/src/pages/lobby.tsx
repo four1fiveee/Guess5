@@ -8,7 +8,7 @@ import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
 
-const ENTRY_FEES_USD = [10, 25, 100];
+const ENTRY_FEES_USD = [5, 20, 50, 100];
 
 // Fetch live SOL/USD price from backend (avoids CORS issues)
 const fetchSolPrice = async () => {
@@ -495,25 +495,26 @@ export default function Lobby() {
                 </div>
               )}
 
-              {/* Entry Fee Selection Cards - Premium Horizontal Layout */}
-              <div className="flex flex-col lg:flex-row items-center justify-center gap-6 lg:gap-8 mb-8 max-w-6xl mx-auto">
+              {/* Entry Fee Selection Cards - Premium Grid Layout for 4 Tiers */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 max-w-7xl mx-auto">
                 {ENTRY_FEES_USD.map((usdAmount, index) => {
                   const solAmount = solAmounts[index];
                   const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
                   const hasUnsignedRefunds = pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0;
                   const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims || hasUnsignedRefunds;
                   const potentialWinnings = calculatePotentialWinnings(usdAmount);
-                  const isPopular = usdAmount === 25; // Mark $25 as popular
+                  const isPopular = usdAmount === 20; // Mark $20 as popular
                   const isPremium = usdAmount === 100; // Mark $100 as premium
+                  const isHighValue = usdAmount === 50; // Mark $50 as high value
                   
                   return (
                     <button
                       key={usdAmount}
                       onClick={() => handleSelect(usdAmount, solAmount)}
                       disabled={isDisabled}
-                      className={`relative group flex-1 w-full lg:w-auto min-w-[280px] max-w-[380px] ${
+                      className={`relative group w-full ${
                         isPopular 
-                          ? 'lg:scale-110 lg:z-10' 
+                          ? 'lg:scale-105 lg:z-10' 
                           : isPremium
                           ? 'lg:scale-105'
                           : ''
@@ -528,40 +529,56 @@ export default function Lobby() {
                           ? 'from-accent/25 via-yellow-500/20 to-accent/25 border-2 border-accent/60 shadow-2xl shadow-accent/20'
                           : isPremium
                           ? 'from-purple-600/20 via-purple-500/15 to-purple-600/20 border-2 border-purple-400/40 shadow-xl'
+                          : isHighValue
+                          ? 'from-blue-600/20 via-blue-500/15 to-blue-600/20 border-2 border-blue-400/40 shadow-xl'
                           : 'from-white/8 via-white/5 to-white/8 border border-white/20 shadow-lg'
-                      } rounded-3xl p-8 sm:p-10 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl ${
+                      } rounded-3xl p-6 sm:p-8 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl ${
                         !isDisabled && !isMatchmaking ? 'hover:scale-105 hover:border-accent/80' : ''
                       }`}>
                         {/* Popular Badge */}
                         {isPopular && !isDisabled && (
-                          <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-accent to-yellow-400 text-black text-xs font-extrabold px-5 py-1.5 rounded-full shadow-xl border-2 border-black/20 uppercase tracking-wide">
+                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-accent to-yellow-400 text-black text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-black/20 uppercase tracking-wide z-20">
                             ⭐ Most Popular
                           </div>
                         )}
                         
                         {/* Premium Badge */}
                         {isPremium && !isDisabled && (
-                          <div className="absolute -top-4 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-extrabold px-5 py-1.5 rounded-full shadow-xl border-2 border-purple-300/50 uppercase tracking-wide">
+                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-purple-300/50 uppercase tracking-wide z-20">
                             💎 Premium
                           </div>
                         )}
                         
-                        <div className="flex flex-col items-center text-center h-full">
+                        {/* High Value Badge */}
+                        {isHighValue && !isDisabled && (
+                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-blue-300/50 uppercase tracking-wide z-20">
+                            🎯 High Value
+                          </div>
+                        )}
+                        
+                        {/* Entry Tier Badge */}
+                        {usdAmount === 5 && !isDisabled && (
+                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-green-300/50 uppercase tracking-wide z-20">
+                            🎮 Entry Tier
+                          </div>
+                        )}
+                        
+                        <div className="flex flex-col items-center text-center h-full pt-2">
                           {/* Entry Fee - Large and Prominent */}
                           <div className="mb-3">
-                            <div className={`text-5xl sm:text-6xl lg:text-7xl font-black mb-1 ${
-                              isDisabled ? 'text-gray-500' : isPopular ? 'text-accent' : isPremium ? 'text-purple-300' : 'text-white'
+                            <div className={`text-4xl sm:text-5xl lg:text-6xl font-black mb-1 ${
+                              isDisabled ? 'text-gray-500' : isPopular ? 'text-accent' : isPremium ? 'text-purple-300' : isHighValue ? 'text-blue-300' : 'text-white'
                             }`}>
                               ${usdAmount}
                             </div>
-                            <div className="text-white/60 text-sm font-medium">
+                            <div className="text-white/60 text-xs sm:text-sm font-medium">
                               {solAmount ? `≈ ${solAmount} SOL` : 'Loading...'}
                             </div>
                           </div>
                           
                           {/* Divider */}
-                          <div className={`w-16 h-0.5 mb-6 ${
-                            isPopular ? 'bg-accent/50' : isPremium ? 'bg-purple-400/50' : 'bg-white/20'
+                          <div className={`w-12 sm:w-16 h-0.5 mb-4 sm:mb-6 ${
+                            isPopular ? 'bg-accent/50' : isPremium ? 'bg-purple-400/50' : isHighValue ? 'bg-blue-400/50' : 'bg-white/20'
                           }`}></div>
                           
                           {/* Potential Winnings - Emphasized */}
@@ -569,7 +586,7 @@ export default function Lobby() {
                             <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
                               Win Up To
                             </div>
-                            <div className={`text-3xl sm:text-4xl font-black mb-2 ${
+                            <div className={`text-2xl sm:text-3xl font-black mb-2 ${
                               isDisabled ? 'text-gray-500' : 'text-green-400'
                             }`}>
                               ${potentialWinnings}
@@ -579,36 +596,48 @@ export default function Lobby() {
                             </div>
                           </div>
                           
-                          {/* Value Proposition for Premium */}
+                          {/* Value Proposition */}
+                          {usdAmount === 5 && !isDisabled && (
+                            <div className="mt-3 text-xs text-green-300/80 font-medium">
+                              Low Friction • Casual Play
+                            </div>
+                          )}
+                          {isHighValue && !isDisabled && (
+                            <div className="mt-3 text-xs text-blue-300/80 font-medium">
+                              Serious Players • Higher Rewards
+                            </div>
+                          )}
                           {isPremium && !isDisabled && (
-                            <div className="mt-4 text-xs text-purple-300/80 font-medium">
-                              Highest Stakes • Biggest Rewards
+                            <div className="mt-3 text-xs text-purple-300/80 font-medium">
+                              Top Tier • Biggest Rewards
                             </div>
                           )}
                           
                           {/* Status Messages */}
-                          <div className="mt-6 w-full">
+                          <div className="mt-5 sm:mt-6 w-full">
                             {!hasEnoughBalance && walletBalance !== null && (
-                              <div className="text-xs text-red-400 font-semibold bg-red-500/10 px-4 py-2 rounded-lg border border-red-500/20">
+                              <div className="text-xs text-red-400 font-semibold bg-red-500/10 px-3 py-1.5 rounded-lg border border-red-500/20">
                                 ⚠ Insufficient Balance
                               </div>
                             )}
                             {hasBlockingClaims && (
-                              <div className="text-xs text-yellow-400 font-semibold bg-yellow-500/10 px-4 py-2 rounded-lg border border-yellow-500/20">
+                              <div className="text-xs text-yellow-400 font-semibold bg-yellow-500/10 px-3 py-1.5 rounded-lg border border-yellow-500/20">
                                 ⚠ Claim Funds First
                               </div>
                             )}
                             {hasUnsignedRefunds && (
-                              <div className="text-xs text-orange-400 font-semibold bg-orange-500/10 px-4 py-2 rounded-lg border border-orange-500/20">
+                              <div className="text-xs text-orange-400 font-semibold bg-orange-500/10 px-3 py-1.5 rounded-lg border border-orange-500/20">
                                 ⚠ Sign Refunds First
                               </div>
                             )}
                             {!isDisabled && !hasBlockingClaims && !hasUnsignedRefunds && walletBalance !== null && hasEnoughBalance && (
-                              <div className={`text-sm font-bold py-2.5 px-6 rounded-xl transition-all ${
+                              <div className={`text-xs sm:text-sm font-bold py-2 sm:py-2.5 px-4 sm:px-6 rounded-xl transition-all ${
                                 isPopular 
                                   ? 'bg-accent text-black hover:bg-yellow-400' 
                                   : isPremium
                                   ? 'bg-purple-500 text-white hover:bg-purple-400'
+                                  : isHighValue
+                                  ? 'bg-blue-500 text-white hover:bg-blue-400'
                                   : 'bg-white/10 text-white hover:bg-white/20'
                               }`}>
                                 Select This Tier
