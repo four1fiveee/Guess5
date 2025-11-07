@@ -89,6 +89,18 @@ export const initializeDatabase = async () => {
         } else if (AppDataSource.isInitialized) {
           await AppDataSource.query(q, params);
         }
+        const checkSql = `SELECT name FROM "${table}" ORDER BY name`;
+        try {
+          if (client) {
+            const result = await client.query(checkSql);
+            console.log(`🔎 Migration names in ${table}:`, result.rows?.map((r: any) => r.name));
+          } else if (AppDataSource.isInitialized) {
+            const result = await AppDataSource.query(checkSql);
+            console.log(`🔎 Migration names in ${table}:`, result.map((r: any) => r.name));
+          }
+        } catch (innerError) {
+          console.warn(`⚠️ Unable to inspect migration names for table ${table}:`, innerError);
+        }
       }
     } catch (error) {
       console.warn('⚠️ Unable to normalize legacy migration names (safe to ignore if table missing):', error);
