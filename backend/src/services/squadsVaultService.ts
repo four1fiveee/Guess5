@@ -992,15 +992,40 @@ export class SquadsVaultService {
         transactionIndex: transactionIndex.toString(),
       });
 
-      enhancedLogger.info('✅ Winner payout proposal created', {
-        vaultAddress,
-        proposalId,
-        winner: winner.toString(),
-        winnerAmount,
-        feeAmount,
-      });
+      // Ensure a proposal account exists and is active for this transaction
+      let createdProposal = false;
+      try {
+        const proposalSignature = await rpc.proposalCreate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair,
+          creator: this.config.systemKeypair,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId: this.programId,
+        });
+        createdProposal = true;
+        enhancedLogger.info('✅ Proposal account created', {
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalSignature,
+        });
+      } catch (proposalError: any) {
+        const msg = proposalError?.message || String(proposalError);
+        if (msg.includes('already in use') || msg.includes('already initialized')) {
+          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          enhancedLogger.error('❌ Failed to create proposal account', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: msg,
+          });
+          throw proposalError;
+        }
+      }
 
-      // Activate proposal so members can approve
       try {
         const activateSignature = await rpc.proposalActivate({
           connection: this.connection,
@@ -1031,6 +1056,15 @@ export class SquadsVaultService {
           throw activateError;
         }
       }
+
+      enhancedLogger.info('✅ Winner payout proposal ready for approvals', {
+        vaultAddress,
+        proposalId,
+        newlyCreated: createdProposal,
+        winner: winner.toString(),
+        winnerAmount,
+        feeAmount,
+      });
 
       // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
       try {
@@ -1144,38 +1178,6 @@ export class SquadsVaultService {
         refundAmount,
         systemPublicKey: this.config.systemPublicKey.toString(),
       });
-
-      // Ensure a proposal account exists for this transaction index
-      try {
-        const proposalSignature = await rpc.proposalCreate({
-          connection: this.connection,
-          feePayer: this.config.systemKeypair,
-          creator: this.config.systemKeypair,
-          multisigPda: multisigAddress,
-          transactionIndex,
-          programId: this.programId,
-        });
-        enhancedLogger.info('✅ Proposal account created', {
-          multisigAddress: multisigAddress.toString(),
-          transactionIndex: transactionIndex.toString(),
-          proposalSignature,
-        });
-      } catch (proposalError: any) {
-        const msg = proposalError?.message || String(proposalError);
-        if (msg.includes('already in use') || msg.includes('already initialized')) {
-          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
-            multisigAddress: multisigAddress.toString(),
-            transactionIndex: transactionIndex.toString(),
-          });
-        } else {
-          enhancedLogger.error('❌ Failed to create proposal account', {
-            multisigAddress: multisigAddress.toString(),
-            transactionIndex: transactionIndex.toString(),
-            error: msg,
-          });
-          throw proposalError;
-        }
-      }
 
       // Create real Squads transaction for refunds
       let multisigAddress: PublicKey;
@@ -1464,15 +1466,40 @@ export class SquadsVaultService {
         transactionIndex: transactionIndex.toString(),
       });
 
-      enhancedLogger.info('✅ Tie refund proposal created', {
-        vaultAddress,
-        proposalId,
-        player1: player1.toString(),
-        player2: player2.toString(),
-        refundAmount,
-      });
+      // Ensure proposal account exists and is active for this transaction
+      let createdTieProposal = false;
+      try {
+        const proposalSignature = await rpc.proposalCreate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair,
+          creator: this.config.systemKeypair,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId: this.programId,
+        });
+        createdTieProposal = true;
+        enhancedLogger.info('✅ Proposal account created', {
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalSignature,
+        });
+      } catch (proposalError: any) {
+        const msg = proposalError?.message || String(proposalError);
+        if (msg.includes('already in use') || msg.includes('already initialized')) {
+          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          enhancedLogger.error('❌ Failed to create proposal account', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: msg,
+          });
+          throw proposalError;
+        }
+      }
 
-      // Activate proposal so members can approve
       try {
         const activateSignature = await rpc.proposalActivate({
           connection: this.connection,
@@ -1503,6 +1530,15 @@ export class SquadsVaultService {
           throw activateError;
         }
       }
+
+      enhancedLogger.info('✅ Tie refund proposal ready for approvals', {
+        vaultAddress,
+        proposalId,
+        newlyCreated: createdTieProposal,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundAmount,
+      });
 
       // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
       try {
