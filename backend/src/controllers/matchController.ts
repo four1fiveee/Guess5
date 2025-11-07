@@ -48,6 +48,67 @@ const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> =
   }
 };
 
+const normalizeProposalSigners = (value: any): string[] => {
+  if (!value) {
+    return [];
+  }
+
+  const coerceToArray = (input: any): string[] => {
+    if (!input) {
+      return [];
+    }
+
+    if (Array.isArray(input)) {
+      return input
+        .filter((entry) => typeof entry === 'string' && entry.length > 0)
+        .map((entry) => entry.trim());
+    }
+
+    if (typeof input === 'string') {
+      return input.length > 0 ? [input.trim()] : [];
+    }
+
+    if (typeof input === 'object') {
+      return Object.values(input)
+        .filter((entry) => typeof entry === 'string' && entry.length > 0)
+        .map((entry) => entry.trim());
+    }
+
+    return [];
+  };
+
+  try {
+    if (typeof value === 'string') {
+      // Attempt to parse JSON strings; fall back to treating as comma-separated or single value
+      try {
+        const parsed = JSON.parse(value);
+        const result = coerceToArray(parsed);
+        if (result.length > 0) {
+          return result;
+        }
+      } catch {
+        // Not JSON; check if comma-separated string
+        if (value.includes(',')) {
+          return value
+            .split(',')
+            .map((entry) => entry.trim())
+            .filter((entry) => entry.length > 0);
+        }
+        return coerceToArray(value);
+      }
+    } else {
+      const result = coerceToArray(value);
+      if (result.length > 0) {
+        return result;
+      }
+    }
+  } catch {
+    // Ignore errors; fall back below
+  }
+
+  return [];
+};
+
 // Memory limit check function using Redis
 const checkMemoryLimits = async () => {
   try {
@@ -3549,46 +3610,62 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     try {
       const { getSquadsVaultService } = require('../services/squadsVaultService');
-      const { getFeeWalletKeypair } = require('../utils/feeWallet');
+      const { getFeeWalletKeypair } = require('../config/wallet');
       const squadsVaultService = getSquadsVaultService();
-      const feeWalletKeypair = getFeeWalletKeypair();
+      
+      let feeWalletKeypair: any = null;
+      try {
+        feeWalletKeypair = getFeeWalletKeypair();
+      } catch (keypairError: any) {
+        console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution (fallback)', {
+          matchId: match.id,
+          error: keypairError?.message || String(keypairError),
+        });
+      }
       
       const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
       const proposalIdString = String(proposalId).trim();
       
-      const executeResult = await squadsVaultService.executeProposal(
-        (match as any).squadsVaultAddress,
-        proposalIdString,
-        feeWalletKeypair
-      );
-      
-      if (executeResult.success) {
-        console.log('✅ Proposal executed successfully (fallback)', {
-          matchId: match.id,
-          proposalId: proposalIdString,
-          executionSignature: executeResult.signature,
-        });
+      if (feeWalletKeypair) {
+        const executeResult = await squadsVaultService.executeProposal(
+          (match as any).squadsVaultAddress,
+          proposalIdString,
+          feeWalletKeypair
+        );
         
-        // Update status to EXECUTED
-        const { AppDataSource } = require('../db/index');
-        const matchRepository = AppDataSource.getRepository(Match);
-        await matchRepository.query(`
-          UPDATE "match" 
-          SET "proposalStatus" = 'EXECUTED',
-              "proposalExecutedAt" = NOW(),
-              "proposalTransactionId" = $1
-          WHERE id = $2
-        `, [executeResult.signature, match.id]);
-        
-        // Update match object for response
-        (match as any).proposalStatus = 'EXECUTED';
-        (match as any).proposalExecutedAt = new Date();
-        (match as any).proposalTransactionId = executeResult.signature;
+        if (executeResult.success) {
+          console.log('✅ Proposal executed successfully (fallback)', {
+            matchId: match.id,
+            proposalId: proposalIdString,
+            executionSignature: executeResult.signature,
+          });
+          
+          // Update status to EXECUTED
+          const { AppDataSource } = require('../db/index');
+          const matchRepository = AppDataSource.getRepository(Match);
+          await matchRepository.query(`
+            UPDATE "match" 
+            SET "proposalStatus" = 'EXECUTED',
+                "proposalExecutedAt" = NOW(),
+                "proposalTransactionId" = $1
+            WHERE id = $2
+          `, [executeResult.signature, match.id]);
+          
+          // Update match object for response
+          (match as any).proposalStatus = 'EXECUTED';
+          (match as any).proposalExecutedAt = new Date();
+          (match as any).proposalTransactionId = executeResult.signature;
+        } else {
+          console.error('❌ Failed to execute proposal (fallback)', {
+            matchId: match.id,
+            proposalId: proposalIdString,
+            error: executeResult.error,
+          });
+        }
       } else {
-        console.error('❌ Failed to execute proposal (fallback)', {
+        console.warn('⚠️ Skipping automatic proposal execution (fallback) because fee wallet keypair is not configured', {
           matchId: match.id,
           proposalId: proposalIdString,
-          error: executeResult.error,
         });
       }
     } catch (executeError: any) {
@@ -8268,13 +8345,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
 
     // Verify player hasn't already signed
-    let signers: string[] = [];
-    try {
-      signers = matchRow.proposalSigners ? JSON.parse(matchRow.proposalSigners) : [];
-    } catch (parseError) {
-      // If parsing fails, assume empty array
-      signers = [];
-    }
+    const signers = normalizeProposalSigners(matchRow.proposalSigners);
+
     if (signers.includes(wallet)) {
       return res.status(400).json({ error: 'You have already signed this proposal' });
     }
@@ -8687,13 +8759,7 @@ const signProposalHandler = async (req: any, res: any) => {
     }
 
     // Verify player hasn't already signed (make idempotent)
-    let signers: string[] = [];
-    try {
-      signers = matchRow.proposalSigners ? JSON.parse(matchRow.proposalSigners) : [];
-    } catch (parseError) {
-      // If parsing fails, assume empty array
-      signers = [];
-    }
+    const signers = normalizeProposalSigners(matchRow.proposalSigners);
     
     if (signers.includes(wallet)) {
       console.log('✅ Player already signed proposal, returning success (idempotent)', {
@@ -8843,6 +8909,9 @@ const signProposalHandler = async (req: any, res: any) => {
     });
 
     // Update match with new signer
+    let newNeedsSignatures = 0;
+    let newProposalStatus = 'READY_TO_EXECUTE';
+
     try {
       // Add wallet to signers list
       signers.push(wallet);
@@ -8852,11 +8921,11 @@ const signProposalHandler = async (req: any, res: any) => {
       // Only ONE signature needed total between both players
       // After first signature, set to 0 and mark as ready to execute
       const currentNeedsSignatures = matchRow.needsSignatures || 1;
-      const newNeedsSignatures = 0; // After first signature, proposal is ready
+      newNeedsSignatures = 0; // After first signature, proposal is ready
       
       // Mark as ready to execute since we only need 1 signature
       // Will be updated to 'EXECUTED' if execution succeeds
-      let newProposalStatus = 'READY_TO_EXECUTE';
+      newProposalStatus = 'READY_TO_EXECUTE';
       
       // Update database using raw SQL
       await matchRepository.query(`
@@ -8918,47 +8987,65 @@ const signProposalHandler = async (req: any, res: any) => {
                 "proposalExecutedAt" = COALESCE("proposalExecutedAt", NOW())
             WHERE id = $1
           `, [matchId]);
+          newProposalStatus = 'EXECUTED';
         } else {
           // Transaction still exists, not executed yet - EXECUTE IT NOW
           console.log('🚀 Proposal is ready to execute - executing now...');
           
           try {
-            const { getSquadsVaultService } = require('../services/squadsVaultService');
-            const { getFeeWalletKeypair } = require('../utils/feeWallet');
-            const squadsVaultService = getSquadsVaultService();
-            const feeWalletKeypair = getFeeWalletKeypair();
+        const { getSquadsVaultService } = require('../services/squadsVaultService');
+        const { getFeeWalletKeypair } = require('../config/wallet');
+        const squadsVaultService = getSquadsVaultService();
+
+        let feeWalletKeypair: any = null;
+        try {
+          feeWalletKeypair = getFeeWalletKeypair();
+        } catch (keypairError: any) {
+          console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+            matchId,
+            proposalId: proposalIdString,
+            error: keypairError?.message || String(keypairError),
+          });
+        }
+
+        if (feeWalletKeypair) {
+          const executeResult = await squadsVaultService.executeProposal(
+            matchRow.squadsVaultAddress,
+            proposalIdString,
+            feeWalletKeypair
+          );
+          
+          if (executeResult.success) {
+            console.log('✅ Proposal executed successfully', {
+              matchId,
+              proposalId: proposalIdString,
+              executionSignature: executeResult.signature,
+            });
             
-            const executeResult = await squadsVaultService.executeProposal(
-              matchRow.squadsVaultAddress,
-              proposalIdString,
-              feeWalletKeypair
-            );
+            // Update status to EXECUTED
+            await matchRepository.query(`
+              UPDATE "match" 
+              SET "proposalStatus" = 'EXECUTED',
+                  "proposalExecutedAt" = NOW(),
+                  "proposalTransactionId" = $1
+              WHERE id = $2
+            `, [executeResult.signature, matchId]);
             
-            if (executeResult.success) {
-              console.log('✅ Proposal executed successfully', {
-                matchId,
-                proposalId: proposalIdString,
-                executionSignature: executeResult.signature,
-              });
-              
-              // Update status to EXECUTED
-              await matchRepository.query(`
-                UPDATE "match" 
-                SET "proposalStatus" = 'EXECUTED',
-                    "proposalExecutedAt" = NOW(),
-                    "proposalTransactionId" = $1
-                WHERE id = $2
-              `, [executeResult.signature, matchId]);
-              
-              newProposalStatus = 'EXECUTED';
-            } else {
-              console.error('❌ Failed to execute proposal', {
-                matchId,
-                proposalId: proposalIdString,
-                error: executeResult.error,
-              });
-              // Don't fail the request - proposal was signed successfully, execution can be retried
-              console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
+            newProposalStatus = 'EXECUTED';
+          } else {
+            console.error('❌ Failed to execute proposal', {
+              matchId,
+              proposalId: proposalIdString,
+              error: executeResult.error,
+            });
+            // Don't fail the request - proposal was signed successfully, execution can be retried
+            console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
+          }
+        } else {
+          console.warn('⚠️ Skipping automatic execution because fee wallet keypair is not configured', {
+            matchId,
+            proposalId: proposalIdString,
+          });
             }
           } catch (executeError: any) {
             console.error('❌ Error executing proposal', {

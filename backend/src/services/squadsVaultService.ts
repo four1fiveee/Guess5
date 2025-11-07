@@ -1,5 +1,15 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram } from '@solana/web3.js';
-import { rpc, PROGRAM_ID, getMultisigPda, getVaultPda, getProgramConfigPda, accounts, types } from '@sqds/multisig';
+import {
+  rpc,
+  PROGRAM_ID,
+  getMultisigPda,
+  getVaultPda,
+  getProgramConfigPda,
+  getTransactionPda,
+  getProposalPda,
+  accounts,
+  types,
+} from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
 import { AppDataSource } from '../db';
@@ -1003,6 +1013,57 @@ export class SquadsVaultService {
 
       transactionIndex = effectiveTransactionIndex;
 
+      // Confirm transaction and ensure account exists on-chain before proceeding
+      try {
+        const confirmation = await this.connection.confirmTransaction(
+          signature,
+          'confirmed'
+        );
+
+        if (confirmation.value.err) {
+          enhancedLogger.error(
+            '❌ vault transaction confirmation reported an error',
+            {
+              vaultAddress,
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              signature,
+              error: confirmation.value.err,
+            }
+          );
+          throw new Error(
+            `Vault transaction confirmation failed: ${JSON.stringify(
+              confirmation.value.err
+            )}`
+          );
+        }
+
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId: this.programId,
+        });
+
+        await this.waitForAccountAvailability(
+          transactionPda,
+          'vault transaction',
+          vaultAddress
+        );
+      } catch (confirmationError: any) {
+        enhancedLogger.error(
+          '❌ Failed to confirm vault transaction for proposal creation',
+          {
+            vaultAddress,
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            signature,
+            error:
+              confirmationError?.message || String(confirmationError),
+          }
+        );
+        throw confirmationError;
+      }
+
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
       
@@ -1024,20 +1085,22 @@ export class SquadsVaultService {
 
       // Ensure a proposal account exists and is active for this transaction
       let createdProposal = false;
+      let proposalCreateSignature: string | null = null;
       try {
-        const proposalSignature = await rpc.proposalCreate({
+        proposalCreateSignature = await rpc.proposalCreate({
           connection: this.connection,
           feePayer: this.config.systemKeypair,
           creator: this.config.systemKeypair,
           multisigPda: multisigAddress,
           transactionIndex,
           programId: this.programId,
+          isDraft: true,
         });
         createdProposal = true;
         enhancedLogger.info('✅ Proposal account created', {
           multisigAddress: multisigAddress.toString(),
           transactionIndex: transactionIndex.toString(),
-          proposalSignature,
+          proposalSignature: proposalCreateSignature,
         });
       } catch (proposalError: any) {
         const msg = proposalError?.message || String(proposalError);
@@ -1056,6 +1119,15 @@ export class SquadsVaultService {
         }
       }
 
+      if (createdProposal && proposalCreateSignature) {
+        await this.confirmProposalCreation(
+          proposalCreateSignature,
+          multisigAddress,
+          transactionIndex,
+          'winner payout'
+        );
+      }
+
       try {
         const activateSignature = await rpc.proposalActivate({
           connection: this.connection,
@@ -1070,8 +1142,16 @@ export class SquadsVaultService {
           proposalId,
           activateSignature,
         });
+        await this.confirmProposalActivation(
+          activateSignature,
+          multisigAddress,
+          transactionIndex,
+          'winner payout'
+        );
       } catch (activateError: any) {
-        const msg = activateError?.message || String(activateError);
+        const msg =
+          activateError?.message ||
+          (activateError?.logs ? activateError.logs.join('\n') : String(activateError));
         if (msg.includes('AlreadyActive') || msg.includes('already active')) {
           enhancedLogger.info('ℹ️ Proposal already active', {
             vaultAddress,
@@ -1082,6 +1162,7 @@ export class SquadsVaultService {
             vaultAddress,
             proposalId,
             error: msg,
+            rawError: activateError,
           });
           throw activateError;
         }
@@ -1571,6 +1652,57 @@ export class SquadsVaultService {
 
       transactionIndex = effectiveTieTransactionIndex;
 
+      // Confirm transaction and ensure vault transaction account exists
+      try {
+        const confirmation = await this.connection.confirmTransaction(
+          signature,
+          'confirmed'
+        );
+
+        if (confirmation.value.err) {
+          enhancedLogger.error(
+            '❌ Tie refund vault transaction confirmation reported an error',
+            {
+              vaultAddress,
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              signature,
+              error: confirmation.value.err,
+            }
+          );
+          throw new Error(
+            `Tie refund vault transaction confirmation failed: ${JSON.stringify(
+              confirmation.value.err
+            )}`
+          );
+        }
+
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId: this.programId,
+        });
+
+        await this.waitForAccountAvailability(
+          transactionPda,
+          'tie refund vault transaction',
+          vaultAddress
+        );
+      } catch (confirmationError: any) {
+        enhancedLogger.error(
+          '❌ Failed to confirm tie refund vault transaction',
+          {
+            vaultAddress,
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            signature,
+            error:
+              confirmationError?.message || String(confirmationError),
+          }
+        );
+        throw confirmationError;
+      }
+
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
       
@@ -1586,20 +1718,22 @@ export class SquadsVaultService {
 
       // Ensure proposal account exists and is active for this transaction
       let createdTieProposal = false;
+      let tieProposalSignature: string | null = null;
       try {
-        const proposalSignature = await rpc.proposalCreate({
+        tieProposalSignature = await rpc.proposalCreate({
           connection: this.connection,
           feePayer: this.config.systemKeypair,
           creator: this.config.systemKeypair,
           multisigPda: multisigAddress,
           transactionIndex,
           programId: this.programId,
+          isDraft: true,
         });
         createdTieProposal = true;
         enhancedLogger.info('✅ Proposal account created', {
           multisigAddress: multisigAddress.toString(),
           transactionIndex: transactionIndex.toString(),
-          proposalSignature,
+          proposalSignature: tieProposalSignature,
         });
       } catch (proposalError: any) {
         const msg = proposalError?.message || String(proposalError);
@@ -1618,6 +1752,15 @@ export class SquadsVaultService {
         }
       }
 
+      if (createdTieProposal && tieProposalSignature) {
+        await this.confirmProposalCreation(
+          tieProposalSignature,
+          multisigAddress,
+          transactionIndex,
+          'tie refund'
+        );
+      }
+
       try {
         const activateSignature = await rpc.proposalActivate({
           connection: this.connection,
@@ -1632,8 +1775,16 @@ export class SquadsVaultService {
           proposalId,
           activateSignature,
         });
+        await this.confirmProposalActivation(
+          activateSignature,
+          multisigAddress,
+          transactionIndex,
+          'tie refund'
+        );
       } catch (activateError: any) {
-        const msg = activateError?.message || String(activateError);
+        const msg =
+          activateError?.message ||
+          (activateError?.logs ? activateError.logs.join('\n') : String(activateError));
         if (msg.includes('AlreadyActive') || msg.includes('already active')) {
           enhancedLogger.info('ℹ️ Proposal already active', {
             vaultAddress,
@@ -1644,6 +1795,7 @@ export class SquadsVaultService {
             vaultAddress,
             proposalId,
             error: msg,
+            rawError: activateError,
           });
           throw activateError;
         }
@@ -2220,6 +2372,208 @@ export class SquadsVaultService {
         error,
       });
     }
+  }
+
+  private async waitForAccountAvailability(
+    address: PublicKey,
+    description: string,
+    contextId: string,
+    retries: number = 8,
+    delayMs: number = 500
+  ): Promise<void> {
+    for (let attempt = 0; attempt < retries; attempt++) {
+      const info = await this.connection.getAccountInfo(
+        address,
+        'confirmed'
+      );
+      if (info) {
+        if (attempt > 0) {
+          enhancedLogger.info('✅ Account detected after retry', {
+            description,
+            contextId,
+            address: address.toString(),
+            attempts: attempt + 1,
+          });
+        }
+        return;
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+
+    enhancedLogger.warn(
+      '⚠️ Account still unavailable after retries',
+      {
+        description,
+        contextId,
+        address: address.toString(),
+        retries,
+        delayMs,
+      }
+    );
+  }
+
+  private async confirmProposalCreation(
+    signature: string,
+    multisigAddress: PublicKey,
+    transactionIndex: bigint,
+    contextLabel: string
+  ): Promise<void> {
+    try {
+      const confirmation = await this.connection.confirmTransaction(signature, 'confirmed');
+      if (confirmation.value.err) {
+        enhancedLogger.error('❌ Proposal creation confirmation reported an error', {
+          contextLabel,
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          signature,
+          error: confirmation.value.err,
+        });
+        throw new Error(
+          `Proposal creation confirmation failed: ${JSON.stringify(confirmation.value.err)}`
+        );
+      }
+
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex,
+        programId: this.programId,
+      });
+
+      await this.waitForAccountAvailability(
+        proposalPda,
+        `${contextLabel} proposal`,
+        multisigAddress.toString()
+      );
+      await this.waitForProposalStatus(
+        proposalPda,
+        multisigAddress,
+        transactionIndex,
+        'Draft',
+        contextLabel
+      );
+    } catch (error) {
+      enhancedLogger.error('❌ Failed to confirm proposal creation', {
+        contextLabel,
+        multisigAddress: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        signature,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  private async confirmProposalActivation(
+    signature: string,
+    multisigAddress: PublicKey,
+    transactionIndex: bigint,
+    contextLabel: string
+  ): Promise<void> {
+    try {
+      const confirmation = await this.connection.confirmTransaction(signature, 'confirmed');
+      if (confirmation.value.err) {
+        enhancedLogger.error('❌ Proposal activation confirmation reported an error', {
+          contextLabel,
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          signature,
+          error: confirmation.value.err,
+        });
+        throw new Error(
+          `Proposal activation confirmation failed: ${JSON.stringify(
+            confirmation.value.err
+          )}`
+        );
+      }
+
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex,
+        programId: this.programId,
+      });
+
+      await this.waitForProposalStatus(
+        proposalPda,
+        multisigAddress,
+        transactionIndex,
+        'Active',
+        contextLabel
+      );
+    } catch (error) {
+      enhancedLogger.error('❌ Failed to confirm proposal activation', {
+        contextLabel,
+        multisigAddress: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        signature,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      throw error;
+    }
+  }
+
+  private async waitForProposalStatus(
+    proposalPda: PublicKey,
+    multisigAddress: PublicKey,
+    transactionIndex: bigint,
+    expectedStatus: 'Draft' | 'Active',
+    contextLabel: string,
+    timeoutMs: number = 15000,
+    intervalMs: number = 1000
+  ): Promise<void> {
+    const startTime = Date.now();
+    while (Date.now() - startTime < timeoutMs) {
+      try {
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda,
+          'confirmed'
+        );
+        const currentStatus = proposalAccount.status.__kind;
+        if (currentStatus === expectedStatus) {
+          if (expectedStatus === 'Active') {
+            enhancedLogger.info('✅ Proposal is active', {
+              contextLabel,
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              proposalPda: proposalPda.toString(),
+            });
+          } else {
+            enhancedLogger.info('✅ Proposal account initialized', {
+              contextLabel,
+              status: currentStatus,
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              proposalPda: proposalPda.toString(),
+            });
+          }
+          return;
+        }
+        enhancedLogger.info('⏳ Waiting for proposal status update', {
+          contextLabel,
+          expectedStatus,
+          currentStatus,
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalPda: proposalPda.toString(),
+        });
+      } catch (error: any) {
+        enhancedLogger.warn('⚠️ Unable to fetch proposal status, retrying', {
+          contextLabel,
+          expectedStatus,
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalPda: proposalPda.toString(),
+          error: error?.message || String(error),
+        });
+      }
+      await new Promise((resolve) => setTimeout(resolve, intervalMs));
+    }
+    throw new Error(
+      `Proposal ${proposalPda.toString()} did not reach status ${expectedStatus} within ${
+        timeoutMs / 1000
+      }s`
+    );
   }
 }
 

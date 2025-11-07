@@ -1,10 +1,58 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
 import { SquadsClient } from '../utils/squadsClient';
+
+const normalizeProposalSigners = (value: any): string[] => {
+  const normalize = (input: any): string[] => {
+    if (!input) {
+      return [];
+    }
+
+    if (Array.isArray(input)) {
+      return input
+        .flatMap((entry) => normalize(entry))
+        .filter((entry) => typeof entry === 'string' && entry.length > 0);
+    }
+
+    if (typeof input === 'string') {
+      const trimmed = input.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      // Attempt to parse JSON arrays/objects stored as strings
+      if (trimmed.startsWith('[') || trimmed.startsWith('{')) {
+        try {
+          return normalize(JSON.parse(trimmed));
+        } catch {
+          // Not valid JSON, fall through to other handling
+        }
+      }
+
+      if (trimmed.includes(',')) {
+        return trimmed
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter((entry) => entry.length > 0);
+      }
+
+      return [trimmed];
+    }
+
+    if (typeof input === 'object') {
+      return normalize(Object.values(input));
+    }
+
+    return [];
+  };
+
+  const normalized = normalize(value);
+  return Array.from(new Set(normalized)); // Deduplicate while preserving order
+};
 
 const Result: React.FC = () => {
   const router = useRouter();
@@ -16,6 +64,11 @@ const Result: React.FC = () => {
   const [squadsClient] = useState(() => new SquadsClient());
   const [isPolling, setIsPolling] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+
+  const normalizedProposalSigners = useMemo(
+    () => normalizeProposalSigners(payoutData?.proposalSigners),
+    [payoutData?.proposalSigners]
+  );
 
   const loadPayoutData = async () => {
     // Always try to fetch fresh data from backend first if we have a matchId
@@ -53,7 +106,7 @@ const Result: React.FC = () => {
               vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress,
               proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId,
               proposalStatus: matchData.proposalStatus,
-              proposalSigners: matchData.proposalSigners || [],
+              proposalSigners: normalizeProposalSigners(matchData.proposalSigners),
               needsSignatures: matchData.needsSignatures || 0,
               proposalExecutedAt: matchData.proposalExecutedAt,
               proposalTransactionId: matchData.proposalTransactionId,
@@ -191,9 +244,10 @@ const Result: React.FC = () => {
           console.log('📢 Received proposal signed notification:', data);
           
           // Check if opponent signed (not current user)
-          const currentUserSigned = data.proposalSigners?.includes(publicKey?.toString() || '');
+          const eventSigners = normalizeProposalSigners(data.proposalSigners);
+          const currentUserSigned = eventSigners.includes(publicKey?.toString() || '');
           
-          if (!currentUserSigned && data.proposalSigners && data.proposalSigners.length > 0) {
+          if (!currentUserSigned && eventSigners.length > 0) {
             // Opponent signed - show notification
             setNotification('🎉 Other player has signed! Proposal is ready to execute.');
           } else if (currentUserSigned) {
@@ -334,7 +388,7 @@ const Result: React.FC = () => {
               transactions: matchData.payout?.transactions || [],
               proposalId: matchData.payoutProposalId,
               proposalStatus: matchData.proposalStatus,
-              proposalSigners: matchData.proposalSigners || [],
+              proposalSigners: normalizeProposalSigners(matchData.proposalSigners),
               needsSignatures: matchData.needsSignatures || 0,
               proposalExecutedAt: matchData.proposalExecutedAt,
               proposalTransactionId: matchData.proposalTransactionId,
@@ -501,17 +555,17 @@ const Result: React.FC = () => {
                               <p className={`text-sm mb-2 ${
                                 payoutData.needsSignatures === 0 
                                   ? 'text-green-400 font-semibold'
-                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  : normalizedProposalSigners.includes(publicKey?.toString() || '')
                                   ? 'text-yellow-400'
-                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  : normalizedProposalSigners.length > 0
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
                                 {payoutData.needsSignatures === 0 
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
-                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  : normalizedProposalSigners.includes(publicKey?.toString() || '')
                                   ? '✓ You have signed. Waiting for proposal execution...'
-                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  : normalizedProposalSigners.length > 0
                                   ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
@@ -519,8 +573,8 @@ const Result: React.FC = () => {
                               
                               {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
                               {payoutData.needsSignatures > 0 && 
-                               !payoutData.proposalSigners?.includes(publicKey?.toString() || '') && 
-                               (!payoutData.proposalSigners || payoutData.proposalSigners.length === 0) && (
+                               !normalizedProposalSigners.includes(publicKey?.toString() || '') && 
+                               normalizedProposalSigners.length === 0 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -581,17 +635,17 @@ const Result: React.FC = () => {
                               <p className={`text-sm mb-2 ${
                                 payoutData.needsSignatures === 0 
                                   ? 'text-green-400 font-semibold'
-                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  : normalizedProposalSigners.includes(publicKey?.toString() || '')
                                   ? 'text-yellow-400'
-                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  : normalizedProposalSigners.length > 0
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
                                 {payoutData.needsSignatures === 0 
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
-                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  : normalizedProposalSigners.includes(publicKey?.toString() || '')
                                   ? '✓ You have signed. Waiting for proposal execution...'
-                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  : normalizedProposalSigners.length > 0
                                   ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
@@ -599,8 +653,8 @@ const Result: React.FC = () => {
                               
                               {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
                               {payoutData.needsSignatures > 0 && 
-                               !payoutData.proposalSigners?.includes(publicKey?.toString() || '') && 
-                               (!payoutData.proposalSigners || payoutData.proposalSigners.length === 0) && (
+                               !normalizedProposalSigners.includes(publicKey?.toString() || '') && 
+                               normalizedProposalSigners.length === 0 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -633,17 +687,17 @@ const Result: React.FC = () => {
                               <p className={`text-sm mb-2 ${
                                 payoutData.needsSignatures === 0 
                                   ? 'text-green-400 font-semibold'
-                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  : normalizedProposalSigners.includes(publicKey?.toString() || '')
                                   ? 'text-yellow-400'
-                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  : normalizedProposalSigners.length > 0
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
                                 {payoutData.needsSignatures === 0 
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
-                                  : payoutData.proposalSigners?.includes(publicKey?.toString() || '')
+                                  : normalizedProposalSigners.includes(publicKey?.toString() || '')
                                   ? '✓ You have signed. Waiting for proposal execution...'
-                                  : payoutData.proposalSigners && payoutData.proposalSigners.length > 0
+                                  : normalizedProposalSigners.length > 0
                                   ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
@@ -651,8 +705,8 @@ const Result: React.FC = () => {
                               
                               {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
                               {payoutData.needsSignatures > 0 && 
-                               !payoutData.proposalSigners?.includes(publicKey?.toString() || '') && 
-                               (!payoutData.proposalSigners || payoutData.proposalSigners.length === 0) && (
+                               !normalizedProposalSigners.includes(publicKey?.toString() || '') && 
+                               normalizedProposalSigners.length === 0 && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
