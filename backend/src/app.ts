@@ -9,30 +9,19 @@ const { deduplicateRequests } = require('./middleware/deduplication');
 const matchRoutes = require('./routes/matchRoutes');
 const guessRoutes = require('./routes/guessRoutes');
 const multisigRoutes = require('./routes/multisigRoutes');
+const {
+  getAllowedOrigins,
+  isOriginAllowed,
+  resolveCorsOrigin,
+} = require('./config/corsOrigins');
 
 const app = express();
 
 // Trust proxy for rate limiting behind Render/Cloudflare
 app.set('trust proxy', 1);
 
-// Use FRONTEND_URL from environment or default to localhost
-const allowedOrigin = process.env.FRONTEND_URL || 'http://localhost:3000';
-console.log('CORS allowed origin:', allowedOrigin);
-
-// Define allowed origins based on environment
-const allowedOrigins = [
-  'https://guess5.io',
-  'https://www.guess5.io',
-  'https://guess5.vercel.app',
-  'https://guess5.onrender.com',
-  'http://localhost:3000',
-  'http://localhost:3001'
-];
-
-// Add FRONTEND_URL to allowed origins if it's not already included
-if (allowedOrigin && !allowedOrigins.includes(allowedOrigin)) {
-  allowedOrigins.push(allowedOrigin);
-}
+const allowedOrigins = getAllowedOrigins();
+console.log('CORS allowed origins:', allowedOrigins);
 
 // Security headers middleware
 app.use((req: any, res: any, next: any) => {
@@ -74,13 +63,14 @@ app.use(cors({
   origin: function (origin: any, callback: any) {
     // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
-    
-    if (allowedOrigins.indexOf(origin) !== -1) {
+
+    if (isOriginAllowed(origin)) {
       callback(null, true);
-    } else {
-      console.log('🚫 CORS blocked origin:', origin);
-      callback(new Error('Not allowed by CORS'));
+      return;
     }
+
+    console.log('🚫 CORS blocked origin:', origin);
+    callback(new Error('Not allowed by CORS'));
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
@@ -91,9 +81,11 @@ app.use(cors({
 // Handle preflight requests with explicit CORS headers
 app.options('*', (req: any, res: any) => {
   const origin = req.headers.origin;
-  if (origin && allowedOrigins.includes(origin)) {
-    res.header('Access-Control-Allow-Origin', origin);
+  const corsOrigin = resolveCorsOrigin(origin);
+  if (corsOrigin) {
+    res.header('Access-Control-Allow-Origin', corsOrigin);
   }
+  res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');
   res.header('Access-Control-Allow-Credentials', 'true');

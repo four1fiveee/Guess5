@@ -12,13 +12,16 @@ const { asyncHandler: asyncHandlerWrapper } = require('../middleware/errorHandle
 
 // Import bot protection middleware
 const { validateVercelBotProtection } = require('../middleware/vercelBotProtection');
-const { 
+const {
   ipLimiter,
   matchmakingLimiter,
   guessLimiter,
   paymentLimiter,
-  resultLimiter
+  resultLimiter,
 } = require('../middleware/rateLimiter');
+const {
+  resolveCorsOrigin,
+} = require('../config/corsOrigins');
 
 // Production routes with multi-layer bot protection
 router.post('/request-match', 
@@ -82,7 +85,11 @@ router.get('/wallet-balance/:wallet',
 
 // OPTIONS handler for SSE endpoint to handle CORS preflight
 router.options('/wallet-balance/:wallet', (req: any, res: any) => {
-  res.header('Access-Control-Allow-Origin', process.env.FRONTEND_URL || 'https://guess5.vercel.app');
+  const origin = resolveCorsOrigin(req.headers.origin);
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Credentials', 'true');

@@ -20,6 +20,7 @@ const { getGameState, setGameState, deleteGameState } = require('../utils/redisG
 const { getMatchmakingLock, setMatchmakingLock, deleteMatchmakingLock } = require('../utils/redisMatchmakingLocks');
 const { redisMatchmakingService } = require('../services/redisMatchmakingService');
 const { getRedisMM } = require('../config/redis');
+const { resolveCorsOrigin } = require('../config/corsOrigins');
 
 // Redis-based memory management for 1000 concurrent users
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
@@ -7501,16 +7502,21 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
     
     console.log('🔌 SSE connection requested for wallet:', wallet, 'active connections:', walletConnections.count + 1);
     
+    // Determine allowed origin for CORS
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+
     // Set SSE headers with proper CORS and connection keep-alive
     res.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-store, must-revalidate',
       'Connection': 'keep-alive',
       'Keep-Alive': 'timeout=300, max=1000', // Increased timeout to 5 minutes
-      'Access-Control-Allow-Origin': process.env.FRONTEND_URL || 'https://guess5.vercel.app',
+      'Access-Control-Allow-Origin': corsOrigin,
       'Access-Control-Allow-Headers': 'Cache-Control, Content-Type',
       'Access-Control-Allow-Methods': 'GET, OPTIONS',
       'Access-Control-Allow-Credentials': 'true',
+      'Vary': 'Origin',
       'X-Accel-Buffering': 'no', // Disable nginx buffering
       'X-Content-Type-Options': 'nosniff',
       'X-Frame-Options': 'DENY'

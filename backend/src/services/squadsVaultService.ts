@@ -912,21 +912,24 @@ export class SquadsVaultService {
       
       // Create the Squads vault transaction
       // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
-      enhancedLogger.info('📝 Creating vault transaction...', {
-        multisigAddress: multisigAddress.toString(),
-        vaultPda: vaultPda.toString(),
-        transactionIndex: transactionIndex.toString(),
-        winner: winner.toString(),
-        winnerAmount,
-      });
-      
-      let signature: string;
-      try {
-        signature = await rpc.vaultTransactionCreate({
+      const attemptVaultTransactionCreate = async (
+        index: bigint,
+        attemptLabel: string
+      ): Promise<string> => {
+        enhancedLogger.info('📝 Creating vault transaction...', {
+          multisigAddress: multisigAddress.toString(),
+          vaultPda: vaultPda.toString(),
+          transactionIndex: index.toString(),
+          attempt: attemptLabel,
+          winner: winner.toString(),
+          winnerAmount,
+        });
+
+        return rpc.vaultTransactionCreate({
           connection: this.connection,
           feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
           multisigPda: multisigAddress,
-          transactionIndex,
+          transactionIndex: index,
           creator: this.config.systemKeypair.publicKey, // Creator public key
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
@@ -934,16 +937,72 @@ export class SquadsVaultService {
           memo: `Winner payout: ${winner.toString()}`,
           programId: this.programId, // Use network-specific program ID
         });
+      };
+
+      let signature: string;
+      let effectiveTransactionIndex = transactionIndex;
+      try {
+        signature = await attemptVaultTransactionCreate(
+          effectiveTransactionIndex,
+          'initial'
+        );
       } catch (createError: any) {
-        enhancedLogger.error('❌ vaultTransactionCreate failed', {
-          error: createError?.message || String(createError),
-          stack: createError?.stack,
-          vaultAddress,
-          winner: winner.toString(),
-        });
-        throw createError;
+        const errorMessage =
+          createError?.message || String(createError);
+        const isSeedConstraint =
+          errorMessage.includes('ConstraintSeeds') ||
+          errorMessage.includes('seeds constraint');
+
+        if (isSeedConstraint) {
+          const retryIndex = effectiveTransactionIndex + BigInt(1);
+          enhancedLogger.warn(
+            '⚠️ vaultTransactionCreate seed constraint, retrying with incremented index',
+            {
+              error: errorMessage,
+              multisigAddress: multisigAddress.toString(),
+              currentIndex: effectiveTransactionIndex.toString(),
+              retryIndex: retryIndex.toString(),
+              vaultAddress,
+              winner: winner.toString(),
+            }
+          );
+
+          try {
+            signature = await attemptVaultTransactionCreate(
+              retryIndex,
+              'retry_incremented'
+            );
+            effectiveTransactionIndex = retryIndex;
+          } catch (retryError: any) {
+            const retryMessage =
+              retryError?.message || String(retryError);
+            enhancedLogger.error(
+              '❌ vaultTransactionCreate retry failed',
+              {
+                error: retryMessage,
+                originalError: errorMessage,
+                multisigAddress: multisigAddress.toString(),
+                attemptedIndex: retryIndex.toString(),
+                vaultAddress,
+                winner: winner.toString(),
+              }
+            );
+            throw retryError;
+          }
+        } else {
+          enhancedLogger.error('❌ vaultTransactionCreate failed', {
+            error: errorMessage,
+            stack: createError?.stack,
+            vaultAddress,
+            winner: winner.toString(),
+            transactionIndex: effectiveTransactionIndex.toString(),
+          });
+          throw createError;
+        }
       }
-      
+
+      transactionIndex = effectiveTransactionIndex;
+
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
       
@@ -1368,24 +1427,28 @@ export class SquadsVaultService {
       
       // Create the Squads vault transaction
       // Pass uncompiled TransactionMessage - Squads SDK will compile it internally
-      enhancedLogger.info('📝 Creating vault transaction for tie refund', {
-        multisigAddress: multisigAddress.toString(),
-        vaultPda: vaultPda.toString(),
-        programId: this.programId.toString(),
-        blockhash: blockhash2,
-        lastValidBlockHeight,
-        player1: player1.toString(),
-        player2: player2.toString(),
-        refundLamports,
-      });
-      
-      let signature: string;
-      try {
-        signature = await rpc.vaultTransactionCreate({
+      const attemptTieVaultTransactionCreate = async (
+        index: bigint,
+        attemptLabel: string
+      ): Promise<string> => {
+        enhancedLogger.info('📝 Creating vault transaction for tie refund', {
+          multisigAddress: multisigAddress.toString(),
+          vaultPda: vaultPda.toString(),
+          programId: this.programId.toString(),
+          blockhash: blockhash2,
+          lastValidBlockHeight,
+          player1: player1.toString(),
+          player2: player2.toString(),
+          refundLamports,
+          transactionIndex: index.toString(),
+          attempt: attemptLabel,
+        });
+
+        return rpc.vaultTransactionCreate({
           connection: this.connection,
           feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
           multisigPda: multisigAddress,
-          transactionIndex,
+          transactionIndex: index,
           creator: this.config.systemKeypair.publicKey, // Creator public key
           vaultIndex: 0, // First vault
           ephemeralSigners: 0, // No ephemeral signers needed
@@ -1393,8 +1456,16 @@ export class SquadsVaultService {
           memo: `Tie refund: ${player1.toString()}, ${player2.toString()}`,
           programId: this.programId, // Use network-specific program ID
         });
+      };
+
+      let signature: string;
+      let effectiveTieTransactionIndex = transactionIndex;
+      try {
+        signature = await attemptTieVaultTransactionCreate(
+          effectiveTieTransactionIndex,
+          'initial'
+        );
       } catch (createError: any) {
-        // Log detailed error information to diagnose AccountOwnedByWrongProgram
         const errorDetails: any = {
           error: createError?.message || String(createError),
           stack: createError?.stack,
@@ -1404,29 +1475,102 @@ export class SquadsVaultService {
           programId: this.programId.toString(),
           player1: player1.toString(),
           player2: player2.toString(),
-          transactionIndex: transactionIndex.toString(),
+          transactionIndex: effectiveTieTransactionIndex.toString(),
         };
-        
-        // Check if vault PDA exists and what it's owned by
-        try {
-          const vaultAccountInfo = await this.connection.getAccountInfo(vaultPda, 'confirmed');
-          if (vaultAccountInfo) {
-            errorDetails.vaultPdaExists = true;
-            errorDetails.vaultPdaOwner = vaultAccountInfo.owner.toString();
-            errorDetails.vaultPdaDataLength = vaultAccountInfo.data.length;
-            errorDetails.vaultPdaLamports = vaultAccountInfo.lamports;
-          } else {
-            errorDetails.vaultPdaExists = false;
-            errorDetails.vaultPdaOwner = 'N/A (account does not exist)';
+
+        const errorMessage =
+          createError?.message || String(createError);
+        const isSeedConstraint =
+          errorMessage.includes('ConstraintSeeds') ||
+          errorMessage.includes('seeds constraint');
+
+        if (isSeedConstraint) {
+          const retryIndex = effectiveTieTransactionIndex + BigInt(1);
+          enhancedLogger.warn(
+            '⚠️ vaultTransactionCreate seed constraint (tie refund), retrying with incremented index',
+            {
+              ...errorDetails,
+              retryIndex: retryIndex.toString(),
+            }
+          );
+
+          try {
+            signature = await attemptTieVaultTransactionCreate(
+              retryIndex,
+              'retry_incremented'
+            );
+            effectiveTieTransactionIndex = retryIndex;
+          } catch (retryError: any) {
+            const retryMessage =
+              retryError?.message || String(retryError);
+            const retryErrorDetails: any = {
+              ...errorDetails,
+              retryIndex: retryIndex.toString(),
+              retryError: retryMessage,
+            };
+
+            try {
+              const vaultAccountInfo = await this.connection.getAccountInfo(
+                vaultPda,
+                'confirmed'
+              );
+              if (vaultAccountInfo) {
+                retryErrorDetails.vaultPdaExists = true;
+                retryErrorDetails.vaultPdaOwner =
+                  vaultAccountInfo.owner.toString();
+                retryErrorDetails.vaultPdaDataLength =
+                  vaultAccountInfo.data.length;
+                retryErrorDetails.vaultPdaLamports =
+                  vaultAccountInfo.lamports;
+              } else {
+                retryErrorDetails.vaultPdaExists = false;
+                retryErrorDetails.vaultPdaOwner =
+                  'N/A (account does not exist)';
+              }
+            } catch (accountCheckError: any) {
+              retryErrorDetails.vaultPdaCheckError =
+                accountCheckError?.message || String(accountCheckError);
+            }
+
+            enhancedLogger.error(
+              '❌ vaultTransactionCreate retry failed for tie refund',
+              retryErrorDetails
+            );
+            throw retryError;
           }
-        } catch (accountCheckError: any) {
-          errorDetails.vaultPdaCheckError = accountCheckError?.message || String(accountCheckError);
+        } else {
+          // Check if vault PDA exists and what it's owned by for diagnostic context
+          try {
+            const vaultAccountInfo = await this.connection.getAccountInfo(
+              vaultPda,
+              'confirmed'
+            );
+            if (vaultAccountInfo) {
+              errorDetails.vaultPdaExists = true;
+              errorDetails.vaultPdaOwner = vaultAccountInfo.owner.toString();
+              errorDetails.vaultPdaDataLength =
+                vaultAccountInfo.data.length;
+              errorDetails.vaultPdaLamports = vaultAccountInfo.lamports;
+            } else {
+              errorDetails.vaultPdaExists = false;
+              errorDetails.vaultPdaOwner =
+                'N/A (account does not exist)';
+            }
+          } catch (accountCheckError: any) {
+            errorDetails.vaultPdaCheckError =
+              accountCheckError?.message || String(accountCheckError);
+          }
+
+          enhancedLogger.error(
+            '❌ vaultTransactionCreate failed for tie refund',
+            errorDetails
+          );
+          throw createError;
         }
-        
-        enhancedLogger.error('❌ vaultTransactionCreate failed for tie refund', errorDetails);
-        throw createError;
       }
-      
+
+      transactionIndex = effectiveTieTransactionIndex;
+
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
       
