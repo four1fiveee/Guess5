@@ -768,6 +768,38 @@ export class SquadsVaultService {
         systemPublicKey: this.config.systemPublicKey.toString(),
       });
 
+      // Ensure a proposal account exists for this transaction index
+      try {
+        const proposalSignature = await rpc.proposalCreate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair,
+          creator: this.config.systemKeypair,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId: this.programId,
+        });
+        enhancedLogger.info('✅ Proposal account created', {
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalSignature,
+        });
+      } catch (proposalError: any) {
+        const msg = proposalError?.message || String(proposalError);
+        if (msg.includes('already in use') || msg.includes('already initialized')) {
+          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          enhancedLogger.error('❌ Failed to create proposal account', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: msg,
+          });
+          throw proposalError;
+        }
+      }
+
       // Create real Squads transaction for winner payout
       let multisigAddress: PublicKey;
       try {
@@ -968,6 +1000,38 @@ export class SquadsVaultService {
         feeAmount,
       });
 
+      // Activate proposal so members can approve
+      try {
+        const activateSignature = await rpc.proposalActivate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair,
+          member: this.config.systemKeypair,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId: this.programId,
+        });
+        enhancedLogger.info('✅ Proposal activated', {
+          vaultAddress,
+          proposalId,
+          activateSignature,
+        });
+      } catch (activateError: any) {
+        const msg = activateError?.message || String(activateError);
+        if (msg.includes('AlreadyActive') || msg.includes('already active')) {
+          enhancedLogger.info('ℹ️ Proposal already active', {
+            vaultAddress,
+            proposalId,
+          });
+        } else {
+          enhancedLogger.error('❌ Failed to activate proposal', {
+            vaultAddress,
+            proposalId,
+            error: msg,
+          });
+          throw activateError;
+        }
+      }
+
       // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
       try {
         const feeWalletKeypair = getFeeWalletKeypair();
@@ -1080,6 +1144,38 @@ export class SquadsVaultService {
         refundAmount,
         systemPublicKey: this.config.systemPublicKey.toString(),
       });
+
+      // Ensure a proposal account exists for this transaction index
+      try {
+        const proposalSignature = await rpc.proposalCreate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair,
+          creator: this.config.systemKeypair,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId: this.programId,
+        });
+        enhancedLogger.info('✅ Proposal account created', {
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalSignature,
+        });
+      } catch (proposalError: any) {
+        const msg = proposalError?.message || String(proposalError);
+        if (msg.includes('already in use') || msg.includes('already initialized')) {
+          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          enhancedLogger.error('❌ Failed to create proposal account', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: msg,
+          });
+          throw proposalError;
+        }
+      }
 
       // Create real Squads transaction for refunds
       let multisigAddress: PublicKey;
@@ -1375,6 +1471,38 @@ export class SquadsVaultService {
         player2: player2.toString(),
         refundAmount,
       });
+
+      // Activate proposal so members can approve
+      try {
+        const activateSignature = await rpc.proposalActivate({
+          connection: this.connection,
+          feePayer: this.config.systemKeypair,
+          member: this.config.systemKeypair,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId: this.programId,
+        });
+        enhancedLogger.info('✅ Proposal activated', {
+          vaultAddress,
+          proposalId,
+          activateSignature,
+        });
+      } catch (activateError: any) {
+        const msg = activateError?.message || String(activateError);
+        if (msg.includes('AlreadyActive') || msg.includes('already active')) {
+          enhancedLogger.info('ℹ️ Proposal already active', {
+            vaultAddress,
+            proposalId,
+          });
+        } else {
+          enhancedLogger.error('❌ Failed to activate proposal', {
+            vaultAddress,
+            proposalId,
+            error: msg,
+          });
+          throw activateError;
+        }
+      }
 
       // Auto-approve with system signature (1 of 2 needed for 2-of-3 multisig)
       try {
