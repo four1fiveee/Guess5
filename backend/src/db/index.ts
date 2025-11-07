@@ -1,4 +1,5 @@
 import { DataSource } from 'typeorm'
+import { Client } from 'pg'
 import { Match } from '../models/Match'
 import { Guess } from '../models/Guess'
 import { Transaction } from '../models/Transaction'
@@ -76,26 +77,55 @@ export const initializeDatabase = async () => {
   const maxRetries = 3;
   let retryCount = 0;
   
-  const fixMigrationNames = async () => {
+  const fixMigrationNames = async (client?: Client) => {
     try {
-      await AppDataSource.query(
-        'UPDATE "migration" SET name = $1 WHERE name = $2',
-        ['ProposalExpiration1710012345678', 'ProposalExpiration013']
-      );
+      const query = 'UPDATE "migration" SET name = $1 WHERE name = $2';
+      const params = ['ProposalExpiration1710012345678', 'ProposalExpiration013'];
+      if (client) {
+        await client.query(query, params);
+      } else if (AppDataSource.isInitialized) {
+        await AppDataSource.query(query, params);
+      }
     } catch (error) {
       console.warn('⚠️ Unable to normalize legacy migration names (safe to ignore if table missing):', error);
     }
   };
 
-  const ensureProposalExpiresAtColumn = async () => {
+  const ensureProposalExpiresAtColumn = async (client?: Client) => {
     try {
       console.log('🔍 Ensuring proposalExpiresAt column exists (fallback safeguard)...');
-      await AppDataSource.query(
-        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "proposalExpiresAt" TIMESTAMP NULL'
-      );
+      const query = 'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "proposalExpiresAt" TIMESTAMP NULL';
+      if (client) {
+        await client.query(query);
+      } else if (AppDataSource.isInitialized) {
+        await AppDataSource.query(query);
+      }
       console.log('✅ proposalExpiresAt column verified/created');
     } catch (error) {
       console.error('❌ Failed to ensure proposalExpiresAt column exists:', error);
+    }
+  };
+
+  const runPreInitializationSchemaFixes = async () => {
+    let client: Client | undefined;
+    try {
+      client = new Client({
+        connectionString: process.env.DATABASE_URL,
+        ssl: { rejectUnauthorized: false }
+      });
+      await client.connect();
+      await ensureProposalExpiresAtColumn(client);
+      await fixMigrationNames(client);
+    } catch (error) {
+      console.warn('⚠️ Pre-initialization schema fixes failed (continuing):', error);
+    } finally {
+      if (client) {
+        try {
+          await client.end();
+        } catch (closeError) {
+          console.warn('⚠️ Failed to close pre-initialization client:', closeError);
+        }
+      }
     }
   };
 
@@ -109,6 +139,7 @@ export const initializeDatabase = async () => {
         return;
       }
       
+      await runPreInitializationSchemaFixes();
       await AppDataSource.initialize();
       console.log('✅ Database connected successfully');
       
