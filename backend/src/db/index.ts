@@ -81,7 +81,7 @@ export const initializeDatabase = async () => {
     try {
       const query = 'UPDATE "migration" SET name = $1 WHERE name = $2';
       const params = ['ProposalExpiration1710012345678', 'ProposalExpiration013'];
-      const tables = ['migration', 'migrations'];
+      const tables = ['migration', 'migrations', 'schema_migrations'];
       for (const table of tables) {
         const q = query.replace('"migration"', `"${table}"`);
         if (client) {
@@ -129,9 +129,11 @@ export const initializeDatabase = async () => {
         connectionString: process.env.DATABASE_URL,
         ssl: { rejectUnauthorized: false }
       });
+      console.log('🔌 Running pre-initialization schema fixes using raw pg client...');
       await client.connect();
       await ensureProposalExpiresAtColumn(client);
       await fixMigrationNames(client);
+      console.log('✅ Pre-initialization schema fixes complete');
     } catch (error) {
       console.warn('⚠️ Pre-initialization schema fixes failed (continuing):', error);
     } finally {
