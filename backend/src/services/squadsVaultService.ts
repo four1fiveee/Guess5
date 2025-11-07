@@ -118,6 +118,10 @@ export class SquadsVaultService {
     };
   }
 
+  public getProgramId(): PublicKey {
+    return this.programId;
+  }
+
   /**
    * Detect Solana cluster from RPC URL
    */
@@ -1489,12 +1493,7 @@ export class SquadsVaultService {
       });
 
       // Use rpc.proposalApprove to approve the transaction
-      const approveRpc = (rpc as any)?.proposalApprove;
-      if (typeof approveRpc !== 'function') {
-        throw new Error('rpc.proposalApprove is not available in the Squads SDK');
-      }
-
-      const signature = await approveRpc({
+      const signature = await rpc.proposalApprove({
         connection: this.connection,
         feePayer: signer,
         multisigPda: multisigAddress,

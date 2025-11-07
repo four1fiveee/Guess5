@@ -115,7 +115,7 @@ export const buildApprovalTransaction = async (req: Request, res: Response) => {
     
     const squadsService = new SquadsVaultService();
     const connection = (squadsService as any).connection;
-    const programId = squadsService.programId;
+    const programId = squadsService.getProgramId();
     
     const multisigAddress = new PublicKey(match.squadsVaultAddress);
     const transactionIndex = BigInt(proposalId);
