@@ -81,7 +81,7 @@ export const initializeDatabase = async () => {
     try {
       const query = 'UPDATE "migration" SET name = $1 WHERE name = $2';
       const params = ['ProposalExpiration1710012345678', 'ProposalExpiration013'];
-      const tables = ['migration', 'migrations', 'schema_migrations'];
+      const tables = ['migration', 'migrations', 'schema_migrations', 'typeorm_migrations'];
       for (const table of tables) {
         const q = query.replace('"migration"', `"${table}"`);
         if (client) {
@@ -90,16 +90,14 @@ export const initializeDatabase = async () => {
           await AppDataSource.query(q, params);
         }
         const checkSql = `SELECT name FROM "${table}" ORDER BY name`;
-        try {
-          if (client) {
-            const result = await client.query(checkSql);
-            console.log(`🔎 Migration names in ${table}:`, result.rows?.map((r: any) => r.name));
-          } else if (AppDataSource.isInitialized) {
-            const result = await AppDataSource.query(checkSql);
-            console.log(`🔎 Migration names in ${table}:`, result.map((r: any) => r.name));
-          }
-        } catch (innerError) {
-          console.warn(`⚠️ Unable to inspect migration names for table ${table}:`, innerError);
+        const result = client
+          ? await client.query(checkSql)
+          : AppDataSource.isInitialized
+            ? await AppDataSource.query(checkSql)
+            : undefined;
+        if (result) {
+          const rows = Array.isArray(result.rows) ? result.rows : result;
+          console.log(`🔎 Migration names in ${table}:`, rows.map((r: any) => r.name));
         }
       }
     } catch (error) {
