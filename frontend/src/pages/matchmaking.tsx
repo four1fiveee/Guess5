@@ -399,8 +399,8 @@ const Matchmaking: React.FC = () => {
                 return updated;
               });
 
-              // Check if match was cancelled
-              if (data.status === 'cancelled') {
+              // Check if match was cancelled or refunded (deposit timeout)
+              if (data.status === 'cancelled' || data.status === 'refunded') {
                 setStatus('cancelled');
                 clearInterval(pollInterval);
                 setIsPolling(false);
@@ -415,6 +415,12 @@ const Matchmaking: React.FC = () => {
                 
                 // Clear URL parameters to prevent re-entering stale match
                 router.replace('/matchmaking', undefined, { shallow: true });
+                
+                // Notify user and redirect to lobby after a brief delay
+                setTimeout(() => {
+                  alert('Match cancelled: The other player did not complete payment within 2 minutes. If you paid, a refund proposal will be available in 2 minutes. You can sign it from the lobby page.');
+                  router.push('/lobby');
+                }, 500);
                 
                 return;
               }
@@ -785,10 +791,13 @@ const Matchmaking: React.FC = () => {
               <h2 className="text-2xl font-bold text-yellow-400 mb-2 text-center">Match Cancelled</h2>
               <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
                 <p className="text-white/80 text-sm text-center mb-2">
-                  The match was cancelled due to payment timeout.
+                  The match was cancelled because the other player did not complete payment within 2 minutes.
                 </p>
-                <p className="text-green-400 text-sm text-center font-medium">
-                  If you paid, you will receive a refund.
+                <p className="text-green-400 text-sm text-center font-medium mb-2">
+                  If you paid, a refund proposal will be created automatically within 2 minutes.
+                </p>
+                <p className="text-white/70 text-xs text-center">
+                  You can sign the refund proposal from the lobby page to get your funds back.
                 </p>
               </div>
               <button

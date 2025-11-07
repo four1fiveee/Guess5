@@ -60,7 +60,10 @@ export default function Info() {
                 <li>If you didn't solve: Losing tie (95% refund)</li>
               </ul>
             </li>
-            <li><b>Game Timeout:</b> If game doesn't start within 10 minutes after both deposits → 
+            <li><b>Payment Timeout:</b> If the other player doesn't pay within 2 minutes → 
+              <span className="text-green-400 font-bold"> Refund proposal created automatically. You can sign it from the lobby page to get your funds back.</span>
+            </li>
+            <li><b>Game Timeout:</b> If game doesn't start within 2 minutes after both deposits → 
               <span className="text-green-400 font-bold"> Full refund proposal created for both players (100%)</span>
             </li>
           </ul>
@@ -141,6 +144,13 @@ export default function Info() {
           
           <div className="space-y-4 text-sm text-white/90">
             <div>
+              <b className="text-accent text-base">Q: What happens if the other player doesn't pay or disconnects during matchmaking?</b>
+              <p className="mt-1">If the other player doesn't complete payment within 2 minutes, the match is automatically cancelled. 
+              If you already paid, a refund proposal will be created within 2 minutes. You can sign the refund proposal from the lobby page 
+              to get your funds back. The refund proposal will appear in your pending refunds section.</p>
+            </div>
+
+            <div>
               <b className="text-accent text-base">Q: What happens if I disconnect during a game?</b>
               <p className="mt-1">If you disconnect, you can return within 5 minutes by refreshing the page. Your progress is saved. 
               If you don't return, the opponent wins if they solved the word, otherwise it's a losing tie.</p>
@@ -187,6 +197,14 @@ export default function Info() {
               <p className="mt-1">Squads Protocol is an audited, production-ready multisig wallet program on Solana. It's used 
               by major projects for secure fund management. Learn more at <a href="https://squads.so" target="_blank" rel="noopener noreferrer" 
               className="text-blue-400 underline">squads.so</a></p>
+            </div>
+
+            <div>
+              <b className="text-accent text-base">Q: Why might my entry fee differ slightly from another player's?</b>
+              <p className="mt-1">SOL prices fluctuate in real-time, so the SOL amount needed for a $5, $20, $50, or $100 entry fee 
+              changes constantly. Our matchmaking system allows players to be matched if their entry fees are within 3% of each other. 
+              This ensures fair matching even when SOL prices move slightly between when you enter the queue and when you're matched. 
+              Both players will pay the same amount (the lower of the two entry fees) to ensure fairness.</p>
             </div>
           </div>
         </div>

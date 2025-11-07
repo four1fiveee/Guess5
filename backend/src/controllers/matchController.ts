@@ -737,10 +737,10 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
     
     console.log(`  Found ${waitingMatches.length} waiting matches with exact tolerance`);
     
-    // If no exact match, try flexible matching (within 10% tolerance for better matching)
+    // If no exact match, try flexible matching (within 3% tolerance for better matching)
     if (waitingMatches.length === 0) {
-      const flexibleMinEntryFee = entryFee * 0.90;
-      const flexibleMaxEntryFee = entryFee * 1.10;
+      const flexibleMinEntryFee = entryFee * 0.97;
+      const flexibleMaxEntryFee = entryFee * 1.03;
       
   
       console.log(`  Range: ${flexibleMinEntryFee} - ${flexibleMaxEntryFee} SOL`);
@@ -1140,7 +1140,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     }
     match = matchRows[0];
   } else {
-    const matchRepository = AppDataSource.getRepository(Match);
+  const matchRepository = AppDataSource.getRepository(Match);
     // Use raw SQL to avoid querying non-existent proposalExpiresAt column
     const matchRows = await matchRepository.query(`
       SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", 
@@ -1151,9 +1151,9 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       FROM "match"
       WHERE id = $1
     `, [matchId]);
-    
+  
     if (!matchRows || matchRows.length === 0) {
-      throw new Error('Match not found');
+    throw new Error('Match not found');
     }
     match = matchRows[0];
   }
@@ -1734,7 +1734,7 @@ const submitResultHandler = async (req: any, res: any) => {
             const updatedPlayer2ResultRaw = updated?.player2Result;
             const updatedPlayer1Result = updatedPlayer1ResultRaw ? (typeof updatedPlayer1ResultRaw === 'string' ? JSON.parse(updatedPlayer1ResultRaw) : updatedPlayer1ResultRaw) : null;
             const updatedPlayer2Result = updatedPlayer2ResultRaw ? (typeof updatedPlayer2ResultRaw === 'string' ? JSON.parse(updatedPlayer2ResultRaw) : updatedPlayer2ResultRaw) : null;
-            
+          
             const result = await determineWinnerAndPayout(matchId, updatedPlayer1Result, updatedPlayer2Result, manager);
             
             // IMPORTANT: determineWinnerAndPayout saves its own match instance, so reload to get the winner
@@ -1797,12 +1797,12 @@ const submitResultHandler = async (req: any, res: any) => {
             `, [matchId]);
             if (checkRows && checkRows.length > 0 && checkRows[0].isCompleted && 
                 checkRows[0].player1Result && checkRows[0].player2Result) {
-              await deleteGameState(matchId);
+          await deleteGameState(matchId);
               console.log(`🧹 Cleaned up Redis game state for completed match: ${matchId}`);
             }
-          } catch (error) {
+        } catch (error) {
             console.warn('⚠️ Error in delayed cleanup:', error);
-          }
+        }
         }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
         // Execute Squads proposal for winner payout (same as non-solved case)
@@ -2031,8 +2031,8 @@ const submitResultHandler = async (req: any, res: any) => {
         updateFields.push('"payoutResult" = $' + (updateValues.length + 1));
         updateValues.push(payoutResultJson);
         
-        // Preserve proposal fields if they were set earlier
-        if ((updatedMatch as any).payoutProposalId) {
+          // Preserve proposal fields if they were set earlier
+          if ((updatedMatch as any).payoutProposalId) {
           updateFields.push('"payoutProposalId" = $' + (updateValues.length + 1));
           updateValues.push((updatedMatch as any).payoutProposalId);
           updateFields.push('"proposalStatus" = $' + (updateValues.length + 1));
@@ -2043,12 +2043,12 @@ const submitResultHandler = async (req: any, res: any) => {
           }
           updateFields.push('"needsSignatures" = $' + (updateValues.length + 1));
           updateValues.push((updatedMatch as any).needsSignatures || 1);
-          console.log('✅ Preserving proposal fields in final save (solved case):', {
+            console.log('✅ Preserving proposal fields in final save (solved case):', {
             matchId,
             proposalId: (updatedMatch as any).payoutProposalId,
             proposalStatus: (updatedMatch as any).proposalStatus || 'ACTIVE',
-          });
-        }
+            });
+          }
         
         updateValues.push(matchId);
         await matchRepository.query(`
@@ -2517,78 +2517,78 @@ const submitResultHandler = async (req: any, res: any) => {
                     return; // Already created
                   }
                   
-                  console.log('✅ Proposal creation conditions met, creating proposal...', {
+                console.log('✅ Proposal creation conditions met, creating proposal...', {
+                  matchId: finalMatch.id,
+                  winner: finalMatch.winner,
+                });
+                
+                const { PublicKey } = require('@solana/web3.js');
+                const { SquadsVaultService } = require('../services/squadsVaultService');
+                const squadsService = new SquadsVaultService();
+                
+                if (finalMatch.winner !== 'tie') {
+                  // Winner payout proposal
+                  const winner = finalMatch.winner;
+                  const entryFee = finalMatch.entryFee;
+                  const totalPot = entryFee * 2;
+                  const winnerAmount = totalPot * 0.95;
+                  const feeAmount = totalPot * 0.05;
+
+                  const proposalResult = await squadsService.proposeWinnerPayout(
+                    (finalMatch as any).squadsVaultAddress,
+                    new PublicKey(winner),
+                    winnerAmount,
+                    new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                    feeAmount
+                  );
+
+                  if (proposalResult.success && proposalResult.proposalId) {
+                    (finalMatch as any).payoutProposalId = proposalResult.proposalId;
+                    (finalMatch as any).proposalCreatedAt = new Date();
+                    (finalMatch as any).proposalStatus = 'ACTIVE';
+                    (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
+                    await matchRepository.save(finalMatch);
+                    console.log('✅ Winner payout proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
+                  } else {
+                    console.error('❌ Failed to create winner payout proposal:', proposalResult.error);
+                  }
+                } else {
+                  // Tie refund proposal
+                  console.log('🎯 Creating tie refund proposal...', { matchId: finalMatch.id });
+                  const player1Result = finalMatch.getPlayer1Result();
+                  const player2Result = finalMatch.getPlayer2Result();
+                  const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+                  
+                  console.log('🔍 Tie refund check:', {
                     matchId: finalMatch.id,
-                    winner: finalMatch.winner,
+                    player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+                    player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
+                    isLosingTie,
                   });
                   
-                  const { PublicKey } = require('@solana/web3.js');
-                  const { SquadsVaultService } = require('../services/squadsVaultService');
-                  const squadsService = new SquadsVaultService();
-                  
-                  if (finalMatch.winner !== 'tie') {
-                    // Winner payout proposal
-                    const winner = finalMatch.winner;
+                  if (isLosingTie) {
+                    console.log('✅ Creating tie refund proposal for losing tie...', { matchId: finalMatch.id });
                     const entryFee = finalMatch.entryFee;
-                    const totalPot = entryFee * 2;
-                    const winnerAmount = totalPot * 0.95;
-                    const feeAmount = totalPot * 0.05;
-
-                    const proposalResult = await squadsService.proposeWinnerPayout(
+                    const refundAmount = entryFee * 0.95;
+                    
+                    const proposalResult = await squadsService.proposeTieRefund(
                       (finalMatch as any).squadsVaultAddress,
-                      new PublicKey(winner),
-                      winnerAmount,
-                      new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                      feeAmount
+                      new PublicKey(finalMatch.player1),
+                      new PublicKey(finalMatch.player2),
+                      refundAmount
                     );
 
                     if (proposalResult.success && proposalResult.proposalId) {
                       (finalMatch as any).payoutProposalId = proposalResult.proposalId;
+                      (finalMatch as any).tieRefundProposalId = proposalResult.proposalId;
                       (finalMatch as any).proposalCreatedAt = new Date();
                       (finalMatch as any).proposalStatus = 'ACTIVE';
                       (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
                       await matchRepository.save(finalMatch);
-                      console.log('✅ Winner payout proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
+                      console.log('✅ Tie refund proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                     } else {
-                      console.error('❌ Failed to create winner payout proposal:', proposalResult.error);
+                      console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
                     }
-                  } else {
-                    // Tie refund proposal
-                    console.log('🎯 Creating tie refund proposal...', { matchId: finalMatch.id });
-                    const player1Result = finalMatch.getPlayer1Result();
-                    const player2Result = finalMatch.getPlayer2Result();
-                    const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
-                    
-                    console.log('🔍 Tie refund check:', {
-                      matchId: finalMatch.id,
-                      player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-                      player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
-                      isLosingTie,
-                    });
-                    
-                    if (isLosingTie) {
-                      console.log('✅ Creating tie refund proposal for losing tie...', { matchId: finalMatch.id });
-                      const entryFee = finalMatch.entryFee;
-                      const refundAmount = entryFee * 0.95;
-                      
-                      const proposalResult = await squadsService.proposeTieRefund(
-                        (finalMatch as any).squadsVaultAddress,
-                        new PublicKey(finalMatch.player1),
-                        new PublicKey(finalMatch.player2),
-                        refundAmount
-                      );
-
-                      if (proposalResult.success && proposalResult.proposalId) {
-                        (finalMatch as any).payoutProposalId = proposalResult.proposalId;
-                        (finalMatch as any).tieRefundProposalId = proposalResult.proposalId;
-                        (finalMatch as any).proposalCreatedAt = new Date();
-                        (finalMatch as any).proposalStatus = 'ACTIVE';
-                        (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
-                        await matchRepository.save(finalMatch);
-                        console.log('✅ Tie refund proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
-                      } else {
-                        console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
-                      }
                     }
                   }
                 } finally {
@@ -2643,60 +2643,60 @@ const submitResultHandler = async (req: any, res: any) => {
                     return; // Already created
                   }
                   
-                  const { PublicKey } = require('@solana/web3.js');
-                  const { SquadsVaultService } = require('../services/squadsVaultService');
-                  const squadsService = new SquadsVaultService();
-                  
-                  if (updatedMatch.winner !== 'tie') {
-                    const winner = updatedMatch.winner;
-                    const entryFee = updatedMatch.entryFee;
-                    const totalPot = entryFee * 2;
-                    const winnerAmount = totalPot * 0.95;
-                    const feeAmount = totalPot * 0.05;
+                const { PublicKey } = require('@solana/web3.js');
+                const { SquadsVaultService } = require('../services/squadsVaultService');
+                const squadsService = new SquadsVaultService();
+                
+                if (updatedMatch.winner !== 'tie') {
+                  const winner = updatedMatch.winner;
+                  const entryFee = updatedMatch.entryFee;
+                  const totalPot = entryFee * 2;
+                  const winnerAmount = totalPot * 0.95;
+                  const feeAmount = totalPot * 0.05;
 
-                    const proposalResult = await squadsService.proposeWinnerPayout(
-                      (updatedMatch as any).squadsVaultAddress,
-                      new PublicKey(winner),
-                      winnerAmount,
-                      new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                      feeAmount
-                    );
+                  const proposalResult = await squadsService.proposeWinnerPayout(
+                    (updatedMatch as any).squadsVaultAddress,
+                    new PublicKey(winner),
+                    winnerAmount,
+                    new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                    feeAmount
+                  );
 
-                    if (proposalResult.success && proposalResult.proposalId) {
+                  if (proposalResult.success && proposalResult.proposalId) {
                       await matchRepository.query(`
                         UPDATE "match"
                         SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3, "needsSignatures" = $4, "updatedAt" = $5
                         WHERE id = $6
                       `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 1, new Date(), updatedMatch.id]);
-                      console.log('✅ Winner payout proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
-                    }
-                  } else {
+                    console.log('✅ Winner payout proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
+                  }
+                } else {
                     // Parse player results from JSON strings
                     const player1ResultRaw = updatedMatch.player1Result;
                     const player2ResultRaw = updatedMatch.player2Result;
                     const player1Result = player1ResultRaw ? (typeof player1ResultRaw === 'string' ? JSON.parse(player1ResultRaw) : player1ResultRaw) : null;
                     const player2Result = player2ResultRaw ? (typeof player2ResultRaw === 'string' ? JSON.parse(player2ResultRaw) : player2ResultRaw) : null;
-                    const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+                  const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+                  
+                  if (isLosingTie) {
+                    const entryFee = updatedMatch.entryFee;
+                    const refundAmount = entryFee * 0.95;
                     
-                    if (isLosingTie) {
-                      const entryFee = updatedMatch.entryFee;
-                      const refundAmount = entryFee * 0.95;
-                      
-                      const proposalResult = await squadsService.proposeTieRefund(
-                        (updatedMatch as any).squadsVaultAddress,
-                        new PublicKey(updatedMatch.player1),
-                        new PublicKey(updatedMatch.player2),
-                        refundAmount
-                      );
+                    const proposalResult = await squadsService.proposeTieRefund(
+                      (updatedMatch as any).squadsVaultAddress,
+                      new PublicKey(updatedMatch.player1),
+                      new PublicKey(updatedMatch.player2),
+                      refundAmount
+                    );
 
-                      if (proposalResult.success && proposalResult.proposalId) {
+                    if (proposalResult.success && proposalResult.proposalId) {
                         await matchRepository.query(`
                           UPDATE "match"
                           SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "updatedAt" = $6
                           WHERE id = $7
                         `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 1, new Date(), updatedMatch.id]);
-                        console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
-                      }
+                      console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
+                    }
                     }
                   }
                 } finally {
@@ -2910,23 +2910,23 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         const cooldownPeriod = 5000; // 5 seconds (reduced from 30s for faster retries)
         
         if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
-          console.log('🏦 No vault on match yet; attempting on-demand creation...', { matchId: match.id });
+        console.log('🏦 No vault on match yet; attempting on-demand creation...', { matchId: match.id });
           // Mark that we're attempting vault creation
           await redis.set(vaultCreationKey, now.toString(), 'EX', 60); // Expire after 60 seconds
           
           try {
-            const creation = await squadsVaultService.createMatchVault(
-              match.id,
-              new PublicKey(match.player1),
-              new PublicKey(match.player2),
-              match.entryFee
-            );
-            if (creation?.success && creation.vaultAddress) {
-              const { AppDataSource } = require('../db/index');
-              const matchRepository = AppDataSource.getRepository(Match);
-              (match as any).squadsVaultAddress = creation.vaultAddress;
-              await matchRepository.update({ id: match.id }, { squadsVaultAddress: creation.vaultAddress, matchStatus: 'VAULT_CREATED' });
-              console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress });
+        const creation = await squadsVaultService.createMatchVault(
+          match.id,
+          new PublicKey(match.player1),
+          new PublicKey(match.player2),
+          match.entryFee
+        );
+        if (creation?.success && creation.vaultAddress) {
+          const { AppDataSource } = require('../db/index');
+          const matchRepository = AppDataSource.getRepository(Match);
+          (match as any).squadsVaultAddress = creation.vaultAddress;
+          await matchRepository.update({ id: match.id }, { squadsVaultAddress: creation.vaultAddress, matchStatus: 'VAULT_CREATED' });
+          console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress });
               // Clear the rate limit key on success
               await redis.del(vaultCreationKey);
             } else {
@@ -3054,8 +3054,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           match.winner = reloadedRow.winner;
           try {
             const reloadedPayoutResult = reloadedRow.payoutResult ? JSON.parse(reloadedRow.payoutResult) : null;
-            if (reloadedPayoutResult) {
-              match.setPayoutResult(reloadedPayoutResult);
+          if (reloadedPayoutResult) {
+            match.setPayoutResult(reloadedPayoutResult);
             }
           } catch (e) {
             // Ignore parse errors
@@ -5108,7 +5108,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       } else {
         // Generate word and save to database FIRST
         word = getRandomWord();
-        freshMatch.word = word;
+      freshMatch.word = word;
         // Save word to database immediately before creating Redis state
         await matchRepository.save(freshMatch);
         console.log(`✅ Generated and saved word to database first: ${word}`);
@@ -6415,48 +6415,48 @@ const generateReportHandler = async (req: any, res: any) => {
     try {
       // First attempt: try with all new columns
       matches = await matchRepository.query(`
-        SELECT 
-          id,
-          "player1",
-          "player2",
-          "entryFee",
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        "entryFee",
           "entryFeeUSD",
-          status,
-          "squadsVaultAddress",
-          "depositATx",
-          "depositBTx",
-          "depositAConfirmations",
-          "depositBConfirmations",
-          "gameStartTime",
-          "gameStartTimeUtc",
-          "gameEndTime",
-          "gameEndTimeUtc",
-          "player1Paid",
-          "player2Paid",
-          "player1Result",
-          "player2Result",
-          winner,
-          "payoutResult",
+        status,
+        "squadsVaultAddress",
+        "depositATx",
+        "depositBTx",
+        "depositAConfirmations",
+        "depositBConfirmations",
+        "gameStartTime",
+        "gameStartTimeUtc",
+        "gameEndTime",
+        "gameEndTimeUtc",
+        "player1Paid",
+        "player2Paid",
+        "player1Result",
+        "player2Result",
+        winner,
+        "payoutResult",
           "payoutAmount",
           "payoutAmountUSD",
-          "proposalTransactionId",
-          "matchOutcome",
-          "totalFeesCollected",
-          "platformFee",
-          "matchDuration",
-          "refundReason",
-          "refundedAt",
-          "refundedAtUtc",
-          "isCompleted",
-          "createdAt",
-          "updatedAt",
-          "payoutProposalId",
+        "proposalTransactionId",
+        "matchOutcome",
+        "totalFeesCollected",
+        "platformFee",
+        "matchDuration",
+        "refundReason",
+        "refundedAt",
+        "refundedAtUtc",
+        "isCompleted",
+        "createdAt",
+        "updatedAt",
+        "payoutProposalId",
           "tieRefundProposalId",
-          "proposalStatus",
-          "proposalCreatedAt",
+        "proposalStatus",
+        "proposalCreatedAt",
           "proposalExecutedAt",
-          "needsSignatures",
-          "proposalSigners",
+        "needsSignatures",
+        "proposalSigners",
           "player1PaymentSignature",
           "player2PaymentSignature",
           "winnerPayoutSignature",
@@ -6469,30 +6469,30 @@ const generateReportHandler = async (req: any, res: any) => {
           "player2PaymentBlockNumber",
           "winnerPayoutBlockNumber",
           "solPriceAtTransaction"
-        FROM "match" 
-        WHERE ${dateFilter}
-          AND "squadsVaultAddress" IS NOT NULL
-          AND (
+      FROM "match" 
+      WHERE ${dateFilter}
+        AND "squadsVaultAddress" IS NOT NULL
+        AND (
             -- Executed payouts (most complete data)
             ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
             OR
             -- Completed matches (may not have proposalStatus set yet)
-            (status = 'completed' AND "isCompleted" = true)
-            OR
+          (status = 'completed' AND "isCompleted" = true)
+          OR 
             -- Cancelled with refunds
             (status = 'cancelled' AND "proposalTransactionId" IS NOT NULL)
-            OR
+          OR
             -- Matches with transaction IDs (payouts executed)
             ("proposalTransactionId" IS NOT NULL)
-            OR
+          OR
             -- Matches with both players paid
             ("player1Paid" = true AND "player2Paid" = true)
             OR
             -- Matches with results (games that finished)
-            ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
-          )
-        ORDER BY "createdAt" DESC
-      `);
+          ("player1Result" IS NOT NULL OR "player2Result" IS NOT NULL)
+        )
+      ORDER BY "createdAt" DESC
+    `);
       console.log(`✅ Full query succeeded with ${matches.length} matches`);
       console.log(`📊 Query stats:`, {
         dateFilter,
@@ -6931,7 +6931,7 @@ const generateReportHandler = async (req: any, res: any) => {
             if (bestMatch) {
               match.proposalTransactionId = bestMatch.signature;
               match.winnerPayoutSignature = bestMatch.signature;
-              
+    
               // Get full transaction details for block time/slot
               try {
                 const finalTx = await connection.getTransaction(bestMatch.signature, {
@@ -7266,59 +7266,59 @@ const generateReportHandler = async (req: any, res: any) => {
           
           return [
             // Core Match Info
-            sanitizeCsvValue(match.id),
-            sanitizeCsvValue(match.player1),
-            sanitizeCsvValue(match.player2),
-            sanitizeCsvValue(match.entryFee),
+        sanitizeCsvValue(match.id),
+        sanitizeCsvValue(match.player1),
+        sanitizeCsvValue(match.player2),
+        sanitizeCsvValue(match.entryFee),
             // Entry Fee (USD) removed per user request
-            sanitizeCsvValue(totalPot),
-            sanitizeCsvValue(match.status),
-            sanitizeCsvValue(winner),
-            sanitizeCsvValue(winnerAmount),
+        sanitizeCsvValue(totalPot),
+        sanitizeCsvValue(match.status),
+        sanitizeCsvValue(winner),
+        sanitizeCsvValue(winnerAmount),
             // Platform Fee (SOL) removed per user request
             sanitizeCsvValue(feeWalletAddress),
-            sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
+        sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
             // Vault & Deposits
-            sanitizeCsvValue(match.squadsVaultAddress),
-            sanitizeCsvValue(match.depositATx),
-            sanitizeCsvValue(match.depositBTx),
+        sanitizeCsvValue(match.squadsVaultAddress),
+        sanitizeCsvValue(match.depositATx),
+        sanitizeCsvValue(match.depositBTx),
             // Game Results
-            sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
+        sanitizeCsvValue((player1Result && player1Result.won) ? 'Yes' : (player1Result ? 'No' : 'N/A')),
             sanitizeCsvValue(player1Result?.numGuesses || ''),
             sanitizeCsvValue(player1Result?.totalTime ? Math.round(player1Result.totalTime / 1000) : ''),
             sanitizeCsvValue(player1Result?.reason || ''),
-            sanitizeCsvValue((player2Result && player2Result.won) ? 'Yes' : (player2Result ? 'No' : 'N/A')),
+        sanitizeCsvValue((player2Result && player2Result.won) ? 'Yes' : (player2Result ? 'No' : 'N/A')),
             sanitizeCsvValue(player2Result?.numGuesses || ''),
             sanitizeCsvValue(player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
             sanitizeCsvValue(player2Result?.reason || ''),
             // Timestamps
-            convertToEST(match.createdAt),
-            convertToEST(match.gameStartTimeUtc),
+        convertToEST(match.createdAt),
+        convertToEST(match.gameStartTimeUtc),
             // Game Ended (EST), Executed Transaction Hash, Proposal ID, Proposal Status, Needs Signatures removed per user request
             // Proposal Info
-            sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
+        sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
             // Explorer Links
-            match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
-            match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
-            match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
+        match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
+        match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
+        match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
             match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
-          ];
-        });
-        
-        const csvContent = [csvHeaders, ...csvRows]
-          .map((row: any) => row.map((field: any) => `"${field || ''}"`).join(','))
-          .join('\n');
-        
-        const crypto = require('crypto');
-        const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
+      ];
+    });
+    
+    const csvContent = [csvHeaders, ...csvRows]
+      .map((row: any) => row.map((field: any) => `"${field || ''}"`).join(','))
+      .join('\n');
+    
+    const crypto = require('crypto');
+    const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
         const filename = `Guess5.io_historical_data.csv`;
-        
-        res.setHeader('Content-Type', 'text/csv');
-        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-        res.setHeader('X-File-Hash', fileHash);
-        
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-File-Hash', fileHash);
+    
         console.log(`✅ Fallback report generated: ${filename} with ${fallbackMatches.length} matches`);
-        res.send(csvContent);
+    res.send(csvContent);
         return;
       } catch (fallbackError: unknown) {
         console.error('❌ Fallback query also failed:', fallbackError instanceof Error ? fallbackError.message : String(fallbackError));
@@ -7754,7 +7754,7 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         WHERE id = $1
       `, [matchId]);
       const finalMatch = finalMatchRows?.[0];
-      
+
       console.log(`🔍 Payment status for match ${matchId}:`, {
         player1Paid: finalMatch?.player1Paid,
         player2Paid: finalMatch?.player2Paid,
@@ -8129,7 +8129,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
     
     const matchRow = matchRows[0];
-    
+
     // Verify player is part of this match
     const isPlayer1 = wallet === matchRow.player1;
     const isPlayer2 = wallet === matchRow.player2;
@@ -8417,21 +8417,21 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       let discriminator;
       try {
         // Standard Anchor format: "global:vault_transaction_approve"
-        const discriminatorSeed = 'global:vault_transaction_approve';
-        const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
+    const discriminatorSeed = 'global:vault_transaction_approve';
+    const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
         discriminator = hash.slice(0, 8);
         console.log('✅ Using discriminator format: global:vault_transaction_approve');
       } catch (discrimError: any) {
         console.error('❌ Failed to create discriminator:', discrimError?.message);
         throw new Error(`Failed to create discriminator: ${discrimError?.message || String(discrimError)}`);
       }
-      
-      // Transaction index as 8-byte little-endian u64
-      const indexBuffer = Buffer.alloc(8);
-      indexBuffer.writeBigUInt64LE(transactionIndex, 0);
-      
-      const instructionData = Buffer.concat([discriminator, indexBuffer]);
-      
+    
+    // Transaction index as 8-byte little-endian u64
+    const indexBuffer = Buffer.alloc(8);
+    indexBuffer.writeBigUInt64LE(transactionIndex, 0);
+    
+    const instructionData = Buffer.concat([discriminator, indexBuffer]);
+    
       // Account order for vault_transaction_approve (per Squads v4):
       // 0. multisig (PDA) - writable
       // 1. transaction (PDA) - writable  
@@ -8440,14 +8440,14 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       try {
         approveIx = new TransactionInstruction({
           programId: programId, // Use network-specific program ID (must match multisig creation!)
-          keys: [
+      keys: [
               { pubkey: multisigAddress, isSigner: false, isWritable: true },  // multisig PDA
               { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction PDA
               { pubkey: memberPda, isSigner: false, isWritable: false },     // member PDA
               { pubkey: memberPublicKey, isSigner: true, isWritable: false }, // member (signer)
-          ],
-          data: instructionData,
-        });
+      ],
+      data: instructionData,
+    });
         console.log('✅ Approval instruction created manually (fallback)');
       } catch (ixError: any) {
         console.error('❌ Failed to create approval instruction:', {
@@ -8552,7 +8552,7 @@ const signProposalHandler = async (req: any, res: any) => {
     }
     
     const matchRow = matchRows[0];
-    
+
     // Verify player is part of this match
     const isPlayer1 = wallet === matchRow.player1;
     const isPlayer2 = wallet === matchRow.player2;
@@ -8653,8 +8653,8 @@ const signProposalHandler = async (req: any, res: any) => {
               proposalStatus: 'EXECUTED',
               executed: true,
             });
-          }
-          
+    }
+
           // If not executed, check if this is an old match (completed status)
           // For old matches, if transaction doesn't exist, it was likely executed
           const matchStatus = matchRow.status;
@@ -8782,7 +8782,7 @@ const signProposalHandler = async (req: any, res: any) => {
     // Deserialize the signed transaction
     let transaction;
     try {
-      const signedTxBuffer = Buffer.from(signedTransaction, 'base64');
+    const signedTxBuffer = Buffer.from(signedTransaction, 'base64');
       transaction = VersionedTransaction.deserialize(signedTxBuffer);
       console.log('✅ Transaction deserialized successfully');
     } catch (deserializeError: any) {
@@ -8803,9 +8803,9 @@ const signProposalHandler = async (req: any, res: any) => {
       // First try with preflight (simulation)
       try {
         signature = await connection.sendRawTransaction(serializedTx, {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
+      skipPreflight: false,
+      maxRetries: 3,
+    });
         console.log('✅ Transaction sent, signature:', signature);
       } catch (preflightError: any) {
         // If preflight fails, try to get simulation logs
@@ -8896,8 +8896,8 @@ const signProposalHandler = async (req: any, res: any) => {
       // Add wallet to signers list
       signers.push(wallet);
       const updatedSignersJson = JSON.stringify(signers);
-      
-      // Update needsSignatures count
+    
+    // Update needsSignatures count
       // Only ONE signature needed total between both players
       // After first signature, set to 0 and mark as ready to execute
       const currentNeedsSignatures = matchRow.needsSignatures || 1;
@@ -8914,7 +8914,7 @@ const signProposalHandler = async (req: any, res: any) => {
             "proposalStatus" = $3
         WHERE id = $4
       `, [updatedSignersJson, newNeedsSignatures, newProposalStatus, matchId]);
-      
+    
       // Check if proposal has executed on-chain (since Squads may auto-execute with 1 signature)
       try {
         const { Connection, PublicKey } = require('@solana/web3.js');
@@ -8937,7 +8937,7 @@ const signProposalHandler = async (req: any, res: any) => {
             } catch (pkError: any) {
               programId = PROGRAM_ID;
             }
-          } else {
+    } else {
             programId = PROGRAM_ID;
           }
         } catch (progIdError: any) {
@@ -8973,7 +8973,7 @@ const signProposalHandler = async (req: any, res: any) => {
         } else {
           // Transaction still exists, not executed yet - already updated above
           console.log('✅ Transaction proposal still exists, marked as READY_TO_EXECUTE');
-        }
+    }
       } catch (executionCheckError: any) {
         console.error('❌ Error checking proposal execution:', executionCheckError);
         // Continue - transaction was already submitted successfully

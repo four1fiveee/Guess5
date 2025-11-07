@@ -10,7 +10,7 @@ export class TimeoutScannerService {
   private scanInterval: NodeJS.Timeout | null = null;
   private readonly POLL_INTERVAL = 30000; // 30 seconds
   private readonly MATCH_TIMEOUT = 30 * 60 * 1000; // 30 minutes
-  private readonly DEPOSIT_TIMEOUT = 10 * 60 * 1000; // 10 minutes
+  private readonly DEPOSIT_TIMEOUT = 2 * 60 * 1000; // 2 minutes
   private readonly ABANDONED_GAME_TIMEOUT = 90 * 1000; // 90 seconds - if one player finishes, other has 90 seconds
 
   /**

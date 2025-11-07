@@ -87,8 +87,8 @@ export class RedisMatchmakingService {
         return { status: 'waiting', waitingCount: 1 };
       } else {
         // Find a compatible player with flexible entry fee matching
-        // Allow matching if entry fees are within 2% tolerance (to handle SOL price fluctuations)
-        const ENTRY_FEE_TOLERANCE = 0.02; // 2% tolerance
+        // Allow matching if entry fees are within 3% tolerance (to handle SOL price fluctuations)
+        const ENTRY_FEE_TOLERANCE = 0.03; // 3% tolerance
         
         for (const [waitingWallet, playerJson] of Object.entries(waitingPlayers)) {
           // Double-check: never match with self
