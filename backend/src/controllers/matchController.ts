@@ -147,39 +147,48 @@ const periodicCleanup = async () => {
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     
-    // Clean up matches older than 10 minutes
+    // Clean up matches older than 10 minutes using raw SQL to avoid proposalExpiresAt column
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     
-    const staleMatches = await matchRepository.find({
-      where: [
-        { status: 'waiting', createdAt: LessThan(tenMinutesAgo) },
-        { status: 'escrow', createdAt: LessThan(tenMinutesAgo) }
-      ]
-    });
+    const staleMatchRows = await matchRepository.query(`
+      SELECT id
+      FROM "match"
+      WHERE (status = $1 OR status = $2) AND "createdAt" < $3
+    `, ['waiting', 'escrow', tenMinutesAgo]);
     
-    if (staleMatches.length > 0) {
-      console.log(`🧹 Cleaning up ${staleMatches.length} stale matches`);
-      await matchRepository.remove(staleMatches);
-      console.log(`✅ Cleaned up ${staleMatches.length} stale matches`);
+    if (staleMatchRows && staleMatchRows.length > 0) {
+      console.log(`🧹 Cleaning up ${staleMatchRows.length} stale matches`);
+      for (const row of staleMatchRows) {
+        await matchRepository.query(`DELETE FROM "match" WHERE id = $1`, [row.id]);
+      }
+      console.log(`✅ Cleaned up ${staleMatchRows.length} stale matches`);
     }
     
-    // Process refunds for payment_required matches that are too old (5 minutes)
+    // Process refunds for payment_required matches that are too old (5 minutes) using raw SQL
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const oldPaymentRequiredMatches = await matchRepository.find({
-      where: {
-        status: 'payment_required',
-        updatedAt: LessThan(fiveMinutesAgo)
-      }
-    });
+    const oldPaymentRequiredRows = await matchRepository.query(`
+      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", status
+      FROM "match"
+      WHERE status = $1 AND "updatedAt" < $2
+    `, ['payment_required', fiveMinutesAgo]);
     
-    if (oldPaymentRequiredMatches.length > 0) {
-      console.log(`💰 Processing refunds for ${oldPaymentRequiredMatches.length} old payment_required matches`);
+    if (oldPaymentRequiredRows && oldPaymentRequiredRows.length > 0) {
+      console.log(`💰 Processing refunds for ${oldPaymentRequiredRows.length} old payment_required matches`);
       
-      for (const match of oldPaymentRequiredMatches) {
+      for (const matchRow of oldPaymentRequiredRows) {
+        // Create a minimal match object for processAutomatedRefunds
+        const match = {
+          id: matchRow.id,
+          player1: matchRow.player1,
+          player2: matchRow.player2,
+          entryFee: matchRow.entryFee,
+          squadsVaultAddress: matchRow.squadsVaultAddress,
+          status: matchRow.status
+        };
         await processAutomatedRefunds(match, 'payment_timeout');
       }
       
-      console.log(`✅ Processed refunds for ${oldPaymentRequiredMatches.length} old payment_required matches`);
+      console.log(`✅ Processed refunds for ${oldPaymentRequiredRows.length} old payment_required matches`);
     }
     
     // NOTE: We do NOT clean up completed matches - they are kept for long-term storage and CSV downloads
@@ -1398,17 +1407,12 @@ const submitResultHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Maximum 7 guesses allowed' });
     }
 
-    // SERVER-SIDE VALIDATION: Get server-side game state from Redis
-    const serverGameState = await getGameState(matchId);
-    if (!serverGameState) {
-      return res.status(404).json({ error: 'Game not found or already completed' });
-    }
-
-    // SERVER-SIDE VALIDATION: Validate player is part of this match using raw SQL
+    // SERVER-SIDE VALIDATION: Validate player is part of this match using raw SQL first
+    // Check database before Redis to handle cases where Redis state was deleted prematurely
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const matchRows = await matchRepository.query(`
-      SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime"
+      SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime", "isCompleted", status
       FROM "match"
       WHERE id = $1
     `, [matchId]);
@@ -1418,6 +1422,54 @@ const submitResultHandler = async (req: any, res: any) => {
     }
 
     const match = matchRows[0];
+    
+    // Check if match is already completed in database
+    if (match.isCompleted) {
+      // Match is completed - check if player already submitted
+      const existingResultRaw = wallet === match.player1 ? match.player1Result : match.player2Result;
+      if (existingResultRaw) {
+        const existingResult = typeof existingResultRaw === 'string' ? JSON.parse(existingResultRaw) : existingResultRaw;
+        return res.json({
+          success: true,
+          message: 'Result already submitted',
+          result: existingResult,
+          matchId,
+        });
+      }
+      return res.status(400).json({ error: 'Match is already completed' });
+    }
+
+    // SERVER-SIDE VALIDATION: Get server-side game state from Redis
+    // If Redis state is missing but match exists and isn't completed, try to restore it
+    let serverGameState = await getGameState(matchId);
+    if (!serverGameState) {
+      // Redis state missing - check if we can restore from database or if match is truly invalid
+      if (match.status !== 'active' && match.status !== 'payment_required') {
+        return res.status(404).json({ error: 'Game not found or already completed' });
+      }
+      // Match exists and is active, but Redis state is missing - this shouldn't happen
+      // Log warning but allow submission to proceed (we'll validate against database)
+      console.warn('⚠️ Redis game state missing but match exists in database, allowing submission', {
+        matchId,
+        wallet,
+        matchStatus: match.status,
+        isCompleted: match.isCompleted
+      });
+      // Create a minimal serverGameState for validation purposes
+      serverGameState = {
+        startTime: match.gameStartTime ? new Date(match.gameStartTime).getTime() : Date.now(),
+        player1StartTime: match.gameStartTime ? new Date(match.gameStartTime).getTime() : Date.now(),
+        player2StartTime: match.gameStartTime ? new Date(match.gameStartTime).getTime() : Date.now(),
+        player1Guesses: [],
+        player2Guesses: [],
+        player1Solved: false,
+        player2Solved: false,
+        word: '', // Will be validated from database if needed
+        matchId: matchId,
+        lastActivity: Date.now(),
+        completed: false
+      };
+    }
 
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
@@ -1731,12 +1783,27 @@ const submitResultHandler = async (req: any, res: any) => {
           throw new Error('Match not found after transaction');
         }
         
-        // Clear Redis game state after completion
-        try {
-          await deleteGameState(matchId);
-        } catch (error) {
-          console.warn('⚠️ Failed to clear Redis game state:', error);
-        }
+        // DELAYED CLEANUP: Only delete Redis state after both players have submitted
+        // Don't delete immediately - wait a bit to allow the other player to submit
+        setTimeout(async () => {
+          try {
+            const { AppDataSource } = require('../db/index');
+            const matchRepository = AppDataSource.getRepository(Match);
+            // Double-check both players have submitted before deleting
+            const checkRows = await matchRepository.query(`
+              SELECT "player1Result", "player2Result", "isCompleted"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            if (checkRows && checkRows.length > 0 && checkRows[0].isCompleted && 
+                checkRows[0].player1Result && checkRows[0].player2Result) {
+              await deleteGameState(matchId);
+              console.log(`🧹 Cleaned up Redis game state for completed match: ${matchId}`);
+            }
+          } catch (error) {
+            console.warn('⚠️ Error in delayed cleanup:', error);
+          }
+        }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
         // Execute Squads proposal for winner payout (same as non-solved case)
         console.log('🔍 Checking if proposal should be created:', {
@@ -1952,33 +2019,65 @@ const submitResultHandler = async (req: any, res: any) => {
             // Losing tie - skip duplicate handler, use Squads proposal logic in main tie block below
           }
         }
-        const finalMatchForSolved = await matchRepository.findOne({ where: { id: matchId } });
-        if (finalMatchForSolved) {
-          finalMatchForSolved.isCompleted = true;
-          finalMatchForSolved.winner = payoutResult.winner;
-          finalMatchForSolved.setPayoutResult(payoutResult);
-          // Preserve proposal fields if they were set earlier
-          if ((updatedMatch as any).payoutProposalId) {
-            (finalMatchForSolved as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
-            (finalMatchForSolved as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
-            (finalMatchForSolved as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-            (finalMatchForSolved as any).needsSignatures = (updatedMatch as any).needsSignatures || 1;
-            console.log('✅ Preserving proposal fields in final save (solved case):', {
-              matchId: finalMatchForSolved.id,
-              proposalId: (finalMatchForSolved as any).payoutProposalId,
-              proposalStatus: (finalMatchForSolved as any).proposalStatus,
-            });
+        // Use raw SQL to update match completion status and payout result
+        const payoutResultJson = JSON.stringify(payoutResult);
+        const updateFields: string[] = [];
+        const updateValues: any[] = [];
+        
+        updateFields.push('"isCompleted" = $' + (updateValues.length + 1));
+        updateValues.push(true);
+        updateFields.push('"winner" = $' + (updateValues.length + 1));
+        updateValues.push(payoutResult.winner);
+        updateFields.push('"payoutResult" = $' + (updateValues.length + 1));
+        updateValues.push(payoutResultJson);
+        
+        // Preserve proposal fields if they were set earlier
+        if ((updatedMatch as any).payoutProposalId) {
+          updateFields.push('"payoutProposalId" = $' + (updateValues.length + 1));
+          updateValues.push((updatedMatch as any).payoutProposalId);
+          updateFields.push('"proposalStatus" = $' + (updateValues.length + 1));
+          updateValues.push((updatedMatch as any).proposalStatus || 'ACTIVE');
+          if ((updatedMatch as any).proposalCreatedAt) {
+            updateFields.push('"proposalCreatedAt" = $' + (updateValues.length + 1));
+            updateValues.push((updatedMatch as any).proposalCreatedAt);
           }
-          await matchRepository.save(finalMatchForSolved);
-        } else {
-          updatedMatch.isCompleted = true;
-          updatedMatch.winner = payoutResult.winner;
-          updatedMatch.setPayoutResult(payoutResult);
-          await matchRepository.save(updatedMatch);
+          updateFields.push('"needsSignatures" = $' + (updateValues.length + 1));
+          updateValues.push((updatedMatch as any).needsSignatures || 1);
+          console.log('✅ Preserving proposal fields in final save (solved case):', {
+            matchId,
+            proposalId: (updatedMatch as any).payoutProposalId,
+            proposalStatus: (updatedMatch as any).proposalStatus || 'ACTIVE',
+          });
         }
         
-        // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
-        markGameCompleted(matchId);
+        updateValues.push(matchId);
+        await matchRepository.query(`
+          UPDATE "match"
+          SET ${updateFields.join(', ')}, "updatedAt" = NOW()
+          WHERE id = $${updateValues.length}
+        `, updateValues);
+        
+        // DELAYED CLEANUP: Only delete Redis state after both players have submitted
+        // Don't delete immediately - wait a bit to allow the other player to submit
+        setTimeout(async () => {
+          try {
+            const { AppDataSource } = require('../db/index');
+            const matchRepository = AppDataSource.getRepository(Match);
+            // Double-check both players have submitted before deleting
+            const checkRows = await matchRepository.query(`
+              SELECT "player1Result", "player2Result", "isCompleted"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            if (checkRows && checkRows.length > 0 && checkRows[0].isCompleted && 
+                checkRows[0].player1Result && checkRows[0].player2Result) {
+              await deleteGameState(matchId);
+              console.log(`🧹 Cleaned up Redis game state for completed match: ${matchId}`);
+            }
+          } catch (error) {
+            console.warn('⚠️ Error in delayed cleanup:', error);
+          }
+        }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
         res.json({
           status: 'completed',
@@ -2612,8 +2711,26 @@ const submitResultHandler = async (req: any, res: any) => {
             }
           }
           
-          // IMMEDIATE CLEANUP: Remove from active games since match is confirmed over
-          markGameCompleted(matchId);
+          // DELAYED CLEANUP: Only delete Redis state after both players have submitted
+          // Don't delete immediately - wait a bit to allow the other player to submit
+          // The game state will be cleaned up by TTL (1 hour) or when both players have definitely finished
+          setTimeout(async () => {
+            try {
+              // Double-check both players have submitted before deleting
+              const checkRows = await matchRepository.query(`
+                SELECT "player1Result", "player2Result", "isCompleted"
+                FROM "match"
+                WHERE id = $1
+              `, [matchId]);
+              if (checkRows && checkRows.length > 0 && checkRows[0].isCompleted && 
+                  checkRows[0].player1Result && checkRows[0].player2Result) {
+                await deleteGameState(matchId);
+                console.log(`🧹 Cleaned up Redis game state for completed match: ${matchId}`);
+              }
+            } catch (error) {
+              console.warn('⚠️ Error in delayed cleanup:', error);
+            }
+          }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
         res.json({
           status: 'completed',
@@ -3930,17 +4047,12 @@ const submitGameGuessHandler = async (req: any, res: any) => {
     // Allow any 5-letter word (no word list validation)
     // The game is about guessing, not about using specific words
 
-    // Get server-side game state from Redis
-    const serverGameState = await getGameState(matchId as string);
-    if (!serverGameState) {
-      return res.status(404).json({ error: 'Game not found or already completed' });
-    }
-
-    // Validate player is part of this match using raw SQL
+    // Validate player is part of this match using raw SQL first
+    // Check database before Redis to handle cases where Redis state was deleted prematurely
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const matchRows = await matchRepository.query(`
-      SELECT id, "player1", "player2"
+      SELECT id, "player1", "player2", "isCompleted", status, word
       FROM "match"
       WHERE id = $1
     `, [matchId]);
@@ -3950,6 +4062,47 @@ const submitGameGuessHandler = async (req: any, res: any) => {
     }
 
     const match = matchRows[0];
+    
+    // Check if match is already completed in database
+    if (match.isCompleted) {
+      return res.status(400).json({ error: 'Game is already completed' });
+    }
+    
+    // Check if match is in a valid state for guesses
+    if (match.status !== 'active') {
+      return res.status(400).json({ error: 'Game is not active' });
+    }
+
+    // Get server-side game state from Redis
+    // If Redis state is missing but match exists and is active, try to restore it
+    let serverGameState = await getGameState(matchId as string);
+    if (!serverGameState) {
+      // Redis state missing but match is active - restore from database
+      console.warn('⚠️ Redis game state missing but match is active, restoring from database', {
+        matchId,
+        wallet,
+        matchStatus: match.status
+      });
+      // Restore game state from database
+      const { getRandomWord } = require('../wordList');
+      const gameWord = match.word || getRandomWord();
+      serverGameState = {
+        startTime: Date.now(),
+        player1StartTime: Date.now(),
+        player2StartTime: Date.now(),
+        player1Guesses: [],
+        player2Guesses: [],
+        player1Solved: false,
+        player2Solved: false,
+        word: gameWord,
+        matchId: matchId as string,
+        lastActivity: Date.now(),
+        completed: false
+      };
+      // Save restored state to Redis
+      await setGameState(matchId as string, serverGameState);
+      console.log('✅ Restored game state from database for match:', matchId);
+    }
 
     if (wallet !== match.player1 && wallet !== match.player2) {
       return res.status(403).json({ error: 'Wallet not part of this match' });

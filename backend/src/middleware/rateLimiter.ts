@@ -83,11 +83,12 @@ export const paymentLimiter = rateLimit({
   }
 });
 
-// Result submission: 10 per minute per wallet
+// Result submission: 15 per minute per wallet
 // Increased to handle retries and edge cases where players may need multiple attempts
+// Also accounts for potential race conditions where both players submit simultaneously
 export const resultLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 10,
+  max: 15,
   message: 'Too many result submissions. Please wait.',
   keyGenerator: (req) => {
     const wallet = (req.body && req.body.wallet) ? req.body.wallet : req.ip;
