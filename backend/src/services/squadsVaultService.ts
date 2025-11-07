@@ -768,38 +768,6 @@ export class SquadsVaultService {
         systemPublicKey: this.config.systemPublicKey.toString(),
       });
 
-      // Ensure a proposal account exists for this transaction index
-      try {
-        const proposalSignature = await rpc.proposalCreate({
-          connection: this.connection,
-          feePayer: this.config.systemKeypair,
-          creator: this.config.systemKeypair,
-          multisigPda: multisigAddress,
-          transactionIndex,
-          programId: this.programId,
-        });
-        enhancedLogger.info('✅ Proposal account created', {
-          multisigAddress: multisigAddress.toString(),
-          transactionIndex: transactionIndex.toString(),
-          proposalSignature,
-        });
-      } catch (proposalError: any) {
-        const msg = proposalError?.message || String(proposalError);
-        if (msg.includes('already in use') || msg.includes('already initialized')) {
-          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
-            multisigAddress: multisigAddress.toString(),
-            transactionIndex: transactionIndex.toString(),
-          });
-        } else {
-          enhancedLogger.error('❌ Failed to create proposal account', {
-            multisigAddress: multisigAddress.toString(),
-            transactionIndex: transactionIndex.toString(),
-            error: msg,
-          });
-          throw proposalError;
-        }
-      }
-
       // Create real Squads transaction for winner payout
       let multisigAddress: PublicKey;
       try {
