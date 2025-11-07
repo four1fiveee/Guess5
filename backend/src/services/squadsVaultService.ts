@@ -827,7 +827,9 @@ export class SquadsVaultService {
           multisigAddress,
           { commitment: 'confirmed' }
         );
-        const currentTransactionIndexBN = BigInt(multisigInfo.transactionIndex);
+        const currentTransactionIndexBN = BigInt(
+          multisigInfo.transactionIndex.toString()
+        );
         transactionIndex = currentTransactionIndexBN;
         const nextTransactionIndex = transactionIndex + BigInt(1);
         
@@ -1243,7 +1245,9 @@ export class SquadsVaultService {
           multisigAddress,
           { commitment: 'confirmed' }
         );
-        const currentTransactionIndexBN = BigInt(multisigInfo.transactionIndex);
+        const currentTransactionIndexBN = BigInt(
+          multisigInfo.transactionIndex.toString()
+        );
         transactionIndex = currentTransactionIndexBN;
         const nextTransactionIndex = transactionIndex + BigInt(1);
         
