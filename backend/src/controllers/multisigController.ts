@@ -111,11 +111,11 @@ export const buildApprovalTransaction = async (req: Request, res: Response) => {
     }
     
     // Use Squads SDK to build the approval transaction
-    // Note: We can't use vaultTransactionApprove directly because it requires a Keypair
-    // Instead, we'll construct the instruction manually using the SDK's instruction builder
+    // The proposal approval instruction only requires the member's public key, not a backend Keypair
     
     const squadsService = new SquadsVaultService();
     const connection = (squadsService as any).connection;
+    const programId = squadsService.programId;
     
     const multisigAddress = new PublicKey(match.squadsVaultAddress);
     const transactionIndex = BigInt(proposalId);
@@ -126,10 +126,15 @@ export const buildApprovalTransaction = async (req: Request, res: Response) => {
     
     // Build the approval instruction using Squads SDK's instruction builder
     // The instruction builder doesn't require a Keypair, just the PublicKey
-    const approvalIx = instructions.vaultTransactionApprove({
+    if (!instructions || typeof instructions.proposalApprove !== 'function') {
+      throw new Error('Squads SDK proposalApprove instruction builder is unavailable');
+    }
+
+    const approvalIx = instructions.proposalApprove({
       multisigPda: multisigAddress,
       transactionIndex,
       member: walletPubkey,
+      programId,
     });
     
     // Get latest blockhash

@@ -8274,7 +8274,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
 
     // Build the approval transaction using Squads SDK (backend has access to rpc)
-    const { Connection, PublicKey, TransactionMessage, VersionedTransaction, TransactionInstruction } = require('@solana/web3.js');
+    const { Connection, PublicKey, TransactionMessage, VersionedTransaction } = require('@solana/web3.js');
     const connection = new Connection(
       process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
       'confirmed'
@@ -8282,7 +8282,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
     // CRITICAL: Use the same program ID that was used to create the multisig
     // Get it from the Squads service to ensure consistency
-    const { PROGRAM_ID, getMemberPda, getTransactionPda } = require('@sqds/multisig');
+    const sqdsModule = require('@sqds/multisig');
+    const { PROGRAM_ID } = sqdsModule;
     let programId;
     try {
       if (process.env.SQUADS_PROGRAM_ID) {
@@ -8353,169 +8354,53 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to get blockhash: ${blockhashError?.message || String(blockhashError)}`);
     }
 
-    // Use SDK helpers with the correct program ID
-    const crypto = require('crypto');
-    
-    let transactionPda;
-    try {
-      const [pda] = getTransactionPda({
-        multisigPda: multisigAddress,
-        index: transactionIndex,
-        programId,
-      });
-      transactionPda = pda;
-      console.log('✅ Transaction PDA derived using SDK helper:', transactionPda.toString());
-    } catch (pdaError: any) {
-      console.error('❌ Failed to derive transaction PDA:', {
-        error: pdaError?.message,
-        stack: pdaError?.stack,
-        multisigAddress: multisigAddress.toString(),
-        transactionIndex: transactionIndex.toString(),
-        programId: programId.toString(),
-    });
-      throw new Error(`Failed to derive transaction PDA: ${pdaError?.message || String(pdaError)}`);
-    }
-    
-    // Derive member PDA using SDK helper with correct program ID
-    let memberPda;
-    try {
-      try {
-        // Try with programId parameter first
-        if (typeof getMemberPda === 'function') {
-          const result = getMemberPda({
-      multisig: multisigAddress,
-      memberKey: memberPublicKey,
-            programId: programId,
-          } as any);
-          // Check if result is an array (PDA tuple) or single value
-          if (Array.isArray(result)) {
-            memberPda = result[0];
-          } else {
-            memberPda = result;
-          }
-          console.log('✅ Member PDA derived with programId:', memberPda.toString());
-        } else {
-          throw new Error('getMemberPda is not a function');
-        }
-      } catch (pdaError: any) {
-        // Fallback if programId parameter not supported or function doesn't exist
-        console.warn('⚠️ getMemberPda with programId failed, trying without or deriving manually:', pdaError?.message);
-        
-        if (typeof getMemberPda === 'function') {
-          try {
-            const result = getMemberPda({
-              multisig: multisigAddress,
-              memberKey: memberPublicKey,
-            });
-            if (Array.isArray(result)) {
-              memberPda = result[0];
-            } else {
-              memberPda = result;
-            }
-            console.log('✅ Member PDA derived without programId:', memberPda.toString());
-          } catch (fallbackError: any) {
-            // Final fallback: derive manually
-            console.warn('⚠️ SDK getMemberPda failed, deriving manually:', fallbackError?.message);
-            // Member PDA = [multisig, member_key, "member"]
-            const [pda] = PublicKey.findProgramAddressSync(
-              [
-                multisigAddress.toBuffer(),
-                memberPublicKey.toBuffer(),
-                Buffer.from('member'),
-              ],
-              programId
-            );
-            memberPda = pda;
-            console.log('✅ Member PDA derived manually:', memberPda.toString());
-          }
-        } else {
-          // getMemberPda doesn't exist, derive manually
-          const [pda] = PublicKey.findProgramAddressSync(
-            [
-              multisigAddress.toBuffer(),
-              memberPublicKey.toBuffer(),
-              Buffer.from('member'),
-            ],
-            programId
-          );
-          memberPda = pda;
-          console.log('✅ Member PDA derived manually (SDK function not available):', memberPda.toString());
-        }
-      }
-    } catch (pdaError: any) {
-      console.error('❌ Failed to derive member PDA:', {
-        error: pdaError?.message,
-        stack: pdaError?.stack,
-        multisigAddress: multisigAddress.toString(),
-        memberKey: memberPublicKey.toString(),
-        programId: programId.toString(),
-      });
-      throw new Error(`Failed to derive member PDA: ${pdaError?.message || String(pdaError)}`);
-    }
-    
-    // Try to use SDK's instruction builder first (preferred method)
+    const { instructions, generated, getProposalPda } = sqdsModule;
+
     let approveIx;
     try {
-      const { instructions } = require('@sqds/multisig');
-      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
-        console.log('✅ Using SDK instructions.vaultTransactionApprove');
-        approveIx = instructions.vaultTransactionApprove({
+      if (instructions && typeof instructions.proposalApprove === 'function') {
+        console.log('✅ Using SDK instructions.proposalApprove');
+        approveIx = instructions.proposalApprove({
           multisigPda: multisigAddress,
-          transactionIndex: transactionIndex,
+          transactionIndex,
           member: memberPublicKey,
+          programId,
         });
         console.log('✅ Approval instruction created via SDK');
       } else {
-        throw new Error('instructions.vaultTransactionApprove not available in SDK');
+        throw new Error('instructions.proposalApprove not available in SDK');
       }
     } catch (sdkError: any) {
-      console.warn('⚠️ SDK instruction builder failed, falling back to manual construction:', sdkError?.message);
-      
-      // Fallback: Manual instruction construction
-      // Try different discriminator formats - Anchor uses sha256("global:instruction_name")[0:8]
-      // But Squads might use a different format
-      let discriminator;
+      console.warn('⚠️ SDK proposalApprove failed, falling back to generated helper:', sdkError?.message);
+
       try {
-        // Standard Anchor format: "global:vault_transaction_approve"
-    const discriminatorSeed = 'global:vault_transaction_approve';
-    const hash = crypto.createHash('sha256').update(discriminatorSeed).digest();
-        discriminator = hash.slice(0, 8);
-        console.log('✅ Using discriminator format: global:vault_transaction_approve');
-      } catch (discrimError: any) {
-        console.error('❌ Failed to create discriminator:', discrimError?.message);
-        throw new Error(`Failed to create discriminator: ${discrimError?.message || String(discrimError)}`);
-      }
-    
-    // Transaction index as 8-byte little-endian u64
-    const indexBuffer = Buffer.alloc(8);
-    indexBuffer.writeBigUInt64LE(transactionIndex, 0);
-    
-    const instructionData = Buffer.concat([discriminator, indexBuffer]);
-    
-      // Account order for vault_transaction_approve (per Squads v4):
-      // 0. multisig (PDA) - writable
-      // 1. transaction (PDA) - writable  
-      // 2. member (PDA) - not writable
-      // 3. member (signer) - not writable, is signer
-      try {
-        approveIx = new TransactionInstruction({
-          programId: programId, // Use network-specific program ID (must match multisig creation!)
-      keys: [
-              { pubkey: multisigAddress, isSigner: false, isWritable: true },  // multisig PDA
-              { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction PDA
-              { pubkey: memberPda, isSigner: false, isWritable: false },     // member PDA
-              { pubkey: memberPublicKey, isSigner: true, isWritable: false }, // member (signer)
-      ],
-      data: instructionData,
-    });
-        console.log('✅ Approval instruction created manually (fallback)');
-      } catch (ixError: any) {
-        console.error('❌ Failed to create approval instruction:', {
-          error: ixError?.message,
-          stack: ixError?.stack,
-          programId: programId.toString(),
+        const sqdsGenerated = generated?.instructions;
+        if (!sqdsGenerated || typeof sqdsGenerated.createProposalApproveInstruction !== 'function') {
+          throw new Error('createProposalApproveInstruction missing from SDK exports');
+        }
+
+        const [proposalPda] = getProposalPda({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId,
         });
-        throw new Error(`Failed to create approval instruction: ${ixError?.message || String(ixError)}`);
+
+        approveIx = sqdsGenerated.createProposalApproveInstruction(
+          {
+            multisig: multisigAddress,
+            proposal: proposalPda,
+            member: memberPublicKey,
+          },
+          { args: { memo: null } },
+          programId,
+        );
+        console.log('✅ Approval instruction created via generated helper');
+      } catch (fallbackError: any) {
+        console.error('❌ Failed to build approval instruction via generated helper:', {
+          error: fallbackError?.message,
+          stack: fallbackError?.stack,
+        });
+        throw new Error(`Failed to build approval instruction: ${fallbackError?.message || String(fallbackError)}`);
       }
     }
     

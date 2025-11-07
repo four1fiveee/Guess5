@@ -1488,11 +1488,15 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // Use rpc.vaultTransactionApprove to approve the transaction
-      // @ts-ignore - vaultTransactionApprove exists in runtime but not in types
-      const signature = await rpc.vaultTransactionApprove({
+      // Use rpc.proposalApprove to approve the transaction
+      const approveRpc = (rpc as any)?.proposalApprove;
+      if (typeof approveRpc !== 'function') {
+        throw new Error('rpc.proposalApprove is not available in the Squads SDK');
+      }
+
+      const signature = await approveRpc({
         connection: this.connection,
-        feePayer: signer.publicKey,
+        feePayer: signer,
         multisigPda: multisigAddress,
         transactionIndex,
         member: signer,
