@@ -827,13 +827,14 @@ export class SquadsVaultService {
           multisigAddress,
           { commitment: 'confirmed' }
         );
-        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
-        transactionIndex = BigInt(currentTransactionIndex + 1);
+        const currentTransactionIndexBN = BigInt(multisigInfo.transactionIndex);
+        transactionIndex = currentTransactionIndexBN;
+        const nextTransactionIndex = transactionIndex + BigInt(1);
         
         enhancedLogger.info('📊 Fetched multisig transaction index', {
           multisigAddress: multisigAddress.toString(),
-          currentTransactionIndex,
-          nextTransactionIndex: transactionIndex.toString(),
+          currentTransactionIndex: Number(currentTransactionIndexBN),
+          nextTransactionIndex: nextTransactionIndex.toString(),
         });
       } catch (fetchError: any) {
         // If deserialization fails (e.g., "Expected to hold a COption"), use fallback
@@ -845,9 +846,9 @@ export class SquadsVaultService {
         
         // Fallback: Use transaction index 1
         // This assumes no previous transactions (which should be fine for new vaults)
-        transactionIndex = BigInt(1);
-        
-        enhancedLogger.warn('⚠️ Using fallback transaction index 1', {
+        transactionIndex = BigInt(0);
+
+        enhancedLogger.warn('⚠️ Using fallback transaction index 0', {
           multisigAddress: multisigAddress.toString(),
           note: 'This assumes no previous transactions. If vault has existing transactions, proposal creation will fail.',
         });
@@ -1242,13 +1243,14 @@ export class SquadsVaultService {
           multisigAddress,
           { commitment: 'confirmed' }
         );
-        const currentTransactionIndex = Number(multisigInfo.transactionIndex);
-        transactionIndex = BigInt(currentTransactionIndex + 1);
+        const currentTransactionIndexBN = BigInt(multisigInfo.transactionIndex);
+        transactionIndex = currentTransactionIndexBN;
+        const nextTransactionIndex = transactionIndex + BigInt(1);
         
         enhancedLogger.info('📊 Fetched multisig transaction index for tie refund', {
           multisigAddress: multisigAddress.toString(),
-          currentTransactionIndex,
-          nextTransactionIndex: transactionIndex.toString(),
+          currentTransactionIndex: Number(currentTransactionIndexBN),
+          nextTransactionIndex: nextTransactionIndex.toString(),
         });
       } catch (fetchError: any) {
         // If deserialization fails (e.g., "Expected to hold a COption"), use fallback
@@ -1262,9 +1264,9 @@ export class SquadsVaultService {
         // This assumes no previous transactions (which should be fine for new vaults)
         // If the vault already has transactions, this will fail when creating the proposal,
         // but that's better than always failing at this step
-        transactionIndex = BigInt(1);
-        
-        enhancedLogger.warn('⚠️ Using fallback transaction index 1', {
+        transactionIndex = BigInt(0);
+
+        enhancedLogger.warn('⚠️ Using fallback transaction index 0', {
           multisigAddress: multisigAddress.toString(),
           note: 'This assumes no previous transactions. If vault has existing transactions, proposal creation will fail.',
         });
