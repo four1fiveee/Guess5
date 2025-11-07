@@ -122,7 +122,32 @@ export class ProposalExpirationService {
     const entryFee = match.entryFee;
     const refundAmount = entryFee * 0.95; // 95% refund for losing tie
 
+    // Acquire distributed lock to prevent race conditions
+    const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
+    const lockAcquired = await getProposalLock(match.id);
+    
+    if (!lockAcquired) {
+      enhancedLogger.warn('⚠️ Proposal lock not acquired (expired tie refund), another process may be creating proposal', { matchId: match.id });
+      // Reload match to check if proposal was created
+      const { AppDataSource } = require('../db');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+      if (reloadedMatch && (reloadedMatch.payoutProposalId || reloadedMatch.tieRefundProposalId)) {
+        enhancedLogger.info('✅ Proposal was created by another process (expired tie refund)', { matchId: match.id });
+        return;
+      }
+    }
+
     try {
+      // Double-check proposal still doesn't exist after acquiring lock
+      const { AppDataSource } = require('../db');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const checkMatch = await matchRepository.findOne({ where: { id: match.id } });
+      if (checkMatch && (checkMatch.payoutProposalId || checkMatch.tieRefundProposalId)) {
+        enhancedLogger.info('✅ Proposal already exists (expired tie refund), skipping creation', { matchId: match.id });
+        return;
+      }
+      
       // Lazy require to avoid circular dependency issues
       const { squadsVaultService } = require('./squadsVaultService');
       
@@ -151,6 +176,10 @@ export class ProposalExpirationService {
         matchId: match.id,
         error: errorMessage
       });
+    } finally {
+      if (lockAcquired) {
+        await releaseProposalLock(match.id);
+      }
     }
   }
 
@@ -165,7 +194,32 @@ export class ProposalExpirationService {
 
     const entryFee = match.entryFee;
 
+    // Acquire distributed lock to prevent race conditions
+    const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
+    const lockAcquired = await getProposalLock(match.id);
+    
+    if (!lockAcquired) {
+      enhancedLogger.warn('⚠️ Proposal lock not acquired (expired full refund), another process may be creating proposal', { matchId: match.id });
+      // Reload match to check if proposal was created
+      const { AppDataSource } = require('../db');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+      if (reloadedMatch && (reloadedMatch.payoutProposalId || reloadedMatch.tieRefundProposalId)) {
+        enhancedLogger.info('✅ Proposal was created by another process (expired full refund)', { matchId: match.id });
+        return;
+      }
+    }
+
     try {
+      // Double-check proposal still doesn't exist after acquiring lock
+      const { AppDataSource } = require('../db');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const checkMatch = await matchRepository.findOne({ where: { id: match.id } });
+      if (checkMatch && (checkMatch.payoutProposalId || checkMatch.tieRefundProposalId)) {
+        enhancedLogger.info('✅ Proposal already exists (expired full refund), skipping creation', { matchId: match.id });
+        return;
+      }
+      
       // Lazy require to avoid circular dependency issues
       const { squadsVaultService } = require('./squadsVaultService');
       
@@ -195,6 +249,10 @@ export class ProposalExpirationService {
         matchId: match.id,
         error: errorMessage
       });
+    } finally {
+      if (lockAcquired) {
+        await releaseProposalLock(match.id);
+      }
     }
   }
 

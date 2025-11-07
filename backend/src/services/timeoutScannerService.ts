@@ -316,7 +316,28 @@ export class TimeoutScannerService {
 
         // Create Squads proposal if there's a winner (not a tie)
         if (payoutResult.winner && payoutResult.winner !== 'tie' && updatedMatch.squadsVaultAddress) {
+          // Acquire distributed lock to prevent race conditions
+          const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
+          const lockAcquired = await getProposalLock(match.id);
+          
+          if (!lockAcquired) {
+            enhancedLogger.warn('⚠️ Proposal lock not acquired (abandoned game), another process may be creating proposal', { matchId: match.id });
+            // Reload match to check if proposal was created
+            const reloadedMatch = await matchRepository.findOne({ where: { id: match.id } });
+            if (reloadedMatch && (reloadedMatch.payoutProposalId || reloadedMatch.tieRefundProposalId)) {
+              enhancedLogger.info('✅ Proposal was created by another process (abandoned game)', { matchId: match.id });
+              return;
+            }
+          }
+          
           try {
+            // Double-check proposal still doesn't exist after acquiring lock
+            const checkMatch = await matchRepository.findOne({ where: { id: match.id } });
+            if (checkMatch && (checkMatch.payoutProposalId || checkMatch.tieRefundProposalId)) {
+              enhancedLogger.info('✅ Proposal already exists (abandoned game), skipping creation', { matchId: match.id });
+              return;
+            }
+            
             const { PublicKey } = require('@solana/web3.js');
             const winner = payoutResult.winner;
             const entryFee = updatedMatch.entryFee;
@@ -374,6 +395,10 @@ export class TimeoutScannerService {
               matchId: match.id,
               error: errorMessage,
             });
+          } finally {
+            if (lockAcquired) {
+              await releaseProposalLock(match.id);
+            }
           }
         }
 
@@ -433,22 +458,44 @@ export class TimeoutScannerService {
         timeoutReason = 'VAULT_TIMEOUT';
       }
 
-      // Process refund
-      const refundResult = await squadsVaultService.proposeTieRefund(
-        match.squadsVaultAddress!,
-        new (require('@solana/web3.js').PublicKey)(match.player1),
-        new (require('@solana/web3.js').PublicKey)(match.player2),
-        match.entryFee
-      );
+      // Acquire distributed lock to prevent race conditions
+      const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
+      const lockAcquired = await getProposalLock(match.id);
+      
+      if (!lockAcquired) {
+        enhancedLogger.warn('⚠️ Proposal lock not acquired (vault timeout), another process may be creating proposal', { matchId: match.id });
+        // Reload match to check if proposal was created
+        const reloadedMatch = await AppDataSource.getRepository(Match).findOne({ where: { id: match.id } });
+        if (reloadedMatch && (reloadedMatch.payoutProposalId || reloadedMatch.tieRefundProposalId)) {
+          enhancedLogger.info('✅ Proposal was created by another process (vault timeout)', { matchId: match.id });
+          return;
+        }
+      }
+      
+      try {
+        // Double-check proposal still doesn't exist after acquiring lock
+        const checkMatch = await AppDataSource.getRepository(Match).findOne({ where: { id: match.id } });
+        if (checkMatch && (checkMatch.payoutProposalId || checkMatch.tieRefundProposalId)) {
+          enhancedLogger.info('✅ Proposal already exists (vault timeout), skipping creation', { matchId: match.id });
+          return;
+        }
+        
+        // Process refund
+        const refundResult = await squadsVaultService.proposeTieRefund(
+          match.squadsVaultAddress!,
+          new (require('@solana/web3.js').PublicKey)(match.player1),
+          new (require('@solana/web3.js').PublicKey)(match.player2),
+          match.entryFee
+        );
 
-      if (refundResult.success) {
-        // Update match status
-        match.matchStatus = 'REFUNDED';
-        match.payoutProposalId = refundResult.proposalId;
-        match.proposalStatus = 'ACTIVE';
-        match.proposalCreatedAt = new Date();
-        match.needsSignatures = 2; // 2-of-3 multisig
-        await AppDataSource.getRepository(Match).save(match);
+        if (refundResult.success) {
+          // Update match status
+          match.matchStatus = 'REFUNDED';
+          match.payoutProposalId = refundResult.proposalId;
+          match.proposalStatus = 'ACTIVE';
+          match.proposalCreatedAt = new Date();
+          match.needsSignatures = 2; // 2-of-3 multisig
+          await AppDataSource.getRepository(Match).save(match);
 
         // Log timeout event
         await this.logAuditEvent(auditLogRepository, match.id, 'TIMEOUT_PROPOSAL_CREATED', {
@@ -467,6 +514,11 @@ export class TimeoutScannerService {
           matchId: match.id,
           error: refundResult.error,
         });
+      }
+      } finally {
+        if (lockAcquired) {
+          await releaseProposalLock(match.id);
+        }
       }
     } catch (error) {
       enhancedLogger.error('❌ Error processing timeout match', {
