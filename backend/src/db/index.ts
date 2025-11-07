@@ -79,15 +79,20 @@ export const initializeDatabase = async () => {
   
   const fixMigrationNames = async (client?: Client) => {
     try {
-      const query = 'UPDATE "migration" SET name = $1 WHERE name = $2';
-      const params = ['ProposalExpiration1710012345678', 'ProposalExpiration013'];
+      const renameQuery = 'UPDATE "migration" SET name = $1 WHERE name = $2';
+      const deleteQuery = 'DELETE FROM "migration" WHERE name = $1';
+      const oldName = 'ProposalExpiration013';
+      const newName = 'ProposalExpiration1710012345678';
       const tables = ['migration', 'migrations', 'schema_migrations', 'typeorm_migrations'];
       for (const table of tables) {
-        const q = query.replace('"migration"', `"${table}"`);
+        const renameSql = renameQuery.replace('"migration"', `"${table}"`);
+        const deleteSql = deleteQuery.replace('"migration"', `"${table}"`);
         if (client) {
-          await client.query(q, params);
+          await client.query(renameSql, [newName, oldName]);
+          await client.query(deleteSql, [oldName]);
         } else if (AppDataSource.isInitialized) {
-          await AppDataSource.query(q, params);
+          await AppDataSource.query(renameSql, [newName, oldName]);
+          await AppDataSource.query(deleteSql, [oldName]);
         }
         const checkSql = `SELECT name FROM "${table}" ORDER BY name`;
         const result = client
