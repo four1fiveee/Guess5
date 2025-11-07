@@ -76,6 +76,17 @@ export const initializeDatabase = async () => {
   const maxRetries = 3;
   let retryCount = 0;
   
+  const fixMigrationNames = async () => {
+    try {
+      await AppDataSource.query(
+        'UPDATE "migration" SET name = $1 WHERE name = $2',
+        ['ProposalExpiration1710012345678', 'ProposalExpiration013']
+      );
+    } catch (error) {
+      console.warn('⚠️ Unable to normalize legacy migration names (safe to ignore if table missing):', error);
+    }
+  };
+
   while (retryCount < maxRetries) {
     try {
       console.log(`🔌 Initializing database connection (attempt ${retryCount + 1}/${maxRetries})...`);
@@ -89,6 +100,9 @@ export const initializeDatabase = async () => {
       await AppDataSource.initialize();
       console.log('✅ Database connected successfully');
       
+      // Patch legacy migration records before running migrations
+      await fixMigrationNames();
+
       // Run migrations
       await AppDataSource.runMigrations();
       console.log('✅ Database migrations completed');
