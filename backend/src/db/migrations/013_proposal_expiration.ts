@@ -1,6 +1,7 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class ProposalExpiration013 implements MigrationInterface {
+export class ProposalExpiration0131710012345678 implements MigrationInterface {
+  public readonly name = 'ProposalExpiration0131710012345678';
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Helper function to safely add column if it doesn't exist
     const addColumnIfNotExists = async (columnName: string, columnDef: TableColumn) => {
