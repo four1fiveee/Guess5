@@ -81,10 +81,14 @@ export const initializeDatabase = async () => {
     try {
       const query = 'UPDATE "migration" SET name = $1 WHERE name = $2';
       const params = ['ProposalExpiration1710012345678', 'ProposalExpiration013'];
-      if (client) {
-        await client.query(query, params);
-      } else if (AppDataSource.isInitialized) {
-        await AppDataSource.query(query, params);
+      const tables = ['migration', 'migrations'];
+      for (const table of tables) {
+        const q = query.replace('"migration"', `"${table}"`);
+        if (client) {
+          await client.query(q, params);
+        } else if (AppDataSource.isInitialized) {
+          await AppDataSource.query(q, params);
+        }
       }
     } catch (error) {
       console.warn('⚠️ Unable to normalize legacy migration names (safe to ignore if table missing):', error);
