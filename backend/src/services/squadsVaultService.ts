@@ -1525,6 +1525,61 @@ export class SquadsVaultService {
   }
 
   /**
+   * Execute a Squads proposal after it has enough signatures
+   * This actually moves the funds from the vault to recipients
+   */
+  async executeProposal(
+    vaultAddress: string,
+    proposalId: string,
+    executor: Keypair
+  ): Promise<{ success: boolean; signature?: string; error?: string }> {
+    try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const transactionIndex = BigInt(proposalId);
+
+      enhancedLogger.info('🚀 Executing Squads proposal', {
+        vaultAddress,
+        proposalId,
+        executor: executor.publicKey.toString(),
+      });
+
+      // Use rpc.vaultTransactionExecute to execute the transaction
+      // @ts-ignore - vaultTransactionExecute exists in runtime but not in types
+      const signature = await rpc.vaultTransactionExecute({
+        connection: this.connection,
+        feePayer: executor.publicKey,
+        multisigPda: multisigAddress,
+        transactionIndex,
+        member: executor,
+        programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
+      });
+
+      enhancedLogger.info('✅ Proposal executed successfully', {
+        vaultAddress,
+        proposalId,
+        executor: executor.publicKey.toString(),
+        signature,
+      });
+
+      return { success: true, signature };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to execute proposal', {
+        vaultAddress,
+        proposalId,
+        executor: executor.publicKey.toString(),
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
    * Sign a proposal (for system signatures) - DEPRECATED, use approveProposal instead
    */
   async signProposal(

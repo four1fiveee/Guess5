@@ -3534,6 +3534,71 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
   }
 
+  // CRITICAL: Execute proposals that are READY_TO_EXECUTE but haven't been executed yet
+  // This is a fallback in case execution failed during signProposalHandler
+  if ((match as any).proposalStatus === 'READY_TO_EXECUTE' && 
+      ((match as any).payoutProposalId || (match as any).tieRefundProposalId) &&
+      (match as any).squadsVaultAddress &&
+      !(match as any).proposalExecutedAt) {
+    console.log('🚀 Found READY_TO_EXECUTE proposal - executing now (fallback)', {
+      matchId: match.id,
+      payoutProposalId: (match as any).payoutProposalId,
+      tieRefundProposalId: (match as any).tieRefundProposalId,
+    });
+    
+    try {
+      const { getSquadsVaultService } = require('../services/squadsVaultService');
+      const { getFeeWalletKeypair } = require('../utils/feeWallet');
+      const squadsVaultService = getSquadsVaultService();
+      const feeWalletKeypair = getFeeWalletKeypair();
+      
+      const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+      const proposalIdString = String(proposalId).trim();
+      
+      const executeResult = await squadsVaultService.executeProposal(
+        (match as any).squadsVaultAddress,
+        proposalIdString,
+        feeWalletKeypair
+      );
+      
+      if (executeResult.success) {
+        console.log('✅ Proposal executed successfully (fallback)', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          executionSignature: executeResult.signature,
+        });
+        
+        // Update status to EXECUTED
+        const { AppDataSource } = require('../db/index');
+        const matchRepository = AppDataSource.getRepository(Match);
+        await matchRepository.query(`
+          UPDATE "match" 
+          SET "proposalStatus" = 'EXECUTED',
+              "proposalExecutedAt" = NOW(),
+              "proposalTransactionId" = $1
+          WHERE id = $2
+        `, [executeResult.signature, match.id]);
+        
+        // Update match object for response
+        (match as any).proposalStatus = 'EXECUTED';
+        (match as any).proposalExecutedAt = new Date();
+        (match as any).proposalTransactionId = executeResult.signature;
+      } else {
+        console.error('❌ Failed to execute proposal (fallback)', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          error: executeResult.error,
+        });
+      }
+    } catch (executeError: any) {
+      console.error('❌ Error executing proposal (fallback)', {
+        matchId: match.id,
+        error: executeError?.message || String(executeError),
+      });
+      // Don't fail the request - just log the error
+    }
+  }
+
   res.json({
     status: playerSpecificStatus,
       player1: match.player1,
@@ -8904,7 +8969,8 @@ const signProposalHandler = async (req: any, res: any) => {
       const newNeedsSignatures = 0; // After first signature, proposal is ready
       
       // Mark as ready to execute since we only need 1 signature
-      const newProposalStatus = 'READY_TO_EXECUTE';
+      // Will be updated to 'EXECUTED' if execution succeeds
+      let newProposalStatus = 'READY_TO_EXECUTE';
       
       // Update database using raw SQL
       await matchRepository.query(`
@@ -8971,8 +9037,56 @@ const signProposalHandler = async (req: any, res: any) => {
             WHERE id = $1
           `, [matchId]);
         } else {
-          // Transaction still exists, not executed yet - already updated above
-          console.log('✅ Transaction proposal still exists, marked as READY_TO_EXECUTE');
+          // Transaction still exists, not executed yet - EXECUTE IT NOW
+          console.log('🚀 Proposal is ready to execute - executing now...');
+          
+          try {
+            const { getSquadsVaultService } = require('../services/squadsVaultService');
+            const { getFeeWalletKeypair } = require('../utils/feeWallet');
+            const squadsVaultService = getSquadsVaultService();
+            const feeWalletKeypair = getFeeWalletKeypair();
+            
+            const executeResult = await squadsVaultService.executeProposal(
+              matchRow.squadsVaultAddress,
+              proposalIdString,
+              feeWalletKeypair
+            );
+            
+            if (executeResult.success) {
+              console.log('✅ Proposal executed successfully', {
+                matchId,
+                proposalId: proposalIdString,
+                executionSignature: executeResult.signature,
+              });
+              
+              // Update status to EXECUTED
+              await matchRepository.query(`
+                UPDATE "match" 
+                SET "proposalStatus" = 'EXECUTED',
+                    "proposalExecutedAt" = NOW(),
+                    "proposalTransactionId" = $1
+                WHERE id = $2
+              `, [executeResult.signature, matchId]);
+              
+              newProposalStatus = 'EXECUTED';
+            } else {
+              console.error('❌ Failed to execute proposal', {
+                matchId,
+                proposalId: proposalIdString,
+                error: executeResult.error,
+              });
+              // Don't fail the request - proposal was signed successfully, execution can be retried
+              console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
+            }
+          } catch (executeError: any) {
+            console.error('❌ Error executing proposal', {
+              matchId,
+              proposalId: proposalIdString,
+              error: executeError?.message || String(executeError),
+            });
+            // Don't fail the request - proposal was signed successfully, execution can be retried
+            console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
+          }
     }
       } catch (executionCheckError: any) {
         console.error('❌ Error checking proposal execution:', executionCheckError);
