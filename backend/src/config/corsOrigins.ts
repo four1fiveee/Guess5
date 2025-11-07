@@ -1,3 +1,5 @@
+export {};
+
 const defaultOrigins = [
   'https://guess5.io',
   'https://www.guess5.io',
