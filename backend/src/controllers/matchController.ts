@@ -6839,6 +6839,7 @@ const generateReportHandler = async (req: any, res: any) => {
       if (match.proposalStatus === 'EXECUTED' && !hasValidTxId) {
         try {
           const { Connection, PublicKey } = require('@solana/web3.js');
+          const { PROGRAM_ID: DEFAULT_SQDS_PROGRAM_ID, getTransactionPda } = require('@sqds/multisig');
           const connection = new Connection(
             process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
             'confirmed'
@@ -6850,15 +6851,21 @@ const generateReportHandler = async (req: any, res: any) => {
           const multisigAddress = new PublicKey(match.squadsVaultAddress);
           const transactionIndex = BigInt(proposalId);
           
-          // Derive transaction PDA
-          const [transactionPda] = PublicKey.findProgramAddressSync(
-            [
-              Buffer.from('transaction'),
-              multisigAddress.toBuffer(),
-              Buffer.from(transactionIndex.toString()),
-            ],
-            new PublicKey('SQDS4ep65F869WDCN3hqc7UyqZUr7gDqgF2e1K6gF3T')
-          );
+          // Derive transaction PDA using Squads helper to avoid seed mistakes
+          let programIdForPda = DEFAULT_SQDS_PROGRAM_ID;
+          if (process.env.SQUADS_PROGRAM_ID) {
+            try {
+              programIdForPda = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+            } catch (pidError) {
+              console.warn('⚠️ Invalid SQUADS_PROGRAM_ID provided, falling back to default:', (pidError as Error).message);
+            }
+          }
+
+          const [transactionPda] = getTransactionPda({
+            multisigPda: multisigAddress,
+            index: transactionIndex,
+            programId: programIdForPda,
+          });
           
           // Check if transaction account exists (if not, it's been executed)
           const transactionAccount = await connection.getAccountInfo(transactionPda);
@@ -8275,7 +8282,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
     // CRITICAL: Use the same program ID that was used to create the multisig
     // Get it from the Squads service to ensure consistency
-    const { PROGRAM_ID } = require('@sqds/multisig');
+    const { PROGRAM_ID, getMemberPda, getTransactionPda } = require('@sqds/multisig');
     let programId;
     try {
       if (process.env.SQUADS_PROGRAM_ID) {
@@ -8347,29 +8354,17 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
 
     // Use SDK helpers with the correct program ID
-    // Note: getVaultTransactionPda might not be exported, so we'll derive manually
-    const { getMemberPda } = require('@sqds/multisig');
     const crypto = require('crypto');
     
-    // Derive transaction PDA manually (matches Squads SDK derivation)
-    // Transaction PDA = [multisig, transaction_index (u64), "transaction"]
     let transactionPda;
     try {
-      // Convert transaction index to 8-byte little-endian buffer
-      const indexBuffer = Buffer.alloc(8);
-      indexBuffer.writeBigUInt64LE(transactionIndex, 0);
-      
-      // Derive PDA: [multisigAddress, transactionIndex (u64), "transaction"]
-      const [pda] = PublicKey.findProgramAddressSync(
-        [
-          multisigAddress.toBuffer(),
-          indexBuffer,
-          Buffer.from('transaction'),
-        ],
-        programId
-      );
+      const [pda] = getTransactionPda({
+        multisigPda: multisigAddress,
+        index: transactionIndex,
+        programId,
+      });
       transactionPda = pda;
-      console.log('✅ Transaction PDA derived manually:', transactionPda.toString());
+      console.log('✅ Transaction PDA derived using SDK helper:', transactionPda.toString());
     } catch (pdaError: any) {
       console.error('❌ Failed to derive transaction PDA:', {
         error: pdaError?.message,
@@ -8660,7 +8655,7 @@ const signProposalHandler = async (req: any, res: any) => {
     // Check on-chain proposal state before attempting to sign
     try {
       const { PublicKey, Connection } = require('@solana/web3.js');
-      const { PROGRAM_ID } = require('@sqds/multisig');
+      const { PROGRAM_ID, getTransactionPda } = require('@sqds/multisig');
       
       const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
       const programId = process.env.SQUADS_PROGRAM_ID 
@@ -8670,14 +8665,14 @@ const signProposalHandler = async (req: any, res: any) => {
       // Try to get transaction PDA to verify it exists
       let transactionPda;
       try {
-        const indexBuffer = Buffer.alloc(8);
-        indexBuffer.writeBigUInt64LE(BigInt(proposalIdString), 0);
-        const [pda] = PublicKey.findProgramAddressSync(
-          [multisigAddress.toBuffer(), indexBuffer, Buffer.from('transaction')],
-          programId
-        );
+        const [pda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: BigInt(proposalIdString),
+          programId,
+        });
         transactionPda = pda;
-        
+        console.log('✅ Transaction proposal PDA derived:', transactionPda.toString());
+
         // Try to fetch the transaction account to verify it exists and is in a valid state
         const connection = new Connection(
           process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
@@ -8994,7 +8989,7 @@ const signProposalHandler = async (req: any, res: any) => {
         const transactionIndex = BigInt(proposalIdString);
         
         // Derive transaction PDA using the same method as getProposalApprovalTransactionHandler
-        const { PROGRAM_ID } = require('@sqds/multisig');
+        const { PROGRAM_ID, getTransactionPda } = require('@sqds/multisig');
         let programId;
         try {
           if (process.env.SQUADS_PROGRAM_ID) {
@@ -9012,16 +9007,12 @@ const signProposalHandler = async (req: any, res: any) => {
           programId = PROGRAM_ID;
         }
         
-        const indexBuffer = Buffer.alloc(8);
-        indexBuffer.writeBigUInt64LE(transactionIndex, 0);
-        const [transactionPda] = PublicKey.findProgramAddressSync(
-          [
-            multisigAddress.toBuffer(),
-            indexBuffer,
-            Buffer.from('transaction'),
-          ],
-          programId
-        );
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId,
+        });
+        console.log('✅ Transaction PDA for execution check:', transactionPda.toString());
         
         // Check if transaction exists and get execution details
         const transactionAccount = await connection.getAccountInfo(transactionPda);
