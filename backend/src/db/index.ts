@@ -87,6 +87,25 @@ export const initializeDatabase = async () => {
     }
   };
 
+  const ensureProposalExpiresAtColumn = async () => {
+    try {
+      const result = await AppDataSource.query(
+        `SELECT column_name FROM information_schema.columns
+         WHERE table_name = 'match' AND column_name = 'proposalExpiresAt'`
+      );
+
+      if (!result || result.length === 0) {
+        console.log('⚠️ proposalExpiresAt column missing, creating via fallback migration');
+        await AppDataSource.query(
+          'ALTER TABLE "match" ADD COLUMN "proposalExpiresAt" TIMESTAMP NULL'
+        );
+        console.log('✅ proposalExpiresAt column created via fallback migration');
+      }
+    } catch (error) {
+      console.error('❌ Failed to ensure proposalExpiresAt column exists:', error);
+    }
+  };
+
   while (retryCount < maxRetries) {
     try {
       console.log(`🔌 Initializing database connection (attempt ${retryCount + 1}/${maxRetries})...`);
@@ -102,6 +121,8 @@ export const initializeDatabase = async () => {
       
       // Patch legacy migration records before running migrations
       await fixMigrationNames();
+      // Ensure critical columns exist even if migration failed previously
+      await ensureProposalExpiresAtColumn();
 
       // Run migrations
       await AppDataSource.runMigrations();
