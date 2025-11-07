@@ -1547,10 +1547,10 @@ export class SquadsVaultService {
       // @ts-ignore - vaultTransactionExecute exists in runtime but not in types
       const signature = await rpc.vaultTransactionExecute({
         connection: this.connection,
-        feePayer: executor.publicKey,
+        feePayer: executor,
         multisigPda: multisigAddress,
         transactionIndex,
-        member: executor,
+        member: executor.publicKey,
         programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
       });
 
