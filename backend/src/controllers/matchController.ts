@@ -6332,13 +6332,13 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 1 Wallet',
       'Player 2 Wallet', 
       'Entry Fee (SOL)',
-      'Entry Fee (USD)',
+      // 'Entry Fee (USD)', // Removed per user request
       'Total Pot (SOL)',
       'Match Status',
       'Winner',
       'Winner Amount (SOL)',
       'Winner Amount (USD)',
-      'Platform Fee (SOL)',
+      // 'Platform Fee (SOL)', // Removed per user request
       'Fee Wallet Address',
       'Game Completed',
       
@@ -6360,18 +6360,14 @@ const generateReportHandler = async (req: any, res: any) => {
       // Timestamps
       'Match Created (EST)',
       'Game Started (EST)',
-      'Game Ended (EST)',
-      
-      // Payout Transactions
-      'Executed Transaction Hash',
-      
-      // Proposal Info
-      'Payout Proposal ID',
-      'Tie Refund Proposal ID',
-      'Proposal Status',
+      // 'Game Ended (EST)', // Removed per user request (columns Z-AD)
+      // 'Executed Transaction Hash', // Removed per user request (columns Z-AD)
+      // 'Payout Proposal ID', // Removed per user request (columns Z-AD)
+      // 'Tie Refund Proposal ID', // Removed per user request (columns Z-AD)
+      // 'Proposal Status', // Removed per user request (columns Z-AD)
       'Proposal Created At',
       'Proposal Executed At',
-      'Needs Signatures',
+      // 'Needs Signatures', // Removed per user request (column AL)
       
       // Explorer Links
       'Squads Vault Link',
@@ -6662,13 +6658,13 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(matchWithSignature.player1),
         sanitizeCsvValue(matchWithSignature.player2),
         sanitizeCsvValue(matchWithSignature.entryFee),
-        sanitizeCsvValue(matchWithSignature.entryFeeUSD || ''),
+        // Entry Fee (USD) removed per user request
         sanitizeCsvValue(totalPot),
         sanitizeCsvValue(matchWithSignature.status),
         sanitizeCsvValue(winner),
         sanitizeCsvValue(winnerAmount),
         sanitizeCsvValue(winnerAmountUSD),
-        sanitizeCsvValue(platformFee),
+        // Platform Fee (SOL) removed per user request
         sanitizeCsvValue(feeWalletAddress),
         sanitizeCsvValue(matchWithSignature.status === 'completed' ? 'Yes' : 'No'),
         
@@ -6690,18 +6686,12 @@ const generateReportHandler = async (req: any, res: any) => {
         // Timestamps
         convertToEST(matchWithSignature.createdAt),
         convertToEST(matchWithSignature.gameStartTimeUtc),
-        convertToEST(matchWithSignature.gameEndTimeUtc),
-        
-        // Payout Transactions
-        sanitizeCsvValue(matchWithSignature.proposalTransactionId && matchWithSignature.proposalTransactionId.length > 40 && !/^\d+$/.test(matchWithSignature.proposalTransactionId) ? matchWithSignature.proposalTransactionId : ''),
+        // Game Ended (EST), Executed Transaction Hash, Payout Proposal ID, Tie Refund Proposal ID, Proposal Status removed per user request (columns Z-AD)
         
         // Proposal Info
-        sanitizeCsvValue(matchWithSignature.payoutProposalId || ''),
-        sanitizeCsvValue(matchWithSignature.tieRefundProposalId || ''),
-        sanitizeCsvValue(matchWithSignature.proposalStatus || ''),
         sanitizeCsvValue(matchWithSignature.proposalCreatedAt ? convertToEST(matchWithSignature.proposalCreatedAt) : ''),
         sanitizeCsvValue(matchWithSignature.proposalExecutedAt ? convertToEST(matchWithSignature.proposalExecutedAt) : ''),
-        sanitizeCsvValue(matchWithSignature.needsSignatures || ''),
+        // Needs Signatures removed per user request (column AL)
         
         // Explorer Links
         matchWithSignature.squadsVaultAddress ? `https://explorer.solana.com/address/${matchWithSignature.squadsVaultAddress}?cluster=${network}` : '',
@@ -6721,7 +6711,7 @@ const generateReportHandler = async (req: any, res: any) => {
     const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
     
     // Set response headers for CSV download
-    const filename = `Guess5.io_historical_data_${startDate}${endDate ? '_to_' + endDate : ''}.csv`;
+    const filename = `Guess5.io_historical_data.csv`;
     
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
@@ -6819,19 +6809,17 @@ const generateReportHandler = async (req: any, res: any) => {
         const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet-beta';
         const csvHeaders = [
           // Core Match Info
-          'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Entry Fee (USD)', 'Total Pot (SOL)',
-          'Match Status', 'Winner', 'Winner Amount (SOL)', 'Platform Fee (SOL)', 'Fee Wallet Address', 'Game Completed',
+          'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Total Pot (SOL)',
+          'Match Status', 'Winner', 'Winner Amount (SOL)', 'Fee Wallet Address', 'Game Completed',
           // Vault & Deposits
           'Squads Vault Address', 'Player 1 Deposit TX', 'Player 2 Deposit TX',
           // Game Results
           'Player 1 Solved', 'Player 1 Guesses', 'Player 1 Time (sec)', 'Player 1 Result Reason',
           'Player 2 Solved', 'Player 2 Guesses', 'Player 2 Time (sec)', 'Player 2 Result Reason',
           // Timestamps
-          'Match Created (EST)', 'Game Started (EST)', 'Game Ended (EST)',
-          // Payout Transactions
-          'Executed Transaction Hash',
+          'Match Created (EST)', 'Game Started (EST)',
           // Proposal Info
-          'Proposal ID', 'Proposal Status', 'Proposal Created At', 'Needs Signatures',
+          'Proposal Created At',
           // Explorer Links
           'Squads Vault Link', 'Player 1 Deposit Link', 'Player 2 Deposit Link',
           'Executed Transaction Link'
@@ -6899,12 +6887,12 @@ const generateReportHandler = async (req: any, res: any) => {
             sanitizeCsvValue(match.player1),
             sanitizeCsvValue(match.player2),
             sanitizeCsvValue(match.entryFee),
-            sanitizeCsvValue(entryFeeUSD || ''),
+            // Entry Fee (USD) removed per user request
             sanitizeCsvValue(totalPot),
             sanitizeCsvValue(match.status),
             sanitizeCsvValue(winner),
             sanitizeCsvValue(winnerAmount),
-            sanitizeCsvValue(platformFee),
+            // Platform Fee (SOL) removed per user request
             sanitizeCsvValue(feeWalletAddress),
             sanitizeCsvValue(match.status === 'completed' ? 'Yes' : 'No'),
             // Vault & Deposits
@@ -6923,14 +6911,9 @@ const generateReportHandler = async (req: any, res: any) => {
             // Timestamps
             convertToEST(match.createdAt),
             convertToEST(match.gameStartTimeUtc),
-            convertToEST(match.gameEndTimeUtc),
-            // Payout Transactions
-            sanitizeCsvValue(match.proposalTransactionId || ''),
+            // Game Ended (EST), Executed Transaction Hash, Proposal ID, Proposal Status, Needs Signatures removed per user request
             // Proposal Info
-            sanitizeCsvValue(match.payoutProposalId || ''),
-            sanitizeCsvValue(match.proposalStatus || ''),
             sanitizeCsvValue(match.proposalCreatedAt ? convertToEST(match.proposalCreatedAt) : ''),
-            sanitizeCsvValue(match.needsSignatures || ''),
             // Explorer Links
             match.squadsVaultAddress ? `https://explorer.solana.com/address/${match.squadsVaultAddress}?cluster=${network}` : '',
             match.depositATx ? `https://explorer.solana.com/tx/${match.depositATx}?cluster=${network}` : '',
@@ -6945,7 +6928,7 @@ const generateReportHandler = async (req: any, res: any) => {
         
         const crypto = require('crypto');
         const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
-        const filename = `Guess5.io_historical_data_${req.query.startDate || '2025-08-16'}${req.query.endDate ? '_to_' + req.query.endDate : ''}.csv`;
+        const filename = `Guess5.io_historical_data.csv`;
         
         res.setHeader('Content-Type', 'text/csv');
         res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);

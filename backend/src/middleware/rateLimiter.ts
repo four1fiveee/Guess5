@@ -83,11 +83,11 @@ export const paymentLimiter = rateLimit({
   }
 });
 
-// Result submission: 2 per minute per wallet
-// Players only submit one result per match, so 2/min is very generous
+// Result submission: 10 per minute per wallet
+// Increased to handle retries and edge cases where players may need multiple attempts
 export const resultLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 2,
+  max: 10,
   message: 'Too many result submissions. Please wait.',
   keyGenerator: (req) => {
     const wallet = (req.body && req.body.wallet) ? req.body.wallet : req.ip;
