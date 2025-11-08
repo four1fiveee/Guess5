@@ -24,6 +24,7 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 
 // Redis-based memory management for 1000 concurrent users
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
+const { disburseBonusIfEligible } = require('../services/bonusService');
 
 // Helper function to check fee wallet balance
 const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
@@ -2838,7 +2839,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           winner, "isCompleted", "createdAt", "updatedAt",
           "payoutProposalId", "tieRefundProposalId", "proposalStatus",
           "proposalSigners", "needsSignatures", "proposalExecutedAt",
-          "proposalTransactionId"
+          "proposalTransactionId", "entryFeeUSD", "solPriceAtTransaction",
+          "bonusPercent", "bonusAmount", "bonusAmountUSD",
+          "bonusSignature", "bonusPaid", "bonusPaidAt", "bonusTier"
         FROM "match"
         WHERE id = $1
         LIMIT 1
@@ -3625,6 +3628,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       
       const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
       const proposalIdString = String(proposalId).trim();
+      const entryFeeSolFallback = (match as any).entryFee ? Number((match as any).entryFee) : 0;
+      const entryFeeUsdFallback = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
+      const solPriceAtTransactionFallback = (match as any).solPriceAtTransaction ? Number((match as any).solPriceAtTransaction) : undefined;
+      const bonusAlreadyPaidFallback = (match as any).bonusPaid === true;
+      const bonusSignatureExistingFallback = (match as any).bonusSignature || null;
       
       if (feeWalletKeypair) {
         const executeResult = await squadsVaultService.executeProposal(
@@ -3655,6 +3663,65 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           (match as any).proposalStatus = 'EXECUTED';
           (match as any).proposalExecutedAt = new Date();
           (match as any).proposalTransactionId = executeResult.signature;
+
+          if ((match as any).winner && (match as any).winner !== 'tie') {
+            try {
+              const bonusResult = await disburseBonusIfEligible({
+                matchId: match.id,
+                winner: (match as any).winner,
+                entryFeeSol: entryFeeSolFallback,
+                entryFeeUsd: entryFeeUsdFallback,
+                solPriceAtTransaction: solPriceAtTransactionFallback,
+                alreadyPaid: bonusAlreadyPaidFallback,
+                existingSignature: bonusSignatureExistingFallback
+              });
+
+              if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+                await matchRepository.query(`
+                  UPDATE "match"
+                  SET "bonusPaid" = true,
+                      "bonusSignature" = $1,
+                      "bonusAmount" = $2,
+                      "bonusAmountUSD" = $3,
+                      "bonusPercent" = $4,
+                      "bonusTier" = $5,
+                      "bonusPaidAt" = NOW(),
+                      "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
+                  WHERE id = $7
+                `, [
+                  bonusResult.signature,
+                  bonusResult.bonusSol ?? null,
+                  bonusResult.bonusUsd ?? null,
+                  bonusResult.bonusPercent ?? null,
+                  bonusResult.tierId ?? null,
+                  bonusResult.solPriceUsed ?? null,
+                  match.id,
+                ]);
+
+                (match as any).bonusPaid = true;
+                (match as any).bonusSignature = bonusResult.signature;
+                (match as any).bonusAmount = bonusResult.bonusSol ?? null;
+                (match as any).bonusAmountUSD = bonusResult.bonusUsd ?? null;
+                (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
+                (match as any).bonusTier = bonusResult.tierId ?? null;
+                if (bonusResult.solPriceUsed && !(match as any).solPriceAtTransaction) {
+                  (match as any).solPriceAtTransaction = bonusResult.solPriceUsed;
+                }
+                (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
+                (match as any).bonusTier = bonusResult.tierId ?? null;
+              } else if (bonusResult.triggered && !bonusResult.success) {
+                console.warn('⚠️ Bonus payout attempted in fallback but not successful', {
+                  matchId: match.id,
+                  reason: bonusResult.reason,
+                });
+              }
+            } catch (bonusError: any) {
+              console.error('❌ Error processing bonus payout (fallback)', {
+                matchId: match.id,
+                error: bonusError?.message || String(bonusError),
+              });
+            }
+          }
         } else {
           console.error('❌ Failed to execute proposal (fallback)', {
             matchId: match.id,
@@ -3698,7 +3765,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       needsSignatures: (match as any).needsSignatures || 0,
       proposalSigners: (match as any).proposalSigners || [],
       proposalExecutedAt: (match as any).proposalExecutedAt || null,
-      proposalTransactionId: (match as any).proposalTransactionId || null
+      proposalTransactionId: (match as any).proposalTransactionId || null,
+      entryFeeUSD: (match as any).entryFeeUSD || null,
+      solPriceAtTransaction: (match as any).solPriceAtTransaction || null,
+      bonus: {
+        paid: !!((match as any).bonusPaid),
+        signature: (match as any).bonusSignature || null,
+        amountSol: (match as any).bonusAmount || null,
+        amountUSD: (match as any).bonusAmountUSD || null,
+        percent: (match as any).bonusPercent || 0,
+        tier: (match as any).bonusTier || null,
+        paidAt: (match as any).bonusPaidAt || null
+      }
     });
 
   } catch (error: unknown) {
@@ -8284,6 +8362,11 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     }
     
     const matchRow = matchRows[0];
+    const entryFeeSol = matchRow.entryFee ? Number(matchRow.entryFee) : 0;
+    const entryFeeUsd = matchRow.entryFeeUSD ? Number(matchRow.entryFeeUSD) : undefined;
+    const solPriceAtTransaction = matchRow.solPriceAtTransaction ? Number(matchRow.solPriceAtTransaction) : undefined;
+    const bonusAlreadyPaid = matchRow.bonusPaid === true || matchRow.bonusPaid === 'true';
+    const bonusSignatureExisting = matchRow.bonusSignature || null;
 
     // Verify player is part of this match
     const isPlayer1 = wallet === matchRow.player1;
@@ -8564,7 +8647,10 @@ const signProposalHandler = async (req: any, res: any) => {
         "squadsVaultAddress", "payoutProposalId", "tieRefundProposalId",
         "proposalSigners", "proposalStatus", "needsSignatures",
         "proposalExecutedAt", "gameEndTime", "gameEndTimeUtc",
-        "player1Result", "player2Result", "matchStatus"
+        "player1Result", "player2Result", "matchStatus",
+        winner, "entryFeeUSD", "solPriceAtTransaction",
+        "bonusPaid", "bonusSignature", "bonusAmount", "bonusAmountUSD",
+        "bonusPercent", "bonusTier"
       FROM "match"
       WHERE id = $1
       LIMIT 1
@@ -9032,6 +9118,63 @@ const signProposalHandler = async (req: any, res: any) => {
             `, [executeResult.signature, matchId]);
             
             newProposalStatus = 'EXECUTED';
+
+            if (matchRow.winner && matchRow.winner !== 'tie') {
+              try {
+                const bonusResult = await disburseBonusIfEligible({
+                  matchId,
+                  winner: matchRow.winner,
+                  entryFeeSol,
+                  entryFeeUsd,
+                  solPriceAtTransaction,
+                  alreadyPaid: bonusAlreadyPaid,
+                  existingSignature: bonusSignatureExisting
+                });
+
+                if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "bonusPaid" = true,
+                        "bonusSignature" = $1,
+                        "bonusAmount" = $2,
+                        "bonusAmountUSD" = $3,
+                        "bonusPercent" = $4,
+                        "bonusTier" = $5,
+                        "bonusPaidAt" = NOW(),
+                        "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
+                    WHERE id = $7
+                  `, [
+                    bonusResult.signature,
+                    bonusResult.bonusSol ?? null,
+                    bonusResult.bonusUsd ?? null,
+                    bonusResult.bonusPercent ?? null,
+                    bonusResult.tierId ?? null,
+                    bonusResult.solPriceUsed ?? null,
+                    matchId,
+                  ]);
+
+                  matchRow.bonusPaid = true;
+                  matchRow.bonusSignature = bonusResult.signature;
+                  matchRow.bonusAmount = bonusResult.bonusSol ?? null;
+                  matchRow.bonusAmountUSD = bonusResult.bonusUsd ?? null;
+                  matchRow.bonusPercent = bonusResult.bonusPercent ?? null;
+                  matchRow.bonusTier = bonusResult.tierId ?? null;
+                  if (bonusResult.solPriceUsed && !matchRow.solPriceAtTransaction) {
+                    matchRow.solPriceAtTransaction = bonusResult.solPriceUsed;
+                  }
+                } else if (bonusResult.triggered && !bonusResult.success) {
+                  console.warn('⚠️ Bonus payout attempted but not successful', {
+                    matchId,
+                    reason: bonusResult.reason,
+                  });
+                }
+              } catch (bonusError: any) {
+                console.error('❌ Error processing bonus payout', {
+                  matchId,
+                  error: bonusError?.message || String(bonusError),
+                });
+              }
+            }
           } else {
             console.error('❌ Failed to execute proposal', {
               matchId,
