@@ -54,6 +54,25 @@ const normalizeProposalSigners = (value: any): string[] => {
   return Array.from(new Set(normalized)); // Deduplicate while preserving order
 };
 
+const BONUS_USD_BY_TIER: Record<string, number> = {
+  starter: 0,
+  competitive: 3,
+  highRoller: 12,
+  vip: 30
+};
+
+const BONUS_LABEL_BY_TIER: Record<string, string> = {
+  starter: 'Starter',
+  competitive: 'Competitive',
+  highRoller: 'High Roller',
+  vip: 'VIP Elite'
+};
+
+const getBonusTierLabel = (tier?: string | null) => {
+  if (!tier) return 'Premium';
+  return BONUS_LABEL_BY_TIER[tier] || 'Premium';
+};
+
 const Result: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction } = useWallet();
@@ -88,6 +107,23 @@ const Result: React.FC = () => {
             const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
             
             // Create payout data from match data
+            const bonusInfo = matchData.bonus || {};
+            const solPriceForMatch =
+              matchData.solPriceAtTransaction
+                ? Number(matchData.solPriceAtTransaction)
+                : matchData.entryFeeUSD && matchData.entryFee
+                ? Number(matchData.entryFeeUSD) / Number(matchData.entryFee)
+                : undefined;
+            const bonusAmountSol = bonusInfo.amountSol ? Number(bonusInfo.amountSol) : 0;
+            const bonusAmountUsd = bonusInfo.amountUSD ? Number(bonusInfo.amountUSD) : 0;
+            const expectedBonusUsd =
+              bonusInfo.tier && BONUS_USD_BY_TIER[bonusInfo.tier]
+                ? BONUS_USD_BY_TIER[bonusInfo.tier]
+                : bonusAmountUsd;
+            const expectedBonusSol =
+              expectedBonusUsd && solPriceForMatch
+                ? expectedBonusUsd / solPriceForMatch
+                : bonusAmountSol;
             const payoutData = {
               won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
               isTie: matchData.winner === 'tie',
@@ -111,7 +147,23 @@ const Result: React.FC = () => {
               proposalExecutedAt: matchData.proposalExecutedAt,
               proposalTransactionId: matchData.proposalTransactionId,
               automatedPayout: matchData.payout?.paymentSuccess || false,
-              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null
+              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null,
+              bonus: {
+                eligible: expectedBonusUsd > 0,
+                paid: !!bonusInfo.paid,
+                amountSol: bonusAmountSol,
+                amountUSD: bonusAmountUsd,
+                percent: bonusInfo.percent ? Number(bonusInfo.percent) : 0,
+                tier: bonusInfo.tier || null,
+                signature: bonusInfo.signature || null,
+                paidAt: bonusInfo.paidAt ? new Date(bonusInfo.paidAt) : null,
+                expectedUSD: expectedBonusUsd || 0,
+                expectedSol: expectedBonusSol || 0
+              },
+              totalPayoutSol:
+                matchData.winner === publicKey?.toString() && matchData.winner !== 'tie'
+                  ? (matchData.payout?.winnerAmount || 0) + bonusAmountSol
+                  : matchData.payout?.winnerAmount || 0
             };
             
             setPayoutData(payoutData);
@@ -156,6 +208,21 @@ const Result: React.FC = () => {
         if (data.isTie && data.isWinningTie === undefined) {
           // If it's a tie but isWinningTie is missing, assume losing tie (more common)
           data.isWinningTie = false;
+        }
+        
+        if (!data.bonus) {
+          data.bonus = {
+            eligible: false,
+            paid: false,
+            amountSol: 0,
+            amountUSD: 0,
+            percent: 0,
+            tier: null,
+            signature: null,
+            paidAt: null,
+            expectedUSD: 0,
+            expectedSol: 0
+          };
         }
         
         setPayoutData(data);
@@ -222,7 +289,8 @@ const Result: React.FC = () => {
         isTie: payoutData.isTie,
         isWinningTie: payoutData.isWinningTie,
         refundAmount: payoutData.refundAmount,
-        proposalId: payoutData.proposalId
+        proposalId: payoutData.proposalId,
+        bonus: payoutData.bonus
       });
     }
   }, [payoutData]);
@@ -540,6 +608,57 @@ const Result: React.FC = () => {
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {payoutData.winnerAmount?.toFixed(4)} SOL
                           </div>
+                          {payoutData.bonus?.eligible ? (
+                            <div
+                              className={`mb-3 rounded-2xl px-4 py-3 border ${
+                                payoutData.bonus.paid
+                                  ? 'bg-green-500/15 border-green-400/40'
+                                  : 'bg-yellow-500/10 border-yellow-400/40'
+                              }`}
+                            >
+                              <div className="flex flex-col items-center gap-1 text-sm">
+                                <div className="flex items-center gap-2 font-semibold">
+                                  <span className="text-xl">🎁</span>
+                                  <span className="text-white/90 uppercase tracking-wide">
+                                    House Bonus
+                                  </span>
+                                </div>
+                                {payoutData.bonus.paid ? (
+                                  <>
+                                    <div className="text-green-300 font-bold text-lg">
+                                      +{payoutData.bonus.amountSol?.toFixed(4)} SOL
+                                      {payoutData.bonus.amountUSD
+                                        ? ` ($${payoutData.bonus.amountUSD.toFixed(2)})`
+                                        : ''}
+                                    </div>
+                                    {payoutData.totalPayoutSol && (
+                                      <div className="text-white/70 text-xs">
+                                        Total received: {payoutData.totalPayoutSol.toFixed(4)} SOL
+                                      </div>
+                                    )}
+                                    {payoutData.bonus.signature && (
+                                      <a
+                                        href={`https://explorer.solana.com/tx/${payoutData.bonus.signature}?cluster=devnet`}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="text-accent text-xs underline hover:text-yellow-300"
+                                      >
+                                        View bonus transaction ↗
+                                      </a>
+                                    )}
+                                  </>
+                                ) : (
+                                  <div className="text-yellow-300 text-sm text-center">
+                                    Bonus triggered! +{payoutData.bonus.expectedSol?.toFixed(4)} SOL arriving when the proposal executes.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : (
+                            <div className="text-white/40 text-xs mb-3">
+                              Play higher tiers to unlock our house bonus boosts.
+                            </div>
+                          )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
                             <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                               ✅ Payment Sent to Your Wallet!
@@ -630,6 +749,12 @@ const Result: React.FC = () => {
                           </>
                         )}
                           
+                          {payoutData.bonus?.eligible && (
+                            <div className="text-white/50 text-xs mb-3">
+                              House bonus sparks only on wins—secure the next {getBonusTierLabel(payoutData.bonus.tier)} victory to unlock +${payoutData.bonus.expectedUSD?.toFixed(2)}.
+                            </div>
+                          )}
+                          
                           {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
                             <div className="mt-4">
                               <p className={`text-sm mb-2 ${
@@ -672,6 +797,11 @@ const Result: React.FC = () => {
                             😔 YOU LOST
                           </div>
                           <p className="text-lg text-white/90 mb-2 font-semibold">Better luck next time!</p>
+                          {payoutData.bonus?.eligible && (
+                            <div className="text-white/50 text-xs mb-3">
+                              Win your next {getBonusTierLabel(payoutData.bonus.tier)} match to grab an extra +${payoutData.bonus.expectedUSD?.toFixed(2)} house bonus.
+                            </div>
+                          )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
                             <div className="text-green-400 text-lg font-semibold mb-3">
                               ✅ Winner has been paid. You can play again!
