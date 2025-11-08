@@ -24,6 +24,8 @@ type StakeTier = {
   isPopular?: boolean;
   isHighValue?: boolean;
   isPremium?: boolean;
+  bonusUsd: number;
+  bonusCopy: string;
 };
 
 const STAKE_TIERS: StakeTier[] = [
@@ -35,7 +37,9 @@ const STAKE_TIERS: StakeTier[] = [
     badgeTheme: 'green',
     headline: 'Perfect for warm-ups and new players.',
     incentive: 'Keep your streak alive with low risk.',
-    cta: 'Play Starter'
+    cta: 'Play Starter',
+    bonusUsd: 0,
+    bonusCopy: 'Standard payout (no bonus)'
   },
   {
     id: 'competitive',
@@ -44,9 +48,11 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '⭐ Most Popular',
     badgeTheme: 'accent',
     headline: 'Balanced stake with strong returns.',
-    incentive: 'Community favourite for fast matchmaking.',
+    incentive: 'Community favourite with a $3 house bonus on every win.',
     cta: 'Join Competitive',
-    isPopular: true
+    isPopular: true,
+    bonusUsd: 3,
+    bonusCopy: 'House bonus ignites the pot for added excitement.'
   },
   {
     id: 'highRoller',
@@ -55,9 +61,11 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '🎯 High Value',
     badgeTheme: 'blue',
     headline: 'Amplify your potential with bigger pots.',
-    incentive: 'Earn leaderboard spotlight with win streaks.',
+    incentive: 'Earn leaderboard spotlight with a $12 bonus payout.',
     cta: 'Go High Roller',
-    isHighValue: true
+    isHighValue: true,
+    bonusUsd: 12,
+    bonusCopy: 'Casino-style boost keeps the adrenaline pumping.'
   },
   {
     id: 'vip',
@@ -66,9 +74,11 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '💎 VIP Elite',
     badgeTheme: 'purple',
     headline: 'Command the biggest pots and bragging rights.',
-    incentive: 'VIP Spotlight: priority matchmaking and daily recap feature.',
+    incentive: 'VIP Spotlight plus a $30 bonus straight to your wallet.',
     cta: 'Claim VIP Seat',
-    isPremium: true
+    isPremium: true,
+    bonusUsd: 30,
+    bonusCopy: 'Exclusive VIP bonus wired straight from the house.'
   }
 ];
 
@@ -128,14 +138,25 @@ export default function Lobby() {
   const tierData = useMemo(() => {
     return STAKE_TIERS.map((tier) => {
       const solAmount = solPrice ? +(tier.usd / solPrice).toFixed(4) : null
-      const potentialValue = tier.usd * 2 * POT_RETURN_PERCENT
-      const roiValue = ((potentialValue - tier.usd) / tier.usd) * 100
+      const baseWinningsUsd = tier.usd * 2 * POT_RETURN_PERCENT
+      const bonusUsd = tier.bonusUsd
+      const totalWinUsd = baseWinningsUsd + bonusUsd
+      const bonusSol =
+        solPrice && bonusUsd > 0 ? +(bonusUsd / solPrice).toFixed(4) : null
+      const totalWinSol =
+        solPrice && totalWinUsd > 0 ? +(totalWinUsd / solPrice).toFixed(4) : null
+      const roiValue = ((totalWinUsd - tier.usd) / tier.usd) * 100
 
       return {
         ...tier,
         solAmount,
-        potentialWinnings: potentialValue.toFixed(2),
-        roi: Math.round(roiValue)
+        baseWinningsUsd,
+        totalWinUsd,
+        bonusUsd,
+        bonusSol,
+        totalWinSol,
+        roi: Math.round(roiValue),
+        solPriceUsed: solPrice || null
       }
     })
   }, [solPrice])
@@ -460,13 +481,13 @@ export default function Lobby() {
                     {canCoverHighestTier && highestTierData ? (
                       <>
                         You have enough for <span className="text-accent font-semibold">{highestTierData.title}</span>. Jump in now and play for
-                        <span className="text-green-300 font-semibold"> ${highestTierData.potentialWinnings}</span>.
+                        <span className="text-green-300 font-semibold"> ${highestTierData.totalWinUsd.toFixed(2)}</span>.
                       </>
                     ) : nextTierToUnlock && amountToUnlock !== null ? (
                       <>
                         Add <span className="text-accent font-semibold">${amountToUnlock.toFixed(2)}</span> more to unlock the{' '}
                         <span className="text-white font-semibold">{nextTierToUnlock.title}</span> stake and compete for{' '}
-                        <span className="text-green-300 font-semibold">${nextTierToUnlock.potentialWinnings}</span>.
+                        <span className="text-green-300 font-semibold">${nextTierToUnlock.totalWinUsd.toFixed(2)}</span>.
                       </>
                     ) : (
                       <>Top up your wallet to unlock bigger pots and VIP visibility.</>
@@ -619,11 +640,16 @@ export default function Lobby() {
                     id,
                     usd: usdAmount,
                     solAmount,
-                    potentialWinnings,
+                    baseWinningsUsd,
+                    totalWinUsd,
+                    totalWinSol,
+                    bonusUsd,
+                    bonusSol,
                     roi,
                     title,
                     headline,
                     incentive,
+                    bonusCopy,
                     badgeText,
                     badgeTheme,
                     cta,
@@ -738,22 +764,33 @@ export default function Lobby() {
                             }`}
                           ></div>
 
-                          <div className="mb-2">
-                            <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
-                              Win Up To
+                          <div className="mb-4">
+                            <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold flex items-center justify-center gap-2">
+                              <span className="text-base">🎰</span>
+                              <span>Total Payout</span>
                             </div>
                             <div
-                              className={`text-2xl sm:text-3xl font-black mb-2 ${
+                              className={`text-2xl sm:text-3xl font-black mb-1 ${
                                 isDisabled ? 'text-gray-500' : 'text-green-400'
                               }`}
                             >
-                              ${potentialWinnings}
+                              ${totalWinUsd.toFixed(2)}
                             </div>
+                            {bonusUsd > 0 && (
+                              <div className="text-accent text-xs font-semibold mb-2">
+                                Bonus Boost: +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
+                              </div>
+                            )}
                             <div className="text-white/50 text-xs">
-                              95% of ${(usdAmount * 2).toFixed(2)} pot
+                              Core pot: ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} pot)
                             </div>
+                            {totalWinSol && (
+                              <div className="text-white/40 text-[11px] mt-1">
+                                ≈ {totalWinSol} SOL total payout
+                              </div>
+                            )}
                           </div>
-
+                          
                           <div className="text-white/60 text-xs font-semibold mb-3">
                             ROI on win: +{roi}%
                           </div>
@@ -762,6 +799,9 @@ export default function Lobby() {
                           </div>
                           <div className="text-accent text-xs font-semibold bg-accent/10 border border-accent/30 px-3 py-2 rounded-lg mb-4">
                             {incentive}
+                          </div>
+                          <div className="text-white/50 text-xs italic mb-4">
+                            {bonusCopy}
                           </div>
 
                           <div className="mt-5 sm:mt-6 w-full">
