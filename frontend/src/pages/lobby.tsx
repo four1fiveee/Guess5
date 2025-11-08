@@ -3,12 +3,69 @@ import { WalletConnectButton, TopRightWallet } from '../components/WalletConnect
 import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch, getMatchStatus } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
 
-const ENTRY_FEES_USD = [5, 20, 50, 100];
+const POT_RETURN_PERCENT = 0.95;
+
+const STAKE_TIERS = [
+  {
+    id: 'starter',
+    usd: 5,
+    title: 'Starter',
+    badgeText: '🎮 Entry Tier',
+    badgeTheme: 'green',
+    headline: 'Perfect for warm-ups and new players.',
+    incentive: 'Keep your streak alive with low risk.',
+    cta: 'Play Starter'
+  },
+  {
+    id: 'competitive',
+    usd: 20,
+    title: 'Competitive',
+    badgeText: '⭐ Most Popular',
+    badgeTheme: 'accent',
+    headline: 'Balanced stake with strong returns.',
+    incentive: 'Community favourite for fast matchmaking.',
+    cta: 'Join Competitive',
+    isPopular: true
+  },
+  {
+    id: 'highRoller',
+    usd: 50,
+    title: 'High Roller',
+    badgeText: '🎯 High Value',
+    badgeTheme: 'blue',
+    headline: 'Amplify your potential with bigger pots.',
+    incentive: 'Earn leaderboard spotlight with win streaks.',
+    cta: 'Go High Roller',
+    isHighValue: true
+  },
+  {
+    id: 'vip',
+    usd: 100,
+    title: 'VIP Elite',
+    badgeText: '💎 VIP Elite',
+    badgeTheme: 'purple',
+    headline: 'Command the biggest pots and bragging rights.',
+    incentive: 'VIP Spotlight: priority matchmaking and daily recap feature.',
+    cta: 'Claim VIP Seat',
+    isPremium: true
+  }
+] as const;
+
+const BADGE_THEME_CLASSES: Record<string, string> = {
+  accent:
+    'bg-gradient-to-r from-accent to-yellow-400 text-black border-2 border-black/20',
+  purple:
+    'bg-gradient-to-r from-purple-500 to-pink-500 text-white border-2 border-purple-300/50',
+  blue:
+    'bg-gradient-to-r from-blue-500 to-cyan-500 text-white border-2 border-blue-300/50',
+  green:
+    'bg-gradient-to-r from-green-500 to-emerald-500 text-white border-2 border-green-300/50'
+};
 
 // Fetch live SOL/USD price from backend (avoids CORS issues)
 const fetchSolPrice = async () => {
@@ -49,9 +106,44 @@ export default function Lobby() {
   const [checkingBalance, setCheckingBalance] = useState(false)
   const [isMatchmaking, setIsMatchmaking] = useState(false)
   const [solPrice, setSolPrice] = useState<number | null>(null)
-  const [solAmounts, setSolAmounts] = useState<number[]>([])
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [signingRefund, setSigningRefund] = useState<string | null>(null)
+
+  const tierData = useMemo(() => {
+    return STAKE_TIERS.map((tier) => {
+      const solAmount = solPrice ? +(tier.usd / solPrice).toFixed(4) : null
+      const potentialValue = tier.usd * 2 * POT_RETURN_PERCENT
+      const roiValue = ((potentialValue - tier.usd) / tier.usd) * 100
+
+      return {
+        ...tier,
+        solAmount,
+        potentialWinnings: potentialValue.toFixed(2),
+        roi: Math.round(roiValue)
+      }
+    })
+  }, [solPrice])
+
+  const walletBalanceUSD =
+    walletBalance !== null && solPrice ? walletBalance * solPrice : null
+
+  const highestTierData = tierData[tierData.length - 1]
+  const canCoverHighestTier =
+    !!(
+      highestTierData?.solAmount &&
+      walletBalance !== null &&
+      walletBalance >= highestTierData.solAmount
+    )
+  const nextTierToUnlock =
+    walletBalance !== null
+      ? tierData.find(
+          (tier) => tier.solAmount && walletBalance < tier.solAmount
+        )
+      : null
+  const amountToUnlock =
+    nextTierToUnlock && walletBalanceUSD !== null
+      ? Math.max(0, nextTierToUnlock.usd - walletBalanceUSD)
+      : null
 
   useEffect(() => {
     const getPrice = async () => {
@@ -60,11 +152,7 @@ export default function Lobby() {
         console.log('💰 Setting SOL price:', price);
         setSolPrice(price);
         
-        if (price && price > 0) {
-          const calculatedAmounts = ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4));
-          console.log('💵 Calculated SOL amounts:', calculatedAmounts, 'for USD amounts:', ENTRY_FEES_USD);
-          setSolAmounts(calculatedAmounts);
-        } else {
+        if (!(price && price > 0)) {
           console.warn('⚠️ Invalid SOL price received:', price);
         }
       } catch (error) {
@@ -267,11 +355,6 @@ export default function Lobby() {
     }
   }
 
-  // Calculate potential winnings for each tier
-  const calculatePotentialWinnings = (usdAmount: number) => {
-    return (usdAmount * 2 * 0.95).toFixed(2); // 95% of total pot
-  };
-
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 py-8 relative">
       <TopRightWallet />
@@ -329,10 +412,6 @@ export default function Lobby() {
                           console.log('🔄 Manual SOL price refresh requested');
                           const price = await fetchSolPrice();
                           setSolPrice(price);
-                          if (price && price > 0) {
-                            const calculatedAmounts = ENTRY_FEES_USD.map(usd => +(usd / price).toFixed(4));
-                            setSolAmounts(calculatedAmounts);
-                          }
                         }}
                         className="text-blue-400 hover:text-blue-300 text-sm transition-colors ml-1"
                         title="Refresh SOL price"
@@ -344,9 +423,12 @@ export default function Lobby() {
                   
                   {/* Wallet Balance Display */}
                   {walletBalance !== null && (
-                    <div className="flex items-center gap-2.5 bg-gradient-to-r from-green-500/10 to-green-600/10 rounded-xl px-5 py-3 border border-green-400/20 backdrop-blur-sm">
+                    <div className="flex items-center gap-3 bg-gradient-to-r from-green-500/10 to-green-600/10 rounded-xl px-5 py-3 border border-green-400/20 backdrop-blur-sm">
                       <span className="text-white/80 text-sm font-medium">Your Balance:</span>
                       <span className="text-green-300 font-bold text-lg">{walletBalance.toFixed(4)} SOL</span>
+                      {walletBalanceUSD !== null && (
+                        <span className="text-green-200 text-sm font-semibold">(${walletBalanceUSD.toFixed(2)} USD)</span>
+                      )}
                     </div>
                   )}
                   
@@ -356,6 +438,25 @@ export default function Lobby() {
                     </div>
                   )}
                 </div>
+
+                {walletBalanceUSD !== null && (
+                  <div className="text-white/70 text-sm text-center max-w-3xl mx-auto mb-6">
+                    {canCoverHighestTier && highestTierData ? (
+                      <>
+                        You have enough for <span className="text-accent font-semibold">{highestTierData.title}</span>. Jump in now and play for
+                        <span className="text-green-300 font-semibold"> ${highestTierData.potentialWinnings}</span>.
+                      </>
+                    ) : nextTierToUnlock && amountToUnlock !== null ? (
+                      <>
+                        Add <span className="text-accent font-semibold">${amountToUnlock.toFixed(2)}</span> more to unlock the{' '}
+                        <span className="text-white font-semibold">{nextTierToUnlock.title}</span> stake and compete for{' '}
+                        <span className="text-green-300 font-semibold">${nextTierToUnlock.potentialWinnings}</span>.
+                      </>
+                    ) : (
+                      <>Top up your wallet to unlock bigger pots and VIP visibility.</>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Pending Claims Warning */}
@@ -497,24 +598,63 @@ export default function Lobby() {
 
               {/* Entry Fee Selection Cards - Premium Grid Layout for 4 Tiers */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 max-w-7xl mx-auto">
-                {ENTRY_FEES_USD.map((usdAmount, index) => {
-                  const solAmount = solAmounts[index];
-                  const hasEnoughBalance = walletBalance !== null && solAmount && walletBalance >= solAmount;
-                  const hasUnsignedRefunds = pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0;
-                  const isDisabled = !hasEnoughBalance || isMatchmaking || hasBlockingClaims || hasUnsignedRefunds;
-                  const potentialWinnings = calculatePotentialWinnings(usdAmount);
-                  const isPopular = usdAmount === 20; // Mark $20 as popular
-                  const isPremium = usdAmount === 100; // Mark $100 as premium
-                  const isHighValue = usdAmount === 50; // Mark $50 as high value
-                  
+                {tierData.map((tier) => {
+                  const {
+                    id,
+                    usd: usdAmount,
+                    solAmount,
+                    potentialWinnings,
+                    roi,
+                    title,
+                    headline,
+                    incentive,
+                    badgeText,
+                    badgeTheme,
+                    cta,
+                    isPopular,
+                    isHighValue,
+                    isPremium,
+                    isEntry
+                  } = tier
+
+                  const isPriceReady = typeof solAmount === 'number' && solAmount > 0
+                  const hasEnoughBalance =
+                    walletBalance !== null &&
+                    isPriceReady &&
+                    solAmount !== null &&
+                    walletBalance >= solAmount
+                  const hasUnsignedRefunds =
+                    pendingClaims?.hasPendingRefunds &&
+                    !pendingClaims.refundCanBeExecuted &&
+                    pendingClaims.pendingRefunds.length > 0
+                  const isDisabled =
+                    !isPriceReady ||
+                    !hasEnoughBalance ||
+                    isMatchmaking ||
+                    hasBlockingClaims ||
+                    hasUnsignedRefunds
+
+                  const badgeClassName =
+                    badgeText && BADGE_THEME_CLASSES[badgeTheme || '']
+                      ? BADGE_THEME_CLASSES[badgeTheme || '']
+                      : 'bg-white/20 text-white border border-white/20'
+
+                  const handleTierSelect = () => {
+                    if (!isPriceReady || solAmount == null) {
+                      alert('Fetching live SOL price. Please try again in a moment.');
+                      return;
+                    }
+                    handleSelect(usdAmount, solAmount);
+                  };
+
                   return (
                     <button
-                      key={usdAmount}
-                      onClick={() => handleSelect(usdAmount, solAmount)}
+                      key={id}
+                      onClick={handleTierSelect}
                       disabled={isDisabled}
                       className={`relative group w-full ${
-                        isPopular 
-                          ? 'lg:scale-105 lg:z-10' 
+                        isPopular
+                          ? 'lg:scale-105 lg:z-10'
                           : isPremium
                           ? 'lg:scale-105'
                           : ''
@@ -522,81 +662,93 @@ export default function Lobby() {
                         isMatchmaking ? 'opacity-60' : ''
                       }`}
                     >
-                      <div className={`relative h-full bg-gradient-to-br ${
-                        isDisabled
-                          ? 'from-gray-800/40 to-gray-900/40 cursor-not-allowed border-gray-700/30'
-                          : isPopular
-                          ? 'from-accent/25 via-yellow-500/20 to-accent/25 border-2 border-accent/60 shadow-2xl shadow-accent/20'
-                          : isPremium
-                          ? 'from-purple-600/20 via-purple-500/15 to-purple-600/20 border-2 border-purple-400/40 shadow-xl'
-                          : isHighValue
-                          ? 'from-blue-600/20 via-blue-500/15 to-blue-600/20 border-2 border-blue-400/40 shadow-xl'
-                          : 'from-white/8 via-white/5 to-white/8 border border-white/20 shadow-lg'
-                      } rounded-3xl p-6 sm:p-8 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl ${
-                        !isDisabled && !isMatchmaking ? 'hover:scale-105 hover:border-accent/80' : ''
-                      }`}>
-                        {/* Popular Badge */}
-                        {isPopular && !isDisabled && (
-                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-accent to-yellow-400 text-black text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-black/20 uppercase tracking-wide z-20">
-                            ⭐ Most Popular
+                      <div
+                        className={`relative h-full bg-gradient-to-br ${
+                          isDisabled
+                            ? 'from-gray-800/40 to-gray-900/40 cursor-not-allowed border-gray-700/30'
+                            : isPopular
+                            ? 'from-accent/25 via-yellow-500/20 to-accent/25 border-2 border-accent/60 shadow-2xl shadow-accent/20'
+                            : isPremium
+                            ? 'from-purple-600/20 via-purple-500/15 to-purple-600/20 border-2 border-purple-400/40 shadow-xl'
+                            : isHighValue
+                            ? 'from-blue-600/20 via-blue-500/15 to-blue-600/20 border-2 border-blue-400/40 shadow-xl'
+                            : 'from-white/8 via-white/5 to-white/8 border border-white/20 shadow-lg'
+                        } rounded-3xl p-6 sm:p-8 backdrop-blur-sm transition-all duration-300 hover:shadow-2xl ${
+                          !isDisabled && !isMatchmaking ? 'hover:scale-105 hover:border-accent/80' : ''
+                        }`}
+                      >
+                        {badgeText && !isDisabled && (
+                          <div
+                            className={`absolute -top-3 left-1/2 transform -translate-x-1/2 ${badgeClassName} text-xs font-extrabold px-4 py-1 rounded-full shadow-xl uppercase tracking-wide z-20`}
+                          >
+                            {badgeText}
                           </div>
                         )}
-                        
-                        {/* Premium Badge */}
-                        {isPremium && !isDisabled && (
-                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-purple-500 to-pink-500 text-white text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-purple-300/50 uppercase tracking-wide z-20">
-                            💎 Premium
-                          </div>
-                        )}
-                        
-                        {/* High Value Badge */}
-                        {isHighValue && !isDisabled && (
-                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-blue-500 to-cyan-500 text-white text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-blue-300/50 uppercase tracking-wide z-20">
-                            🎯 High Value
-                          </div>
-                        )}
-                        
-                        {/* Entry Tier Badge */}
-                        {usdAmount === 5 && !isDisabled && (
-                          <div className="absolute -top-3 left-1/2 transform -translate-x-1/2 bg-gradient-to-r from-green-500 to-emerald-500 text-white text-xs font-extrabold px-4 py-1 rounded-full shadow-xl border-2 border-green-300/50 uppercase tracking-wide z-20">
-                            🎮 Entry Tier
-                          </div>
-                        )}
-                        
+
                         <div className="flex flex-col items-center text-center h-full pt-2">
-                          {/* Entry Fee - Large and Prominent */}
+                          <div className="uppercase tracking-[0.35em] text-xs text-white/50 mb-3">
+                            {title}
+                          </div>
+
                           <div className="mb-3">
-                            <div className={`text-4xl sm:text-5xl lg:text-6xl font-black mb-1 ${
-                              isDisabled ? 'text-gray-500' : isPopular ? 'text-accent' : isPremium ? 'text-purple-300' : isHighValue ? 'text-blue-300' : 'text-white'
-                            }`}>
+                            <div
+                              className={`text-4xl sm:text-5xl lg:text-6xl font-black mb-1 ${
+                                isDisabled
+                                  ? 'text-gray-500'
+                                  : isPopular
+                                  ? 'text-accent'
+                                  : isPremium
+                                  ? 'text-purple-300'
+                                  : isHighValue
+                                  ? 'text-blue-300'
+                                  : 'text-white'
+                              }`}
+                            >
                               ${usdAmount}
                             </div>
                             <div className="text-white/60 text-xs sm:text-sm font-medium">
-                              {solAmount ? `≈ ${solAmount} SOL` : 'Loading...'}
+                              {isPriceReady ? `≈ ${solAmount} SOL` : 'Loading price...'}
                             </div>
                           </div>
-                          
-                          {/* Divider */}
-                          <div className={`w-12 sm:w-16 h-0.5 mb-4 sm:mb-6 ${
-                            isPopular ? 'bg-accent/50' : isPremium ? 'bg-purple-400/50' : isHighValue ? 'bg-blue-400/50' : 'bg-white/20'
-                          }`}></div>
-                          
-                          {/* Potential Winnings - Emphasized */}
+
+                          <div
+                            className={`w-12 sm:w-16 h-0.5 mb-4 sm:mb-6 ${
+                              isPopular
+                                ? 'bg-accent/50'
+                                : isPremium
+                                ? 'bg-purple-400/50'
+                                : isHighValue
+                                ? 'bg-blue-400/50'
+                                : 'bg-white/20'
+                            }`}
+                          ></div>
+
                           <div className="mb-2">
                             <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
                               Win Up To
                             </div>
-                            <div className={`text-2xl sm:text-3xl font-black mb-2 ${
-                              isDisabled ? 'text-gray-500' : 'text-green-400'
-                            }`}>
+                            <div
+                              className={`text-2xl sm:text-3xl font-black mb-2 ${
+                                isDisabled ? 'text-gray-500' : 'text-green-400'
+                              }`}
+                            >
                               ${potentialWinnings}
                             </div>
                             <div className="text-white/50 text-xs">
                               95% of ${(usdAmount * 2).toFixed(2)} pot
                             </div>
                           </div>
-                          
-                          {/* Status Messages */}
+
+                          <div className="text-white/60 text-xs font-semibold mb-3">
+                            ROI on win: +{roi}%
+                          </div>
+                          <div className="text-white/70 text-sm font-medium mb-3">
+                            {headline}
+                          </div>
+                          <div className="text-accent text-xs font-semibold bg-accent/10 border border-accent/30 px-3 py-2 rounded-lg mb-4">
+                            {incentive}
+                          </div>
+
                           <div className="mt-5 sm:mt-6 w-full">
                             {!hasEnoughBalance && walletBalance !== null && (
                               <div className="text-xs text-red-400 font-semibold bg-red-500/10 px-3 py-1.5 rounded-lg border border-red-500/20">
@@ -613,24 +765,30 @@ export default function Lobby() {
                                 ⚠ Sign Refunds First
                               </div>
                             )}
-                            {!isDisabled && !hasBlockingClaims && !hasUnsignedRefunds && walletBalance !== null && hasEnoughBalance && (
-                              <div className={`text-xs sm:text-sm font-bold py-2 sm:py-2.5 px-4 sm:px-6 rounded-xl transition-all ${
-                                isPopular 
-                                  ? 'bg-accent text-black hover:bg-yellow-400' 
-                                  : isPremium
-                                  ? 'bg-purple-500 text-white hover:bg-purple-400'
-                                  : isHighValue
-                                  ? 'bg-blue-500 text-white hover:bg-blue-400'
-                                  : 'bg-white/10 text-white hover:bg-white/20'
-                              }`}>
-                                Select This Tier
-                              </div>
-                            )}
+                            {!isDisabled &&
+                              !hasBlockingClaims &&
+                              !hasUnsignedRefunds &&
+                              walletBalance !== null &&
+                              hasEnoughBalance && (
+                                <div
+                                  className={`text-xs sm:text-sm font-bold py-2 sm:py-2.5 px-4 sm:px-6 rounded-xl transition-all ${
+                                    isPopular
+                                      ? 'bg-accent text-black hover:bg-yellow-400'
+                                      : isPremium
+                                      ? 'bg-purple-500 text-white hover:bg-purple-400'
+                                      : isHighValue
+                                      ? 'bg-blue-500 text-white hover:bg-blue-400'
+                                      : 'bg-white/10 text-white hover:bg-white/20'
+                                  }`}
+                                >
+                                  {cta || 'Select This Tier'}
+                                </div>
+                              )}
                           </div>
                         </div>
                       </div>
                     </button>
-                  );
+                  )
                 })}
               </div>
 
@@ -664,6 +822,9 @@ export default function Lobby() {
                     <span className="text-green-400">✓</span>
                     <span>Winner Gets 95%</span>
                   </div>
+                </div>
+                <div className="text-center text-white/40 text-[11px] mt-4">
+                  * Promotional perks rotate weekly. Bonus highlights are applied automatically when you win.
                 </div>
               </div>
             </div>
