@@ -611,10 +611,9 @@ export default function Lobby() {
                     badgeText,
                     badgeTheme,
                     cta,
-                    isPopular,
-                    isHighValue,
-                    isPremium,
-                    isEntry
+                    isPopular = false,
+                    isHighValue = false,
+                    isPremium = false
                   } = tier
 
                   const isPriceReady = typeof solAmount === 'number' && solAmount > 0
