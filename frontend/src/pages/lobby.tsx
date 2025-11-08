@@ -10,7 +10,23 @@ import { usePendingClaims } from '../hooks/usePendingClaims'
 
 const POT_RETURN_PERCENT = 0.95;
 
-const STAKE_TIERS = [
+type BadgeTheme = 'accent' | 'purple' | 'blue' | 'green';
+
+type StakeTier = {
+  id: string;
+  usd: number;
+  title: string;
+  badgeText?: string;
+  badgeTheme?: BadgeTheme;
+  headline: string;
+  incentive: string;
+  cta: string;
+  isPopular?: boolean;
+  isHighValue?: boolean;
+  isPremium?: boolean;
+};
+
+const STAKE_TIERS: StakeTier[] = [
   {
     id: 'starter',
     usd: 5,
@@ -54,9 +70,9 @@ const STAKE_TIERS = [
     cta: 'Claim VIP Seat',
     isPremium: true
   }
-] as const;
+];
 
-const BADGE_THEME_CLASSES: Record<string, string> = {
+const BADGE_THEME_CLASSES: Record<BadgeTheme, string> = {
   accent:
     'bg-gradient-to-r from-accent to-yellow-400 text-black border-2 border-black/20',
   purple:
@@ -634,8 +650,8 @@ export default function Lobby() {
                     hasUnsignedRefunds
 
                   const badgeClassName =
-                    badgeText && BADGE_THEME_CLASSES[badgeTheme || '']
-                      ? BADGE_THEME_CLASSES[badgeTheme || '']
+                    badgeText && badgeTheme && BADGE_THEME_CLASSES[badgeTheme]
+                      ? BADGE_THEME_CLASSES[badgeTheme]
                       : 'bg-white/20 text-white border border-white/20'
 
                   const handleTierSelect = () => {
