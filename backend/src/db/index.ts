@@ -125,6 +125,32 @@ export const initializeDatabase = async () => {
     }
   };
 
+  const ensureBonusColumns = async (client?: Client) => {
+    try {
+      console.log('🔍 Ensuring bonus payout columns exist (fallback safeguard)...');
+      const statements = [
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusPercent" DECIMAL(5,4) DEFAULT 0',
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusAmount" DECIMAL(12,6)',
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusAmountUSD" DECIMAL(10,2)',
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusSignature" VARCHAR',
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusPaid" BOOLEAN DEFAULT FALSE',
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusPaidAt" TIMESTAMP',
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "bonusTier" VARCHAR'
+      ];
+
+      for (const statement of statements) {
+        if (client) {
+          await client.query(statement);
+        } else if (AppDataSource.isInitialized) {
+          await AppDataSource.query(statement);
+        }
+      }
+      console.log('✅ Bonus payout columns verified/created');
+    } catch (error) {
+      console.error('❌ Failed to ensure bonus payout columns exist:', error);
+    }
+  };
+
   const runPreInitializationSchemaFixes = async () => {
     let client: Client | undefined;
     try {
@@ -135,6 +161,7 @@ export const initializeDatabase = async () => {
       console.log('🔌 Running pre-initialization schema fixes using raw pg client...');
       await client.connect();
       await ensureProposalExpiresAtColumn(client);
+      await ensureBonusColumns(client);
       await fixMigrationNames(client);
       console.log('✅ Pre-initialization schema fixes complete');
     } catch (error) {
@@ -168,6 +195,7 @@ export const initializeDatabase = async () => {
       await fixMigrationNames();
       // Ensure critical columns exist even if migration failed previously
       await ensureProposalExpiresAtColumn();
+      await ensureBonusColumns();
 
       // Run migrations
       await AppDataSource.runMigrations();
