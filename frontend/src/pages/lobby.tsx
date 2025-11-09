@@ -20,6 +20,7 @@ type StakeTier = {
   badgeTheme?: BadgeTheme;
   headline: string;
   incentive: string;
+  bonusCopy?: string;
   cta: string;
   isPopular?: boolean;
   isHighValue?: boolean;
@@ -644,7 +645,6 @@ export default function Lobby() {
                     title,
                     headline,
                     incentive,
-                    bonusCopy,
                     badgeText,
                     badgeTheme,
                     cta,
