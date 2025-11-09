@@ -859,7 +859,7 @@ export class SquadsVaultService {
         // Fallback: Use transaction index 1
         // This assumes no previous transactions (which should be fine for new vaults)
         transactionIndex = BigInt(0);
-
+        
         enhancedLogger.warn('⚠️ Using fallback transaction index 0', {
           multisigAddress: multisigAddress.toString(),
           note: 'This assumes no previous transactions. If vault has existing transactions, proposal creation will fail.',
@@ -926,15 +926,15 @@ export class SquadsVaultService {
         index: bigint,
         attemptLabel: string
       ): Promise<string> => {
-        enhancedLogger.info('📝 Creating vault transaction...', {
-          multisigAddress: multisigAddress.toString(),
-          vaultPda: vaultPda.toString(),
+      enhancedLogger.info('📝 Creating vault transaction...', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
           transactionIndex: index.toString(),
           attempt: attemptLabel,
-          winner: winner.toString(),
-          winnerAmount,
-        });
-
+        winner: winner.toString(),
+        winnerAmount,
+      });
+      
         return rpc.vaultTransactionCreate({
           connection: this.connection,
           feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
@@ -1000,14 +1000,14 @@ export class SquadsVaultService {
             throw retryError;
           }
         } else {
-          enhancedLogger.error('❌ vaultTransactionCreate failed', {
+        enhancedLogger.error('❌ vaultTransactionCreate failed', {
             error: errorMessage,
-            stack: createError?.stack,
-            vaultAddress,
-            winner: winner.toString(),
+          stack: createError?.stack,
+          vaultAddress,
+          winner: winner.toString(),
             transactionIndex: effectiveTransactionIndex.toString(),
-          });
-          throw createError;
+        });
+        throw createError;
         }
       }
 
@@ -1063,7 +1063,7 @@ export class SquadsVaultService {
         );
         throw confirmationError;
       }
-
+      
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
       
@@ -1409,7 +1409,7 @@ export class SquadsVaultService {
         // If the vault already has transactions, this will fail when creating the proposal,
         // but that's better than always failing at this step
         transactionIndex = BigInt(0);
-
+        
         enhancedLogger.warn('⚠️ Using fallback transaction index 0', {
           multisigAddress: multisigAddress.toString(),
           note: 'This assumes no previous transactions. If vault has existing transactions, proposal creation will fail.',
@@ -1512,19 +1512,19 @@ export class SquadsVaultService {
         index: bigint,
         attemptLabel: string
       ): Promise<string> => {
-        enhancedLogger.info('📝 Creating vault transaction for tie refund', {
-          multisigAddress: multisigAddress.toString(),
-          vaultPda: vaultPda.toString(),
-          programId: this.programId.toString(),
-          blockhash: blockhash2,
-          lastValidBlockHeight,
-          player1: player1.toString(),
-          player2: player2.toString(),
-          refundLamports,
+      enhancedLogger.info('📝 Creating vault transaction for tie refund', {
+        multisigAddress: multisigAddress.toString(),
+        vaultPda: vaultPda.toString(),
+        programId: this.programId.toString(),
+        blockhash: blockhash2,
+        lastValidBlockHeight,
+        player1: player1.toString(),
+        player2: player2.toString(),
+        refundLamports,
           transactionIndex: index.toString(),
           attempt: attemptLabel,
-        });
-
+      });
+      
         return rpc.vaultTransactionCreate({
           connection: this.connection,
           feePayer: this.config.systemKeypair, // Keypair that signs and pays for transaction creation
@@ -1558,7 +1558,7 @@ export class SquadsVaultService {
           player2: player2.toString(),
           transactionIndex: effectiveTieTransactionIndex.toString(),
         };
-
+        
         const errorMessage =
           createError?.message || String(createError);
         const isSeedConstraint =
@@ -1621,32 +1621,32 @@ export class SquadsVaultService {
           }
         } else {
           // Check if vault PDA exists and what it's owned by for diagnostic context
-          try {
+        try {
             const vaultAccountInfo = await this.connection.getAccountInfo(
               vaultPda,
               'confirmed'
             );
-            if (vaultAccountInfo) {
-              errorDetails.vaultPdaExists = true;
-              errorDetails.vaultPdaOwner = vaultAccountInfo.owner.toString();
+          if (vaultAccountInfo) {
+            errorDetails.vaultPdaExists = true;
+            errorDetails.vaultPdaOwner = vaultAccountInfo.owner.toString();
               errorDetails.vaultPdaDataLength =
                 vaultAccountInfo.data.length;
-              errorDetails.vaultPdaLamports = vaultAccountInfo.lamports;
-            } else {
-              errorDetails.vaultPdaExists = false;
+            errorDetails.vaultPdaLamports = vaultAccountInfo.lamports;
+          } else {
+            errorDetails.vaultPdaExists = false;
               errorDetails.vaultPdaOwner =
                 'N/A (account does not exist)';
-            }
-          } catch (accountCheckError: any) {
+          }
+        } catch (accountCheckError: any) {
             errorDetails.vaultPdaCheckError =
               accountCheckError?.message || String(accountCheckError);
-          }
-
+        }
+        
           enhancedLogger.error(
             '❌ vaultTransactionCreate failed for tie refund',
             errorDetails
           );
-          throw createError;
+        throw createError;
         }
       }
 
@@ -1702,7 +1702,7 @@ export class SquadsVaultService {
         );
         throw confirmationError;
       }
-
+      
       // Generate a numeric proposal ID for frontend compatibility
       const proposalId = transactionIndex.toString();
       
@@ -2579,3 +2579,4 @@ export class SquadsVaultService {
 
 // Export singleton instance
 export const squadsVaultService = new SquadsVaultService();
+export const getSquadsVaultService = () => squadsVaultService;

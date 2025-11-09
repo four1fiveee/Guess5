@@ -151,6 +151,60 @@ export const initializeDatabase = async () => {
     }
   };
 
+  const fixCompletedMatchStatuses = async (client?: Client) => {
+    const pendingSql = `
+      SELECT COUNT(*)::int AS pending
+      FROM "match"
+      WHERE "isCompleted" = true
+        AND (status IS NULL OR status <> 'completed')
+    `;
+    const updateSql = `
+      UPDATE "match"
+      SET status = 'completed'
+      WHERE "isCompleted" = true
+        AND (status IS NULL OR status <> 'completed')
+    `;
+
+    const runQuery = async <T>(sql: string): Promise<T | undefined> => {
+      if (client) {
+        const result = await client.query(sql);
+        return (result.rows?.[0] as T) ?? undefined;
+      }
+      if (AppDataSource.isInitialized) {
+        const result = await AppDataSource.query(sql);
+        return (Array.isArray(result) ? (result[0] as T) : undefined);
+      }
+      return undefined;
+    };
+
+    try {
+      const pendingBefore = await runQuery<{ pending: number }>(pendingSql);
+      const needsFix = pendingBefore?.pending ?? 0;
+
+      if (!needsFix) {
+        console.log('✅ Completed match statuses already normalized');
+        return;
+      }
+
+      if (client) {
+        await client.query(updateSql);
+      } else if (AppDataSource.isInitialized) {
+        await AppDataSource.query(updateSql);
+      }
+
+      const pendingAfter = await runQuery<{ pending: number }>(pendingSql);
+      const remaining = pendingAfter?.pending ?? 0;
+      const fixed = needsFix - remaining;
+
+      console.log(`✅ Normalized ${fixed} completed match status${fixed === 1 ? '' : 'es'}`);
+      if (remaining > 0) {
+        console.warn(`⚠️ ${remaining} completed match status${remaining === 1 ? '' : 'es'} still need review`);
+      }
+    } catch (error) {
+      console.warn('⚠️ Failed to normalize completed match statuses:', error);
+    }
+  };
+
   const runPreInitializationSchemaFixes = async () => {
     let client: Client | undefined;
     try {
@@ -163,6 +217,7 @@ export const initializeDatabase = async () => {
       await ensureProposalExpiresAtColumn(client);
       await ensureBonusColumns(client);
       await fixMigrationNames(client);
+      await fixCompletedMatchStatuses(client);
       console.log('✅ Pre-initialization schema fixes complete');
     } catch (error) {
       console.warn('⚠️ Pre-initialization schema fixes failed (continuing):', error);
@@ -196,6 +251,7 @@ export const initializeDatabase = async () => {
       // Ensure critical columns exist even if migration failed previously
       await ensureProposalExpiresAtColumn();
       await ensureBonusColumns();
+      await fixCompletedMatchStatuses();
 
       // Run migrations
       await AppDataSource.runMigrations();

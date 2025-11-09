@@ -1432,9 +1432,10 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       SET winner = $1, 
           "payoutResult" = $2,
           "isCompleted" = $3,
-          "updatedAt" = $4
-      WHERE id = $5
-    `, [winner, payoutResultJson, true, new Date(), matchId]);
+          status = $4,
+          "updatedAt" = $5
+      WHERE id = $6
+    `, [winner, payoutResultJson, true, 'completed', new Date(), matchId]);
   } else {
     const matchRepository = AppDataSource.getRepository(Match);
     await matchRepository.query(`
@@ -1442,9 +1443,10 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       SET winner = $1, 
           "payoutResult" = $2,
           "isCompleted" = $3,
-          "updatedAt" = $4
-      WHERE id = $5
-    `, [winner, payoutResultJson, true, new Date(), matchId]);
+          status = $4,
+          "updatedAt" = $5
+      WHERE id = $6
+    `, [winner, payoutResultJson, true, 'completed', new Date(), matchId]);
   }
   
   console.log('✅ Match saved successfully with winner:', winner);
