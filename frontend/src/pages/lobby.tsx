@@ -178,6 +178,16 @@ export default function Lobby() {
       ? Math.max(0, nextTierToUnlock.usd - walletBalanceUSD)
       : null
 
+  const getTierHighlightTextClass = (
+    tier?: (typeof tierData)[number] | null
+  ) => {
+    if (!tier) return 'text-white'
+    if (tier.isPremium) return 'text-purple-300'
+    if (tier.isHighValue) return 'text-blue-300'
+    if (tier.isPopular) return 'text-accent'
+    return 'text-white'
+  }
+
   useEffect(() => {
     const getPrice = async () => {
       try {
@@ -476,14 +486,40 @@ export default function Lobby() {
                   <div className="text-white/70 text-sm text-center max-w-3xl mx-auto mb-6">
                     {canCoverHighestTier && highestTierData ? (
                       <>
-                        You have enough for <span className="text-accent font-semibold">{highestTierData.title}</span>. Jump in now and play for
-                        <span className="text-green-300 font-semibold"> ${highestTierData.totalWinUsd.toFixed(2)}</span>.
+                        You have enough for{' '}
+                        <span
+                          className={`${getTierHighlightTextClass(
+                            highestTierData
+                          )} font-semibold`}
+                        >
+                          {highestTierData.title}
+                        </span>
+                        . Jump in now and play for
+                        <span className="text-green-300 font-semibold">
+                          {' '}
+                          ${highestTierData.totalWinUsd.toFixed(2)}
+                        </span>
+                        .
                       </>
                     ) : nextTierToUnlock && amountToUnlock !== null ? (
                       <>
-                        Add <span className="text-accent font-semibold">${amountToUnlock.toFixed(2)}</span> more to unlock the{' '}
-                        <span className="text-white font-semibold">{nextTierToUnlock.title}</span> stake and compete for{' '}
-                        <span className="text-green-300 font-semibold">${nextTierToUnlock.totalWinUsd.toFixed(2)}</span>.
+                        Add{' '}
+                        <span className="text-accent font-semibold">
+                          ${amountToUnlock.toFixed(2)}
+                        </span>{' '}
+                        more to unlock the{' '}
+                        <span
+                          className={`${getTierHighlightTextClass(
+                            nextTierToUnlock
+                          )} font-semibold`}
+                        >
+                          {nextTierToUnlock.title}
+                        </span>{' '}
+                        stake and compete for{' '}
+                        <span className="text-green-300 font-semibold">
+                          ${nextTierToUnlock.totalWinUsd.toFixed(2)}
+                        </span>
+                        .
                       </>
                     ) : (
                       <>Top up your wallet to unlock bigger pots and VIP visibility.</>
@@ -630,7 +666,7 @@ export default function Lobby() {
               )}
 
               {/* Entry Fee Selection Cards - Premium Grid Layout for 4 Tiers */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 max-w-7xl mx-auto">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-6 mb-8 max-w-7xl mx-auto items-stretch">
                 {tierData.map((tier) => {
                   const {
                     id,
@@ -688,13 +724,7 @@ export default function Lobby() {
                       key={id}
                       onClick={handleTierSelect}
                       disabled={isDisabled}
-                      className={`relative group w-full ${
-                        isPopular
-                          ? 'lg:scale-105 lg:z-10'
-                          : isPremium
-                          ? 'lg:scale-105'
-                          : ''
-                      } transition-all duration-300 ${
+                      className={`relative group w-full h-full transition-all duration-300 ${
                         isMatchmaking ? 'opacity-60' : ''
                       }`}
                     >
