@@ -122,7 +122,7 @@ const Matchmaking: React.FC = () => {
     }
 
     try {
-      console.log('💰 Starting payment to multisig vault...');
+      console.log('💰 Starting payment to multisig vault deposit...');
 
       // Create connection to Solana network
       const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
@@ -136,26 +136,54 @@ const Matchmaking: React.FC = () => {
         throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
       }
       
-      let vaultAddress: string | null = matchData.squadsVaultAddress || matchData.vaultAddress || null;
-      if (!vaultAddress) {
-        // Try one quick status fetch to populate vault
-        try {
-          const latest = await getMatchStatus(matchData.matchId) as any;
-          vaultAddress = latest?.squadsVaultAddress || latest?.vaultAddress || null;
-          if (vaultAddress) {
-            setMatchData((prev: any) => ({ ...prev, squadsVaultAddress: vaultAddress, vaultAddress }));
+      const resolveVaultAddresses = async () => {
+        let multisigAddress: string | null = matchData.squadsVaultAddress || matchData.vaultAddress || null;
+        let depositAddress: string | null = matchData.squadsVaultPda || matchData.vaultPda || null;
+
+        if (!depositAddress || !multisigAddress) {
+          try {
+            const latest = await getMatchStatus(matchData.matchId) as any;
+            multisigAddress = latest?.squadsVaultAddress || latest?.vaultAddress || multisigAddress;
+            depositAddress = latest?.squadsVaultPda || latest?.vaultPda || depositAddress;
+            if (multisigAddress || depositAddress) {
+              setMatchData((prev: any) => ({
+                ...prev,
+                squadsVaultAddress: multisigAddress ?? prev?.squadsVaultAddress ?? null,
+                vaultAddress: multisigAddress ?? prev?.vaultAddress ?? null,
+                squadsVaultPda: depositAddress ?? prev?.squadsVaultPda ?? null,
+                vaultPda: depositAddress ?? prev?.vaultPda ?? null,
+              }));
+            }
+          } catch (refreshError) {
+            console.warn('⚠️ Failed to refresh match status while resolving vault addresses', refreshError);
           }
-        } catch {}
+        }
+
+        return { multisigAddress, depositAddress };
+      };
+
+      const { multisigAddress, depositAddress } = await resolveVaultAddresses();
+
+      if (!depositAddress) {
+        throw new Error('Vault deposit address not found. Please wait a moment and try again.');
       }
-      if (!vaultAddress) {
-        throw new Error('Vault address not found. Please wait a moment and try again.');
+
+      if (!multisigAddress) {
+        // Try one quick status fetch to populate vault
+        console.warn('⚠️ Multisig address missing while deposit address present', { matchId: matchData.matchId });
       }
+
+      console.log('📍 Resolved vault addresses', {
+        matchId: matchData.matchId,
+        multisigAddress,
+        depositAddress,
+      });
       
       // Create transaction to send SOL to vault
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(vaultAddress),
+          toPubkey: new PublicKey(depositAddress),
           lamports: requiredAmount,
         })
       );
@@ -387,6 +415,7 @@ const Matchmaking: React.FC = () => {
               // Update match data with latest payment status
               setMatchData((prev: any) => {
                 const va = (data as any)?.squadsVaultAddress || (data as any)?.vaultAddress || prev?.vaultAddress || null;
+              const vp = (data as any)?.squadsVaultPda || (data as any)?.vaultPda || prev?.squadsVaultPda || prev?.vaultPda || null;
                 const updated = {
                   ...prev,
                   player1Paid: data.player1Paid,
@@ -394,6 +423,8 @@ const Matchmaking: React.FC = () => {
                   status: data.status,
                   squadsVaultAddress: (data as any)?.squadsVaultAddress ?? prev?.squadsVaultAddress ?? va,
                   vaultAddress: va,
+                squadsVaultPda: (data as any)?.squadsVaultPda ?? prev?.squadsVaultPda ?? vp,
+                vaultPda: vp,
                 };
                 matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
@@ -676,7 +707,7 @@ const Matchmaking: React.FC = () => {
                 </div>
               </div>
 
-              {!(matchData.squadsVaultAddress || matchData.vaultAddress) && (
+              {!(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress) && (
                 <div className="bg-yellow-500/20 border border-yellow-500/40 rounded-lg p-3 mb-4">
                   <div className="flex items-center justify-center mb-2">
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400 mr-2"></div>
@@ -686,20 +717,20 @@ const Matchmaking: React.FC = () => {
                 </div>
               )}
 
-              {(matchData.squadsVaultAddress || matchData.vaultAddress) && (
+              {(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress) && (
                 <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4">
                   <div className="text-green-400 text-sm font-medium mb-1">✓ Vault Ready</div>
                   <div className="text-white/60 text-xs break-all font-mono">
-                    {(matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(0, 8)}...{(matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(-8)}
+                    {(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(0, 8)}...{(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(-8)}
                   </div>
                 </div>
               )}
 
               <button
                 onClick={handlePayment}
-                disabled={isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)}
+                disabled={isPaymentInProgress || !(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)}
                 className={`w-full font-bold py-3.5 px-6 rounded-lg transition-all duration-200 min-h-[52px] flex items-center justify-center ${
-                  isPaymentInProgress || !(matchData.squadsVaultAddress || matchData.vaultAddress)
+                  isPaymentInProgress || !(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)
                     ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
                     : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'
                 }`}
@@ -709,7 +740,7 @@ const Matchmaking: React.FC = () => {
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
                     Processing Payment...
                   </span>
-                ) : (matchData.squadsVaultAddress || matchData.vaultAddress) ? (
+                ) : (matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress) ? (
                   `Pay ${entryFee} SOL Entry Fee`
                 ) : (
                   'Waiting for Vault...'

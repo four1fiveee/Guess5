@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
-import { SquadsVaultService } from '../services/squadsVaultService';
+import { SquadsVaultService, squadsVaultService } from '../services/squadsVaultService';
 import { PublicKey } from '@solana/web3.js';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
@@ -44,6 +44,10 @@ export const approveProposal = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Match has no Squads vault' });
     }
     
+    const vaultDepositAddress =
+      match.squadsVaultPda ||
+      squadsVaultService.deriveVaultPda(match.squadsVaultAddress);
+
     // For now, return instructions for frontend to sign
     // Frontend will use @sqds/multisig SDK to create and sign the approval
     // We can also provide a transaction builder endpoint
@@ -53,6 +57,7 @@ export const approveProposal = async (req: Request, res: Response) => {
       message: 'Use Phantom wallet to sign the Squads proposal',
       instructions: {
         vaultAddress: match.squadsVaultAddress,
+        vaultDepositAddress,
         proposalId,
         playerWallet: wallet,
         action: 'approve',
@@ -119,6 +124,9 @@ export const buildApprovalTransaction = async (req: Request, res: Response) => {
     
     const multisigAddress = new PublicKey(match.squadsVaultAddress);
     const transactionIndex = BigInt(proposalId);
+    const vaultDepositAddress =
+      match.squadsVaultPda ||
+      squadsVaultService.deriveVaultPda(match.squadsVaultAddress);
     
     // Import Squads SDK components
     const { instructions } = require('@sqds/multisig');
@@ -157,6 +165,7 @@ export const buildApprovalTransaction = async (req: Request, res: Response) => {
       transaction: Buffer.from(transaction.serialize()).toString('base64'),
       transactionIndex: proposalId,
       vaultAddress: match.squadsVaultAddress,
+      vaultDepositAddress,
       member: wallet,
     });
     
@@ -212,6 +221,7 @@ export const getProposal = async (req: Request, res: Response) => {
       proposal: {
         matchId: match.id,
         vaultAddress: match.squadsVaultAddress,
+        vaultDepositAddress: match.squadsVaultPda || squadsVaultService.deriveVaultPda(match.squadsVaultAddress),
         proposalId,
         executed: status.executed,
         signers: status.signers.map(s => s.toString()),

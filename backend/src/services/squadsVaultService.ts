@@ -32,6 +32,7 @@ export interface VaultCreationResult {
   success: boolean;
   vaultAddress?: string;
   multisigAddress?: string;
+  vaultPda?: string;
   error?: string;
 }
 
@@ -131,6 +132,33 @@ export class SquadsVaultService {
 
   public getProgramId(): PublicKey {
     return this.programId;
+  }
+
+  public deriveVaultPda(multisigAddress: string): string | null {
+    try {
+      if (!multisigAddress) {
+        return null;
+      }
+      const multisigPublicKey = new PublicKey(multisigAddress);
+      const vaultIndexBuffer = Buffer.allocUnsafe(2);
+      vaultIndexBuffer.writeUInt16LE(0, 0);
+      const [vaultPda] = PublicKey.findProgramAddressSync(
+        [
+          multisigPublicKey.toBuffer(),
+          vaultIndexBuffer,
+          Buffer.from('vault'),
+        ],
+        this.programId
+      );
+      return vaultPda.toString();
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to derive vault PDA', {
+        multisigAddress,
+        error: errorMessage,
+      });
+      return null;
+    }
   }
 
   /**
@@ -658,6 +686,24 @@ export class SquadsVaultService {
         signature,
       });
 
+      // Derive the vault PDA (deposit address) associated with this multisig
+      const vaultIndexBuffer = Buffer.allocUnsafe(2);
+      vaultIndexBuffer.writeUInt16LE(0, 0);
+      const [derivedVaultPda] = PublicKey.findProgramAddressSync(
+        [
+          multisigPda.toBuffer(),
+          vaultIndexBuffer,
+          Buffer.from('vault'),
+        ],
+        this.programId
+      );
+
+      enhancedLogger.info('📍 Derived vault PDA for match', {
+        matchId,
+        multisigAddress: multisigPda.toString(),
+        vaultPda: derivedVaultPda.toString(),
+      });
+
       // Update match with vault information
       const matchRepository = AppDataSource.getRepository(Match);
       const match = await matchRepository.findOne({ where: { id: matchId } });
@@ -670,6 +716,7 @@ export class SquadsVaultService {
       }
 
       match.squadsVaultAddress = multisigPda.toString();
+      match.squadsVaultPda = derivedVaultPda.toString();
       match.matchStatus = 'VAULT_CREATED';
       
       // Save match directly (helper file doesn't exist)
@@ -683,12 +730,14 @@ export class SquadsVaultService {
         player1: player1Pubkey.toString(),
         player2: player2Pubkey.toString(),
         entryFee,
+        vaultPda: derivedVaultPda.toString(),
       });
 
       return {
         success: true,
         vaultAddress: multisigPda.toString(),
         multisigAddress: multisigPda.toString(),
+        vaultPda: derivedVaultPda.toString(),
       };
 
     } catch (error: unknown) {

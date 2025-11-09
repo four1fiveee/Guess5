@@ -140,6 +140,7 @@ const Result: React.FC = () => {
               feeWallet: matchData.payout?.feeWallet || '',
               transactions: matchData.payout?.transactions || [],
               vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress,
+              vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || null,
               proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId,
               proposalStatus: matchData.proposalStatus,
               proposalSigners: normalizeProposalSigners(matchData.proposalSigners),
@@ -389,6 +390,7 @@ const Result: React.FC = () => {
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
         vaultAddress: payoutData.vaultAddress,
+        vaultDepositAddress: payoutData.vaultDepositAddress,
       });
       
       // Step 1: Get the transaction from backend

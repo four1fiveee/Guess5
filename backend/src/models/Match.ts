@@ -27,6 +27,9 @@ export class Match {
   squadsVaultAddress?: string;
 
   @Column({ nullable: true })
+  squadsVaultPda?: string;
+
+  @Column({ nullable: true })
   payoutProposalId?: string;
 
   @Column({ nullable: true })
@@ -162,6 +165,27 @@ export class Match {
 
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
   platformFee?: number;
+
+  @Column({ type: 'decimal', precision: 5, scale: 4, default: 0 })
+  bonusPercent?: number;
+
+  @Column({ type: 'decimal', precision: 12, scale: 6, nullable: true })
+  bonusAmount?: number;
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  bonusAmountUSD?: number;
+
+  @Column({ nullable: true })
+  bonusSignature?: string;
+
+  @Column({ default: false })
+  bonusPaid?: boolean;
+
+  @Column({ nullable: true })
+  bonusPaidAt?: Date;
+
+  @Column({ nullable: true })
+  bonusTier?: string;
 
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
   matchDuration?: number;

@@ -18,6 +18,7 @@ interface MatchStatus {
     matchStatus: string;
     vaultAddress: string;
     squadsVaultAddress: string;
+      squadsVaultPda?: string;
     depositATx: string;
     depositBTx: string;
     depositAConfirmations: number;
@@ -176,6 +177,13 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
           <div className="bg-white bg-opacity-5 rounded-lg p-4">
             <p className="text-sm text-white/80 mb-2">Squads Vault Address:</p>
             <p className="text-xs font-mono text-accent break-all">{match.squadsVaultAddress || match.vaultAddress}</p>
+          </div>
+
+          <div className="bg-white bg-opacity-5 rounded-lg p-4">
+            <p className="text-sm text-white/80 mb-2">Vault Deposit PDA:</p>
+            <p className="text-xs font-mono text-accent break-all">
+              {match.squadsVaultPda || 'Resolving...'}
+            </p>
           </div>
         </div>
       </div>

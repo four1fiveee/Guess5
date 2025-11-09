@@ -151,6 +151,27 @@ export const initializeDatabase = async () => {
     }
   };
 
+  const ensureVaultColumns = async (client?: Client) => {
+    try {
+      console.log('🔍 Ensuring Squads vault columns exist (fallback safeguard)...');
+      const statements = [
+        'ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "squadsVaultPda" VARCHAR'
+      ];
+
+      for (const statement of statements) {
+        if (client) {
+          await client.query(statement);
+        } else if (AppDataSource.isInitialized) {
+          await AppDataSource.query(statement);
+        }
+      }
+
+      console.log('✅ Squads vault columns verified/created');
+    } catch (error) {
+      console.error('❌ Failed to ensure Squads vault columns exist:', error);
+    }
+  };
+
   const fixCompletedMatchStatuses = async (client?: Client) => {
     const pendingSql = `
       SELECT COUNT(*)::int AS pending
@@ -216,6 +237,7 @@ export const initializeDatabase = async () => {
       await client.connect();
       await ensureProposalExpiresAtColumn(client);
       await ensureBonusColumns(client);
+      await ensureVaultColumns(client);
       await fixMigrationNames(client);
       await fixCompletedMatchStatuses(client);
       console.log('✅ Pre-initialization schema fixes complete');
@@ -251,6 +273,7 @@ export const initializeDatabase = async () => {
       // Ensure critical columns exist even if migration failed previously
       await ensureProposalExpiresAtColumn();
       await ensureBonusColumns();
+      await ensureVaultColumns();
       await fixCompletedMatchStatuses();
 
       // Run migrations

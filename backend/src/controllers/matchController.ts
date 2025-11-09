@@ -259,11 +259,11 @@ const periodicCleanup = async () => {
     
     // Process refunds for payment_required matches that are too old (5 minutes) using raw SQL
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
-    const oldPaymentRequiredRows = await matchRepository.query(`
-      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", status
-      FROM "match"
-      WHERE status = $1 AND "updatedAt" < $2
-    `, ['payment_required', fiveMinutesAgo]);
+  const oldPaymentRequiredRows = await matchRepository.query(`
+    SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda", status
+    FROM "match"
+    WHERE status = $1 AND "updatedAt" < $2
+  `, ['payment_required', fiveMinutesAgo]);
     
     if (oldPaymentRequiredRows && oldPaymentRequiredRows.length > 0) {
       console.log(`💰 Processing refunds for ${oldPaymentRequiredRows.length} old payment_required matches`);
@@ -564,6 +564,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           player2: matchData.player2,
           entryFee: matchData.entryFee,
           squadsVaultAddress: null,
+        squadsVaultPda: null,
           vaultAddress: null,
           message: 'Match created - vault creation in progress, please wait'
         };
@@ -586,21 +587,32 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           player2: matchData.player2,
           entryFee: matchData.entryFee,
           squadsVaultAddress: null,
+        squadsVaultPda: null,
           vaultAddress: null,
           message: 'Match created - vault creation in progress, please wait'
         };
       }
       
       console.log('✅ Multisig vault created:', {
-        squadsVaultAddress: vaultResult.vaultAddress
+        squadsVaultAddress: vaultResult.vaultAddress,
+        vaultPda: vaultResult.vaultPda
       });
 
-      // Update match with vault address using raw SQL
+      // Update match with vault addresses using raw SQL
       await matchRepository.query(`
         UPDATE "match" 
-        SET "squadsVaultAddress" = $1, "matchStatus" = $2, "updatedAt" = $3
-        WHERE id = $4
-      `, [vaultResult.vaultAddress, 'VAULT_CREATED', new Date(), matchData.matchId]);
+        SET "squadsVaultAddress" = $1,
+            "squadsVaultPda" = $2,
+            "matchStatus" = $3,
+            "updatedAt" = $4
+        WHERE id = $5
+      `, [
+        vaultResult.vaultAddress,
+        vaultResult.vaultPda ?? null,
+        'VAULT_CREATED',
+        new Date(),
+        matchData.matchId
+      ]);
       
       console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
       
@@ -612,6 +624,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         entryFee: matchData.entryFee,
         squadsVaultAddress: vaultResult.vaultAddress,
         vaultAddress: vaultResult.vaultAddress,
+        squadsVaultPda: vaultResult.vaultPda ?? null,
         message: 'Match created - both players must pay entry fee to start game'
       };
     } else if (redisResult.status === 'waiting') {
@@ -779,7 +792,8 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       "player2",
       "entryFee",
       status,
-      "squadsVaultAddress"
+      "squadsVaultAddress",
+      "squadsVaultPda"
     FROM "match" 
     WHERE (("player1" = $1 AND "status" IN ($2, $3, $4)) OR ("player2" = $5 AND "status" IN ($6, $7, $8)))
     LIMIT 1
@@ -795,6 +809,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
       player2: existingMatch.player2,
       entryFee: existingMatch.entryFee,
       squadsVaultAddress: existingMatch.squadsVaultAddress || null,
+      squadsVaultPda: existingMatch.squadsVaultPda || null,
       vaultAddress: existingMatch.squadsVaultAddress || null,
       matchStatus: existingMatch.status,
       message: existingMatch.status === 'escrow' ? 'Match created - please lock your entry fee' : 'Already in active match'
@@ -1218,7 +1233,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   if (manager) {
     // Use raw SQL with FOR UPDATE lock in transaction
     const matchRows = await manager.query(`
-      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", 
+      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
              "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
              "proposalSigners", "needsSignatures", "proposalExecutedAt", 
              "proposalTransactionId", "player1Result", "player2Result", 
@@ -1236,7 +1251,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   const matchRepository = AppDataSource.getRepository(Match);
     // Use raw SQL to avoid querying non-existent proposalExpiresAt column
     const matchRows = await matchRepository.query(`
-      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", 
+      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
              "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
              "proposalSigners", "needsSignatures", "proposalExecutedAt", 
              "proposalTransactionId", "player1Result", "player2Result", 
@@ -2914,7 +2929,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const matchRows = await matchRepository.query(`
         SELECT 
           id, "player1", "player2", "entryFee", status, word,
-          "squadsVaultAddress", "player1Paid", "player2Paid",
+          "squadsVaultAddress", "squadsVaultPda", "player1Paid", "player2Paid",
           "player1Result", "player2Result", "payoutResult",
           winner, "isCompleted", "createdAt", "updatedAt",
           "payoutProposalId", "tieRefundProposalId", "proposalStatus",
@@ -2996,6 +3011,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             word: (redisMatch as any).word || null,
             createdAt: new Date(redisMatch.createdAt),
             updatedAt: new Date(redisMatch.createdAt), // Use createdAt as updatedAt for Redis matches
+            squadsVaultAddress: (redisMatch as any).squadsVaultAddress || null,
+            squadsVaultPda: (redisMatch as any).squadsVaultPda || null,
             // Add payment status fields (default to false for new matches)
             player1Paid: (redisMatch as any).player1Paid || false,
             player2Paid: (redisMatch as any).player2Paid || false,
@@ -3072,8 +3089,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           const { AppDataSource } = require('../db/index');
           const matchRepository = AppDataSource.getRepository(Match);
           (match as any).squadsVaultAddress = creation.vaultAddress;
-          await matchRepository.update({ id: match.id }, { squadsVaultAddress: creation.vaultAddress, matchStatus: 'VAULT_CREATED' });
-          console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress });
+          (match as any).squadsVaultPda = creation.vaultPda ?? null;
+          await matchRepository.update(
+            { id: match.id },
+            { 
+              squadsVaultAddress: creation.vaultAddress,
+              squadsVaultPda: creation.vaultPda ?? null,
+              matchStatus: 'VAULT_CREATED'
+            }
+          );
+          console.log('✅ Vault created on-demand for match', { matchId: match.id, vault: creation.vaultAddress, vaultPda: creation.vaultPda });
               // Clear the rate limit key on success
               await redis.del(vaultCreationKey);
             } else {
@@ -3368,7 +3393,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     // Use raw SQL to avoid proposalExpiresAt column errors
     const reloadedRows = await matchRepository.query(`
       SELECT 
-        id, "squadsVaultAddress", "payoutProposalId", "tieRefundProposalId",
+        id, "squadsVaultAddress", "squadsVaultPda", "payoutProposalId", "tieRefundProposalId",
         winner, "isCompleted", "player1Result", "player2Result", "payoutResult"
       FROM "match"
       WHERE id = $1
@@ -3378,6 +3403,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const reloadedRow = reloadedRows[0];
       // Update match object with reloaded data
       (freshMatch as any).squadsVaultAddress = reloadedRow.squadsVaultAddress || (freshMatch as any).squadsVaultAddress;
+      (freshMatch as any).squadsVaultPda = reloadedRow.squadsVaultPda || (freshMatch as any).squadsVaultPda;
       (freshMatch as any).payoutProposalId = reloadedRow.payoutProposalId || (freshMatch as any).payoutProposalId;
       (freshMatch as any).tieRefundProposalId = reloadedRow.tieRefundProposalId || (freshMatch as any).tieRefundProposalId;
       freshMatch.winner = reloadedRow.winner || freshMatch.winner;
@@ -3416,6 +3442,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     hasTieRefundProposalId: !!(freshMatch as any).tieRefundProposalId,
     hasSquadsVaultAddress: hasVault,
     squadsVaultAddress: (freshMatch as any).squadsVaultAddress,
+    squadsVaultPda: (freshMatch as any).squadsVaultPda,
     player1Result: finalPlayer1Result ? { won: finalPlayer1Result.won, numGuesses: finalPlayer1Result.numGuesses } : null,
     player2Result: finalPlayer2Result ? { won: finalPlayer2Result.won, numGuesses: finalPlayer2Result.numGuesses } : null,
     hasResults,
@@ -3847,6 +3874,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player1: match.player1,
       player2: match.player2,
       squadsVaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
+      squadsVaultPda: (match as any).squadsVaultPda || null,
       vaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
       player1Paid: match.player1Paid,
       player2Paid: match.player2Paid,
@@ -4088,6 +4116,7 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
           "player2Paid",
           word,
           "squadsVaultAddress",
+          "squadsVaultPda",
           "entryFee",
           "isCompleted"
         FROM "match" 
@@ -4176,6 +4205,8 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         player2Paid: activeMatch.player2Paid,
         word: activeMatch.word,
         vaultAddress: activeMatch.squadsVaultAddress,
+        squadsVaultAddress: activeMatch.squadsVaultAddress,
+        squadsVaultPda: (activeMatch as any).squadsVaultPda || null,
         entryFee: activeMatch.entryFee,
         message: message
       });
@@ -5146,6 +5177,17 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Match vault address not found. Please contact support.' });
     }
 
+    const vaultDepositAddress =
+      (match as any).squadsVaultPda ||
+      squadsVaultService.deriveVaultPda(match.squadsVaultAddress);
+
+    if (!vaultDepositAddress) {
+      console.error(`❌ Unable to derive vault deposit address for match ${matchId}`, {
+        multisig: match.squadsVaultAddress,
+      });
+      return res.status(400).json({ error: 'Unable to determine vault deposit address. Please contact support.' });
+    }
+
     // Verify vault address exists on-chain
     try {
       const { Connection, PublicKey } = require('@solana/web3.js');
@@ -5159,6 +5201,24 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       }
       
       console.log(`✅ Vault address verified on-chain: ${match.squadsVaultAddress}`);
+
+      // Also ensure deposit vault PDA exists
+      try {
+        const depositPublicKey = new PublicKey(vaultDepositAddress);
+        const depositAccount = await connection.getAccountInfo(depositPublicKey);
+        if (!depositAccount) {
+          console.warn(`⚠️ Vault deposit PDA does not exist yet, it will be created on first transaction: ${vaultDepositAddress}`);
+        } else {
+          console.log(`✅ Vault deposit PDA verified on-chain: ${vaultDepositAddress}`, {
+            lamports: depositAccount.lamports / LAMPORTS_PER_SOL,
+          });
+        }
+      } catch (depositCheckError: any) {
+        console.warn('⚠️ Unable to verify vault deposit PDA on-chain', {
+          vaultDepositAddress,
+          error: depositCheckError?.message || String(depositCheckError),
+        });
+      }
     } catch (vaultError: any) {
       console.error(`❌ Error verifying vault address: ${vaultError?.message}`);
       return res.status(400).json({ error: `Invalid vault address: ${vaultError?.message}` });
@@ -5271,31 +5331,32 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       );
 
       const vaultAddress = match.squadsVaultAddress;
-      const vaultInTransaction = accountKeys.includes(vaultAddress);
+      const vaultPdaAddress = vaultDepositAddress;
+      const vaultInTransaction = accountKeys.includes(vaultPdaAddress);
 
       if (!vaultInTransaction) {
-        console.error(`❌ Payment transaction does not include vault address ${vaultAddress}`);
+        console.error(`❌ Payment transaction does not include vault deposit address ${vaultPdaAddress}`);
         console.error(`Transaction account keys:`, accountKeys);
         return res.status(400).json({ 
-          error: 'Payment transaction does not correspond to this match vault address',
-          expectedVault: vaultAddress
+          error: 'Payment transaction does not correspond to this match vault deposit address',
+          expectedVault: vaultPdaAddress
         });
       }
 
       // Check if vault received funds (balance increased)
-      const vaultPublicKey = new PublicKey(vaultAddress);
-      const vaultIndex = accountKeys.findIndex((key: string) => key === vaultAddress);
+      const vaultPublicKey = new PublicKey(vaultPdaAddress);
+      const vaultIndex = accountKeys.findIndex((key: string) => key === vaultPdaAddress);
       
       if (vaultIndex !== -1 && transaction.meta && transaction.meta.postBalances && transaction.meta.preBalances) {
         const vaultBalanceChange = transaction.meta.postBalances[vaultIndex] - transaction.meta.preBalances[vaultIndex];
         if (vaultBalanceChange <= 0) {
-          console.warn(`⚠️ Vault balance did not increase in payment transaction. Change: ${vaultBalanceChange}`);
+          console.warn(`⚠️ Vault deposit balance did not increase in payment transaction. Change: ${vaultBalanceChange}`);
         } else {
-          console.log(`✅ Vault received ${vaultBalanceChange / 1e9} SOL in payment transaction`);
+          console.log(`✅ Vault deposit PDA received ${vaultBalanceChange / 1e9} SOL in payment transaction`);
         }
       }
 
-      console.log(`✅ Payment transaction verified to include correct vault address: ${vaultAddress}`);
+      console.log(`✅ Payment transaction verified to include correct vault deposit address: ${vaultPdaAddress}`);
     } catch (vaultVerifyError: any) {
       console.error(`❌ Error verifying vault address in transaction: ${vaultVerifyError?.message}`);
       // Don't fail payment if we can't verify - log warning but continue
