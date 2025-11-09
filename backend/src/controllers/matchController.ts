@@ -1611,13 +1611,52 @@ const submitResultHandler = async (req: any, res: any) => {
 
     // SERVER-SIDE VALIDATION: Use server-side time tracking
     // Prefer database gameStartTime if available (more accurate), otherwise use Redis start time
-    let serverStartTime: number;
+    const candidateStartTimes: number[] = [];
     if (match.gameStartTime) {
-      // Use database gameStartTime (when game actually started)
-      serverStartTime = new Date(match.gameStartTime).getTime();
+      candidateStartTimes.push(new Date(match.gameStartTime).getTime());
+    }
+    if (match.gameStartTimeUtc) {
+      candidateStartTimes.push(new Date(match.gameStartTimeUtc).getTime());
+    }
+    if (serverGameState?.startTime) {
+      candidateStartTimes.push(serverGameState.startTime);
+    }
+    if (isPlayer1 && serverGameState?.player1StartTime) {
+      candidateStartTimes.push(serverGameState.player1StartTime);
+    }
+    if (!isPlayer1 && serverGameState?.player2StartTime) {
+      candidateStartTimes.push(serverGameState.player2StartTime);
+    }
+    
+    const nowMs = Date.now();
+    const validStartTimes = candidateStartTimes
+      .filter((value) => typeof value === 'number' && !Number.isNaN(value))
+      .filter((value) => value > 0 && value <= nowMs);
+    
+    let serverStartTime: number;
+    if (validStartTimes.length > 0) {
+      serverStartTime = Math.max(...validStartTimes);
+      
+      const dbStart = match.gameStartTime ? new Date(match.gameStartTime).getTime() : null;
+      if (dbStart && serverStartTime !== dbStart && serverStartTime - dbStart > 60000) {
+        console.log('ℹ️ Using fresher game start time from runtime state instead of database value', {
+          matchId,
+          dbStart,
+          chosenStart: serverStartTime,
+          source: serverStartTime === serverGameState?.player1StartTime || serverStartTime === serverGameState?.player2StartTime
+            ? 'playerStartTime'
+            : serverStartTime === serverGameState?.startTime
+              ? 'redisStartTime'
+              : 'other'
+        });
+      }
     } else {
-      // Fall back to Redis start time
-      serverStartTime = isPlayer1 ? serverGameState.player1StartTime : serverGameState.player2StartTime;
+      // Absolute fallback – should be rare, but prevents negative durations
+      serverStartTime = nowMs;
+      console.warn('⚠️ No valid server start times found; defaulting to current timestamp', {
+        matchId,
+        player: isPlayer1 ? 'player1' : 'player2'
+      });
     }
     
     const serverEndTime = Date.now();
