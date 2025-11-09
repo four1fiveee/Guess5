@@ -6708,7 +6708,14 @@ const generateReportHandler = async (req: any, res: any) => {
           "player1PaymentBlockNumber",
           "player2PaymentBlockNumber",
           "winnerPayoutBlockNumber",
-          "solPriceAtTransaction"
+          "solPriceAtTransaction",
+          "bonusPaid",
+          "bonusTier",
+          "bonusPercent",
+          "bonusAmount",
+          "bonusAmountUSD",
+          "bonusSignature",
+          "bonusPaidAt"
       FROM "match" 
       WHERE ${dateFilter}
         AND "squadsVaultAddress" IS NOT NULL
@@ -6964,6 +6971,15 @@ const generateReportHandler = async (req: any, res: any) => {
       // 'Platform Fee (SOL)', // Removed per user request
       'Fee Wallet Address',
       'Game Completed',
+      
+      // Bonus Tracking
+      'Bonus Paid',
+      'Bonus Tier',
+      'Bonus Percent',
+      'Bonus Amount (SOL)',
+      'Bonus Amount (USD)',
+      'Bonus Signature',
+      'Bonus Paid At (EST)',
       
       // Vault & Deposits
       'Squads Vault Address',
@@ -7297,6 +7313,15 @@ const generateReportHandler = async (req: any, res: any) => {
         // Platform Fee (SOL) removed per user request
         sanitizeCsvValue(feeWalletAddress),
         sanitizeCsvValue(matchWithSignature.status === 'completed' ? 'Yes' : 'No'),
+        
+        // Bonus Tracking
+        sanitizeCsvValue(matchWithSignature.bonusPaid ? 'Yes' : 'No'),
+        sanitizeCsvValue(matchWithSignature.bonusTier || ''),
+        sanitizeCsvValue(matchWithSignature.bonusPercent ?? ''),
+        sanitizeCsvValue(matchWithSignature.bonusAmount ?? ''),
+        sanitizeCsvValue(matchWithSignature.bonusAmountUSD ?? ''),
+        sanitizeCsvValue(matchWithSignature.bonusSignature || ''),
+        sanitizeCsvValue(matchWithSignature.bonusPaidAt ? convertToEST(matchWithSignature.bonusPaidAt) : ''),
         
         // Vault & Deposits
         sanitizeCsvValue(matchWithSignature.squadsVaultAddress),
