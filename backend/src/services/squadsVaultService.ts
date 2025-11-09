@@ -884,7 +884,7 @@ export class SquadsVaultService {
         lamports: winnerLamports,
       });
       // Correct the keys: vaultPda is a PDA and cannot be a signer
-      winnerTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      winnerTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
       
       // Create System Program transfer instruction for fee
       const feeTransferIx = SystemProgram.transfer({
@@ -893,7 +893,7 @@ export class SquadsVaultService {
         lamports: feeLamports,
       });
       // Correct the keys: vaultPda is a PDA and cannot be a signer
-      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
       
       // Log instruction keys for debugging
       enhancedLogger.info('🔍 Instruction keys check', {
@@ -1433,7 +1433,7 @@ export class SquadsVaultService {
         lamports: refundLamports,
       });
       // Correct the keys: vaultPda is a PDA and cannot be a signer
-      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
       
       // Create System Program transfer instruction for player 2
       const player2TransferIx = SystemProgram.transfer({
@@ -1442,7 +1442,7 @@ export class SquadsVaultService {
         lamports: refundLamports,
       });
       // Correct the keys: vaultPda is a PDA and cannot be a signer
-      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: false, isWritable: true };
+      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
       
       // Log instruction keys for debugging
       enhancedLogger.info('🔍 Instruction keys check for tie refund', {
