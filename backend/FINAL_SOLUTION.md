@@ -83,6 +83,21 @@ anchor deploy --provider.cluster devnet
 - `backend/test-integration-simple.js` - Full integration test
 - `backend/debug-test.js` - Basic connection test
 
+## Bonus Payout Flow (2025-11 Update)
+
+The bonus payout pipeline now enforces the full Squads execution lifecycle before any funds leave the fee wallet.
+
+1. `backend/src/controllers/matchController.ts` only invokes the bonus service after `squadsVaultService.executeProposal` reports success and returns an execution signature. If the signature is missing, the controller logs a warning and skips any bonus attempt.
+2. Execution metadata (`executionSignature`, `proposalExecutedAt`) is passed into `backend/src/services/bonusService.ts`, which now requires:
+   - a non-tie winner
+   - a valid execution signature and timestamp
+   - confirmed pricing data and an unpaid status
+3. When the prerequisites are met, the service transfers the configured bonus from the fee wallet, confirms the transaction, and writes structured logs plus database audit fields (`bonusPaid`, `bonusSignature`, `bonusTier`, etc.).
+4. If any requirement is missing (`missing_execution_signature`, `missing_sol_price`, `invalid_bonus_conversion`, etc.), the service returns early without touching the wallet, making the flow idempotent.
+5. Unit coverage was added in `backend/src/tests/bonusService.test.ts` (run via `npm run test`) to simulate ties, missing execution proof, and successful payouts, ensuring regressions surface quickly.
+
+Reference: Squads multisig execution semantics from https://docs.squads.so state that a vault payout is final only after the 2-of-3 transaction is executed on-chain; the backend now mirrors that contract.
+
 Good luck! 🚀
 
 

@@ -16,6 +16,7 @@ const {
 } = require('./config/corsOrigins');
 
 const app = express();
+app.set('etag', false);
 
 // Trust proxy for rate limiting behind Render/Cloudflare
 app.set('trust proxy', 1);

@@ -2824,6 +2824,15 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     const { matchId } = req.params;
     
     console.log('🔍 Looking up match status for:', matchId);
+
+    const applyNoCacheHeaders = () => {
+      res.set({
+        'Cache-Control': 'no-store, no-cache, must-revalidate, proxy-revalidate',
+        Pragma: 'no-cache',
+        Expires: '0',
+        'Surrogate-Control': 'no-store'
+      });
+    };
     
     // Try to find match in database first
     let match = null;
@@ -2953,12 +2962,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           };
         } else {
           console.log('❌ Match not found in database or Redis matchmaking service');
+          applyNoCacheHeaders();
           return res.status(404).json({ error: 'Match not found' });
         }
       } catch (redisError: unknown) {
         const redisErrorMessage = redisError instanceof Error ? redisError.message : String(redisError);
         console.warn('⚠️ Redis matchmaking service lookup failed:', redisErrorMessage);
         console.log('❌ Match not found in database or Redis');
+        applyNoCacheHeaders();
         return res.status(404).json({ error: 'Match not found' });
       }
     }
@@ -3666,18 +3677,27 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
           if ((match as any).winner && (match as any).winner !== 'tie') {
             try {
-              const bonusResult = await disburseBonusIfEligible({
-                matchId: match.id,
-                winner: (match as any).winner,
-                entryFeeSol: entryFeeSolFallback,
-                entryFeeUsd: entryFeeUsdFallback,
-                solPriceAtTransaction: solPriceAtTransactionFallback,
-                alreadyPaid: bonusAlreadyPaidFallback,
-                existingSignature: bonusSignatureExistingFallback
-              });
+              if (!executeResult.signature) {
+                console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
+                  matchId: match.id,
+                  proposalId: proposalIdString
+                });
+              } else {
+                const bonusResult = await disburseBonusIfEligible({
+                  matchId: match.id,
+                  winner: (match as any).winner,
+                  entryFeeSol: entryFeeSolFallback,
+                  entryFeeUsd: entryFeeUsdFallback,
+                  solPriceAtTransaction: solPriceAtTransactionFallback,
+                  alreadyPaid: bonusAlreadyPaidFallback,
+                  existingSignature: bonusSignatureExistingFallback,
+                  executionSignature: executeResult.signature,
+                  executionTimestamp: (match as any).proposalExecutedAt || new Date(),
+                  executionSlot: executeResult.slot
+                });
 
-              if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
-                await matchRepository.query(`
+                if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+                  await matchRepository.query(`
                   UPDATE "match"
                   SET "bonusPaid" = true,
                       "bonusSignature" = $1,
@@ -3689,31 +3709,32 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                       "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
                   WHERE id = $7
                 `, [
-                  bonusResult.signature,
-                  bonusResult.bonusSol ?? null,
-                  bonusResult.bonusUsd ?? null,
-                  bonusResult.bonusPercent ?? null,
-                  bonusResult.tierId ?? null,
-                  bonusResult.solPriceUsed ?? null,
-                  match.id,
-                ]);
+                    bonusResult.signature,
+                    bonusResult.bonusSol ?? null,
+                    bonusResult.bonusUsd ?? null,
+                    bonusResult.bonusPercent ?? null,
+                    bonusResult.tierId ?? null,
+                    bonusResult.solPriceUsed ?? null,
+                    match.id,
+                  ]);
 
-                (match as any).bonusPaid = true;
-                (match as any).bonusSignature = bonusResult.signature;
-                (match as any).bonusAmount = bonusResult.bonusSol ?? null;
-                (match as any).bonusAmountUSD = bonusResult.bonusUsd ?? null;
-                (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
-                (match as any).bonusTier = bonusResult.tierId ?? null;
-                if (bonusResult.solPriceUsed && !(match as any).solPriceAtTransaction) {
-                  (match as any).solPriceAtTransaction = bonusResult.solPriceUsed;
+                  (match as any).bonusPaid = true;
+                  (match as any).bonusSignature = bonusResult.signature;
+                  (match as any).bonusAmount = bonusResult.bonusSol ?? null;
+                  (match as any).bonusAmountUSD = bonusResult.bonusUsd ?? null;
+                  (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
+                  (match as any).bonusTier = bonusResult.tierId ?? null;
+                  if (bonusResult.solPriceUsed && !(match as any).solPriceAtTransaction) {
+                    (match as any).solPriceAtTransaction = bonusResult.solPriceUsed;
+                  }
+                  (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
+                  (match as any).bonusTier = bonusResult.tierId ?? null;
+                } else if (bonusResult.triggered && !bonusResult.success) {
+                  console.warn('⚠️ Bonus payout attempted in fallback but not successful', {
+                    matchId: match.id,
+                    reason: bonusResult.reason,
+                  });
                 }
-                (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
-                (match as any).bonusTier = bonusResult.tierId ?? null;
-              } else if (bonusResult.triggered && !bonusResult.success) {
-                console.warn('⚠️ Bonus payout attempted in fallback but not successful', {
-                  matchId: match.id,
-                  reason: bonusResult.reason,
-                });
               }
             } catch (bonusError: any) {
               console.error('❌ Error processing bonus payout (fallback)', {
@@ -3744,7 +3765,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
   }
 
-  res.json({
+    applyNoCacheHeaders();
+    res.json({
     status: playerSpecificStatus,
       player1: match.player1,
       player2: match.player2,
@@ -3781,6 +3803,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
   } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
+    applyNoCacheHeaders();
     res.status(500).json({ error: 'Internal server error' });
   }
 };
@@ -5297,107 +5320,23 @@ const confirmPaymentHandler = async (req: any, res: any) => {
     
     // Check if both players have paid
     if (freshMatch.player1Paid && freshMatch.player2Paid) {
-      console.log(`🎮 Both players have paid for match ${matchId}, starting game IMMEDIATELY...`);
-      console.log(`💰 Payment details:`, {
-        matchId,
-        player1: freshMatch.player1,
-        player2: freshMatch.player2,
-        player1Paid: freshMatch.player1Paid,
-        player2Paid: freshMatch.player2Paid,
-        entryFee: freshMatch.entryFee
-      });
-      
-      // Use state machine to transition to active
-      const transitionSuccess = await matchStateMachine.transition(freshMatch, 'active' as any, {
-        action: 'payment_complete',
-        wallet,
-        verificationResult
-      });
+      try {
+        const activationResult = await activateMatchIfReady(matchRepository, freshMatch, wallet, verificationResult);
+        const activatedMatch = activationResult.match;
+        const latestMatchState = await matchRepository.findOne({ where: { id: matchId } });
+        const responseMatch = latestMatchState || activatedMatch;
 
-      if (!transitionSuccess) {
-        console.error('❌ State transition failed for match:', matchId);
+        return res.json({
+          success: true,
+          status: responseMatch?.status || 'active',
+          player1Paid: responseMatch?.player1Paid ?? true,
+          player2Paid: responseMatch?.player2Paid ?? true,
+          message: 'Game started!'
+        });
+      } catch (activationError: any) {
+        console.error('❌ Error activating game after both payments:', activationError?.message || activationError);
         return res.status(500).json({ error: 'Failed to activate game' });
       }
-      
-      // CRITICAL: Always initialize word in database FIRST before creating Redis game state
-      // Database is the source of truth - Redis is just a cache
-      let word: string;
-      if (freshMatch.word) {
-        // Use existing word from database
-        word = freshMatch.word;
-        console.log(`✅ Using existing word from database: ${word}`);
-      } else {
-        // Generate word and save to database FIRST
-        word = getRandomWord();
-      freshMatch.word = word;
-        // Save word to database immediately before creating Redis state
-        await matchRepository.save(freshMatch);
-        console.log(`✅ Generated and saved word to database first: ${word}`);
-      }
-      
-      // Now create Redis game state using word from database
-      const newGameState = {
-        startTime: Date.now(),
-        player1StartTime: Date.now(),
-        player2StartTime: Date.now(),
-        player1Guesses: [],
-        player2Guesses: [],
-        player1Solved: false,
-        player2Solved: false,
-        word: word, // Use word from database (source of truth)
-        matchId: matchId,
-        lastActivity: Date.now(),
-        completed: false
-      };
-      await setGameState(matchId, newGameState);
-      
-      // Verify Redis word matches database word
-      const redisState = await getGameState(matchId);
-      if (redisState && redisState.word !== word) {
-        console.error(`❌ Word mismatch detected! Database: ${word}, Redis: ${redisState.word}`);
-        // Fix Redis to match database
-        redisState.word = word;
-        await setGameState(matchId, redisState);
-        console.log(`✅ Fixed Redis word to match database`);
-      }
-
-          console.log(`🎮 Game started for match ${matchId}`);
-    // Get active games count from Redis
-    const stats = await redisMemoryManager.getInstance().checkMemoryLimits();
-    console.log(`🎮 Active games count: ${stats.activeGames}`);
-      console.log(`🎮 Game state initialized:`, {
-        matchId,
-        word,
-        player1: freshMatch.player1,
-        player2: freshMatch.player2,
-        startTime: Date.now()
-      });
-      
-      // IMMEDIATELY save to database so both players can see the status change
-      await matchRepository.save(freshMatch);
-      console.log(`✅ Match ${matchId} status saved as 'active' - both players will be redirected`);
-      
-      // Send WebSocket event for game started
-      websocketService.broadcastToMatch(matchId, {
-        type: WebSocketEventType.GAME_STARTED,
-        matchId,
-        data: {
-          player1: freshMatch.player1,
-          player2: freshMatch.player2,
-          entryFee: freshMatch.entryFee,
-          startTime: match.gameStartTime
-        },
-        timestamp: new Date().toISOString()
-      });
-      
-      // Return the updated status immediately
-      return res.json({
-        success: true,
-        status: 'active',
-        player1Paid: match.player1Paid,
-        player2Paid: match.player2Paid,
-        message: 'Game started!'
-      });
     } else {
       console.log(`⏳ Waiting for other player to pay for match ${matchId}. Player1Paid: ${match.player1Paid}, Player2Paid: ${match.player2Paid}`);
       
@@ -5478,6 +5417,86 @@ const { matchStateMachine } = require('../services/stateMachine');
 const { paymentVerificationService } = require('../services/paymentVerificationService');
 const { WebSocketEventType } = require('../services/websocketService');
 const { enhancedLogger } = require('../utils/enhancedLogger');
+
+const activateMatchIfReady = async (
+  matchRepository: any,
+  match: any,
+  wallet: string,
+  verificationContext?: any
+) => {
+  if (!match?.player1Paid || !match?.player2Paid) {
+    return { activated: false, match };
+  }
+
+  const transitionSuccess = await matchStateMachine.transition(match, 'active' as any, {
+    action: 'payment_complete',
+    wallet,
+    verificationResult: verificationContext
+  });
+
+  if (!transitionSuccess) {
+    throw new Error(`State transition failed for match ${match.id}`);
+  }
+
+  const { getRandomWord } = require('../wordList');
+
+  let word = match.word;
+  if (!word) {
+    word = getRandomWord();
+    match.word = word;
+  }
+
+  const now = new Date();
+  if (!match.gameStartTime) {
+    match.gameStartTime = now;
+  }
+  if (!match.gameStartTimeUtc) {
+    match.gameStartTimeUtc = now;
+  }
+  match.matchStatus = 'ACTIVE';
+
+  await matchRepository.save(match);
+
+  const newGameState = {
+    startTime: Date.now(),
+    player1StartTime: Date.now(),
+    player2StartTime: Date.now(),
+    player1Guesses: [],
+    player2Guesses: [],
+    player1Solved: false,
+    player2Solved: false,
+    word,
+    matchId: match.id,
+    lastActivity: Date.now(),
+    completed: false
+  };
+
+  await setGameState(match.id, newGameState);
+
+  const redisState = await getGameState(match.id);
+  if (redisState && redisState.word !== word) {
+    redisState.word = word;
+    await setGameState(match.id, redisState);
+  }
+
+  const stats = await redisMemoryManager.getInstance().checkMemoryLimits();
+  console.log(`🎮 Game started for match ${match.id}`);
+  console.log(`🎮 Active games count: ${stats.activeGames}`);
+
+  websocketService.broadcastToMatch(match.id, {
+    type: WebSocketEventType.GAME_STARTED,
+    matchId: match.id,
+    data: {
+      player1: match.player1,
+      player2: match.player2,
+      entryFee: match.entryFee,
+      startTime: match.gameStartTime
+    },
+    timestamp: new Date().toISOString()
+  });
+
+  return { activated: true, match };
+};
 
 // WebSocket stats endpoint
 const websocketStatsHandler = async (req: any, res: any) => {
@@ -7900,131 +7919,83 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         transactionId: result.transactionId
       });
 
-      // Get match from database to update payment status using raw SQL
+      // Update payment status using TypeORM entities for consistency
       const { AppDataSource } = require('../db/index');
       const matchRepository = AppDataSource.getRepository(Match);
-      const matchRows = await matchRepository.query(`
-        SELECT id, "player1", "player2", "player1Paid", "player2Paid", status, "matchStatus"
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
+      const matchEntity = await matchRepository.findOne({ where: { id: matchId } });
 
-      if (!matchRows || matchRows.length === 0) {
-        return res.status(404).json({ 
+      if (!matchEntity) {
+        return res.status(404).json({
           success: false,
-          error: 'Match not found' 
+          error: 'Match not found'
         });
       }
 
-      const match = matchRows[0];
+      const isPlayer1 = playerWallet === matchEntity.player1;
+      if (!isPlayer1 && playerWallet !== matchEntity.player2) {
+        return res.status(403).json({ success: false, error: 'Player not part of this match' });
+      }
 
-      // Determine which player made the deposit
-      const isPlayer1 = playerWallet === match.player1;
-
-      // Mark player as paid using raw SQL
       if (isPlayer1) {
-        await matchRepository.query(`
-          UPDATE "match"
-          SET "player1Paid" = true, "updatedAt" = $1
-          WHERE id = $2
-        `, [new Date(), matchId]);
-        console.log(`✅ Marked Player 1 (${playerWallet}) as paid for match ${matchId}`);
+        matchEntity.player1Paid = true;
+        matchEntity.player1PaymentSignature = depositTxSignature || matchEntity.player1PaymentSignature;
+        matchEntity.player1PaymentTime = new Date();
       } else {
-        await matchRepository.query(`
-          UPDATE "match"
-          SET "player2Paid" = true, "updatedAt" = $1
-          WHERE id = $2
-        `, [new Date(), matchId]);
-        console.log(`✅ Marked Player 2 (${playerWallet}) as paid for match ${matchId}`);
+        matchEntity.player2Paid = true;
+        matchEntity.player2PaymentSignature = depositTxSignature || matchEntity.player2PaymentSignature;
+        matchEntity.player2PaymentTime = new Date();
       }
 
-      // Check if both players have paid - reload match to get updated status
-      const updatedMatchRows = await matchRepository.query(`
-        SELECT "player1Paid", "player2Paid", status, "matchStatus"
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
-      const updatedMatch = updatedMatchRows?.[0];
-      const bothPaid = updatedMatch?.player1Paid && updatedMatch?.player2Paid;
-
-      if (bothPaid) {
-        // Both players have paid - ensure match is active
-        if (updatedMatch.status !== 'active') {
-          console.log(`🎮 Both players have paid for match ${matchId}, activating game...`);
-          
-          // Get word if needed
-          const wordRows = await matchRepository.query(`
-            SELECT word, "gameStartTime"
-            FROM "match"
-            WHERE id = $1
-          `, [matchId]);
-          const currentMatch = wordRows?.[0];
-          
-          let word = currentMatch?.word;
-          if (!word) {
-            const { getRandomWord } = require('../wordList');
-            word = getRandomWord();
-          }
-          
-          const gameStartTime = currentMatch?.gameStartTime || new Date();
-          
-          // Update match using raw SQL
-          await matchRepository.query(`
-            UPDATE "match"
-            SET status = $1,
-                word = COALESCE(word, $2),
-                "gameStartTime" = COALESCE("gameStartTime", $3),
-                "updatedAt" = $4
-            WHERE id = $5
-          `, ['active', word, gameStartTime, new Date(), matchId]);
-        }
+      if (!matchEntity.matchStatus || matchEntity.matchStatus === 'PENDING') {
+        matchEntity.matchStatus = 'PAYMENT_REQUIRED';
       }
 
-      // Reload match one more time to get final status
-      const finalMatchRows = await matchRepository.query(`
-        SELECT "player1Paid", "player2Paid", status
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
-      const finalMatch = finalMatchRows?.[0];
+      await matchRepository.save(matchEntity);
+      console.log(`✅ Marked ${isPlayer1 ? 'Player 1' : 'Player 2'} (${playerWallet}) as paid for match ${matchId}`);
+
+      let activated = false;
+      try {
+        const activationResult = await activateMatchIfReady(matchRepository, matchEntity, playerWallet);
+        activated = activationResult.activated;
+      } catch (activationError: any) {
+        console.error('❌ Error activating game after deposit:', activationError?.message || activationError);
+      }
+
+      const refreshedMatch = await matchRepository.findOne({ where: { id: matchId } });
+      const responseMatch = refreshedMatch || matchEntity;
+      const bothPaid = !!(responseMatch?.player1Paid && responseMatch?.player2Paid);
 
       console.log(`🔍 Payment status for match ${matchId}:`, {
-        player1Paid: finalMatch?.player1Paid,
-        player2Paid: finalMatch?.player2Paid,
-        status: finalMatch?.status,
-        bothPaid
+        player1Paid: responseMatch?.player1Paid,
+        player2Paid: responseMatch?.player2Paid,
+        status: responseMatch?.status,
+        bothPaid,
+        activated
       });
 
-      // Send WebSocket event for payment received
-      try {
-        const { websocketService } = require('../services/websocketService');
-        const { WebSocketEventType } = require('../services/websocketService');
-        websocketService.broadcastToMatch(matchId, {
-          type: WebSocketEventType.PAYMENT_RECEIVED,
-          matchId,
-          data: {
-            player: isPlayer1 ? 'player1' : 'player2',
-            wallet: playerWallet,
-            amount: amount,
-            player1Paid: match.player1Paid,
-            player2Paid: match.player2Paid,
-            status: match.status
-          },
-          timestamp: new Date().toISOString()
-        });
-      } catch (wsError) {
-        console.error('⚠️ Failed to send WebSocket event (non-critical):', wsError);
-      }
+      websocketService.broadcastToMatch(matchId, {
+        type: WebSocketEventType.PAYMENT_RECEIVED,
+        matchId,
+        data: {
+          player: isPlayer1 ? 'player1' : 'player2',
+          wallet: playerWallet,
+          amount,
+          player1Paid: responseMatch?.player1Paid,
+          player2Paid: responseMatch?.player2Paid,
+          status: responseMatch?.status
+        },
+        timestamp: new Date().toISOString()
+      });
 
       res.json({
         success: true,
-        message: 'Deposit verified successfully',
+        message: activated ? 'Game started!' : 'Deposit verified successfully',
         transactionId: result.transactionId,
         matchId,
         playerWallet,
-        player1Paid: match.player1Paid,
-        player2Paid: match.player2Paid,
-        status: match.status,
+        player1Paid: responseMatch?.player1Paid ?? false,
+        player2Paid: responseMatch?.player2Paid ?? false,
+        status: responseMatch?.status ?? matchEntity.status,
         bothPaid
       });
     } else {
@@ -9121,18 +9092,27 @@ const signProposalHandler = async (req: any, res: any) => {
 
             if (matchRow.winner && matchRow.winner !== 'tie') {
               try {
-                const bonusResult = await disburseBonusIfEligible({
-                  matchId,
-                  winner: matchRow.winner,
-                  entryFeeSol,
-                  entryFeeUsd,
-                  solPriceAtTransaction,
-                  alreadyPaid: bonusAlreadyPaid,
-                  existingSignature: bonusSignatureExisting
-                });
+                if (!executeResult.signature) {
+                  console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
+                    matchId,
+                    proposalId: proposalIdString
+                  });
+                } else {
+                  const bonusResult = await disburseBonusIfEligible({
+                    matchId,
+                    winner: matchRow.winner,
+                    entryFeeSol,
+                    entryFeeUsd,
+                    solPriceAtTransaction,
+                    alreadyPaid: bonusAlreadyPaid,
+                    existingSignature: bonusSignatureExisting,
+                    executionSignature: executeResult.signature,
+                    executionTimestamp: matchRow.proposalExecutedAt || new Date(),
+                    executionSlot: executeResult.slot
+                  });
 
-                if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
-                  await matchRepository.query(`
+                  if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+                    await matchRepository.query(`
                     UPDATE "match"
                     SET "bonusPaid" = true,
                         "bonusSignature" = $1,
@@ -9144,29 +9124,30 @@ const signProposalHandler = async (req: any, res: any) => {
                         "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
                     WHERE id = $7
                   `, [
-                    bonusResult.signature,
-                    bonusResult.bonusSol ?? null,
-                    bonusResult.bonusUsd ?? null,
-                    bonusResult.bonusPercent ?? null,
-                    bonusResult.tierId ?? null,
-                    bonusResult.solPriceUsed ?? null,
-                    matchId,
-                  ]);
+                      bonusResult.signature,
+                      bonusResult.bonusSol ?? null,
+                      bonusResult.bonusUsd ?? null,
+                      bonusResult.bonusPercent ?? null,
+                      bonusResult.tierId ?? null,
+                      bonusResult.solPriceUsed ?? null,
+                      matchId,
+                    ]);
 
-                  matchRow.bonusPaid = true;
-                  matchRow.bonusSignature = bonusResult.signature;
-                  matchRow.bonusAmount = bonusResult.bonusSol ?? null;
-                  matchRow.bonusAmountUSD = bonusResult.bonusUsd ?? null;
-                  matchRow.bonusPercent = bonusResult.bonusPercent ?? null;
-                  matchRow.bonusTier = bonusResult.tierId ?? null;
-                  if (bonusResult.solPriceUsed && !matchRow.solPriceAtTransaction) {
-                    matchRow.solPriceAtTransaction = bonusResult.solPriceUsed;
+                    matchRow.bonusPaid = true;
+                    matchRow.bonusSignature = bonusResult.signature;
+                    matchRow.bonusAmount = bonusResult.bonusSol ?? null;
+                    matchRow.bonusAmountUSD = bonusResult.bonusUsd ?? null;
+                    matchRow.bonusPercent = bonusResult.bonusPercent ?? null;
+                    matchRow.bonusTier = bonusResult.tierId ?? null;
+                    if (bonusResult.solPriceUsed && !matchRow.solPriceAtTransaction) {
+                      matchRow.solPriceAtTransaction = bonusResult.solPriceUsed;
+                    }
+                  } else if (bonusResult.triggered && !bonusResult.success) {
+                    console.warn('⚠️ Bonus payout attempted but not successful', {
+                      matchId,
+                      reason: bonusResult.reason,
+                    });
                   }
-                } else if (bonusResult.triggered && !bonusResult.success) {
-                  console.warn('⚠️ Bonus payout attempted but not successful', {
-                    matchId,
-                    reason: bonusResult.reason,
-                  });
                 }
               } catch (bonusError: any) {
                 console.error('❌ Error processing bonus payout', {
