@@ -48,11 +48,11 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '⭐ Most Popular',
     badgeTheme: 'accent',
     headline: 'Balanced stake with strong returns.',
-    incentive: 'Community favourite with a $3 house bonus on every win.',
+    incentive: 'Community favourite with a $0.25 house bonus on every win.',
     cta: 'Join Competitive',
     isPopular: true,
-    bonusUsd: 3,
-    bonusCopy: 'House bonus ignites the pot for added excitement.'
+    bonusUsd: 0.25,
+    bonusCopy: 'House boost keeps the action profitable at higher stakes.'
   },
   {
     id: 'highRoller',
@@ -61,11 +61,11 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '🎯 High Value',
     badgeTheme: 'blue',
     headline: 'Amplify your potential with bigger pots.',
-    incentive: 'Earn leaderboard spotlight with a $12 bonus payout.',
+    incentive: 'Earn leaderboard spotlight with a $0.75 bonus payout.',
     cta: 'Go High Roller',
     isHighValue: true,
-    bonusUsd: 12,
-    bonusCopy: 'Casino-style boost keeps the adrenaline pumping.'
+    bonusUsd: 0.75,
+    bonusCopy: 'Friendly boost from the house when you take bigger swings.'
   },
   {
     id: 'vip',
@@ -74,10 +74,10 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '💎 VIP Elite',
     badgeTheme: 'purple',
     headline: 'Command the biggest pots and bragging rights.',
-    incentive: 'VIP Spotlight plus a $30 bonus straight to your wallet.',
+    incentive: 'VIP Spotlight plus a $1.75 bonus straight to your wallet.',
     cta: 'Claim VIP Seat',
     isPremium: true,
-    bonusUsd: 30,
+    bonusUsd: 1.75,
     bonusCopy: 'Exclusive VIP bonus wired straight from the house.'
   }
 ];

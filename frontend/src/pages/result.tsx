@@ -56,9 +56,9 @@ const normalizeProposalSigners = (value: any): string[] => {
 
 const BONUS_USD_BY_TIER: Record<string, number> = {
   starter: 0,
-  competitive: 3,
-  highRoller: 12,
-  vip: 30
+  competitive: 0.25,
+  highRoller: 0.75,
+  vip: 1.75
 };
 
 const BONUS_LABEL_BY_TIER: Record<string, string> = {
