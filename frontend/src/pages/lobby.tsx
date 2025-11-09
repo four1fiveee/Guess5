@@ -25,7 +25,6 @@ type StakeTier = {
   isHighValue?: boolean;
   isPremium?: boolean;
   bonusUsd: number;
-  bonusCopy: string;
 };
 
 const STAKE_TIERS: StakeTier[] = [
@@ -35,11 +34,10 @@ const STAKE_TIERS: StakeTier[] = [
     title: 'Starter',
     badgeText: '🎮 Entry Tier',
     badgeTheme: 'green',
-    headline: 'Perfect for warm-ups and new players.',
-    incentive: 'Keep your streak alive with low risk.',
+    headline: 'Classic payout without any house boost.',
+    incentive: 'Ideal for warm-up games.',
     cta: 'Play Starter',
-    bonusUsd: 0,
-    bonusCopy: 'Standard payout (no bonus)'
+    bonusUsd: 0
   },
   {
     id: 'competitive',
@@ -47,12 +45,11 @@ const STAKE_TIERS: StakeTier[] = [
     title: 'Competitive',
     badgeText: '⭐ Most Popular',
     badgeTheme: 'accent',
-    headline: 'Balanced stake with strong returns.',
-    incentive: 'Community favourite with a $0.25 house bonus on every win.',
+    headline: 'First tier where we add extra cash.',
+    incentive: 'Take home an extra $0.25 every win.',
     cta: 'Join Competitive',
     isPopular: true,
-    bonusUsd: 0.25,
-    bonusCopy: 'House boost keeps the action profitable at higher stakes.'
+    bonusUsd: 0.25
   },
   {
     id: 'highRoller',
@@ -60,12 +57,11 @@ const STAKE_TIERS: StakeTier[] = [
     title: 'High Roller',
     badgeText: '🎯 High Value',
     badgeTheme: 'blue',
-    headline: 'Amplify your potential with bigger pots.',
-    incentive: 'Earn leaderboard spotlight with a $0.75 bonus payout.',
+    headline: 'Bigger stakes with money added by us.',
+    incentive: 'We top your payout with $0.75 more.',
     cta: 'Go High Roller',
     isHighValue: true,
-    bonusUsd: 0.75,
-    bonusCopy: 'Friendly boost from the house when you take bigger swings.'
+    bonusUsd: 0.75
   },
   {
     id: 'vip',
@@ -73,12 +69,11 @@ const STAKE_TIERS: StakeTier[] = [
     title: 'VIP Elite',
     badgeText: '💎 VIP Elite',
     badgeTheme: 'purple',
-    headline: 'Command the biggest pots and bragging rights.',
-    incentive: 'VIP Spotlight plus a $1.75 bonus straight to your wallet.',
+    headline: 'Maximum pot plus premium house bonus.',
+    incentive: 'Pocket an extra $1.75 on every win.',
     cta: 'Claim VIP Seat',
     isPremium: true,
-    bonusUsd: 1.75,
-    bonusCopy: 'Exclusive VIP bonus wired straight from the house.'
+    bonusUsd: 1.75
   }
 ];
 
@@ -155,7 +150,7 @@ export default function Lobby() {
         bonusUsd,
         bonusSol,
         totalWinSol,
-        roi: Math.round(roiValue),
+        roi: roiValue,
         solPriceUsed: solPrice || null
       }
     })
@@ -727,7 +722,8 @@ export default function Lobby() {
                         )}
 
                         <div className="flex flex-col items-center text-center h-full pt-2">
-                          <div className="uppercase tracking-[0.35em] text-xs text-white/50 mb-3">
+                          <div className="flex flex-col items-center w-full flex-1">
+                            <div className="uppercase tracking-[0.35em] text-xs text-white/50 mb-3">
                             {title}
                           </div>
 
@@ -765,9 +761,8 @@ export default function Lobby() {
                           ></div>
 
                           <div className="mb-4">
-                            <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold flex items-center justify-center gap-2">
-                              <span className="text-base">🎰</span>
-                              <span>Total Payout</span>
+                            <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
+                              Total Payout
                             </div>
                             <div
                               className={`text-2xl sm:text-3xl font-black mb-1 ${
@@ -781,18 +776,13 @@ export default function Lobby() {
                                 Bonus Boost: +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
                               </div>
                             )}
-                            <div className="text-white/50 text-xs">
+                            <div className="text-white/60 text-xs font-semibold">
                               Core pot: ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} pot)
                             </div>
-                            {totalWinSol && (
-                              <div className="text-white/40 text-[11px] mt-1">
-                                ≈ {totalWinSol} SOL total payout
-                              </div>
-                            )}
                           </div>
                           
-                          <div className="text-white/60 text-xs font-semibold mb-3">
-                            ROI on win: +{roi}%
+                          <div className="text-white font-semibold text-sm mb-3">
+                            ROI on win: +{roi.toFixed(2)}%
                           </div>
                           <div className="text-white/70 text-sm font-medium mb-3">
                             {headline}
@@ -800,11 +790,9 @@ export default function Lobby() {
                           <div className="text-accent text-xs font-semibold bg-accent/10 border border-accent/30 px-3 py-2 rounded-lg mb-4">
                             {incentive}
                           </div>
-                          <div className="text-white/50 text-xs italic mb-4">
-                            {bonusCopy}
                           </div>
 
-                          <div className="mt-5 sm:mt-6 w-full">
+                          <div className="w-full mt-auto pt-5 sm:pt-6">
                             {!hasEnoughBalance && walletBalance !== null && (
                               <div className="text-xs text-red-400 font-semibold bg-red-500/10 px-3 py-1.5 rounded-lg border border-red-500/20">
                                 ⚠ Insufficient Balance
