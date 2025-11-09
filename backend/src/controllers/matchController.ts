@@ -25,6 +25,7 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 // Redis-based memory management for 1000 concurrent users
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
+const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
 
 // Helper function to check fee wallet balance
 const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
@@ -108,6 +109,35 @@ const normalizeProposalSigners = (value: any): string[] => {
   }
 
   return [];
+};
+
+const persistExecutionUpdates = async (matchRepository: any, matchId: string, updates: Record<string, any>) => {
+  const entries = Object.entries(updates || {});
+  if (entries.length === 0) {
+    return;
+  }
+
+  const setClauses = entries.map(([key], idx) => `"${key}" = $${idx + 1}`);
+  setClauses.push('"updatedAt" = NOW()');
+
+  const values = entries.map(([, value]) => value);
+  values.push(matchId);
+
+  await matchRepository.query(`
+    UPDATE "match"
+    SET ${setClauses.join(', ')}
+    WHERE id = $${entries.length + 1}
+  `, values);
+};
+
+const applyExecutionUpdatesToMatch = (matchRow: any, updates: Record<string, any>) => {
+  if (!matchRow || !updates) {
+    return;
+  }
+
+  Object.entries(updates).forEach(([key, value]) => {
+    matchRow[key] = value;
+  });
 };
 
 // Memory limit check function using Redis
@@ -3667,6 +3697,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const { getSquadsVaultService } = require('../services/squadsVaultService');
       const { getFeeWalletKeypair } = require('../config/wallet');
       const squadsVaultService = getSquadsVaultService();
+      const matchRepository = AppDataSource.getRepository(Match);
       
       let feeWalletKeypair: any = null;
       try {
@@ -3694,29 +3725,34 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         );
         
         if (executeResult.success) {
+          const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+          const isTieRefund =
+            !!(match as any).tieRefundProposalId &&
+            String((match as any).tieRefundProposalId).trim() === proposalIdString;
+          const isWinnerPayout =
+            !!(match as any).payoutProposalId &&
+            String((match as any).payoutProposalId).trim() === proposalIdString &&
+            (match as any).winner &&
+            (match as any).winner !== 'tie';
+
+          const executionUpdates = buildProposalExecutionUpdates({
+            executedAt,
+            signature: executeResult.signature ?? null,
+            isTieRefund,
+            isWinnerPayout,
+          });
+
+          await persistExecutionUpdates(matchRepository, match.id, executionUpdates);
+          applyExecutionUpdatesToMatch(match as any, executionUpdates);
+
           console.log('✅ Proposal executed successfully (fallback)', {
             matchId: match.id,
             proposalId: proposalIdString,
             executionSignature: executeResult.signature,
+            slot: executeResult.slot,
           });
-          
-          // Update status to EXECUTED
-          const { AppDataSource } = require('../db/index');
-          const matchRepository = AppDataSource.getRepository(Match);
-          await matchRepository.query(`
-            UPDATE "match" 
-            SET "proposalStatus" = 'EXECUTED',
-                "proposalExecutedAt" = NOW(),
-                "proposalTransactionId" = $1
-            WHERE id = $2
-          `, [executeResult.signature, match.id]);
-          
-          // Update match object for response
-          (match as any).proposalStatus = 'EXECUTED';
-          (match as any).proposalExecutedAt = new Date();
-          (match as any).proposalTransactionId = executeResult.signature;
 
-          if ((match as any).winner && (match as any).winner !== 'tie') {
+          if (isWinnerPayout) {
             try {
               if (!executeResult.signature) {
                 console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
@@ -3733,7 +3769,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   alreadyPaid: bonusAlreadyPaidFallback,
                   existingSignature: bonusSignatureExistingFallback,
                   executionSignature: executeResult.signature,
-                  executionTimestamp: (match as any).proposalExecutedAt || new Date(),
+                  executionTimestamp: executedAt,
                   executionSlot: executeResult.slot
                 });
 
@@ -3768,8 +3804,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   if (bonusResult.solPriceUsed && !(match as any).solPriceAtTransaction) {
                     (match as any).solPriceAtTransaction = bonusResult.solPriceUsed;
                   }
-                  (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
-                  (match as any).bonusTier = bonusResult.tierId ?? null;
                 } else if (bonusResult.triggered && !bonusResult.success) {
                   console.warn('⚠️ Bonus payout attempted in fallback but not successful', {
                     matchId: match.id,
@@ -3789,6 +3823,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             matchId: match.id,
             proposalId: proposalIdString,
             error: executeResult.error,
+            logs: executeResult.logs?.slice(-5),
           });
         }
       } else {
@@ -9139,29 +9174,41 @@ const signProposalHandler = async (req: any, res: any) => {
           );
           
           if (executeResult.success) {
+            const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+            const isTieRefund =
+              !!matchRow.tieRefundProposalId &&
+              String(matchRow.tieRefundProposalId).trim() === proposalIdString;
+            const isWinnerPayout =
+              !!matchRow.payoutProposalId &&
+              String(matchRow.payoutProposalId).trim() === proposalIdString &&
+              matchRow.winner &&
+              matchRow.winner !== 'tie';
+
+            const executionUpdates = buildProposalExecutionUpdates({
+              executedAt,
+              signature: executeResult.signature ?? null,
+              isTieRefund,
+              isWinnerPayout,
+            });
+
+            await persistExecutionUpdates(matchRepository, matchId, executionUpdates);
+            applyExecutionUpdatesToMatch(matchRow, executionUpdates);
+            applyExecutionUpdatesToMatch(match as any, executionUpdates);
+            newProposalStatus = 'EXECUTED';
+
             console.log('✅ Proposal executed successfully', {
               matchId,
               proposalId: proposalIdString,
               executionSignature: executeResult.signature,
+              slot: executeResult.slot,
             });
-            
-            // Update status to EXECUTED
-            await matchRepository.query(`
-              UPDATE "match" 
-              SET "proposalStatus" = 'EXECUTED',
-                  "proposalExecutedAt" = NOW(),
-                  "proposalTransactionId" = $1
-              WHERE id = $2
-            `, [executeResult.signature, matchId]);
-            
-            newProposalStatus = 'EXECUTED';
 
-            if (matchRow.winner && matchRow.winner !== 'tie') {
+            if (isWinnerPayout) {
               try {
                 if (!executeResult.signature) {
                   console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
                     matchId,
-                    proposalId: proposalIdString
+                    proposalId: proposalIdString,
                   });
                 } else {
                   const bonusResult = await disburseBonusIfEligible({
@@ -9173,23 +9220,23 @@ const signProposalHandler = async (req: any, res: any) => {
                     alreadyPaid: bonusAlreadyPaid,
                     existingSignature: bonusSignatureExisting,
                     executionSignature: executeResult.signature,
-                    executionTimestamp: matchRow.proposalExecutedAt || new Date(),
-                    executionSlot: executeResult.slot
+                    executionTimestamp: executedAt,
+                    executionSlot: executeResult.slot,
                   });
 
                   if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
                     await matchRepository.query(`
-                    UPDATE "match"
-                    SET "bonusPaid" = true,
-                        "bonusSignature" = $1,
-                        "bonusAmount" = $2,
-                        "bonusAmountUSD" = $3,
-                        "bonusPercent" = $4,
-                        "bonusTier" = $5,
-                        "bonusPaidAt" = NOW(),
-                        "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
-                    WHERE id = $7
-                  `, [
+                      UPDATE "match"
+                      SET "bonusPaid" = true,
+                          "bonusSignature" = $1,
+                          "bonusAmount" = $2,
+                          "bonusAmountUSD" = $3,
+                          "bonusPercent" = $4,
+                          "bonusTier" = $5,
+                          "bonusPaidAt" = NOW(),
+                          "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
+                      WHERE id = $7
+                    `, [
                       bonusResult.signature,
                       bonusResult.bonusSol ?? null,
                       bonusResult.bonusUsd ?? null,
@@ -9208,6 +9255,15 @@ const signProposalHandler = async (req: any, res: any) => {
                     if (bonusResult.solPriceUsed && !matchRow.solPriceAtTransaction) {
                       matchRow.solPriceAtTransaction = bonusResult.solPriceUsed;
                     }
+                    applyExecutionUpdatesToMatch(match as any, {
+                      bonusPaid: true,
+                      bonusSignature: bonusResult.signature,
+                      bonusAmount: bonusResult.bonusSol ?? null,
+                      bonusAmountUSD: bonusResult.bonusUsd ?? null,
+                      bonusPercent: bonusResult.bonusPercent ?? null,
+                      bonusTier: bonusResult.tierId ?? null,
+                      solPriceAtTransaction: bonusResult.solPriceUsed ?? matchRow.solPriceAtTransaction,
+                    });
                   } else if (bonusResult.triggered && !bonusResult.success) {
                     console.warn('⚠️ Bonus payout attempted but not successful', {
                       matchId,
@@ -9227,6 +9283,7 @@ const signProposalHandler = async (req: any, res: any) => {
               matchId,
               proposalId: proposalIdString,
               error: executeResult.error,
+              logs: executeResult.logs?.slice(-5),
             });
             // Don't fail the request - proposal was signed successfully, execution can be retried
             console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');

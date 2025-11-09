@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
 import {
   rpc,
   PROGRAM_ID,
@@ -9,6 +9,7 @@ import {
   getProposalPda,
   accounts,
   types,
+  transactions,
 } from '@sqds/multisig';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getFeeWalletKeypair, getFeeWalletAddress } from '../config/wallet';
@@ -1969,51 +1970,106 @@ export class SquadsVaultService {
     vaultAddress: string,
     proposalId: string,
     executor: Keypair
-  ): Promise<{ success: boolean; signature?: string; error?: string }> {
-    try {
-      const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = BigInt(proposalId);
+  ): Promise<{ success: boolean; signature?: string; slot?: number; executedAt?: string; logs?: string[]; error?: string }> {
+    const multisigAddress = new PublicKey(vaultAddress);
+    const transactionIndex = BigInt(proposalId);
+    enhancedLogger.info('🚀 Executing Squads proposal', {
+      vaultAddress,
+      proposalId,
+      executor: executor.publicKey.toString(),
+    });
 
-      enhancedLogger.info('🚀 Executing Squads proposal', {
-        vaultAddress,
-        proposalId,
-        executor: executor.publicKey.toString(),
-      });
+    const maxAttempts = 2;
+    let lastErrorMessage = '';
+    let lastLogs: string[] | undefined;
 
-      // Use rpc.vaultTransactionExecute to execute the transaction
-      // @ts-ignore - vaultTransactionExecute exists in runtime but not in types
-      const signature = await rpc.vaultTransactionExecute({
-        connection: this.connection,
-        feePayer: executor,
-        multisigPda: multisigAddress,
-        transactionIndex,
-        member: executor.publicKey,
-        programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
-      });
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      let tx: VersionedTransaction | null = null;
+      try {
+        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        tx = await transactions.vaultTransactionExecute({
+          connection: this.connection,
+          blockhash: latestBlockhash.blockhash,
+          feePayer: executor.publicKey,
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: executor.publicKey,
+          programId: this.programId,
+        });
 
-      enhancedLogger.info('✅ Proposal executed successfully', {
-        vaultAddress,
-        proposalId,
-        executor: executor.publicKey.toString(),
-        signature,
-      });
+        tx.sign([executor]);
 
-      return { success: true, signature };
+        const rawTx = tx.serialize();
+        const signature = await this.connection.sendRawTransaction(rawTx, {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
 
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      enhancedLogger.error('❌ Failed to execute proposal', {
-        vaultAddress,
-        proposalId,
-        executor: executor.publicKey.toString(),
-        error: errorMessage,
-      });
+        const confirmation = await this.connection.confirmTransaction(
+          {
+            signature,
+            blockhash: latestBlockhash.blockhash,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          },
+          'confirmed'
+        );
 
-      return {
-        success: false,
-        error: errorMessage,
-      };
+        if (confirmation.value.err) {
+          lastErrorMessage = `Transaction failure: ${JSON.stringify(confirmation.value.err)}`;
+          const insights = await this.collectSimulationLogs(tx);
+          lastLogs = insights.logs;
+          if (insights.errorInfo) {
+            lastErrorMessage += ` | Simulation error: ${insights.errorInfo}`;
+          }
+          break;
+        }
+
+        const executedAt = new Date();
+        enhancedLogger.info('✅ Proposal executed successfully', {
+          vaultAddress,
+          proposalId,
+          executor: executor.publicKey.toString(),
+          signature,
+          slot: confirmation.context.slot,
+        });
+
+        return {
+          success: true,
+          signature,
+          slot: confirmation.context.slot,
+          executedAt: executedAt.toISOString(),
+        };
+      } catch (rawError: unknown) {
+        const { message, logs } = await this.buildExecutionErrorDetails(tx, rawError);
+        lastErrorMessage = message;
+        lastLogs = logs;
+
+        if (attempt === 0 && this.shouldRetryWithFreshBlockhash(rawError)) {
+          enhancedLogger.warn('🔄 Retrying Squads proposal execution with a fresh blockhash', {
+            vaultAddress,
+            proposalId,
+            reason: lastErrorMessage,
+          });
+          continue;
+        }
+
+        break;
+      }
     }
+
+    enhancedLogger.error('❌ Failed to execute proposal', {
+      vaultAddress,
+      proposalId,
+      executor: executor.publicKey.toString(),
+      error: lastErrorMessage,
+      logs: lastLogs?.slice(-5),
+    });
+
+    return {
+      success: false,
+      error: lastErrorMessage || 'Unknown execution error',
+      logs: lastLogs,
+    };
   }
 
   /**
@@ -2574,6 +2630,71 @@ export class SquadsVaultService {
         timeoutMs / 1000
       }s`
     );
+  }
+
+  private shouldRetryWithFreshBlockhash(error: unknown): boolean {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message) {
+      return false;
+    }
+    const normalized = message.toLowerCase();
+    return normalized.includes('blockhash not found') ||
+      normalized.includes('transaction expired') ||
+      normalized.includes('expired blockhash') ||
+      normalized.includes('slot is behind');
+  }
+
+  private async buildExecutionErrorDetails(
+    tx: VersionedTransaction | null,
+    rawError: unknown
+  ): Promise<{ message: string; logs?: string[] }> {
+    let message = rawError instanceof Error ? rawError.message : String(rawError);
+    let logs: string[] | undefined;
+
+    const errorLogs = (rawError as any)?.logs;
+    if (Array.isArray(errorLogs)) {
+      logs = errorLogs;
+    }
+
+    if (tx) {
+      try {
+        const insights = await this.collectSimulationLogs(tx);
+        if (insights.logs && insights.logs.length > 0) {
+          logs = insights.logs;
+        }
+        if (insights.errorInfo) {
+          message = `${message} | Simulation error: ${insights.errorInfo}`;
+        }
+      } catch (simulationError: unknown) {
+        const simMessage = simulationError instanceof Error ? simulationError.message : String(simulationError);
+        enhancedLogger.warn('⚠️ Simulation failed while diagnosing execution error', {
+          error: simMessage,
+        });
+      }
+    }
+
+    return { message, logs };
+  }
+
+  private async collectSimulationLogs(tx: VersionedTransaction): Promise<{ logs?: string[]; errorInfo?: string }> {
+    const simulation = await this.connection.simulateTransaction(tx, {
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+    });
+
+    let errorInfo: string | undefined;
+
+    if (simulation.value.err) {
+      errorInfo = JSON.stringify(simulation.value.err);
+      enhancedLogger.warn('⚠️ Simulation reported an error during execution diagnostics', {
+        error: errorInfo,
+      });
+    }
+
+    return {
+      logs: simulation.value.logs ?? undefined,
+      errorInfo,
+    };
   }
 }
 
