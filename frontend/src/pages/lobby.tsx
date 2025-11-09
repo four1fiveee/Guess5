@@ -597,6 +597,13 @@ export default function Lobby() {
                               try {
                                 const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
                                 
+                                console.log('🧾 Attempting to sign pending refund', {
+                                  matchId: oldestRefund.matchId,
+                                  wallet: publicKey.toString(),
+                                  refundAmount: oldestRefund.refundAmount || oldestRefund.entryFee,
+                                  proposalId: oldestRefund.proposalId,
+                                });
+                                
                                 const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${oldestRefund.matchId}&wallet=${publicKey.toString()}`);
                                 
                                 if (!getTxResponse.ok) {
@@ -619,6 +626,11 @@ export default function Lobby() {
                                 const serialized = signedTx.serialize();
                                 const base64Tx = Buffer.from(serialized).toString('base64');
                                 
+                                console.log('📤 Submitting signed refund proposal to backend', {
+                                  matchId: oldestRefund.matchId,
+                                  wallet: publicKey.toString(),
+                                  serializedLength: serialized.length,
+                                });
                                 const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
                                   method: 'POST',
                                   headers: {
@@ -636,7 +648,12 @@ export default function Lobby() {
                                   throw new Error(errorData.error || errorData.details || 'Failed to sign proposal');
                                 }
                                 
-                                console.log('✅ Refund proposal signed successfully');
+                                const responseJson = await response.json().catch(() => ({}));
+                                console.log('✅ Refund proposal signed successfully', {
+                                  matchId: oldestRefund.matchId,
+                                  wallet: publicKey.toString(),
+                                  response: responseJson,
+                                });
                                 await checkPendingClaims();
                                 alert(`✅ Refund proposal signed! ${pendingClaims.pendingRefunds.length - 1 > 0 ? `You have ${pendingClaims.pendingRefunds.length - 1} more refund(s) to sign.` : 'All refunds signed!'}`);
                               } catch (err) {

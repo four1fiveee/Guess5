@@ -384,6 +384,13 @@ const Result: React.FC = () => {
       const matchId = router.query.matchId as string;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       
+      console.log('🖊️ Preparing to sign proposal', {
+        matchId,
+        wallet: publicKey.toString(),
+        proposalId: payoutData.proposalId,
+        vaultAddress: payoutData.vaultAddress,
+      });
+      
       // Step 1: Get the transaction from backend
       const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${matchId}&wallet=${publicKey.toString()}`);
       
@@ -408,6 +415,12 @@ const Result: React.FC = () => {
       const base64Tx = Buffer.from(serialized).toString('base64');
       
       // Step 5: Send to backend to submit
+      console.log('📤 Submitting signed proposal to backend', {
+        matchId,
+        wallet: publicKey.toString(),
+        proposalId: payoutData.proposalId,
+        serializedLength: serialized.length,
+      });
       const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
         method: 'POST',
         headers: {
@@ -426,7 +439,12 @@ const Result: React.FC = () => {
       }
       
       const result = await response.json();
-      console.log('✅ Proposal signed successfully:', result);
+      console.log('✅ Proposal signed successfully', {
+        matchId,
+        wallet: publicKey.toString(),
+        proposalId: payoutData.proposalId,
+        response: result,
+      });
       
       // Refresh payout data
       if (matchId && publicKey) {

@@ -8501,6 +8501,15 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
     // Verify player hasn't already signed
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
+    
+    console.log('🔐 Current proposal signer snapshot (pre-processing)', {
+      matchId,
+      wallet,
+      proposalId: proposalIdString,
+      proposalStatus: matchRow.proposalStatus,
+      needsSignatures: matchRow.needsSignatures,
+      existingSigners: signers,
+    });
 
     if (signers.includes(wallet)) {
       return res.status(400).json({ error: 'You have already signed this proposal' });
@@ -9073,6 +9082,12 @@ const signProposalHandler = async (req: any, res: any) => {
     try {
       // Add wallet to signers list
       signers.push(wallet);
+      console.log('🧾 Recording new proposal signature', {
+        matchId,
+        proposalId: proposalIdString,
+        newSigner: wallet,
+        updatedSigners: signers,
+      });
       const updatedSignersJson = JSON.stringify(signers);
     
     // Update needsSignatures count
@@ -9167,6 +9182,13 @@ const signProposalHandler = async (req: any, res: any) => {
         }
 
         if (feeWalletKeypair) {
+          console.log('⚙️ Executing proposal with signer summary', {
+            matchId,
+            proposalId: proposalIdString,
+            signers,
+            needsSignaturesBeforeExecute: newNeedsSignatures,
+            proposalStatusBeforeExecute: newProposalStatus,
+          });
           const executeResult = await squadsVaultService.executeProposal(
             matchRow.squadsVaultAddress,
             proposalIdString,
@@ -9283,6 +9305,8 @@ const signProposalHandler = async (req: any, res: any) => {
               matchId,
               proposalId: proposalIdString,
               error: executeResult.error,
+              signers,
+              needsSignatures: newNeedsSignatures,
               logs: executeResult.logs?.slice(-5),
             });
             // Don't fail the request - proposal was signed successfully, execution can be retried
