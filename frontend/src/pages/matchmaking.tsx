@@ -1226,7 +1226,7 @@ const Matchmaking: React.FC = () => {
             status === 'opponent_left') && (
             <div className="animate-fade-in">
               {(() => {
-                const tone = cancellationContext?.tone ?? 'info';
+                const tone = (cancellationContext?.tone ?? 'info') as keyof typeof toneStyles;
                 const toneStyles: Record<
                   'info' | 'warning' | 'success',
                   { icon: string; heading: string; border: string; background: string }
