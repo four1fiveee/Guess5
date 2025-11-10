@@ -9272,28 +9272,60 @@ const signProposalHandler = async (req: any, res: any) => {
         rawError: confirmError,
         signature,
       });
+      let statusHandled = false;
+      let statusStringForError: string | null = null;
       try {
         const statusResponse = await connection.getSignatureStatuses([signature], {
           searchTransactionHistory: true,
         });
         const status = statusResponse?.value?.[0] || null;
-        if (status && !status.err) {
-          console.warn('⚠️ confirmTransaction threw, but signature is confirmed via getSignatureStatuses', {
-            signature,
-            confirmationStatus: status.confirmationStatus,
-            slot: status.slot,
-          });
-          confirmation = {
-            context: { slot: status.slot || 0 },
-            value: { err: null },
-          } as any;
+        if (status) {
+          if (!status.err) {
+            console.warn('⚠️ confirmTransaction threw, but signature is confirmed via getSignatureStatuses', {
+              signature,
+              confirmationStatus: status.confirmationStatus,
+              slot: status.slot,
+            });
+            confirmation = {
+              context: { slot: status.slot || 0 },
+              value: { err: null },
+            } as any;
+            statusHandled = true;
+          } else {
+            const statusErrString = stringifySafe(status.err);
+            if (statusErrString.includes('"Custom":6008')) {
+              approvalSkippedDueToReady = true;
+              console.warn('⚠️ confirmTransaction threw, but status indicates proposal already ready/executed', {
+                matchId,
+                wallet,
+                signature,
+                proposalId: proposalIdString,
+                statusErr: status.err,
+                confirmationStatus: status.confirmationStatus,
+                slot: status.slot,
+              });
+              confirmation = {
+                context: { slot: status.slot || 0 },
+                value: { err: status.err },
+              } as any;
+              statusHandled = true;
+            } else {
+              statusStringForError = stringifySafe(status);
+            }
+          }
         } else {
-          const statusString = status ? stringifySafe(status) : 'null';
-          throw new Error(`Failed to confirm transaction: ${formattedError} | status: ${statusString}`);
+          statusStringForError = 'null';
         }
       } catch (statusError: any) {
-        const formattedStatusError = formatError(statusError);
-        throw new Error(`Failed to confirm transaction: ${formattedError} | statusError: ${formattedStatusError}`);
+        if (!statusHandled) {
+          const formattedStatusError = formatError(statusError);
+          throw new Error(`Failed to confirm transaction: ${formattedError} | statusError: ${formattedStatusError}`);
+        }
+      }
+
+      if (!statusHandled) {
+        const statusString = statusStringForError ?? 'null';
+        throw new Error(`Failed to confirm transaction: ${formattedError} | status: ${statusString}`);
       }
     }
     
