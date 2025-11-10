@@ -9348,20 +9348,46 @@ const signProposalHandler = async (req: any, res: any) => {
             });
           } else {
             feeWalletApprovalError = approveResult.error || 'Unknown error';
-            console.error('❌ Fee wallet auto-approval failed', {
-              matchId,
-              proposalId: proposalIdString,
-              error: approveResult.error,
-            });
+            const lowerError = (feeWalletApprovalError || '').toLowerCase();
+            if (lowerError.includes('invalid proposal status') || lowerError.includes('6008')) {
+              console.warn('⚠️ Fee wallet auto-approval skipped (already ready to execute)', {
+                matchId,
+                proposalId: proposalIdString,
+                error: feeWalletApprovalError,
+              });
+              // Ensure we treat fee wallet as a signer since the proposal is already ready to execute
+              signers.push(feeWalletAddress);
+            } else {
+              console.error('❌ Fee wallet auto-approval failed', {
+                matchId,
+                proposalId: proposalIdString,
+                error: approveResult.error,
+              });
+            }
           }
         } catch (autoApproveError: any) {
           feeWalletApprovalError = autoApproveError?.message || String(autoApproveError);
-          console.warn('⚠️ Fee wallet auto-approval unavailable', {
-            matchId,
-            proposalId: proposalIdString,
-            error: feeWalletApprovalError,
-          });
+          const lowerError = (feeWalletApprovalError || '').toLowerCase();
+          if (lowerError.includes('invalid proposal status') || lowerError.includes('6008')) {
+            console.warn('⚠️ Fee wallet auto-approval unavailable (already ready to execute)', {
+              matchId,
+              proposalId: proposalIdString,
+              error: feeWalletApprovalError,
+            });
+            signers.push(feeWalletAddress);
+          } else {
+            console.warn('⚠️ Fee wallet auto-approval unavailable', {
+              matchId,
+              proposalId: proposalIdString,
+              error: feeWalletApprovalError,
+            });
+          }
         }
+      }
+
+      // Ensure our local signer list reflects the system signature added during proposal creation.
+      if (!signers.includes(feeWalletAddress)) {
+        signers.push(feeWalletAddress);
       }
 
       const uniqueSigners = Array.from(new Set(signers));
