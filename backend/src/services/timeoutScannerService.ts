@@ -350,7 +350,8 @@ export class TimeoutScannerService {
               new PublicKey(winner),
               winnerAmount,
               new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-              feeAmount
+            feeAmount,
+            updatedMatch.squadsVaultPda ?? undefined
             );
 
             if (proposalResult.success) {
@@ -485,7 +486,8 @@ export class TimeoutScannerService {
           match.squadsVaultAddress!,
           new (require('@solana/web3.js').PublicKey)(match.player1),
           new (require('@solana/web3.js').PublicKey)(match.player2),
-          match.entryFee
+          match.entryFee,
+          match.squadsVaultPda ?? undefined
         );
 
         if (refundResult.success) {
@@ -545,10 +547,12 @@ export class TimeoutScannerService {
       // Check if both players have paid
       if (match.player1Paid && match.player2Paid) {
         // Both players paid, but game didn't start - refund both
-// @ts-ignore
         const refundResult = await squadsVaultService.proposeTieRefund(
-          match.id,
-          'GAME_START_TIMEOUT'
+          match.squadsVaultAddress!,
+          new (require('@solana/web3.js').PublicKey)(match.player1),
+          new (require('@solana/web3.js').PublicKey)(match.player2),
+          match.entryFee,
+          match.squadsVaultPda ?? undefined
         );
 
         if (refundResult.success) {
@@ -570,11 +574,13 @@ export class TimeoutScannerService {
           });
         }
       } else {
-// @ts-ignore
         // One or both players didn't pay - refund those who did
         const refundResult = await squadsVaultService.proposeTieRefund(
-          match.id,
-          'DEPOSIT_TIMEOUT'
+          match.squadsVaultAddress!,
+          new (require('@solana/web3.js').PublicKey)(match.player1),
+          new (require('@solana/web3.js').PublicKey)(match.player2),
+          match.entryFee,
+          match.squadsVaultPda ?? undefined
         );
 
         if (refundResult.success) {

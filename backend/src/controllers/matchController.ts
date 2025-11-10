@@ -2000,7 +2000,8 @@ const submitResultHandler = async (req: any, res: any) => {
                 new PublicKey(winner),
                 winnerAmount,
                 new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount
+                feeAmount,
+                updatedMatch.squadsVaultPda ?? undefined
               );
               
               if (proposalResult.success) {
@@ -2345,7 +2346,8 @@ const submitResultHandler = async (req: any, res: any) => {
                 new PublicKey(winner),
                 winnerAmount,
                 new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount
+                feeAmount,
+                updatedMatch.squadsVaultPda ?? undefined
               );
               
               if (proposalResult.success) {
@@ -2499,7 +2501,8 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.squadsVaultAddress,
                 new PublicKey(updatedMatch.player1),
                 new PublicKey(updatedMatch.player2),
-                refundAmount
+                refundAmount,
+                updatedMatch.squadsVaultPda ?? undefined
               );
               
               if (refundResult.success) {
@@ -2724,7 +2727,8 @@ const submitResultHandler = async (req: any, res: any) => {
                       (finalMatch as any).squadsVaultAddress,
                       new PublicKey(finalMatch.player1),
                       new PublicKey(finalMatch.player2),
-                      refundAmount
+                      refundAmount,
+                      (finalMatch as any).squadsVaultPda ?? undefined
                     );
 
                     if (proposalResult.success && proposalResult.proposalId) {
@@ -2808,7 +2812,8 @@ const submitResultHandler = async (req: any, res: any) => {
                     new PublicKey(winner),
                     winnerAmount,
                     new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                    feeAmount
+                    feeAmount,
+                    (updatedMatch as any).squadsVaultPda ?? undefined
                   );
 
                   if (proposalResult.success && proposalResult.proposalId) {
@@ -2835,7 +2840,8 @@ const submitResultHandler = async (req: any, res: any) => {
                       (updatedMatch as any).squadsVaultAddress,
                       new PublicKey(updatedMatch.player1),
                       new PublicKey(updatedMatch.player2),
-                      refundAmount
+                    refundAmount,
+                    (updatedMatch as any).squadsVaultPda ?? undefined
                     );
 
                     if (proposalResult.success && proposalResult.proposalId) {
@@ -3263,7 +3269,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   new PublicKey(winner),
                   winnerAmount,
                   new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                  feeAmount
+                  feeAmount,
+                  (match as any).squadsVaultPda ?? undefined
                 );
 
                 if (proposalResult.success) {
@@ -3296,7 +3303,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     (match as any).squadsVaultAddress,
                     new PublicKey(match.player1),
                     new PublicKey(match.player2),
-                    refundAmount
+                    refundAmount,
+                    (match as any).squadsVaultPda ?? undefined
                   );
 
                   if (proposalResult.success && proposalResult.proposalId) {
@@ -3516,7 +3524,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             new PublicKey(winner),
             winnerAmount,
             new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-            feeAmount
+            feeAmount,
+            (freshMatch as any).squadsVaultPda ?? undefined
           );
           
           if (proposalResult.success && proposalResult.proposalId) {
@@ -3638,7 +3647,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 (freshMatch as any).squadsVaultAddress,
                 new PublicKey(freshMatch.player1),
                 new PublicKey(freshMatch.player2),
-                refundAmount
+                refundAmount,
+                (freshMatch as any).squadsVaultPda ?? undefined
               );
               
               if (proposalResult.success && proposalResult.proposalId) {
@@ -6144,7 +6154,8 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
           matchRow.squadsVaultAddress,
           new PublicKey(matchRow.player1),
           new PublicKey(matchRow.player2),
-          matchRow.entryFee
+          matchRow.entryFee,
+          matchRow.squadsVaultPda ?? undefined
         );
         
         if (tieResult?.proposalId) {
@@ -6175,7 +6186,8 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
           new PublicKey(winner),
           winnerAmount,
           new PublicKey(FEE_WALLET_ADDRESS),
-          feeAmount
+        feeAmount,
+        matchRow.squadsVaultPda ?? undefined
         );
         
         if (payoutResult?.proposalId) {

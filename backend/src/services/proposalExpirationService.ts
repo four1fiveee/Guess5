@@ -156,7 +156,8 @@ export class ProposalExpirationService {
         match.squadsVaultAddress,
         new PublicKey(match.player1),
         new PublicKey(match.player2),
-        refundAmount
+        refundAmount,
+        match.squadsVaultPda ?? undefined
       );
 
       if (refundProposal.success) {
@@ -229,7 +230,8 @@ export class ProposalExpirationService {
         match.squadsVaultAddress,
         new PublicKey(match.player1),
         new PublicKey(match.player2),
-        entryFee // Each player gets this amount back
+        entryFee, // Each player gets this amount back
+        match.squadsVaultPda ?? undefined
       );
 
       if (refundProposal.success) {

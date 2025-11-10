@@ -57,7 +57,8 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         new PublicKey(winner),
         winnerAmount,
         new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-        feeAmount
+    feeAmount,
+    match.squadsVaultPda ?? undefined
       );
 
       if (proposalResult.success && proposalResult.proposalId) {
@@ -97,7 +98,8 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         match.squadsVaultAddress,
         new PublicKey(match.player1),
         new PublicKey(match.player2),
-        refundAmount
+    refundAmount,
+    match.squadsVaultPda ?? undefined
       );
 
       if (proposalResult.success && proposalResult.proposalId) {

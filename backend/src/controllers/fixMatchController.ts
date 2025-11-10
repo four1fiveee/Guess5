@@ -89,7 +89,8 @@ async function fixTieProposal(req: Request, res: Response) {
       match.squadsVaultAddress,
       new PublicKey(match.player1),
       new PublicKey(match.player2),
-      refundAmount
+    refundAmount,
+    match.squadsVaultPda ?? undefined
     );
     
     if (!proposalResult.success || !proposalResult.proposalId) {
