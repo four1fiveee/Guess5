@@ -284,6 +284,7 @@ const periodicCleanup = async () => {
   try {
     console.log('🧹 Running periodic cleanup...');
     const { AppDataSource } = require('../db/index');
+    const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Clean up matches older than 10 minutes using raw SQL to avoid proposalExpiresAt column
@@ -8714,6 +8715,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
     // Verify player hasn't already signed
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
+    const feeWalletAddress =
+      typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
     
     console.log('🔐 Current proposal signer snapshot (pre-processing)', {
       matchId,
