@@ -608,7 +608,7 @@ const Matchmaking: React.FC = () => {
                 return updated;
               });
 
-              const normalizedStatus = data.status as typeof status;
+              const normalizedStatus = data.status as string;
 
               if (normalizedStatus === 'active') {
                 setStatus('active');
