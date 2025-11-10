@@ -8719,6 +8719,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
     const feeWalletAddress =
       typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
+    const feeWalletAddress =
+      typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
     
     console.log('🔐 Current proposal signer snapshot (pre-processing)', {
       matchId,
