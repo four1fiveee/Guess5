@@ -178,6 +178,219 @@ const applyExecutionUpdatesToMatch = (matchRow: any, updates: Record<string, any
   });
 };
 
+const attemptAutoExecuteIfReady = async (
+  match: any,
+  matchRepository: any,
+  context: string
+): Promise<boolean> => {
+  try {
+    if (!match || !matchRepository) {
+      return false;
+    }
+
+    const proposalIdRaw =
+      (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    if (!proposalIdRaw) {
+      return false;
+    }
+
+    const proposalIdString = String(proposalIdRaw).trim();
+    const proposalStatus = ((match as any).proposalStatus || '').toUpperCase();
+    const remainingSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
+
+    if (proposalStatus === 'EXECUTED' || proposalStatus === 'CANCELLED') {
+      return false;
+    }
+
+    if (remainingSignatures > 0) {
+      return false;
+    }
+
+    if (!(match as any).squadsVaultAddress) {
+      return false;
+    }
+
+    const feeWalletData = require('../config/wallet');
+    const feeWalletAddress =
+      typeof feeWalletData.getFeeWalletAddress === 'function'
+        ? feeWalletData.getFeeWalletAddress()
+        : feeWalletData.FEE_WALLET_ADDRESS;
+
+    const proposalSigners = normalizeProposalSigners((match as any).proposalSigners);
+    const hasFeeWalletSignature =
+      !!feeWalletAddress &&
+      proposalSigners.some(
+        (signer) => signer && signer.toLowerCase() === feeWalletAddress.toLowerCase()
+      );
+
+    const playerSigners = proposalSigners.filter(
+      (signer) =>
+        signer &&
+        (!feeWalletAddress || signer.toLowerCase() !== feeWalletAddress.toLowerCase())
+    );
+
+    if (!hasFeeWalletSignature || playerSigners.length === 0) {
+      return false;
+    }
+
+    let feeWalletKeypair: any = null;
+    try {
+      feeWalletKeypair = feeWalletData.getFeeWalletKeypair();
+    } catch (keypairError: any) {
+      enhancedLogger.warn('⚠️ Fee wallet keypair unavailable, cannot auto-execute proposal right now', {
+        matchId: match.id,
+        proposalId: proposalIdString,
+        context,
+        error: keypairError?.message || String(keypairError),
+      });
+      return false;
+    }
+
+    const executeResult = await squadsVaultService.executeProposal(
+      (match as any).squadsVaultAddress,
+      proposalIdString,
+      feeWalletKeypair
+    );
+
+    if (!executeResult.success) {
+      enhancedLogger.error('❌ Auto-execute attempt failed', {
+        matchId: match.id,
+        proposalId: proposalIdString,
+        context,
+        error: executeResult.error,
+        logs: executeResult.logs?.slice(-5),
+      });
+      return false;
+    }
+
+    const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+    const isTieRefund =
+      !!(match as any).tieRefundProposalId &&
+      String((match as any).tieRefundProposalId).trim() === proposalIdString;
+    const isWinnerPayout =
+      !!(match as any).payoutProposalId &&
+      String((match as any).payoutProposalId).trim() === proposalIdString &&
+      (match as any).winner &&
+      (match as any).winner !== 'tie';
+
+    const executionUpdates = buildProposalExecutionUpdates({
+      executedAt,
+      signature: executeResult.signature ?? null,
+      isTieRefund,
+      isWinnerPayout,
+    });
+
+    await persistExecutionUpdates(matchRepository, match.id, executionUpdates);
+    applyExecutionUpdatesToMatch(match as any, executionUpdates);
+
+    enhancedLogger.info('✅ Proposal auto-executed after readiness check', {
+      matchId: match.id,
+      proposalId: proposalIdString,
+      context,
+      playerSigners,
+      executionSignature: executeResult.signature,
+      slot: executeResult.slot,
+    });
+
+    if (isWinnerPayout) {
+      try {
+        if (!executeResult.signature) {
+          enhancedLogger.warn('⚠️ Skipping bonus payout (auto-execute) because execution signature is missing', {
+            matchId: match.id,
+            proposalId: proposalIdString,
+            context,
+          });
+        } else {
+          const entryFeeSol = (match as any).entryFee ? Number((match as any).entryFee) : 0;
+          const entryFeeUsd = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
+          const solPriceAtTransaction = (match as any).solPriceAtTransaction
+            ? Number((match as any).solPriceAtTransaction)
+            : undefined;
+          const bonusAlreadyPaid = (match as any).bonusPaid === true;
+          const bonusSignatureExisting = (match as any).bonusSignature || null;
+
+          const bonusResult = await disburseBonusIfEligible({
+            matchId: match.id,
+            winner: (match as any).winner,
+            entryFeeSol,
+            entryFeeUsd,
+            solPriceAtTransaction,
+            alreadyPaid: bonusAlreadyPaid,
+            existingSignature: bonusSignatureExisting,
+            executionSignature: executeResult.signature,
+            executionTimestamp: executedAt,
+            executionSlot: executeResult.slot,
+          });
+
+          if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "bonusPaid" = true,
+                  "bonusSignature" = $1,
+                  "bonusAmount" = $2,
+                  "bonusAmountUSD" = $3,
+                  "bonusPercent" = $4,
+                  "bonusTier" = $5,
+                  "bonusPaidAt" = NOW(),
+                  "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
+              WHERE id = $7
+            `, [
+              bonusResult.signature,
+              bonusResult.bonusSol ?? null,
+              bonusResult.bonusUsd ?? null,
+              bonusResult.bonusPercent ?? null,
+              bonusResult.tierId ?? null,
+              bonusResult.solPriceUsed ?? null,
+              match.id,
+            ]);
+
+            applyExecutionUpdatesToMatch(match as any, {
+              bonusPaid: true,
+              bonusSignature: bonusResult.signature,
+              bonusAmount: bonusResult.bonusSol ?? null,
+              bonusAmountUSD: bonusResult.bonusUsd ?? null,
+              bonusPercent: bonusResult.bonusPercent ?? null,
+              bonusTier: bonusResult.tierId ?? null,
+              solPriceAtTransaction:
+                bonusResult.solPriceUsed ?? (match as any).solPriceAtTransaction,
+            });
+
+            enhancedLogger.info('✅ Bonus payout executed after auto-execute', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              context,
+              bonusSignature: bonusResult.signature,
+            });
+          } else if (bonusResult.triggered && !bonusResult.success) {
+            enhancedLogger.warn('⚠️ Bonus payout attempted but unsuccessful after auto-execute', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              context,
+              reason: bonusResult.reason,
+            });
+          }
+        }
+      } catch (bonusError: any) {
+        enhancedLogger.error('❌ Error processing bonus payout after auto-execute', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          context,
+          error: bonusError?.message || String(bonusError),
+        });
+      }
+    }
+
+    return true;
+  } catch (error: unknown) {
+    enhancedLogger.error('❌ Auto-execute readiness check failed', {
+      matchId: match?.id,
+      context,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return false;
+  }
+};
+
 // Memory limit check function using Redis
 const checkMemoryLimits = async () => {
   try {
@@ -2979,9 +3192,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     // Try to find match in database first
     let match = null;
+    let matchRepository: any = null;
     try {
       const { AppDataSource } = require('../db/index');
-      const matchRepository = AppDataSource.getRepository(Match);
+      matchRepository = AppDataSource.getRepository(Match);
       // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
       const matchRows = await matchRepository.query(`
         SELECT 
@@ -3182,6 +3396,17 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr)
       });
       // Don't throw - allow the response to continue
+    }
+
+    if (match && matchRepository) {
+      try {
+        await attemptAutoExecuteIfReady(match, matchRepository, 'status_poll');
+      } catch (autoExecuteError: unknown) {
+        enhancedLogger.error('❌ Auto-execute readiness check errored during status poll', {
+          matchId: match?.id,
+          error: autoExecuteError instanceof Error ? autoExecuteError.message : String(autoExecuteError),
+        });
+      }
     }
 
     // Check if this match already has results for the requesting player
