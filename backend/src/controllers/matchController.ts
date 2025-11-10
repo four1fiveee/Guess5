@@ -9474,6 +9474,8 @@ const signProposalHandler = async (req: any, res: any) => {
         feeWalletApprovalError,
       });
       const updatedSignersJson = JSON.stringify(uniqueSigners);
+      const persistedNeedsSignatures =
+        newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures);
       
       // Update database using raw SQL
       await matchRepository.query(`
@@ -9482,234 +9484,184 @@ const signProposalHandler = async (req: any, res: any) => {
             "needsSignatures" = $2,
             "proposalStatus" = $3
         WHERE id = $4
-      `, [updatedSignersJson, newNeedsSignatures, newProposalStatus, matchId]);
+      `, [updatedSignersJson, persistedNeedsSignatures, newProposalStatus, matchId]);
     
       const finalSigners = uniqueSigners;
       matchRow.proposalSigners = updatedSignersJson;
       matchRow.needsSignatures = newNeedsSignatures;
       matchRow.proposalStatus = newProposalStatus;
+      console.log('🔐 Post-update signer summary', {
+        matchId,
+        proposalId: proposalIdString,
+        finalSigners,
+        newNeedsSignatures,
+        persistedNeedsSignatures,
+        newProposalStatus,
+      });
 
       if (newNeedsSignatures === 0) {
-        // Check if proposal has executed on-chain (since Squads may auto-execute with enough signatures)
         try {
-        const { Connection, PublicKey } = require('@solana/web3.js');
-        const connection = new Connection(
-          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-          'confirmed'
-        );
-        
-        // Get the transaction PDA to check if it's been executed
-        const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
-        const transactionIndex = BigInt(proposalIdString);
-        
-        // Derive transaction PDA using the same method as getProposalApprovalTransactionHandler
-        const { PROGRAM_ID, getTransactionPda } = require('@sqds/multisig');
-        let programId;
-        try {
-          if (process.env.SQUADS_PROGRAM_ID) {
+          console.log('⚙️ All required signatures collected; attempting proposal execution', {
+            matchId,
+            proposalId: proposalIdString,
+            finalSigners,
+          });
+          let feeWalletKeypair: any = cachedFeeWalletKeypair;
+          if (!feeWalletKeypair) {
             try {
-              programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
-            } catch (pkError: any) {
-              programId = PROGRAM_ID;
+              feeWalletKeypair = getFeeWalletKeypair();
+            } catch (keypairError: any) {
+              console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+                matchId,
+                proposalId: proposalIdString,
+                error: keypairError?.message || String(keypairError),
+              });
             }
-          } else {
-            programId = PROGRAM_ID;
           }
-        } catch (progIdError: any) {
-          console.error('❌ Failed to get program ID for execution check:', progIdError?.message);
-          // Continue without execution check if program ID fails
-          programId = PROGRAM_ID;
-        }
-        
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: transactionIndex,
-          programId,
-        });
-        console.log('✅ Transaction PDA for execution check:', transactionPda.toString());
-        
-        // Check if transaction exists and get execution details
-        const transactionAccount = await connection.getAccountInfo(transactionPda);
-        if (!transactionAccount) {
-          // Transaction has been executed (account no longer exists)
-          console.log('✅ Proposal executed - transaction account no longer exists');
-          
-          // Update status to EXECUTED
-          await matchRepository.query(`
-            UPDATE "match" 
-            SET "proposalStatus" = 'EXECUTED',
-                "proposalExecutedAt" = COALESCE("proposalExecutedAt", NOW())
-            WHERE id = $1
-          `, [matchId]);
-          newProposalStatus = 'EXECUTED';
-        } else {
-          // Transaction still exists, not executed yet - EXECUTE IT NOW
-          console.log('🚀 Proposal is ready to execute - executing now...');
-          
-          try {
-        let feeWalletKeypair: any = cachedFeeWalletKeypair;
-        if (!feeWalletKeypair) {
-          try {
-            feeWalletKeypair = getFeeWalletKeypair();
-          } catch (keypairError: any) {
-            console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+
+          if (feeWalletKeypair) {
+            console.log('🚀 Executing proposal with signer summary', {
               matchId,
               proposalId: proposalIdString,
-              error: keypairError?.message || String(keypairError),
-            });
-          }
-        }
-
-        if (feeWalletKeypair) {
-          console.log('⚙️ Executing proposal with signer summary', {
-            matchId,
-            proposalId: proposalIdString,
-            signers: finalSigners,
-            needsSignaturesBeforeExecute: newNeedsSignatures,
-            proposalStatusBeforeExecute: newProposalStatus,
-          });
-          const executeResult = await squadsVaultService.executeProposal(
-            matchRow.squadsVaultAddress,
-            proposalIdString,
-            feeWalletKeypair
-          );
-          
-          if (executeResult.success) {
-            const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
-            const isTieRefund =
-              !!matchRow.tieRefundProposalId &&
-              String(matchRow.tieRefundProposalId).trim() === proposalIdString;
-            const isWinnerPayout =
-              !!matchRow.payoutProposalId &&
-              String(matchRow.payoutProposalId).trim() === proposalIdString &&
-              matchRow.winner &&
-              matchRow.winner !== 'tie';
-
-            const executionUpdates = buildProposalExecutionUpdates({
-              executedAt,
-              signature: executeResult.signature ?? null,
-              isTieRefund,
-              isWinnerPayout,
-            });
-
-            await persistExecutionUpdates(matchRepository, matchId, executionUpdates);
-            applyExecutionUpdatesToMatch(matchRow, executionUpdates);
-            applyExecutionUpdatesToMatch(match as any, executionUpdates);
-            newProposalStatus = 'EXECUTED';
-
-            console.log('✅ Proposal executed successfully', {
-              matchId,
-              proposalId: proposalIdString,
-              executionSignature: executeResult.signature,
-              slot: executeResult.slot,
-            });
-
-            if (isWinnerPayout) {
-              try {
-                if (!executeResult.signature) {
-                  console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
-                    matchId,
-                    proposalId: proposalIdString,
-                  });
-                } else {
-                  const bonusResult = await disburseBonusIfEligible({
-                    matchId,
-                    winner: matchRow.winner,
-                    entryFeeSol,
-                    entryFeeUsd,
-                    solPriceAtTransaction,
-                    alreadyPaid: bonusAlreadyPaid,
-                    existingSignature: bonusSignatureExisting,
-                    executionSignature: executeResult.signature,
-                    executionTimestamp: executedAt,
-                    executionSlot: executeResult.slot,
-                  });
-
-                  if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
-                    await matchRepository.query(`
-                      UPDATE "match"
-                      SET "bonusPaid" = true,
-                          "bonusSignature" = $1,
-                          "bonusAmount" = $2,
-                          "bonusAmountUSD" = $3,
-                          "bonusPercent" = $4,
-                          "bonusTier" = $5,
-                          "bonusPaidAt" = NOW(),
-                          "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
-                      WHERE id = $7
-                    `, [
-                      bonusResult.signature,
-                      bonusResult.bonusSol ?? null,
-                      bonusResult.bonusUsd ?? null,
-                      bonusResult.bonusPercent ?? null,
-                      bonusResult.tierId ?? null,
-                      bonusResult.solPriceUsed ?? null,
-                      matchId,
-                    ]);
-
-                    matchRow.bonusPaid = true;
-                    matchRow.bonusSignature = bonusResult.signature;
-                    matchRow.bonusAmount = bonusResult.bonusSol ?? null;
-                    matchRow.bonusAmountUSD = bonusResult.bonusUsd ?? null;
-                    matchRow.bonusPercent = bonusResult.bonusPercent ?? null;
-                    matchRow.bonusTier = bonusResult.tierId ?? null;
-                    if (bonusResult.solPriceUsed && !matchRow.solPriceAtTransaction) {
-                      matchRow.solPriceAtTransaction = bonusResult.solPriceUsed;
-                    }
-                    applyExecutionUpdatesToMatch(match as any, {
-                      bonusPaid: true,
-                      bonusSignature: bonusResult.signature,
-                      bonusAmount: bonusResult.bonusSol ?? null,
-                      bonusAmountUSD: bonusResult.bonusUsd ?? null,
-                      bonusPercent: bonusResult.bonusPercent ?? null,
-                      bonusTier: bonusResult.tierId ?? null,
-                      solPriceAtTransaction: bonusResult.solPriceUsed ?? matchRow.solPriceAtTransaction,
-                    });
-                  } else if (bonusResult.triggered && !bonusResult.success) {
-                    console.warn('⚠️ Bonus payout attempted but not successful', {
-                      matchId,
-                      reason: bonusResult.reason,
-                    });
-                  }
-                }
-              } catch (bonusError: any) {
-                console.error('❌ Error processing bonus payout', {
-                  matchId,
-                  error: bonusError?.message || String(bonusError),
-                });
-              }
-            }
-          } else {
-            console.error('❌ Failed to execute proposal', {
-              matchId,
-              proposalId: proposalIdString,
-              error: executeResult.error,
               signers: finalSigners,
-              needsSignatures: newNeedsSignatures,
-              logs: executeResult.logs?.slice(-5),
+              needsSignaturesBeforeExecute: newNeedsSignatures,
+              proposalStatusBeforeExecute: newProposalStatus,
             });
-            // Don't fail the request - proposal was signed successfully, execution can be retried
-            console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
-          }
-        } else {
-          console.warn('⚠️ Skipping automatic execution because fee wallet keypair is not configured', {
-            matchId,
-            proposalId: proposalIdString,
-          });
+            const executeResult = await squadsVaultService.executeProposal(
+              matchRow.squadsVaultAddress,
+              proposalIdString,
+              feeWalletKeypair
+            );
+
+            if (executeResult.success) {
+              const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+              const isTieRefund =
+                !!matchRow.tieRefundProposalId &&
+                String(matchRow.tieRefundProposalId).trim() === proposalIdString;
+              const isWinnerPayout =
+                !!matchRow.payoutProposalId &&
+                String(matchRow.payoutProposalId).trim() === proposalIdString &&
+                matchRow.winner &&
+                matchRow.winner !== 'tie';
+
+              const executionUpdates = buildProposalExecutionUpdates({
+                executedAt,
+                signature: executeResult.signature ?? null,
+                isTieRefund,
+                isWinnerPayout,
+              });
+
+              await persistExecutionUpdates(matchRepository, matchId, executionUpdates);
+              applyExecutionUpdatesToMatch(matchRow, executionUpdates);
+              applyExecutionUpdatesToMatch(match as any, executionUpdates);
+              newProposalStatus = 'EXECUTED';
+
+              console.log('✅ Proposal executed successfully', {
+                matchId,
+                proposalId: proposalIdString,
+                executionSignature: executeResult.signature,
+                slot: executeResult.slot,
+              });
+
+              if (isWinnerPayout) {
+                try {
+                  if (!executeResult.signature) {
+                    console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
+                      matchId,
+                      proposalId: proposalIdString,
+                    });
+                  } else {
+                    const bonusResult = await disburseBonusIfEligible({
+                      matchId,
+                      winner: matchRow.winner,
+                      entryFeeSol,
+                      entryFeeUsd,
+                      solPriceAtTransaction,
+                      alreadyPaid: bonusAlreadyPaid,
+                      existingSignature: bonusSignatureExisting,
+                      executionSignature: executeResult.signature,
+                      executionTimestamp: executedAt,
+                      executionSlot: executeResult.slot,
+                    });
+
+                    if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+                      await matchRepository.query(`
+                        UPDATE "match"
+                        SET "bonusPaid" = true,
+                            "bonusSignature" = $1,
+                            "bonusAmount" = $2,
+                            "bonusAmountUSD" = $3,
+                            "bonusPercent" = $4,
+                            "bonusTier" = $5,
+                            "bonusPaidAt" = NOW(),
+                            "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
+                        WHERE id = $7
+                      `, [
+                        bonusResult.signature,
+                        bonusResult.bonusSol ?? null,
+                        bonusResult.bonusUsd ?? null,
+                        bonusResult.bonusPercent ?? null,
+                        bonusResult.tierId ?? null,
+                        bonusResult.solPriceUsed ?? null,
+                        matchId,
+                      ]);
+
+                      matchRow.bonusPaid = true;
+                      matchRow.bonusSignature = bonusResult.signature;
+                      matchRow.bonusAmount = bonusResult.bonusSol ?? null;
+                      matchRow.bonusAmountUSD = bonusResult.bonusUsd ?? null;
+                      matchRow.bonusPercent = bonusResult.bonusPercent ?? null;
+                      matchRow.bonusTier = bonusResult.tierId ?? null;
+                      if (bonusResult.solPriceUsed && !matchRow.solPriceAtTransaction) {
+                        matchRow.solPriceAtTransaction = bonusResult.solPriceUsed;
+                      }
+                      applyExecutionUpdatesToMatch(match as any, {
+                        bonusPaid: true,
+                        bonusSignature: bonusResult.signature,
+                        bonusAmount: bonusResult.bonusSol ?? null,
+                        bonusAmountUSD: bonusResult.bonusUsd ?? null,
+                        bonusPercent: bonusResult.bonusPercent ?? null,
+                        bonusTier: bonusResult.tierId ?? null,
+                        solPriceAtTransaction: bonusResult.solPriceUsed ?? matchRow.solPriceAtTransaction,
+                      });
+                    } else if (bonusResult.triggered && !bonusResult.success) {
+                      console.warn('⚠️ Bonus payout attempted but not successful', {
+                        matchId,
+                        reason: bonusResult.reason,
+                      });
+                    }
+                  }
+                } catch (bonusError: any) {
+                  console.error('❌ Error processing bonus payout', {
+                    matchId,
+                    error: bonusError?.message || String(bonusError),
+                  });
+                }
+              }
+            } else {
+              console.error('❌ Failed to execute proposal', {
+                matchId,
+                proposalId: proposalIdString,
+                error: executeResult.error,
+                signers: finalSigners,
+                needsSignatures: newNeedsSignatures,
+                logs: executeResult.logs?.slice(-5),
+              });
+              console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
             }
-          } catch (executeError: any) {
-            console.error('❌ Error executing proposal', {
+          } else {
+            console.warn('⚠️ Skipping automatic execution because fee wallet keypair is not configured', {
               matchId,
               proposalId: proposalIdString,
-              error: executeError?.message || String(executeError),
             });
-            // Don't fail the request - proposal was signed successfully, execution can be retried
-            console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
           }
-    }
-        } catch (executionCheckError: any) {
-          console.error('❌ Error checking proposal execution:', executionCheckError);
-          // Continue - transaction was already submitted successfully
+        } catch (executeError: any) {
+          console.error('❌ Error executing proposal', {
+            matchId,
+            proposalId: proposalIdString,
+            error: executeError?.message || String(executeError),
+          });
+          console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
         }
       } else {
         console.log('⏳ Proposal still awaiting additional signatures before execution', {
@@ -9726,7 +9678,7 @@ const signProposalHandler = async (req: any, res: any) => {
       console.log('✅ Match updated with signer:', {
         matchId,
         wallet,
-        needsSignatures: normalizeRequiredSignatures(newNeedsSignatures),
+        needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
         proposalStatus: newProposalStatus,
       });
       
@@ -9740,7 +9692,7 @@ const signProposalHandler = async (req: any, res: any) => {
           type: 'proposal_signed',
           matchId: matchId,
           signer: wallet,
-          needsSignatures: normalizeRequiredSignatures(newNeedsSignatures),
+          needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
           proposalStatus: newProposalStatus,
           message: 'Opponent has signed the transaction'
         };
@@ -9777,7 +9729,7 @@ const signProposalHandler = async (req: any, res: any) => {
       message: 'Proposal signed successfully',
       signature,
       proposalId: proposalIdString,
-      needsSignatures: normalizeRequiredSignatures(newNeedsSignatures),
+      needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
       proposalStatus: newProposalStatus,
     });
 
