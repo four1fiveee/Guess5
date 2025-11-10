@@ -2011,7 +2011,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = proposalResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
+                updatedMatch.needsSignatures = proposalResult.needsSignatures || 2; // Require player + fee wallet signatures
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // CRITICAL: Set proposal expiration (30 minutes after creation)
@@ -2192,7 +2192,7 @@ const submitResultHandler = async (req: any, res: any) => {
             updateValues.push((updatedMatch as any).proposalCreatedAt);
           }
           updateFields.push('"needsSignatures" = $' + (updateValues.length + 1));
-          updateValues.push((updatedMatch as any).needsSignatures || 1);
+          updateValues.push((updatedMatch as any).needsSignatures || 2);
             console.log('✅ Preserving proposal fields in final save (solved case):', {
             matchId,
             proposalId: (updatedMatch as any).payoutProposalId,
@@ -2357,7 +2357,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = proposalResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE'; // CRITICAL: Set proposalStatus for frontend
-                updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
+                updatedMatch.needsSignatures = proposalResult.needsSignatures || 2; // Require player + fee wallet signatures
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // IMPORTANT: Save the match with proposal information
@@ -2512,7 +2512,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = refundResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.needsSignatures = 1; // Only 1 signature needed total between both players
+                updatedMatch.needsSignatures = proposalResult.needsSignatures || 2; // Require player + fee wallet signatures
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // Save the match with proposal information
@@ -2608,7 +2608,7 @@ const submitResultHandler = async (req: any, res: any) => {
               (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
               (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
               (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-              (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 1;
+                (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
               console.log('✅ Preserving proposal fields in final save:', {
                 matchId: finalMatch.id,
                 proposalId: (finalMatch as any).payoutProposalId,
@@ -2698,7 +2698,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     (finalMatch as any).payoutProposalId = proposalResult.proposalId;
                     (finalMatch as any).proposalCreatedAt = new Date();
                     (finalMatch as any).proposalStatus = 'ACTIVE';
-                    (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
+                    (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 2;
                     await matchRepository.save(finalMatch);
                     console.log('✅ Winner payout proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                   } else {
@@ -2736,7 +2736,7 @@ const submitResultHandler = async (req: any, res: any) => {
                       (finalMatch as any).tieRefundProposalId = proposalResult.proposalId;
                       (finalMatch as any).proposalCreatedAt = new Date();
                       (finalMatch as any).proposalStatus = 'ACTIVE';
-                      (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
+                      (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 2;
                       await matchRepository.save(finalMatch);
                       console.log('✅ Tie refund proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                     } else {
@@ -2821,7 +2821,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         UPDATE "match"
                         SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3, "needsSignatures" = $4, "updatedAt" = $5
                         WHERE id = $6
-                      `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 1, new Date(), updatedMatch.id]);
+                      `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 2, new Date(), updatedMatch.id]);
                     console.log('✅ Winner payout proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                   }
                 } else {
@@ -2849,7 +2849,7 @@ const submitResultHandler = async (req: any, res: any) => {
                           UPDATE "match"
                           SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "updatedAt" = $6
                           WHERE id = $7
-                        `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 1, new Date(), updatedMatch.id]);
+                        `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 2, new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                     }
                     }
@@ -3277,7 +3277,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   (match as any).payoutProposalId = proposalResult.proposalId;
                   (match as any).proposalCreatedAt = new Date();
                   (match as any).proposalStatus = 'ACTIVE';
-                  (match as any).needsSignatures = proposalResult.needsSignatures || 1; // System auto-signs, so 1 more needed
+                  (match as any).needsSignatures = proposalResult.needsSignatures || 2; // System auto-signs, so 1 more needed
                   await matchRepository.save(match);
                   console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId });
                 }
@@ -3312,7 +3312,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     (match as any).tieRefundProposalId = proposalResult.proposalId;
                     (match as any).proposalCreatedAt = new Date();
                     (match as any).proposalStatus = 'ACTIVE';
-                    (match as any).needsSignatures = proposalResult.needsSignatures || 1; // System auto-signs, so 1 more needed
+                    (match as any).needsSignatures = proposalResult.needsSignatures || 2; // System auto-signs, so 1 more needed
                     
                     // CRITICAL: Set proposal expiration (30 minutes after creation)
                     const { proposalExpirationService } = require('../services/proposalExpirationService');
@@ -3537,13 +3537,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   "proposalCreatedAt" = NOW(),
                   "needsSignatures" = $3
               WHERE id = $4
-            `, [proposalResult.proposalId, 'ACTIVE', proposalResult.needsSignatures || 1, freshMatch.id]);
+            `, [proposalResult.proposalId, 'ACTIVE', proposalResult.needsSignatures || 2, freshMatch.id]);
             
             // Update match object
             (match as any).payoutProposalId = proposalResult.proposalId;
             (match as any).proposalStatus = 'ACTIVE';
             (match as any).proposalCreatedAt = new Date();
-            (match as any).needsSignatures = proposalResult.needsSignatures || 1;
+            (match as any).needsSignatures = proposalResult.needsSignatures || 2;
             
             console.log('✅ FINAL FALLBACK: Winner payout proposal created and saved successfully', {
               matchId: freshMatch.id,
@@ -3657,7 +3657,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 (freshMatch as any).tieRefundProposalId = proposalResult.proposalId;
                 (freshMatch as any).proposalCreatedAt = new Date();
                 (freshMatch as any).proposalStatus = 'ACTIVE';
-                (freshMatch as any).needsSignatures = proposalResult.needsSignatures || 1;
+                (freshMatch as any).needsSignatures = proposalResult.needsSignatures || 2;
                 
                 // Ensure match is marked as completed
                 if (!freshMatch.isCompleted) {
@@ -3732,7 +3732,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     try {
       const { getSquadsVaultService } = require('../services/squadsVaultService');
-      const { getFeeWalletKeypair } = require('../config/wallet');
+      const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS } = require('../config/wallet');
       const squadsVaultService = getSquadsVaultService();
       const matchRepository = AppDataSource.getRepository(Match);
       
@@ -3745,16 +3745,75 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           error: keypairError?.message || String(keypairError),
         });
       }
-      
+
       const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
       const proposalIdString = String(proposalId).trim();
+      
+      const feeWalletAddress =
+        typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : FEE_WALLET_ADDRESS;
+      const proposalSigners = normalizeProposalSigners((match as any).proposalSigners);
+      let autoApproved = false;
+      let feeWalletApprovalError: string | null = null;
+
+      if (!proposalSigners.includes(feeWalletAddress) && feeWalletKeypair) {
+        try {
+          const approveResult = await squadsVaultService.approveProposal(
+            (match as any).squadsVaultAddress,
+            proposalIdString,
+            feeWalletKeypair
+          );
+
+          if (approveResult.success) {
+            autoApproved = true;
+            proposalSigners.push(feeWalletAddress);
+            const updatedSignersJson = JSON.stringify(Array.from(new Set(proposalSigners)));
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "proposalSigners" = $1,
+                  "needsSignatures" = 0
+              WHERE id = $2
+            `, [updatedSignersJson, match.id]);
+            (match as any).proposalSigners = updatedSignersJson;
+            (match as any).needsSignatures = 0;
+            console.log('✅ Fallback auto-approval from fee wallet recorded', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              signature: approveResult.signature,
+            });
+          } else {
+            feeWalletApprovalError = approveResult.error || 'Unknown error';
+            console.error('❌ Fallback fee wallet auto-approval failed', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              error: approveResult.error,
+            });
+          }
+        } catch (autoApproveError: any) {
+          feeWalletApprovalError = autoApproveError?.message || String(autoApproveError);
+          console.warn('⚠️ Fallback fee wallet auto-approval unavailable', {
+            matchId: match.id,
+            proposalId: proposalIdString,
+            error: feeWalletApprovalError,
+          });
+        }
+      }
+
+      const finalProposalSigners = Array.from(new Set(proposalSigners));
+      const hasFeeWalletSignature = finalProposalSigners.includes(feeWalletAddress);
       const entryFeeSolFallback = (match as any).entryFee ? Number((match as any).entryFee) : 0;
       const entryFeeUsdFallback = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
       const solPriceAtTransactionFallback = (match as any).solPriceAtTransaction ? Number((match as any).solPriceAtTransaction) : undefined;
       const bonusAlreadyPaidFallback = (match as any).bonusPaid === true;
       const bonusSignatureExistingFallback = (match as any).bonusSignature || null;
       
-      if (feeWalletKeypair) {
+      if (!hasFeeWalletSignature) {
+        console.warn('⚠️ Skipping fallback execution because fee wallet signature is still missing', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          proposalSigners: finalProposalSigners,
+          feeWalletApprovalError,
+        });
+      } else if (feeWalletKeypair) {
         const executeResult = await squadsVaultService.executeProposal(
           (match as any).squadsVaultAddress,
           proposalIdString,
@@ -3787,6 +3846,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             proposalId: proposalIdString,
             executionSignature: executeResult.signature,
             slot: executeResult.slot,
+            signers: finalProposalSigners,
+            autoApproved,
           });
 
           if (isWinnerPayout) {
@@ -3860,6 +3921,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             matchId: match.id,
             proposalId: proposalIdString,
             error: executeResult.error,
+            proposalSigners: finalProposalSigners,
+            feeWalletAutoApproved: autoApproved,
             logs: executeResult.logs?.slice(-5),
           });
         }
@@ -3867,6 +3930,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         console.warn('⚠️ Skipping automatic proposal execution (fallback) because fee wallet keypair is not configured', {
           matchId: match.id,
           proposalId: proposalIdString,
+          proposalSigners: finalProposalSigners,
         });
       }
     } catch (executeError: any) {
@@ -6053,6 +6117,12 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
     }
     
     const matchRow = matchRows[0];
+
+    const { getSquadsVaultService } = require('../services/squadsVaultService');
+    const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS } = require('../config/wallet');
+    const squadsVaultService = getSquadsVaultService();
+    const feeWalletAddress =
+      typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : FEE_WALLET_ADDRESS;
     
     if (!matchRow.squadsVaultAddress) {
       return res.status(400).json({ error: 'Match has no vault address' });
@@ -9151,27 +9221,75 @@ const signProposalHandler = async (req: any, res: any) => {
     // Update match with new signer
     let newNeedsSignatures = 0;
     let newProposalStatus = 'READY_TO_EXECUTE';
+    let cachedFeeWalletKeypair: any = null;
+    let feeWalletAutoApproved = false;
+    let feeWalletApprovalError: string | null = null;
 
     try {
+      const hadFeeWalletSignature = signers.includes(feeWalletAddress);
+
       // Add wallet to signers list
       signers.push(wallet);
+
+      if (!hadFeeWalletSignature) {
+        try {
+          cachedFeeWalletKeypair = getFeeWalletKeypair();
+          console.log('🤝 Auto-approving proposal with fee wallet', {
+            matchId,
+            proposalId: proposalIdString,
+            feeWallet: cachedFeeWalletKeypair.publicKey.toString(),
+          });
+          const approveResult = await squadsVaultService.approveProposal(
+            matchRow.squadsVaultAddress,
+            proposalIdString,
+            cachedFeeWalletKeypair
+          );
+
+          if (approveResult.success) {
+            feeWalletAutoApproved = true;
+            signers.push(feeWalletAddress);
+            console.log('✅ Fee wallet auto-approved proposal', {
+              matchId,
+              proposalId: proposalIdString,
+              signature: approveResult.signature,
+            });
+          } else {
+            feeWalletApprovalError = approveResult.error || 'Unknown error';
+            console.error('❌ Fee wallet auto-approval failed', {
+              matchId,
+              proposalId: proposalIdString,
+              error: approveResult.error,
+            });
+          }
+        } catch (autoApproveError: any) {
+          feeWalletApprovalError = autoApproveError?.message || String(autoApproveError);
+          console.warn('⚠️ Fee wallet auto-approval unavailable', {
+            matchId,
+            proposalId: proposalIdString,
+            error: feeWalletApprovalError,
+          });
+        }
+      }
+
+      const uniqueSigners = Array.from(new Set(signers));
+      const currentNeedsSignatures = matchRow.needsSignatures || 2;
+      newNeedsSignatures = Math.max(0, currentNeedsSignatures - 1);
+      if (uniqueSigners.includes(feeWalletAddress)) {
+        newNeedsSignatures = Math.max(0, newNeedsSignatures - 1);
+      }
+      newProposalStatus = newNeedsSignatures === 0 ? 'READY_TO_EXECUTE' : 'ACTIVE';
+
       console.log('🧾 Recording new proposal signature', {
         matchId,
         proposalId: proposalIdString,
         newSigner: wallet,
-        updatedSigners: signers,
+        updatedSigners: uniqueSigners,
+        feeWalletAutoApproved,
+        newNeedsSignatures,
+        newProposalStatus,
+        feeWalletApprovalError,
       });
-      const updatedSignersJson = JSON.stringify(signers);
-    
-    // Update needsSignatures count
-      // Only ONE signature needed total between both players
-      // After first signature, set to 0 and mark as ready to execute
-      const currentNeedsSignatures = matchRow.needsSignatures || 1;
-      newNeedsSignatures = 0; // After first signature, proposal is ready
-      
-      // Mark as ready to execute since we only need 1 signature
-      // Will be updated to 'EXECUTED' if execution succeeds
-      newProposalStatus = 'READY_TO_EXECUTE';
+      const updatedSignersJson = JSON.stringify(uniqueSigners);
       
       // Update database using raw SQL
       await matchRepository.query(`
@@ -9182,8 +9300,14 @@ const signProposalHandler = async (req: any, res: any) => {
         WHERE id = $4
       `, [updatedSignersJson, newNeedsSignatures, newProposalStatus, matchId]);
     
-      // Check if proposal has executed on-chain (since Squads may auto-execute with 1 signature)
-      try {
+      const finalSigners = uniqueSigners;
+      matchRow.proposalSigners = updatedSignersJson;
+      matchRow.needsSignatures = newNeedsSignatures;
+      matchRow.proposalStatus = newProposalStatus;
+
+      if (newNeedsSignatures === 0) {
+        // Check if proposal has executed on-chain (since Squads may auto-execute with enough signatures)
+        try {
         const { Connection, PublicKey } = require('@solana/web3.js');
         const connection = new Connection(
           process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
@@ -9239,26 +9363,24 @@ const signProposalHandler = async (req: any, res: any) => {
           console.log('🚀 Proposal is ready to execute - executing now...');
           
           try {
-        const { getSquadsVaultService } = require('../services/squadsVaultService');
-        const { getFeeWalletKeypair } = require('../config/wallet');
-        const squadsVaultService = getSquadsVaultService();
-
-        let feeWalletKeypair: any = null;
-        try {
-          feeWalletKeypair = getFeeWalletKeypair();
-        } catch (keypairError: any) {
-          console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
-            matchId,
-            proposalId: proposalIdString,
-            error: keypairError?.message || String(keypairError),
-          });
+        let feeWalletKeypair: any = cachedFeeWalletKeypair;
+        if (!feeWalletKeypair) {
+          try {
+            feeWalletKeypair = getFeeWalletKeypair();
+          } catch (keypairError: any) {
+            console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+              matchId,
+              proposalId: proposalIdString,
+              error: keypairError?.message || String(keypairError),
+            });
+          }
         }
 
         if (feeWalletKeypair) {
           console.log('⚙️ Executing proposal with signer summary', {
             matchId,
             proposalId: proposalIdString,
-            signers,
+            signers: finalSigners,
             needsSignaturesBeforeExecute: newNeedsSignatures,
             proposalStatusBeforeExecute: newProposalStatus,
           });
@@ -9378,7 +9500,7 @@ const signProposalHandler = async (req: any, res: any) => {
               matchId,
               proposalId: proposalIdString,
               error: executeResult.error,
-              signers,
+              signers: finalSigners,
               needsSignatures: newNeedsSignatures,
               logs: executeResult.logs?.slice(-5),
             });
@@ -9401,9 +9523,20 @@ const signProposalHandler = async (req: any, res: any) => {
             console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
           }
     }
-      } catch (executionCheckError: any) {
-        console.error('❌ Error checking proposal execution:', executionCheckError);
-        // Continue - transaction was already submitted successfully
+        } catch (executionCheckError: any) {
+          console.error('❌ Error checking proposal execution:', executionCheckError);
+          // Continue - transaction was already submitted successfully
+        }
+      } else {
+        console.log('⏳ Proposal still awaiting additional signatures before execution', {
+          matchId,
+          proposalId: proposalIdString,
+          currentSigners: finalSigners,
+          newNeedsSignatures,
+          proposalStatus: newProposalStatus,
+          feeWalletAutoApproved,
+          feeWalletApprovalError,
+        });
       }
       
       console.log('✅ Match updated with signer:', {

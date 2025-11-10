@@ -65,7 +65,7 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         (match as any).payoutProposalId = proposalResult.proposalId;
         (match as any).proposalCreatedAt = new Date();
         (match as any).proposalStatus = 'ACTIVE';
-        (match as any).needsSignatures = proposalResult.needsSignatures || 1;
+        (match as any).needsSignatures = proposalResult.needsSignatures || 2;
         
         // Save match with proposal ID
         const matchRepository = AppDataSource.getRepository(Match);
@@ -107,7 +107,7 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         (match as any).tieRefundProposalId = proposalResult.proposalId;
         (match as any).proposalCreatedAt = new Date();
         (match as any).proposalStatus = 'ACTIVE';
-        (match as any).needsSignatures = proposalResult.needsSignatures || 1;
+        (match as any).needsSignatures = proposalResult.needsSignatures || 2;
         
         // Save match with proposal ID
         const matchRepository = AppDataSource.getRepository(Match);
