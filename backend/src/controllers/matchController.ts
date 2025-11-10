@@ -9252,6 +9252,7 @@ const signProposalHandler = async (req: any, res: any) => {
 
     // Wait for confirmation
     let confirmation;
+    let approvalSkippedDueToReady = false;
     try {
       console.log('⏳ Waiting for transaction confirmation...');
       confirmation = await connection.confirmTransaction(signature, 'confirmed');
@@ -9294,22 +9295,44 @@ const signProposalHandler = async (req: any, res: any) => {
     
     if (confirmation.value.err) {
       const errorDetails = JSON.stringify(confirmation.value.err);
-      console.error('❌ Transaction failed on-chain:', {
-        signature,
-        error: errorDetails,
-        slot: confirmation.context.slot,
-      });
-      throw new Error(`Transaction failed: ${errorDetails}`);
+      if (errorDetails.includes('"Custom":6008')) {
+        approvalSkippedDueToReady = true;
+        console.warn('⚠️ Proposal approval skipped because it is already ready/executed on-chain', {
+          matchId,
+          wallet,
+          signature,
+          proposalId: proposalIdString,
+          error: errorDetails,
+        });
+      } else {
+        console.error('❌ Transaction failed on-chain:', {
+          signature,
+          error: errorDetails,
+          slot: confirmation.context.slot,
+        });
+        throw new Error(`Transaction failed: ${errorDetails}`);
+      }
     }
 
-    console.log('✅ Proposal signed successfully', {
-      matchId,
-      wallet,
-      signature,
-      proposalId: proposalIdString,
-      payoutProposalId: matchRow.payoutProposalId,
-      tieRefundProposalId: matchRow.tieRefundProposalId,
-    });
+    if (approvalSkippedDueToReady) {
+      console.log('✅ Proposal approval ignored because it was already ready/executed', {
+        matchId,
+        wallet,
+        signature,
+        proposalId: proposalIdString,
+        payoutProposalId: matchRow.payoutProposalId,
+        tieRefundProposalId: matchRow.tieRefundProposalId,
+      });
+    } else {
+      console.log('✅ Proposal signed successfully', {
+        matchId,
+        wallet,
+        signature,
+        proposalId: proposalIdString,
+        payoutProposalId: matchRow.payoutProposalId,
+        tieRefundProposalId: matchRow.tieRefundProposalId,
+      });
+    }
 
     // Update match with new signer
     let newNeedsSignatures = 0;
@@ -9331,7 +9354,7 @@ const signProposalHandler = async (req: any, res: any) => {
         proposalStatusUpper === 'READY_TO_EXECUTE' ||
         proposalStatusUpper === 'EXECUTED';
 
-      if (!hadFeeWalletSignature && !proposalAlreadyReady) {
+      if (!hadFeeWalletSignature && !proposalAlreadyReady && !approvalSkippedDueToReady) {
         try {
           cachedFeeWalletKeypair = getFeeWalletKeypair();
           console.log('🤝 Auto-approving proposal with fee wallet', {
@@ -9394,7 +9417,7 @@ const signProposalHandler = async (req: any, res: any) => {
           }
         }
       } else {
-        if (hadFeeWalletSignature || proposalAlreadyReady) {
+        if (hadFeeWalletSignature || proposalAlreadyReady || approvalSkippedDueToReady) {
           feeWalletAutoApproved = true;
         }
         if (!hadFeeWalletSignature) {
