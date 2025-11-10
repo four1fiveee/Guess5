@@ -1,3 +1,14 @@
+const MIN_REQUIRED_PROPOSAL_SIGNATURES = 2;
+const normalizeRequiredSignatures = (value: any): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return MIN_REQUIRED_PROPOSAL_SIGNATURES;
+  }
+  if (numeric <= 0) {
+    return 0;
+  }
+  return Math.max(MIN_REQUIRED_PROPOSAL_SIGNATURES, Math.ceil(numeric));
+};
 import { Request, Response } from 'express';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
@@ -113,7 +124,7 @@ async function fixTieProposal(req: Request, res: Response) {
       success: true,
       message: 'Tie refund proposal created successfully',
       proposalId: proposalResult.proposalId,
-      needsSignatures: proposalResult.needsSignatures || 2,
+      needsSignatures: normalizeRequiredSignatures(proposalResult.needsSignatures),
     });
     
   } catch (error: unknown) {

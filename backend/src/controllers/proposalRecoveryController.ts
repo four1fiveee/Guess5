@@ -1,3 +1,14 @@
+const MIN_REQUIRED_PROPOSAL_SIGNATURES = 2;
+const normalizeRequiredSignatures = (value: any): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return MIN_REQUIRED_PROPOSAL_SIGNATURES;
+  }
+  if (numeric <= 0) {
+    return 0;
+  }
+  return Math.max(MIN_REQUIRED_PROPOSAL_SIGNATURES, Math.ceil(numeric));
+};
 import { Match } from '../models/Match';
 import { SquadsVaultService } from '../services/squadsVaultService';
 import { PublicKey } from '@solana/web3.js';
@@ -65,7 +76,7 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         (match as any).payoutProposalId = proposalResult.proposalId;
         (match as any).proposalCreatedAt = new Date();
         (match as any).proposalStatus = 'ACTIVE';
-        (match as any).needsSignatures = proposalResult.needsSignatures || 2;
+        (match as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
         
         // Save match with proposal ID
         const matchRepository = AppDataSource.getRepository(Match);
@@ -74,7 +85,7 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         enhancedLogger.info('✅ Winner payout proposal created and saved', {
           matchId: match.id,
           proposalId: proposalResult.proposalId,
-          needsSignatures: proposalResult.needsSignatures,
+          needsSignatures: normalizeRequiredSignatures(proposalResult.needsSignatures),
         });
       } else {
         enhancedLogger.error('❌ Failed to create winner payout proposal', {
@@ -107,7 +118,7 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         (match as any).tieRefundProposalId = proposalResult.proposalId;
         (match as any).proposalCreatedAt = new Date();
         (match as any).proposalStatus = 'ACTIVE';
-        (match as any).needsSignatures = proposalResult.needsSignatures || 2;
+        (match as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
         
         // Save match with proposal ID
         const matchRepository = AppDataSource.getRepository(Match);
@@ -116,7 +127,7 @@ export const ensureProposalsForMatch = async (match: Match): Promise<void> => {
         enhancedLogger.info('✅ Tie refund proposal created and saved', {
           matchId: match.id,
           proposalId: proposalResult.proposalId,
-          needsSignatures: proposalResult.needsSignatures,
+          needsSignatures: normalizeRequiredSignatures(proposalResult.needsSignatures),
         });
       } else {
         enhancedLogger.error('❌ Failed to create tie refund proposal', {

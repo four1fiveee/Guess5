@@ -50,6 +50,19 @@ const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> =
   }
 };
 
+const MIN_REQUIRED_PROPOSAL_SIGNATURES = 2;
+
+const normalizeRequiredSignatures = (value: any): number => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return MIN_REQUIRED_PROPOSAL_SIGNATURES;
+  }
+  if (numeric <= 0) {
+    return 0;
+  }
+  return Math.max(MIN_REQUIRED_PROPOSAL_SIGNATURES, Math.ceil(numeric));
+};
+
 const normalizeProposalSigners = (value: any): string[] => {
   if (!value) {
     return [];
@@ -2011,7 +2024,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = proposalResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.needsSignatures = proposalResult.needsSignatures || 2; // Require player + fee wallet signatures
+                updatedMatch.needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // CRITICAL: Set proposal expiration (30 minutes after creation)
@@ -2032,16 +2045,17 @@ const submitResultHandler = async (req: any, res: any) => {
                   proposalResult.proposalId,
                   new Date(),
                   'ACTIVE',
-                  1,
+                  normalizeRequiredSignatures(proposalResult.needsSignatures),
                   'PROPOSAL_CREATED',
                   new Date(),
                   updatedMatch.id
                 ]);
+                const normalizedNeedsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                 console.log('✅ Match saved with proposal information (solved case):', {
                   matchId: updatedMatch.id,
                   proposalId: proposalResult.proposalId,
                   proposalStatus: 'ACTIVE',
-                  needsSignatures: 2,
+                  needsSignatures: normalizedNeedsSignatures,
                 });
                 
                 const paymentInstructions = {
@@ -2192,7 +2206,7 @@ const submitResultHandler = async (req: any, res: any) => {
             updateValues.push((updatedMatch as any).proposalCreatedAt);
           }
           updateFields.push('"needsSignatures" = $' + (updateValues.length + 1));
-          updateValues.push((updatedMatch as any).needsSignatures || 2);
+          updateValues.push(normalizeRequiredSignatures((updatedMatch as any).needsSignatures));
             console.log('✅ Preserving proposal fields in final save (solved case):', {
             matchId,
             proposalId: (updatedMatch as any).payoutProposalId,
@@ -2357,7 +2371,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = proposalResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE'; // CRITICAL: Set proposalStatus for frontend
-                updatedMatch.needsSignatures = proposalResult.needsSignatures || 2; // Require player + fee wallet signatures
+                updatedMatch.needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // IMPORTANT: Save the match with proposal information
@@ -2366,7 +2380,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   matchId: updatedMatch.id,
                   proposalId: proposalResult.proposalId,
                   proposalStatus: 'ACTIVE',
-                  needsSignatures: 2,
+                  needsSignatures: updatedMatch.needsSignatures,
                 });
             
             // Create payment instructions for display
@@ -2512,7 +2526,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 updatedMatch.payoutProposalId = refundResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.needsSignatures = proposalResult.needsSignatures || 2; // Require player + fee wallet signatures
+                updatedMatch.needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';
                 
                 // Save the match with proposal information
@@ -2521,7 +2535,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   matchId: updatedMatch.id,
                   proposalId: refundResult.proposalId,
                   proposalStatus: 'ACTIVE',
-                  needsSignatures: 2,
+                  needsSignatures: updatedMatch.needsSignatures,
                 });
                 
                 // Create payment instructions for display
@@ -2608,7 +2622,7 @@ const submitResultHandler = async (req: any, res: any) => {
               (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
               (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
               (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-                (finalMatch as any).needsSignatures = (updatedMatch as any).needsSignatures || 2;
+              (finalMatch as any).needsSignatures = normalizeRequiredSignatures((updatedMatch as any).needsSignatures);
               console.log('✅ Preserving proposal fields in final save:', {
                 matchId: finalMatch.id,
                 proposalId: (finalMatch as any).payoutProposalId,
@@ -2698,7 +2712,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     (finalMatch as any).payoutProposalId = proposalResult.proposalId;
                     (finalMatch as any).proposalCreatedAt = new Date();
                     (finalMatch as any).proposalStatus = 'ACTIVE';
-                    (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 2;
+                    (finalMatch as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                     await matchRepository.save(finalMatch);
                     console.log('✅ Winner payout proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                   } else {
@@ -2736,7 +2750,7 @@ const submitResultHandler = async (req: any, res: any) => {
                       (finalMatch as any).tieRefundProposalId = proposalResult.proposalId;
                       (finalMatch as any).proposalCreatedAt = new Date();
                       (finalMatch as any).proposalStatus = 'ACTIVE';
-                      (finalMatch as any).needsSignatures = proposalResult.needsSignatures || 2;
+                      (finalMatch as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                       await matchRepository.save(finalMatch);
                       console.log('✅ Tie refund proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                     } else {
@@ -2821,7 +2835,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         UPDATE "match"
                         SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3, "needsSignatures" = $4, "updatedAt" = $5
                         WHERE id = $6
-                      `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 2, new Date(), updatedMatch.id]);
+                      `, [proposalResult.proposalId, new Date(), 'ACTIVE', normalizeRequiredSignatures(proposalResult.needsSignatures), new Date(), updatedMatch.id]);
                     console.log('✅ Winner payout proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                   }
                 } else {
@@ -2849,7 +2863,7 @@ const submitResultHandler = async (req: any, res: any) => {
                           UPDATE "match"
                           SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "updatedAt" = $6
                           WHERE id = $7
-                        `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalResult.needsSignatures || 2, new Date(), updatedMatch.id]);
+                        `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', normalizeRequiredSignatures(proposalResult.needsSignatures), new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                     }
                     }
@@ -3277,7 +3291,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   (match as any).payoutProposalId = proposalResult.proposalId;
                   (match as any).proposalCreatedAt = new Date();
                   (match as any).proposalStatus = 'ACTIVE';
-                  (match as any).needsSignatures = proposalResult.needsSignatures || 2; // System auto-signs, so 1 more needed
+                  (match as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                   await matchRepository.save(match);
                   console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId });
                 }
@@ -3312,7 +3326,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     (match as any).tieRefundProposalId = proposalResult.proposalId;
                     (match as any).proposalCreatedAt = new Date();
                     (match as any).proposalStatus = 'ACTIVE';
-                    (match as any).needsSignatures = proposalResult.needsSignatures || 2; // System auto-signs, so 1 more needed
+                    (match as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                     
                     // CRITICAL: Set proposal expiration (30 minutes after creation)
                     const { proposalExpirationService } = require('../services/proposalExpirationService');
@@ -3537,13 +3551,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   "proposalCreatedAt" = NOW(),
                   "needsSignatures" = $3
               WHERE id = $4
-            `, [proposalResult.proposalId, 'ACTIVE', proposalResult.needsSignatures || 2, freshMatch.id]);
+            `, [proposalResult.proposalId, 'ACTIVE', normalizeRequiredSignatures(proposalResult.needsSignatures), freshMatch.id]);
             
             // Update match object
             (match as any).payoutProposalId = proposalResult.proposalId;
             (match as any).proposalStatus = 'ACTIVE';
             (match as any).proposalCreatedAt = new Date();
-            (match as any).needsSignatures = proposalResult.needsSignatures || 2;
+            (match as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
             
             console.log('✅ FINAL FALLBACK: Winner payout proposal created and saved successfully', {
               matchId: freshMatch.id,
@@ -3657,7 +3671,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 (freshMatch as any).tieRefundProposalId = proposalResult.proposalId;
                 (freshMatch as any).proposalCreatedAt = new Date();
                 (freshMatch as any).proposalStatus = 'ACTIVE';
-                (freshMatch as any).needsSignatures = proposalResult.needsSignatures || 2;
+                (freshMatch as any).needsSignatures = normalizeRequiredSignatures(proposalResult.needsSignatures);
                 
                 // Ensure match is marked as completed
                 if (!freshMatch.isCompleted) {
@@ -3962,7 +3976,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       tieRefundProposalId: (match as any).tieRefundProposalId || null,
       proposalStatus: (match as any).proposalStatus || null,
       proposalCreatedAt: (match as any).proposalCreatedAt || null,
-      needsSignatures: (match as any).needsSignatures || 0,
+      needsSignatures: normalizeRequiredSignatures((match as any).needsSignatures),
       proposalSigners: (match as any).proposalSigners || [],
       proposalExecutedAt: (match as any).proposalExecutedAt || null,
       proposalTransactionId: (match as any).proposalTransactionId || null,
@@ -4122,7 +4136,7 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
           entryFee: match.entryFee,
           proposalId: match.payoutProposalId,
           proposalCreatedAt: match.proposalCreatedAt,
-          needsSignatures: match.needsSignatures,
+          needsSignatures: normalizeRequiredSignatures(match.needsSignatures),
           isWinner
         };
       }),
@@ -4131,7 +4145,7 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
         entryFee: match.entryFee,
         proposalId: match.payoutProposalId,
         proposalCreatedAt: match.proposalCreatedAt,
-        needsSignatures: match.needsSignatures,
+        needsSignatures: normalizeRequiredSignatures(match.needsSignatures),
         refundAmount: match.entryFee * 0.95 // 95% refund for ties
       }))
     });
@@ -6117,6 +6131,29 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
     }
     
     const matchRow = matchRows[0];
+    const normalizedNeedsSignatures = normalizeRequiredSignatures(matchRow.needsSignatures);
+    if (normalizedNeedsSignatures !== matchRow.needsSignatures) {
+      try {
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "needsSignatures" = $1
+          WHERE id = $2
+        `, [normalizedNeedsSignatures, matchId]);
+        console.log('🔧 Normalized needsSignatures during approval transaction build', {
+          matchId,
+          previous: matchRow.needsSignatures,
+          normalized: normalizedNeedsSignatures,
+        });
+      } catch (normalizeError: any) {
+        console.warn('⚠️ Failed to normalize needsSignatures during approval transaction build', {
+          matchId,
+          error: normalizeError?.message || String(normalizeError),
+        });
+      }
+      matchRow.needsSignatures = normalizedNeedsSignatures;
+    } else {
+      matchRow.needsSignatures = normalizedNeedsSignatures;
+    }
 
     const { getSquadsVaultService } = require('../services/squadsVaultService');
     const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS } = require('../config/wallet');
@@ -8650,7 +8687,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       wallet,
       proposalId: proposalIdString,
       proposalStatus: matchRow.proposalStatus,
-      needsSignatures: matchRow.needsSignatures,
+      needsSignatures: normalizeRequiredSignatures(matchRow.needsSignatures),
       existingSigners: signers,
     });
 
@@ -9076,7 +9113,7 @@ const signProposalHandler = async (req: any, res: any) => {
         matchId,
         wallet,
         proposalId: proposalIdString,
-        needsSignatures: matchRow.needsSignatures,
+        needsSignatures: normalizeRequiredSignatures(matchRow.needsSignatures),
         proposalStatus: matchRow.proposalStatus,
       });
       // Return success to prevent frontend retry loops
@@ -9272,7 +9309,7 @@ const signProposalHandler = async (req: any, res: any) => {
       }
 
       const uniqueSigners = Array.from(new Set(signers));
-      const currentNeedsSignatures = matchRow.needsSignatures || 2;
+      const currentNeedsSignatures = normalizeRequiredSignatures(matchRow.needsSignatures);
       newNeedsSignatures = Math.max(0, currentNeedsSignatures - 1);
       if (uniqueSigners.includes(feeWalletAddress)) {
         newNeedsSignatures = Math.max(0, newNeedsSignatures - 1);
@@ -9542,7 +9579,7 @@ const signProposalHandler = async (req: any, res: any) => {
       console.log('✅ Match updated with signer:', {
         matchId,
         wallet,
-        needsSignatures: newNeedsSignatures,
+        needsSignatures: normalizeRequiredSignatures(newNeedsSignatures),
         proposalStatus: newProposalStatus,
       });
       
@@ -9552,14 +9589,14 @@ const signProposalHandler = async (req: any, res: any) => {
         // activeSSEResponses is defined at module level (line ~6544), accessible via closure
         const opponentResponses = activeSSEResponses.get(opponentWallet);
         if (opponentResponses && opponentResponses.size > 0) {
-          const eventData = {
-            type: 'proposal_signed',
-            matchId: matchId,
-            signer: wallet,
-            needsSignatures: newNeedsSignatures,
-            proposalStatus: newProposalStatus,
-            message: 'Opponent has signed the transaction'
-          };
+        const eventData = {
+          type: 'proposal_signed',
+          matchId: matchId,
+          signer: wallet,
+          needsSignatures: normalizeRequiredSignatures(newNeedsSignatures),
+          proposalStatus: newProposalStatus,
+          message: 'Opponent has signed the transaction'
+        };
           
           // Broadcast to all opponent's SSE connections
           opponentResponses.forEach((response: any) => {
@@ -9593,7 +9630,7 @@ const signProposalHandler = async (req: any, res: any) => {
       message: 'Proposal signed successfully',
       signature,
       proposalId: proposalIdString,
-      needsSignatures: newNeedsSignatures,
+      needsSignatures: normalizeRequiredSignatures(newNeedsSignatures),
       proposalStatus: newProposalStatus,
     });
 
