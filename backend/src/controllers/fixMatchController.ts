@@ -1,20 +1,10 @@
-const MIN_REQUIRED_PROPOSAL_SIGNATURES = 2;
-const normalizeRequiredSignatures = (value: any): number => {
-  const numeric = Number(value);
-  if (!Number.isFinite(numeric)) {
-    return MIN_REQUIRED_PROPOSAL_SIGNATURES;
-  }
-  if (numeric <= 0) {
-    return 0;
-  }
-  return Math.max(MIN_REQUIRED_PROPOSAL_SIGNATURES, Math.ceil(numeric));
-};
 import { Request, Response } from 'express';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { SquadsVaultService } from '../services/squadsVaultService';
 import { PublicKey } from '@solana/web3.js';
 import { enhancedLogger } from '../utils/enhancedLogger';
+import { buildInitialProposalState, applyProposalStateToMatch } from '../utils/proposalSigners';
 
 /**
  * Fix stuck tie matches by retroactively creating Squads proposals
@@ -112,7 +102,12 @@ async function fixTieProposal(req: Request, res: Response) {
     }
     
     // Save proposal ID to match
+    const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
     (match as any).tieRefundProposalId = proposalResult.proposalId;
+    (match as any).payoutProposalId = proposalResult.proposalId;
+    (match as any).proposalCreatedAt = new Date();
+    (match as any).proposalStatus = 'ACTIVE';
+    applyProposalStateToMatch(match, proposalState);
     await matchRepository.save(match);
     
     enhancedLogger.info('G�� Tie refund proposal created and saved', {
@@ -124,7 +119,8 @@ async function fixTieProposal(req: Request, res: Response) {
       success: true,
       message: 'Tie refund proposal created successfully',
       proposalId: proposalResult.proposalId,
-      needsSignatures: normalizeRequiredSignatures(proposalResult.needsSignatures),
+      needsSignatures: proposalState.normalizedNeeds,
+      signers: proposalState.signers,
     });
     
   } catch (error: unknown) {

@@ -4,6 +4,7 @@ import { MatchAuditLog } from '../models/MatchAuditLog';
 import { squadsVaultService } from './squadsVaultService';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { getGameState } from '../utils/redisGameState';
+import { buildInitialProposalState, applyProposalStateToMatch } from '../utils/proposalSigners';
 
 export class TimeoutScannerService {
   private isRunning: boolean = false;
@@ -355,6 +356,7 @@ export class TimeoutScannerService {
             );
 
             if (proposalResult.success) {
+              const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
               enhancedLogger.info('✅ Squads winner payout proposal created for abandoned game', {
                 matchId: match.id,
                 proposalId: proposalResult.proposalId,
@@ -363,7 +365,7 @@ export class TimeoutScannerService {
               updatedMatch.payoutProposalId = proposalResult.proposalId;
               updatedMatch.proposalCreatedAt = new Date();
               updatedMatch.proposalStatus = 'ACTIVE';
-              updatedMatch.needsSignatures = 2; // 2-of-3 multisig
+              applyProposalStateToMatch(updatedMatch, proposalState);
 
               // Update payout result with proposal info
               (payoutResult as any).paymentInstructions = {
@@ -384,6 +386,12 @@ export class TimeoutScannerService {
               (payoutResult as any).paymentSuccess = true;
               (payoutResult as any).squadsProposal = true;
               (payoutResult as any).proposalId = proposalResult.proposalId;
+              enhancedLogger.info('🔐 Recorded initial proposal signer state for abandoned game', {
+                matchId: match.id,
+                proposalId: proposalResult.proposalId,
+                needsSignatures: proposalState.normalizedNeeds,
+                signers: proposalState.signers,
+              });
             } else {
               enhancedLogger.error('❌ Failed to create Squads proposal for abandoned game', {
                 matchId: match.id,
@@ -491,12 +499,13 @@ export class TimeoutScannerService {
         );
 
         if (refundResult.success) {
+          const proposalState = buildInitialProposalState(refundResult.needsSignatures);
           // Update match status
           match.matchStatus = 'REFUNDED';
           match.payoutProposalId = refundResult.proposalId;
           match.proposalStatus = 'ACTIVE';
           match.proposalCreatedAt = new Date();
-          match.needsSignatures = 2; // 2-of-3 multisig
+          applyProposalStateToMatch(match, proposalState);
           await AppDataSource.getRepository(Match).save(match);
 
         // Log timeout event
@@ -510,6 +519,8 @@ export class TimeoutScannerService {
           matchId: match.id,
           timeoutReason,
           proposalId: refundResult.proposalId,
+          needsSignatures: proposalState.normalizedNeeds,
+          signers: proposalState.signers,
         });
       } else {
         enhancedLogger.error('❌ Failed to create timeout refund proposal', {
@@ -556,11 +567,12 @@ export class TimeoutScannerService {
         );
 
         if (refundResult.success) {
+          const proposalState = buildInitialProposalState(refundResult.needsSignatures);
           match.matchStatus = 'REFUNDED';
           match.payoutProposalId = refundResult.proposalId;
           match.proposalStatus = 'ACTIVE';
           match.proposalCreatedAt = new Date();
-          match.needsSignatures = 2; // 2-of-3 multisig
+          applyProposalStateToMatch(match, proposalState);
           await AppDataSource.getRepository(Match).save(match);
 
           await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_TIMEOUT_PROPOSAL_CREATED', {
@@ -571,6 +583,8 @@ export class TimeoutScannerService {
           enhancedLogger.info('✅ Deposit timeout refund proposal created', {
             matchId: match.id,
             proposalId: refundResult.proposalId,
+            needsSignatures: proposalState.normalizedNeeds,
+            signers: proposalState.signers,
           });
         }
       } else {
@@ -584,11 +598,12 @@ export class TimeoutScannerService {
         );
 
         if (refundResult.success) {
+          const proposalState = buildInitialProposalState(refundResult.needsSignatures);
           match.matchStatus = 'REFUNDED';
           match.payoutProposalId = refundResult.proposalId;
           match.proposalStatus = 'ACTIVE';
           match.proposalCreatedAt = new Date();
-          match.needsSignatures = 2; // 2-of-3 multisig
+          applyProposalStateToMatch(match, proposalState);
           await AppDataSource.getRepository(Match).save(match);
 
           await this.logAuditEvent(auditLogRepository, match.id, 'DEPOSIT_TIMEOUT_PROPOSAL_CREATED', {
@@ -599,6 +614,8 @@ export class TimeoutScannerService {
           enhancedLogger.info('✅ Deposit timeout refund proposal created', {
             matchId: match.id,
             proposalId: refundResult.proposalId,
+            needsSignatures: proposalState.normalizedNeeds,
+            signers: proposalState.signers,
           });
         }
       }

@@ -2,6 +2,7 @@ import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import { enhancedLogger } from '../utils/enhancedLogger';
 import { PublicKey } from '@solana/web3.js';
+import { buildInitialProposalState, applyProposalStateToMatch } from '../utils/proposalSigners';
 
 /**
  * Service to handle expired proposals and create refunds
@@ -160,10 +161,20 @@ export class ProposalExpirationService {
         match.squadsVaultPda ?? undefined
       );
 
-      if (refundProposal.success) {
+      if (refundProposal.success && refundProposal.proposalId) {
+        const proposalState = buildInitialProposalState(refundProposal.needsSignatures);
+        match.payoutProposalId = refundProposal.proposalId;
+        match.tieRefundProposalId = refundProposal.proposalId;
+        match.proposalCreatedAt = new Date();
+        match.proposalStatus = 'ACTIVE';
+        applyProposalStateToMatch(match, proposalState);
+        await matchRepository.save(match);
+
         enhancedLogger.info(`✅ Created tie refund proposal for expired match`, {
           matchId: match.id,
-          proposalId: refundProposal.proposalId
+          proposalId: refundProposal.proposalId,
+          needsSignatures: proposalState.normalizedNeeds,
+          signers: proposalState.signers,
         });
       } else {
         enhancedLogger.error(`❌ Failed to create tie refund proposal:`, {
@@ -234,10 +245,20 @@ export class ProposalExpirationService {
         match.squadsVaultPda ?? undefined
       );
 
-      if (refundProposal.success) {
+      if (refundProposal.success && refundProposal.proposalId) {
+        const proposalState = buildInitialProposalState(refundProposal.needsSignatures);
+        match.payoutProposalId = refundProposal.proposalId;
+        match.tieRefundProposalId = refundProposal.proposalId;
+        match.proposalCreatedAt = new Date();
+        match.proposalStatus = 'ACTIVE';
+        applyProposalStateToMatch(match, proposalState);
+        await matchRepository.save(match);
+
         enhancedLogger.info(`✅ Created full refund proposal for expired match`, {
           matchId: match.id,
-          proposalId: refundProposal.proposalId
+          proposalId: refundProposal.proposalId,
+          needsSignatures: proposalState.normalizedNeeds,
+          signers: proposalState.signers,
         });
       } else {
         enhancedLogger.error(`❌ Failed to create full refund proposal:`, {
