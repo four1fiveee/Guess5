@@ -701,7 +701,6 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     throw error;
   }
 };
-
 // Helper function to cleanup old matches for a player
 const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   
@@ -1269,7 +1268,6 @@ const cleanupSelfMatchesHandler = async (req: any, res: any) => {
     });
   }
 };
-
 // Helper function to determine winner and calculate payout instructions
 // Accepts optional transaction manager for atomic operations
 const determineWinnerAndPayout = async (matchId: any, player1Result: any, player2Result: any, manager?: any) => {
@@ -1846,9 +1844,6 @@ const submitResultHandler = async (req: any, res: any) => {
     const player2ResultRaw = updatedMatch?.player2Result;
     const player1Result = player1ResultRaw ? (typeof player1ResultRaw === 'string' ? JSON.parse(player1ResultRaw) : player1ResultRaw) : null;
     const player2Result = player2ResultRaw ? (typeof player2ResultRaw === 'string' ? JSON.parse(player2ResultRaw) : player2ResultRaw) : null;
-    
-
-
     // Check if this player solved the puzzle OR if both players have submitted results
     if (result.won || (player1Result && player2Result)) {
 
@@ -2959,7 +2954,6 @@ const submitResultHandler = async (req: any, res: any) => {
     res.status(500).json({ error: 'Internal server error' });
   }
 };
-
 const getMatchStatusHandler = async (req: any, res: any) => {
   try {
     const { matchId } = req.params;
@@ -3621,7 +3615,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       }
     }
   }
-  
   // Create proposal for tie refund (tie matches)
   if (hasResults && isTieMatch && needsProposal && hasVault) {
     
@@ -4202,7 +4195,6 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     });
   }
 };
-
 // Check if a player has been matched (for polling)
 const checkPlayerMatchHandler = async (req: any, res: any) => {
   try {
@@ -4977,7 +4969,6 @@ const cleanupStuckMatchesHandler = async (req: any, res: any) => {
     res.status(500).json({ error: 'Failed to cleanup matches' });
   }
 };
-
 // Simple cleanup endpoint for production
 const simpleCleanupHandler = async (req: any, res: any) => {
   try {
@@ -5775,7 +5766,6 @@ const websocketStatsHandler = async (req: any, res: any) => {
     res.status(500).json({ error: 'Failed to get WebSocket stats' });
   }
 };
-
 // Enhanced payment verification function with idempotency
 const verifyPaymentTransaction = async (signature: string, fromWallet: string, expectedAmount: number) => {
   try {
@@ -6522,7 +6512,6 @@ let solPriceCache = {
   timestamp: 0,
   expiresAt: 0
 };
-
 // Helper function to get SOL price in USD with robust fallback system
 const getSolPriceUSD = async () => {
   const CACHE_DURATION_MS = 30000; // Cache for 30 seconds
@@ -6922,7 +6911,6 @@ const getFiscalInfo = (date: any) => {
   const quarter = Math.ceil(month / 3);
   return { fiscalYear: year, quarter };
 };
-
 // Match report endpoint (exports to CSV) - Updated with high-impact security fixes
 const generateReportHandler = async (req: any, res: any) => {
   try {
@@ -7667,7 +7655,6 @@ const generateReportHandler = async (req: any, res: any) => {
     console.log(`🔐 File integrity hash: ${fileHash}`);
     
     res.send(csvContent);
-    
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
@@ -8468,7 +8455,6 @@ const getSmartContractStatusHandler = async (req: any, res: any) => {
     });
   }
 };
-
 /**
  * Verify a deposit transaction on the smart contract
  */
@@ -8719,8 +8705,6 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
     const feeWalletAddress =
       typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
-    const feeWalletAddress =
-      typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
     
     console.log('🔐 Current proposal signer snapshot (pre-processing)', {
       matchId,
@@ -8929,7 +8913,6 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     res.status(500).json({ error: 'Failed to build approval transaction', details: errorMessage });
   }
 };
-
 const signProposalHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, signedTransaction } = req.body;
@@ -9063,7 +9046,7 @@ const signProposalHandler = async (req: any, res: any) => {
               proposalStatus: 'EXECUTED',
               executed: true,
             });
-    }
+          }
 
           // If not executed, check if this is an old match (completed status)
           // For old matches, if transaction doesn't exist, it was likely executed
@@ -9147,6 +9130,8 @@ const signProposalHandler = async (req: any, res: any) => {
 
     // Verify player hasn't already signed (make idempotent)
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
+    const feeWalletAddress =
+      typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
     
     if (signers.includes(wallet)) {
       console.log('✅ Player already signed proposal, returning success (idempotent)', {
@@ -9526,7 +9511,7 @@ const signProposalHandler = async (req: any, res: any) => {
             } catch (pkError: any) {
               programId = PROGRAM_ID;
             }
-    } else {
+          } else {
             programId = PROGRAM_ID;
           }
         } catch (progIdError: any) {
