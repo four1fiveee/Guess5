@@ -8,7 +8,9 @@ export default function Home() {
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center max-w-4xl w-full">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4 sm:mb-6" />
+        <div className="logo-shell mb-4 sm:mb-6">
+          <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
+        </div>
         
         {/* Trust Badges - Quick visual trust signals */}
         <div className="flex flex-wrap justify-center gap-3 mb-6 max-w-md">

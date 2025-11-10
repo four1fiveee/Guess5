@@ -1,18 +1,29 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import { Connection, LAMPORTS_PER_SOL, PublicKey, Transaction, SystemProgram } from '@solana/web3.js';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
-import { requestMatch, checkPlayerMatch, getMatchStatus } from '../utils/api';
+import { requestMatch, checkPlayerMatch, getMatchStatus, cancelMatch } from '../utils/api';
 import { usePendingClaims } from '../hooks/usePendingClaims';
 
 const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction, sendTransaction } = useWallet();
   const { hasBlockingClaims, pendingClaims } = usePendingClaims();
-  const [status, setStatus] = useState<'waiting' | 'payment_required' | 'waiting_for_payment' | 'waiting_for_game' | 'active' | 'error' | 'cancelled'>('waiting');
+  const [status, setStatus] = useState<
+    | 'waiting'
+    | 'payment_required'
+    | 'waiting_for_payment'
+    | 'waiting_for_game'
+    | 'active'
+    | 'error'
+    | 'cancelled'
+    | 'refund_pending'
+    | 'queue_cancelled'
+    | 'completed'
+  >('waiting');
   const [waitingCount, setWaitingCount] = useState(0);
   const [matchData, setMatchData] = useState<any>(null);
   const [entryFee, setEntryFee] = useState<number>(0);
@@ -24,6 +35,88 @@ const Matchmaking: React.FC = () => {
   const [queueStartTime, setQueueStartTime] = useState<number | null>(null);
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
   const [solPrice, setSolPrice] = useState<number | null>(null);
+  const [isCancelling, setIsCancelling] = useState<boolean>(false);
+  const currentWallet = publicKey?.toString() || null;
+
+  const cancellationContext = useMemo(() => {
+    if (!matchData) {
+      return null;
+    }
+
+    if (status !== 'refund_pending' && status !== 'cancelled' && status !== 'queue_cancelled') {
+      return null;
+    }
+
+    const isPlayer1 = currentWallet && matchData.player1 && currentWallet === matchData.player1;
+    const userPaid = isPlayer1 ? matchData.player1Paid : matchData.player2Paid;
+    const opponentPaid = isPlayer1 ? matchData.player2Paid : matchData.player1Paid;
+    const reason = matchData.refundReason;
+
+    let heading = 'Match Cancelled';
+    let detail =
+      'Match cancelled. Queue up again whenever you are ready.';
+    let tone: 'info' | 'warning' | 'success' = 'info';
+    let encourageResult = false;
+
+    if (status === 'refund_pending') {
+      heading = 'Refund Pending';
+      tone = 'warning';
+      encourageResult = true;
+
+      switch (reason) {
+        case 'payment_timeout':
+          detail = userPaid
+            ? 'The opponent never finished paying. A refund proposal is being assembled—open the result screen shortly to sign your SOL back.'
+            : 'The opponent never finished paying. We cancelled the match automatically before SOL moved.';
+          break;
+        case 'player_cancelled_after_payment':
+          detail =
+            'The other player backed out after you deposited. The multisig refund will appear in the result view within ~2 minutes.';
+          break;
+        case 'player_cancelled_before_payment':
+          detail =
+            'The match ended before any deposits were collected. No funds left your wallet.';
+          tone = 'info';
+          encourageResult = false;
+          break;
+        default:
+          detail = userPaid
+            ? 'We are preparing your refund proposal now. Visit the result screen to co-sign once it appears.'
+            : 'Match cancelled before any deposits were at risk.';
+          tone = userPaid ? 'warning' : 'info';
+          encourageResult = userPaid;
+      }
+    } else if (status === 'queue_cancelled') {
+      heading = 'Queue Cancelled';
+      detail = 'You left the matchmaking queue. Join again any time.';
+      tone = 'info';
+      encourageResult = false;
+    } else {
+      if (reason === 'player_cancelled_before_payment' || (!userPaid && !opponentPaid)) {
+        detail = 'The opponent bailed before anyone deposited. No funds moved.';
+        tone = 'info';
+      } else if (reason === 'payment_timeout' || reason === 'player_cancelled_after_payment') {
+        heading = 'Match Cancelled - Refund Inbound';
+        detail =
+          'Funds from your deposit are safe. The refund proposal will appear soon in your result feed.';
+        tone = 'warning';
+        encourageResult = true;
+      } else {
+        detail = userPaid
+          ? 'Your deposit is being returned. Check the result page shortly to sign the refund proposal.'
+          : 'Opponent left the queue. No deposits were taken.';
+        tone = userPaid ? 'warning' : 'info';
+        encourageResult = userPaid;
+      }
+    }
+
+    return {
+      heading,
+      detail,
+      tone,
+      encourageResult,
+    };
+  }, [status, matchData, currentWallet]);
   
   // Use ref to track current matchData to avoid closure issues
   const matchDataRef = useRef<any>(null);
@@ -93,6 +186,65 @@ const Matchmaking: React.FC = () => {
       setElapsedTime('0s');
     }
   }, [status, queueStartTime]);
+
+  const handleCancelAndReturn = async () => {
+    if (isCancelling) {
+      return;
+    }
+
+    if (!publicKey) {
+      router.push('/lobby');
+      return;
+    }
+
+    setIsCancelling(true);
+    try {
+      const currentMatchId =
+        matchDataRef.current?.matchId ||
+        matchDataRef.current?.id ||
+        matchData?.matchId ||
+        undefined;
+
+      const response = await cancelMatch(publicKey.toString(), currentMatchId);
+
+      matchDataRef.current = null;
+      setMatchData(null);
+      setIsPolling(false);
+      setIsMatchmakingInProgress(false);
+      setWaitingCount(0);
+      setQueueStartTime(null);
+
+      if (response?.status === 'queue_cancelled') {
+        setStatus('queue_cancelled');
+      } else if (response?.status === 'cancelled') {
+        setStatus(response?.refundPending ? 'refund_pending' : 'cancelled');
+      }
+
+      if (response?.refundPending && currentMatchId) {
+        localStorage.setItem('matchId', currentMatchId);
+        if (matchData?.entryFee) {
+          localStorage.setItem('entryFee', matchData.entryFee.toString());
+        }
+        router.push(`/result?matchId=${currentMatchId}`);
+        return;
+      }
+
+      router.push('/lobby');
+    } catch (error) {
+      console.error('❌ Error cancelling matchmaking:', error);
+      router.push('/lobby');
+    } finally {
+      setIsCancelling(false);
+    }
+  };
+
+  const navigateToResult = () => {
+    const targetMatchId =
+      matchDataRef.current?.matchId || matchData?.matchId || router.query.matchId;
+    if (targetMatchId) {
+      router.push(`/result?matchId=${targetMatchId}`);
+    }
+  };
 
   const handlePayment = async () => {
     if (isPaymentInProgress) {
@@ -414,50 +566,51 @@ const Matchmaking: React.FC = () => {
               
               // Update match data with latest payment status
               setMatchData((prev: any) => {
-                const va = (data as any)?.squadsVaultAddress || (data as any)?.vaultAddress || prev?.vaultAddress || null;
-              const vp = (data as any)?.squadsVaultPda || (data as any)?.vaultPda || prev?.squadsVaultPda || prev?.vaultPda || null;
+                const va =
+                  (data as any)?.squadsVaultAddress ||
+                  (data as any)?.vaultAddress ||
+                  prev?.vaultAddress ||
+                  null;
+                const vp =
+                  (data as any)?.squadsVaultPda ||
+                  (data as any)?.vaultPda ||
+                  prev?.squadsVaultPda ||
+                  prev?.vaultPda ||
+                  null;
                 const updated = {
                   ...prev,
                   player1Paid: data.player1Paid,
                   player2Paid: data.player2Paid,
                   status: data.status,
-                  squadsVaultAddress: (data as any)?.squadsVaultAddress ?? prev?.squadsVaultAddress ?? va,
+                  refundReason:
+                    (data as any)?.refundReason ?? prev?.refundReason ?? null,
+                  matchOutcome:
+                    (data as any)?.matchOutcome ?? prev?.matchOutcome ?? null,
+                  entryFee: data.entryFee ?? prev?.entryFee ?? null,
+                  depositAConfirmations:
+                    typeof (data as any)?.depositAConfirmations === 'number'
+                      ? (data as any)?.depositAConfirmations
+                      : prev?.depositAConfirmations ?? 0,
+                  depositBConfirmations:
+                    typeof (data as any)?.depositBConfirmations === 'number'
+                      ? (data as any)?.depositBConfirmations
+                      : prev?.depositBConfirmations ?? 0,
+                  squadsVaultAddress:
+                    (data as any)?.squadsVaultAddress ??
+                    prev?.squadsVaultAddress ??
+                    va,
                   vaultAddress: va,
-                squadsVaultPda: (data as any)?.squadsVaultPda ?? prev?.squadsVaultPda ?? vp,
-                vaultPda: vp,
+                  squadsVaultPda:
+                    (data as any)?.squadsVaultPda ?? prev?.squadsVaultPda ?? vp,
+                  vaultPda: vp,
                 };
                 matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
               });
 
-              // Check if match was cancelled or refunded (deposit timeout)
-              if (data.status === 'cancelled' || data.status === 'refunded') {
-                setStatus('cancelled');
-                clearInterval(pollInterval);
-                setIsPolling(false);
-                setIsMatchmakingInProgress(false);
-                
-                // Clear all stale match data to prevent re-entering cancelled match
-                setMatchData(null);
-                matchDataRef.current = null;
-                localStorage.removeItem('matchId');
-                localStorage.removeItem('word');
-                localStorage.removeItem('entryFee');
-                
-                // Clear URL parameters to prevent re-entering stale match
-                router.replace('/matchmaking', undefined, { shallow: true });
-                
-                // Notify user and redirect to lobby after a brief delay
-                setTimeout(() => {
-                  alert('Match cancelled: The other player did not complete payment within 2 minutes. If you paid, a refund proposal will be available in 2 minutes. You can sign it from the lobby page.');
-                  router.push('/lobby');
-                }, 500);
-                
-                return;
-              }
-              
-              // If match is active, redirect to game immediately (regardless of paid flags)
-              if (data.status === 'active') {
+              const normalizedStatus = data.status as typeof status;
+
+              if (normalizedStatus === 'active') {
                 setStatus('active');
                 
                 // Store match data and redirect to game
@@ -478,12 +631,51 @@ const Matchmaking: React.FC = () => {
                 }, 500);
                 return;
               }
+
+              if (normalizedStatus === 'cancelled') {
+                setStatus('cancelled');
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
+                return;
+              }
+
+              if (normalizedStatus === 'refund_pending' || normalizedStatus === 'refunded') {
+                setStatus('refund_pending');
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
+                if (currentMatchData.matchId) {
+                  localStorage.setItem('matchId', currentMatchData.matchId);
+                  if (data.entryFee) {
+                    localStorage.setItem('entryFee', data.entryFee.toString());
+                  }
+                }
+                return;
+              }
+
+              if (normalizedStatus === 'waiting_for_payment') {
+                setStatus('waiting_for_payment');
+              } else if (normalizedStatus === 'payment_required') {
+                setStatus('payment_required');
+              } else if (normalizedStatus === 'completed') {
+                setStatus('completed');
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
+                return;
+              }
               
               // Check if both players have paid (either via paid flags or deposit confirmations)
               const bothPaid = (data.player1Paid && data.player2Paid) || 
                                ((data.depositAConfirmations >= 1 && data.depositBConfirmations >= 1));
               
-              if (bothPaid && data.status !== 'active') {
+              if (
+                bothPaid &&
+                data.status !== 'active' &&
+                normalizedStatus !== 'refund_pending' &&
+                normalizedStatus !== 'cancelled'
+              ) {
                 // Both players paid but game not yet active - show waiting state
                 setStatus('waiting_for_game');
               }
@@ -647,13 +839,38 @@ const Matchmaking: React.FC = () => {
     statusRef.current = status;
   }, [status]);
 
+  useEffect(() => {
+    if (!matchData?.matchId) {
+      return;
+    }
+
+    if (status === 'refund_pending') {
+      localStorage.setItem('matchId', matchData.matchId);
+      if (matchData.entryFee) {
+        localStorage.setItem('entryFee', matchData.entryFee.toString());
+      }
+    } else if (status === 'cancelled' || status === 'queue_cancelled') {
+      localStorage.removeItem('matchId');
+      localStorage.removeItem('word');
+      localStorage.removeItem('entryFee');
+    }
+  }, [status, matchData?.matchId, matchData?.entryFee]);
+
+  useEffect(() => {
+    if (status === 'completed' && matchData?.matchId) {
+      router.push(`/result?matchId=${matchData.matchId}`);
+    }
+  }, [status, matchData?.matchId, router]);
+
 
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
       <TopRightWallet />
       <div className="flex flex-col items-center">
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-6 sm:mb-8" />
+        <div className="logo-shell mb-6 sm:mb-8">
+          <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
+        </div>
         
         {/* Status Display */}
         <div className="bg-secondary bg-opacity-10 rounded-lg p-6 max-w-md w-full text-center shadow">
@@ -684,10 +901,15 @@ const Matchmaking: React.FC = () => {
                 </div>
               </div>
               <button
-                onClick={() => router.push('/lobby')}
-                className="w-full bg-white/10 hover:bg-white/20 text-white font-medium py-2.5 px-4 rounded-lg transition-all duration-200 border border-white/20"
+                onClick={handleCancelAndReturn}
+                disabled={isCancelling}
+                className={`w-full py-2.5 px-4 rounded-lg transition-all duration-200 border ${
+                  isCancelling
+                    ? 'bg-white/5 border-white/10 text-white/40 cursor-not-allowed'
+                    : 'bg-white/10 hover:bg-white/20 text-white border-white/20'
+                }`}
               >
-                ← Cancel & Return to Lobby
+                {isCancelling ? 'Cancelling...' : '← Cancel & Return to Lobby'}
               </button>
             </div>
           )}
@@ -749,10 +971,11 @@ const Matchmaking: React.FC = () => {
               
               <div className="mt-4 text-center">
                 <button
-                  onClick={() => router.push('/lobby')}
-                  className="text-white/60 hover:text-white text-sm underline transition-colors"
+                  onClick={handleCancelAndReturn}
+                  disabled={isCancelling}
+                  className="text-white/60 hover:text-white text-sm underline transition-colors disabled:text-white/30 disabled:hover:text-white/30"
                 >
-                  Cancel
+                  {isCancelling ? 'Cancelling...' : 'Cancel'}
                 </button>
               </div>
             </div>
@@ -816,34 +1039,71 @@ const Matchmaking: React.FC = () => {
             </div>
           )}
 
-          {status === 'cancelled' && (
+          {(status === 'cancelled' || status === 'refund_pending' || status === 'queue_cancelled') && (
             <div className="animate-fade-in">
-              <div className="text-yellow-400 text-4xl mb-4 text-center">⏰</div>
-              <h2 className="text-2xl font-bold text-yellow-400 mb-2 text-center">Match Cancelled</h2>
-              <div className="bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 mb-6">
-                <p className="text-white/80 text-sm text-center mb-2">
-                  The match was cancelled because the other player did not complete payment within 2 minutes.
-                </p>
-                <p className="text-green-400 text-sm text-center font-medium mb-2">
-                  If you paid, a refund proposal will be created automatically within 2 minutes.
-                </p>
-                <p className="text-white/70 text-xs text-center">
-                  You can sign the refund proposal from the lobby page to get your funds back.
-                </p>
+              {(() => {
+                const tone = cancellationContext?.tone ?? 'info';
+                const toneStyles: Record<
+                  'info' | 'warning' | 'success',
+                  { icon: string; heading: string; border: string; background: string }
+                > = {
+                  info: {
+                    icon: 'ℹ️',
+                    heading: 'text-white',
+                    border: 'border-white/15',
+                    background: 'bg-white/5'
+                  },
+                  warning: {
+                    icon: '⏰',
+                    heading: 'text-yellow-400',
+                    border: 'border-yellow-500/40',
+                    background: 'bg-yellow-500/10'
+                  },
+                  success: {
+                    icon: '✅',
+                    heading: 'text-green-400',
+                    border: 'border-green-500/30',
+                    background: 'bg-green-500/10'
+                  }
+                };
+                const styles = toneStyles[tone];
+
+                return (
+                  <>
+                    <div className={`${styles.heading} text-4xl mb-4 text-center`}>{styles.icon}</div>
+                    <h2 className={`text-2xl font-bold mb-2 text-center ${styles.heading}`}>
+                      {cancellationContext?.heading ||
+                        (status === 'refund_pending'
+                          ? 'Refund Pending'
+                          : status === 'queue_cancelled'
+                          ? 'Queue Cancelled'
+                          : 'Match Cancelled')}
+                    </h2>
+                    <div className={`${styles.background} border ${styles.border} rounded-lg p-4 mb-6`}>
+                      <p className="text-white/80 text-sm text-center">
+                        {cancellationContext?.detail ||
+                          'Match cancelled. Queue up again whenever you are ready.'}
+                      </p>
+                    </div>
+                  </>
+                );
+              })()}
+              <div className="flex flex-col gap-3">
+                {cancellationContext?.encourageResult && matchData?.matchId && (
+                  <button
+                    onClick={navigateToResult}
+                    className="w-full bg-white/10 hover:bg-white/20 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 border border-white/20"
+                  >
+                    View Refund Status
+                  </button>
+                )}
+                <button
+                  onClick={() => router.push('/lobby')}
+                  className="w-full bg-accent hover:bg-yellow-400 text-primary font-bold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
+                >
+                  Return to Lobby
+                </button>
               </div>
-              <button
-                onClick={() => {
-                  setMatchData(null);
-                  matchDataRef.current = null;
-                  localStorage.removeItem('matchId');
-                  localStorage.removeItem('word');
-                  localStorage.removeItem('entryFee');
-                  router.push('/lobby');
-                }}
-                className="w-full bg-accent hover:bg-yellow-400 text-primary font-bold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
-              >
-                Return to Lobby
-              </button>
             </div>
           )}
         </div>

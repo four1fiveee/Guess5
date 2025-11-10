@@ -33,22 +33,22 @@ const STAKE_TIERS: StakeTier[] = [
     id: 'starter',
     usd: 5,
     title: 'Starter',
-    badgeText: '🎮 Entry Tier',
+    badgeText: '🎮 Warm-Up',
     badgeTheme: 'green',
-    headline: 'Classic payout without any house boost.',
-    incentive: 'Ideal for warm-up games.',
-    cta: 'Play Starter',
+    headline: 'Classic head-to-head with standard payouts.',
+    incentive: 'Perfect for dialling in strategies at full pot value.',
+    cta: 'Enter Starter Duel',
     bonusUsd: 0
   },
   {
     id: 'competitive',
     usd: 20,
     title: 'Competitive',
-    badgeText: '⭐ Most Popular',
+    badgeText: '⭐ Crowd Favorite',
     badgeTheme: 'accent',
-    headline: 'First tier where we add extra cash.',
-    incentive: 'Take home an extra $0.25 every win.',
-    cta: 'Join Competitive',
+    headline: 'Step up to the first tier with a house boost.',
+    incentive: 'We add $0.25 to every victory for more bragging rights.',
+    cta: 'Queue Competitive',
     isPopular: true,
     bonusUsd: 0.25
   },
@@ -56,11 +56,11 @@ const STAKE_TIERS: StakeTier[] = [
     id: 'highRoller',
     usd: 50,
     title: 'High Roller',
-    badgeText: '🎯 High Value',
+    badgeText: '🎯 Bonus Stacked',
     badgeTheme: 'blue',
-    headline: 'Bigger stakes with money added by us.',
-    incentive: 'We top your payout with $0.75 more.',
-    cta: 'Go High Roller',
+    headline: 'Raise the stakes with amplified house backing.',
+    incentive: 'House boost: +$0.75 on every single win.',
+    cta: 'Run High Roller',
     isHighValue: true,
     bonusUsd: 0.75
   },
@@ -68,11 +68,11 @@ const STAKE_TIERS: StakeTier[] = [
     id: 'vip',
     usd: 100,
     title: 'VIP Elite',
-    badgeText: '💎 VIP Elite',
+    badgeText: '💎 VIP Showcase',
     badgeTheme: 'purple',
-    headline: 'Maximum pot plus premium house bonus.',
-    incentive: 'Pocket an extra $1.75 on every win.',
-    cta: 'Claim VIP Seat',
+    headline: 'Top shelf tier with our maximum house boost.',
+    incentive: 'Pocket an extra $1.75 every time you seal the match.',
+    cta: 'Secure VIP Seat',
     isPremium: true,
     bonusUsd: 1.75
   }
@@ -405,13 +405,15 @@ export default function Lobby() {
       <div className="flex flex-col items-center w-full max-w-6xl">
         {/* Logo and Header */}
         <div className="flex flex-col items-center mb-6 sm:mb-8">
-          <Image 
-            src={logo} 
-            alt="Guess5 Logo" 
-            width={180} 
-            height={180} 
-            className="mb-4 sm:mb-6 drop-shadow-lg" 
-          />
+          <div className="logo-shell mb-4 sm:mb-6">
+            <Image 
+              src={logo} 
+              alt="Guess5 Logo" 
+              width={180} 
+              height={180} 
+              priority
+            />
+          </div>
           <button
             onClick={() => router.push('/')}
             className="mb-4 bg-white/10 hover:bg-white/20 text-white px-5 py-2.5 rounded-lg transition-all duration-200 text-sm border border-white/20 hover:border-white/30 backdrop-blur-sm"
@@ -437,10 +439,10 @@ export default function Lobby() {
               {/* Header Section - Premium Design */}
               <div className="text-center mb-10">
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight">
-                  Choose Your <span className="bg-gradient-to-r from-accent via-yellow-400 to-accent bg-clip-text text-transparent">Stake</span>
+                  Pick Your <span className="bg-gradient-to-r from-accent via-yellow-400 to-accent bg-clip-text text-transparent">Stake Tier</span>
                 </h1>
                 <p className="text-white/70 text-base sm:text-lg mb-8 font-medium">
-                  Select your entry fee and compete for the pot
+                  Choose a tier, lock your entry, and we will seat you against a worthy opponent.
                 </p>
                 
                 {/* Price & Balance Info Bar */}
@@ -486,7 +488,7 @@ export default function Lobby() {
                   <div className="text-white/70 text-sm text-center max-w-3xl mx-auto mb-6">
                     {canCoverHighestTier && highestTierData ? (
                       <>
-                        You have enough for{' '}
+                        You already cover{' '}
                         <span
                           className={`${getTierHighlightTextClass(
                             highestTierData
@@ -499,15 +501,15 @@ export default function Lobby() {
                           {' '}
                           ${highestTierData.totalWinUsd.toFixed(2)}
                         </span>
-                        .
+                        including our house boost.
                       </>
                     ) : nextTierToUnlock && amountToUnlock !== null ? (
                       <>
-                        Add{' '}
+                        Deposit{' '}
                         <span className="text-accent font-semibold">
                           ${amountToUnlock.toFixed(2)}
                         </span>{' '}
-                        more to unlock the{' '}
+                        more to unlock{' '}
                         <span
                           className={`${getTierHighlightTextClass(
                             nextTierToUnlock
@@ -515,14 +517,14 @@ export default function Lobby() {
                         >
                           {nextTierToUnlock.title}
                         </span>{' '}
-                        stake and compete for{' '}
+                        and compete for{' '}
                         <span className="text-green-300 font-semibold">
                           ${nextTierToUnlock.totalWinUsd.toFixed(2)}
                         </span>
-                        .
+                        with the built-in house boost.
                       </>
                     ) : (
-                      <>Top up your wallet to unlock bigger pots and VIP visibility.</>
+                      <>Top up your wallet to unlock bigger pots and larger house boosts.</>
                     )}
                   </div>
                 )}
@@ -820,16 +822,16 @@ export default function Lobby() {
                             </div>
                             {bonusUsd > 0 && (
                               <div className="text-accent text-xs font-semibold mb-2">
-                                Bonus Boost: +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
+                                House Boost: +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
                               </div>
                             )}
                             <div className="text-white/60 text-xs font-semibold">
-                              Core pot: ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} pot)
+                              Core pot: ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
                             </div>
                           </div>
                           
                           <div className="text-white font-semibold text-sm mb-3">
-                            ROI on win: +{roi.toFixed(2)}%
+                            Effective ROI: +{roi.toFixed(2)}%
                           </div>
                           <div className="text-white/70 text-sm font-medium mb-3">
                             {headline}
@@ -914,7 +916,7 @@ export default function Lobby() {
                   </div>
                 </div>
                 <div className="text-center text-white/40 text-[11px] mt-4">
-                  * Promotional perks rotate weekly. Bonus highlights are applied automatically when you win.
+                  * House boosts hit your wallet automatically on eligible wins. Promotional amounts rotate weekly.
                 </div>
               </div>
             </div>

@@ -95,6 +95,15 @@ export const getMatchStatus = async (matchId: string) => {
   });
 };
 
+export const cancelMatch = async (wallet: string, matchId?: string, reason?: string) => {
+  return apiCallWithRetry(() =>
+    apiRequest('/api/match/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ wallet, matchId, reason }),
+    })
+  );
+};
+
 export const checkPlayerMatch = async (walletAddress: string) => {
   return apiRequest(`/api/match/check-player-match/${walletAddress}`, {
     method: 'GET',

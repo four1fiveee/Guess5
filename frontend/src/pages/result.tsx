@@ -180,7 +180,10 @@ const Result: React.FC = () => {
               totalPayoutSol:
                 matchData.winner === publicKey?.toString() && matchData.winner !== 'tie'
                   ? (matchData.payout?.winnerAmount || 0) + bonusAmountSol
-                  : matchData.payout?.winnerAmount || 0
+                  : matchData.payout?.winnerAmount || 0,
+              refundReason: matchData.refundReason || null,
+              matchOutcome: matchData.matchOutcome || matchData.status || null,
+              rawStatus: matchData.status || null
             };
             
             setPayoutData(payoutData);
@@ -240,6 +243,14 @@ const Result: React.FC = () => {
             expectedUSD: 0,
             expectedSol: 0
           };
+        }
+
+        if (typeof data.matchOutcome === 'undefined') {
+          data.matchOutcome = null;
+        }
+
+        if (typeof data.refundReason === 'undefined') {
+          data.refundReason = null;
         }
         
         setPayoutData(data);
@@ -501,7 +512,10 @@ const Result: React.FC = () => {
               proposalExecutedAt: matchData.proposalExecutedAt,
               proposalTransactionId: matchData.proposalTransactionId,
               automatedPayout: matchData.payout?.paymentSuccess || false,
-              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null
+              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null,
+              refundReason: matchData.refundReason || null,
+              matchOutcome: matchData.matchOutcome || matchData.status || null,
+              rawStatus: matchData.status || null
             };
             
             setPayoutData(updatedPayoutData);
@@ -563,6 +577,114 @@ const Result: React.FC = () => {
   }
 
   const playerWallet = publicKey?.toString() || '';
+  const matchWasCancelled =
+    payoutData.matchOutcome === 'cancelled' ||
+    payoutData.winner === 'cancelled' ||
+    (!!payoutData.refundReason &&
+      !payoutData.won &&
+      !payoutData.isTie &&
+      payoutData.winner !== playerWallet);
+
+  const readableRefundReason = (() => {
+    if (!payoutData.refundReason) return null;
+    switch (payoutData.refundReason) {
+      case 'payment_timeout':
+        return 'Opponent payment timeout';
+      case 'player_cancelled_after_payment':
+        return 'Opponent cancelled after payment';
+      case 'player_cancelled_before_payment':
+        return 'Opponent cancelled before payment';
+      default:
+        return payoutData.refundReason.replace(/_/g, ' ');
+    }
+  })();
+
+  const cancellationSubtitle = (() => {
+    if (!matchWasCancelled) {
+      return '';
+    }
+    switch (payoutData.refundReason) {
+      case 'payment_timeout':
+        return 'Opponent never completed their deposit. Refund proposal is queued below.';
+      case 'player_cancelled_after_payment':
+        return 'Opponent cancelled after escrow. Sign the refund proposal once it appears.';
+      case 'player_cancelled_before_payment':
+        return 'Match ended before funds moved into escrow. No SOL left your wallet.';
+      default:
+        return 'Match ended before play could begin. Refund details are outlined below.';
+    }
+  })();
+
+  const hasRefundProposal =
+    typeof payoutData.refundAmount === 'number' && payoutData.refundAmount > 0;
+
+  const resultTheme = (() => {
+    if (matchWasCancelled) {
+      return {
+        emoji: '💸',
+        title: 'Match Cancelled',
+        subtitle: cancellationSubtitle,
+        background: 'from-yellow-500/20 via-amber-500/10 to-amber-400/10',
+        border: 'border-yellow-400/40',
+        accentText: 'text-yellow-300',
+      };
+    }
+    if (payoutData.won) {
+      return {
+        emoji: '🏆',
+        title: 'Victory Secured',
+        subtitle: 'You outguessed your opponent. Sign the proposal below to sweep the vault.',
+        background: 'from-green-500/20 via-emerald-500/10 to-green-400/10',
+        border: 'border-green-400/40',
+        accentText: 'text-green-300',
+      };
+    }
+    if (payoutData.isTie) {
+      return {
+        emoji: '🤝',
+        title: payoutData.isWinningTie ? 'Perfectly Matched' : 'Deadlock Draw',
+        subtitle: payoutData.isWinningTie
+          ? 'Both players landed identical runs. Refund details are below.'
+          : 'Neither player cracked the puzzle this round. Refunds are queued below.',
+        background: 'from-blue-500/20 via-purple-500/10 to-indigo-500/10',
+        border: 'border-blue-400/40',
+        accentText: 'text-blue-300',
+      };
+    }
+    return {
+      emoji: '🔥',
+      title: 'Tough Loss',
+      subtitle: 'The vault paid the winner this time. Sign below to finalize the payout and queue again.',
+      background: 'from-red-500/15 via-orange-500/10 to-rose-500/10',
+      border: 'border-red-400/40',
+      accentText: 'text-red-300',
+    };
+  })();
+
+  const parseSeconds = (value: string | null | undefined) => {
+    if (!value) return null;
+    const trimmed = value.toString().trim().toLowerCase();
+    if (trimmed === 'n/a') return null;
+    const numeric = parseInt(trimmed.replace('s', ''), 10);
+    return Number.isFinite(numeric) ? numeric : null;
+  };
+
+  const playerSeconds = parseSeconds(payoutData.timeElapsed);
+  const opponentSeconds = parseSeconds(payoutData.opponentTimeElapsed);
+  let tempoCopy: string | null = null;
+  if (matchWasCancelled) {
+    tempoCopy = cancellationSubtitle || 'Match ended before any moves were recorded.';
+  } else if (playerSeconds !== null && opponentSeconds !== null) {
+    const diff = Math.abs(playerSeconds - opponentSeconds);
+    if (diff > 0) {
+      tempoCopy =
+        playerSeconds < opponentSeconds
+          ? `You solved it ${diff}s faster.`
+          : `Opponent finished ${diff}s quicker.`;
+    } else {
+      tempoCopy = 'Both players matched pace exactly.';
+    }
+  }
 
   return (
     <div className="min-h-screen bg-primary relative">
@@ -571,47 +693,110 @@ const Result: React.FC = () => {
         <div className="max-w-2xl mx-auto">
           {/* Logo prominently displayed at the top */}
           <div className="flex justify-center mb-8">
-            <Image src={logo} alt="Guess5 Logo" width={250} height={250} className="mb-4" />
+            <div className="logo-shell">
+              <Image src={logo} alt="Guess5 Logo" width={220} height={220} priority />
+            </div>
           </div>
           
           {/* Game Results */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
             <div className="text-center">
-              <h1 className="text-3xl font-bold text-white mb-6">Game Results</h1>
-              
-              {/* Result Status */}
-              <div className="mb-6">
-                {payoutData.won ? (
-                  <div className="text-green-400 text-2xl font-bold mb-2">🏆 You Won!</div>
-                ) : payoutData.isTie ? (
-                  <div className="text-yellow-400 text-2xl font-bold mb-2">🤝 It's a Tie!</div>
-                ) : (
-                  <div className="text-red-400 text-2xl font-bold mb-2">😔 You Lost</div>
-                )}
+              <h1 className="text-3xl font-bold text-white mb-6">Match Recap</h1>
 
-              </div>
-              
-              {/* Game Details */}
-              <div className="bg-white/5 rounded-lg p-4 mb-6">
-                <div className="grid grid-cols-2 gap-4 text-sm">
-                  <div>
-                    <span className="text-white/60">Your Guesses:</span>
-                    <div className="text-white font-semibold">{payoutData.numGuesses || 0}/7</div>
-                  </div>
-                  <div>
-                    <span className="text-white/60">Opponent Guesses:</span>
-                    <div className="text-white font-semibold">{payoutData.opponentGuesses || 0}/7</div>
-                  </div>
-                  <div>
-                    <span className="text-white/60">Your Time:</span>
-                    <div className="text-white font-semibold">{payoutData.timeElapsed || 'N/A'}</div>
-                  </div>
-                  <div>
-                    <span className="text-white/60">Opponent Time:</span>
-                    <div className="text-white font-semibold">{payoutData.opponentTimeElapsed || 'N/A'}</div>
-                  </div>
+              {/* Result Hero Banner */}
+              <div
+                className={`mb-6 rounded-3xl border ${resultTheme.border} bg-gradient-to-br ${resultTheme.background} px-6 py-8 sm:px-8 sm:py-10 shadow-xl`}
+              >
+                <div className="flex flex-col items-center gap-3 text-center">
+                  <div className="text-4xl sm:text-5xl">{resultTheme.emoji}</div>
+                  <h2 className={`text-2xl sm:text-3xl font-black tracking-tight text-white`}>
+                    {resultTheme.title}
+                  </h2>
+                  <p className="text-white/70 text-sm sm:text-base max-w-md">
+                    {resultTheme.subtitle}
+                  </p>
                 </div>
               </div>
+
+              {/* Game Details */}
+              {matchWasCancelled ? (
+                <div className="space-y-4 mb-6">
+                  <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5 text-left">
+                    <div className="text-white/60 text-xs uppercase tracking-[0.3em] mb-2">Status</div>
+                    <div className="text-white font-semibold text-base">
+                      {cancellationSubtitle}
+                    </div>
+                    {payoutData.refundAmount ? (
+                      <div className="text-yellow-200 text-sm font-semibold mt-3">
+                        Refund amount: {payoutData.refundAmount.toFixed(4)} SOL
+                      </div>
+                    ) : (
+                      <div className="text-white/60 text-xs mt-3">
+                        No funds left escrow, so no refund is required.
+                      </div>
+                    )}
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+                      <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
+                        Next Steps
+                      </span>
+                      <span className={`text-sm font-semibold ${resultTheme.accentText}`}>
+                        {tempoCopy || 'Monitor the proposal below to reclaim your SOL.'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-4 mb-6">
+                  <div className="grid gap-4 sm:grid-cols-2">
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
+                      <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Your Run</div>
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <div className="text-white/60 text-xs">Guesses Used</div>
+                          <div className="text-white text-2xl font-semibold">
+                            {payoutData.numGuesses || 0}/7
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-white/60 text-xs">Time to Solve</div>
+                          <div className="text-white text-lg font-medium">
+                            {payoutData.timeElapsed || '—'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
+                      <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Opponent</div>
+                      <div className="flex flex-col gap-3">
+                        <div>
+                          <div className="text-white/60 text-xs">Guesses Used</div>
+                          <div className="text-white text-2xl font-semibold">
+                            {payoutData.opponentGuesses || 0}/7
+                          </div>
+                        </div>
+                        <div>
+                          <div className="text-white/60 text-xs">Time to Solve</div>
+                          <div className="text-white text-lg font-medium">
+                            {payoutData.opponentTimeElapsed || '—'}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+                      <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
+                        Tempo Check
+                      </span>
+                      <span className={`text-sm font-semibold ${resultTheme.accentText}`}>
+                        {tempoCopy || 'Timing data will appear once both players finish.'}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
               
               {/* Notification Banner */}
               {notification && (
@@ -630,8 +815,12 @@ const Result: React.FC = () => {
                       ? 'bg-gradient-to-br from-accent/20 to-yellow-500/20 border-2 border-accent shadow-lg shadow-accent/50' 
                       : payoutData.isTie && payoutData.proposalStatus === 'EXECUTED'
                       ? 'bg-gradient-to-br from-blue-500/20 to-purple-500/20 border-2 border-blue-400 shadow-lg shadow-blue-400/50'
+                      : matchWasCancelled && payoutData.proposalStatus === 'EXECUTED'
+                      ? 'bg-gradient-to-br from-yellow-500/20 to-amber-400/20 border-2 border-yellow-400 shadow-lg shadow-yellow-400/50'
                       : !payoutData.won && payoutData.proposalStatus === 'EXECUTED'
                       ? 'bg-gradient-to-br from-gray-500/20 to-gray-600/20 border-2 border-gray-400 shadow-lg shadow-gray-400/50'
+                      : matchWasCancelled
+                      ? 'bg-yellow-500/10 border border-yellow-400/40'
                       : 'bg-secondary bg-opacity-10 border border-accent'
                     } rounded-lg p-6 transform transition-all duration-300
                     ${(payoutData.won || payoutData.isTie || !payoutData.won) && payoutData.proposalStatus === 'EXECUTED' ? 'animate-pulse hover:scale-105' : ''}
@@ -640,7 +829,81 @@ const Result: React.FC = () => {
                       <div className="text-accent text-lg font-semibold mb-2">
                         💰 Non-Custodial Payout System
                     </div>
-                                         {payoutData.won ? (
+                                         {matchWasCancelled ? (
+                        <div className="text-white">
+                          <div className="text-3xl font-bold text-yellow-300 mb-3 animate-bounce">
+                            💸 REFUND MODE
+                          </div>
+                          <p className="text-white/90 mb-3 font-semibold">
+                            {cancellationSubtitle}
+                          </p>
+                          {hasRefundProposal ? (
+                            <div className="text-3xl font-bold text-yellow-400 mb-2">
+                              {payoutData.refundAmount?.toFixed(4)} SOL
+                            </div>
+                          ) : (
+                            <div className="text-white/70 text-sm mb-2">
+                              No escrow transfer occurred, so no refund needs to be signed.
+                            </div>
+                          )}
+                          {payoutData.proposalStatus === 'EXECUTED' ? (
+                            <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
+                              ✅ Refund returned to your wallet!
+                            </div>
+                          ) : hasRefundProposal ? (
+                            <p className="text-sm text-white/80 mb-3">
+                              Sign the refund proposal below to release your SOL back to your wallet.
+                            </p>
+                          ) : null}
+                          {readableRefundReason && (
+                            <div className="text-white/50 text-xs uppercase tracking-[0.25em] mt-2">
+                              Reason: {readableRefundReason}
+                            </div>
+                          )}
+                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
+                            <div className="mt-4">
+                              <p
+                                className={`text-sm mb-2 ${
+                                  payoutData.needsSignatures === 0
+                                    ? playerProposalSigners.includes(publicKey?.toString() || '')
+                                      ? 'text-green-400 font-semibold'
+                                      : playerProposalSigners.length > 0
+                                      ? 'text-green-400 font-semibold'
+                                      : 'text-green-400 font-semibold'
+                                    : playerProposalSigners.includes(publicKey?.toString() || '')
+                                    ? 'text-yellow-400'
+                                    : playerProposalSigners.length > 0
+                                    ? 'text-green-400 font-semibold'
+                                    : 'text-white/60'
+                                }`}
+                              >
+                                {payoutData.needsSignatures === 0
+                                  ? playerProposalSigners.includes(publicKey?.toString() || '')
+                                    ? '✓ You have signed. Waiting for refund execution...'
+                                    : playerProposalSigners.length > 0
+                                    ? '🎉 Other player has signed! Refund is executing shortly.'
+                                    : '✅ Refund proposal is ready to execute - waiting for processing...'
+                                  : playerProposalSigners.includes(publicKey?.toString() || '')
+                                  ? '✓ You have signed. Waiting for refund execution...'
+                                  : playerProposalSigners.length > 0
+                                  ? '🎉 Other player has signed! Refund will execute soon. No action needed.'
+                                  : '⏳ Waiting for either player to sign the refund (only one signature needed)...'}
+                              </p>
+                              {payoutData.needsSignatures > 0 &&
+                               !playerProposalSigners.includes(publicKey?.toString() || '') &&
+                               playerProposalSigners.length === 0 && (
+                                <button
+                                  onClick={handleSignProposal}
+                                  disabled={signingProposal}
+                                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                >
+                                  {signingProposal ? 'Signing...' : 'Sign Refund Proposal'}
+                                </button>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      ) : payoutData.won ? (
                         <div className="text-white">
                           <div className="text-3xl font-bold text-accent mb-3 animate-bounce">
                             🎉 YOU WON! 🎉

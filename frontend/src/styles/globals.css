@@ -9,6 +9,37 @@ body {
   font-family: 'Inter', sans-serif;
 }
 
+.logo-shell {
+  @apply relative inline-flex items-center justify-center rounded-3xl border border-transparent shadow-[0_18px_45px_rgba(0,0,0,0.45)] backdrop-blur-xl;
+  padding: 1.25rem;
+  background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.05), transparent 60%), rgba(9, 19, 24, 0.88);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.logo-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0));
+  opacity: 0.4;
+  transition: opacity 0.3s ease;
+}
+
+.logo-shell:hover {
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.55);
+  transform: translateY(-2px);
+}
+
+.logo-shell:hover::after {
+  opacity: 0.6;
+}
+
+.logo-shell img {
+  filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.32));
+}
+
 /* Smooth fade-in animation */
 @keyframes fadeIn {
   from {

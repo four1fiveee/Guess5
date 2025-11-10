@@ -809,7 +809,9 @@ const Game: React.FC = () => {
       <TopRightWallet />
       <div className="flex flex-col items-center">
         {/* Logo prominently displayed at the top */}
-        <Image src={logo} alt="Guess5 Logo" width={200} height={200} className="mb-4 sm:mb-6" />
+        <div className="logo-shell mb-4 sm:mb-6">
+          <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
+        </div>
         
         {/* Timer */}
         {gameState === 'playing' && (
