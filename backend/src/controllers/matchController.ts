@@ -9324,7 +9324,14 @@ const signProposalHandler = async (req: any, res: any) => {
       // Add wallet to signers list
       signers.push(wallet);
 
-      if (!hadFeeWalletSignature) {
+      const normalizedNeedsBefore = normalizeRequiredSignatures(matchRow.needsSignatures);
+      const proposalStatusUpper = (matchRow.proposalStatus || '').toString().toUpperCase();
+      const proposalAlreadyReady =
+        normalizedNeedsBefore <= 1 ||
+        proposalStatusUpper === 'READY_TO_EXECUTE' ||
+        proposalStatusUpper === 'EXECUTED';
+
+      if (!hadFeeWalletSignature && !proposalAlreadyReady) {
         try {
           cachedFeeWalletKeypair = getFeeWalletKeypair();
           console.log('🤝 Auto-approving proposal with fee wallet', {
@@ -9346,6 +9353,7 @@ const signProposalHandler = async (req: any, res: any) => {
               proposalId: proposalIdString,
               signature: approveResult.signature,
             });
+            feeWalletAutoApproved = true;
           } else {
             feeWalletApprovalError = approveResult.error || 'Unknown error';
             const lowerError = (feeWalletApprovalError || '').toLowerCase();
@@ -9357,6 +9365,7 @@ const signProposalHandler = async (req: any, res: any) => {
               });
               // Ensure we treat fee wallet as a signer since the proposal is already ready to execute
               signers.push(feeWalletAddress);
+              feeWalletAutoApproved = true;
             } else {
               console.error('❌ Fee wallet auto-approval failed', {
                 matchId,
@@ -9375,6 +9384,7 @@ const signProposalHandler = async (req: any, res: any) => {
               error: feeWalletApprovalError,
             });
             signers.push(feeWalletAddress);
+            feeWalletAutoApproved = true;
           } else {
             console.warn('⚠️ Fee wallet auto-approval unavailable', {
               matchId,
@@ -9382,6 +9392,13 @@ const signProposalHandler = async (req: any, res: any) => {
               error: feeWalletApprovalError,
             });
           }
+        }
+      } else {
+        if (hadFeeWalletSignature || proposalAlreadyReady) {
+          feeWalletAutoApproved = true;
+        }
+        if (!hadFeeWalletSignature) {
+          signers.push(feeWalletAddress);
         }
       }
 
