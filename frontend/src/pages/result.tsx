@@ -92,10 +92,18 @@ const Result: React.FC = () => {
 
   const playerProposalSigners = useMemo(() => {
     const feeWallet = config.FEE_WALLET_ADDRESS?.toLowerCase?.();
-    return normalizedProposalSigners.filter(
+    const filtered = normalizedProposalSigners.filter(
       (signer) => signer && signer.toLowerCase() !== feeWallet
     );
-  }, [normalizedProposalSigners]);
+    console.log('🔍 Proposal signer state', {
+      raw: payoutData?.proposalSigners,
+      normalized: normalizedProposalSigners,
+      playerOnly: filtered,
+      feeWallet,
+      needsSignatures: payoutData?.needsSignatures,
+    });
+    return filtered;
+  }, [normalizedProposalSigners, payoutData?.proposalSigners, payoutData?.needsSignatures]);
 
   const loadPayoutData = async () => {
     // Always try to fetch fresh data from backend first if we have a matchId
@@ -712,13 +720,15 @@ const Result: React.FC = () => {
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
-                                {payoutData.needsSignatures === 0 
-                                  ? '✅ Proposal is ready to execute - waiting for processing...'
+                                {payoutData.needsSignatures === 0
+                                  ? playerProposalSigners.includes(publicKey?.toString() || '')
+                                    ? '✓ You have signed. Waiting for proposal execution...'
+                                    : playerProposalSigners.length > 0
+                                      ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
+                                      : '✅ Proposal is ready to execute - waiting for processing...'
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for proposal execution...'
-                                  : playerProposalSigners.length > 0
-                                  ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
-                                  : '⏳ Waiting for either player to sign (only 1 signature needed)...'
+                                    ? '✓ You have signed. Waiting for proposal execution...'
+                                    : '⏳ Waiting for either player to sign (only 1 signature needed)...'
                                 }
                               </p>
                               
