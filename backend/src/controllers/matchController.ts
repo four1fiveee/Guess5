@@ -494,6 +494,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
     
     // Get database repository for cleanup and validation
     const { AppDataSource } = require('../db/index');
+    const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Clean up old matches for this player
