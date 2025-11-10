@@ -8922,6 +8922,7 @@ const signProposalHandler = async (req: any, res: any) => {
     }
 
     const { AppDataSource } = require('../db/index');
+    const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Use raw SQL to avoid issues with missing columns like proposalExpiresAt
