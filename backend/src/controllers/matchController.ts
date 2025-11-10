@@ -8624,6 +8624,7 @@ const voidMatchHandler = async (req: any, res: any) => {
 const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet } = req.query;
+    const { getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
     
     if (!matchId || !wallet) {
       return res.status(400).json({ error: 'Missing required fields: matchId, wallet' });
