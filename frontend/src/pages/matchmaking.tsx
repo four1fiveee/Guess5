@@ -12,6 +12,8 @@ const Matchmaking: React.FC = () => {
   const router = useRouter();
   const { publicKey, signTransaction, sendTransaction } = useWallet();
   const { hasBlockingClaims, pendingClaims } = usePendingClaims();
+  const queryEntryFee =
+    typeof router.query.entryFee === 'string' ? router.query.entryFee : undefined;
   const [status, setStatus] = useState<
     | 'waiting'
     | 'payment_required'
@@ -22,6 +24,7 @@ const Matchmaking: React.FC = () => {
     | 'cancelled'
     | 'refund_pending'
     | 'queue_cancelled'
+    | 'opponent_left'
     | 'completed'
   >('waiting');
   const [waitingCount, setWaitingCount] = useState(0);
@@ -43,31 +46,35 @@ const Matchmaking: React.FC = () => {
       return null;
     }
 
-    if (status !== 'refund_pending' && status !== 'cancelled' && status !== 'queue_cancelled') {
-      return null;
-    }
-
-    const isPlayer1 = currentWallet && matchData.player1 && currentWallet === matchData.player1;
-    const userPaid = isPlayer1 ? matchData.player1Paid : matchData.player2Paid;
-    const opponentPaid = isPlayer1 ? matchData.player2Paid : matchData.player1Paid;
+    const isPlayer1 =
+      !!currentWallet && matchData.player1 && currentWallet === matchData.player1;
+    const userPaid = isPlayer1 ? !!matchData.player1Paid : !!matchData.player2Paid;
+    const opponentPaid = isPlayer1 ? !!matchData.player2Paid : !!matchData.player1Paid;
     const reason = matchData.refundReason;
 
-    let heading = 'Match Cancelled';
-    let detail =
-      'Match cancelled. Queue up again whenever you are ready.';
-    let tone: 'info' | 'warning' | 'success' = 'info';
-    let encourageResult = false;
+    if (status === 'opponent_left') {
+      return {
+        heading: 'Opponent Left',
+        detail: 'Your opponent exited before paying. Re-queueing you for another match.',
+        tone: 'info' as const,
+        encourageResult: false,
+      };
+    }
 
     if (status === 'refund_pending') {
-      heading = 'Refund Pending';
-      tone = 'warning';
-      encourageResult = true;
+      let detail: string;
+      let tone: 'info' | 'warning' | 'success' = 'warning';
+      let encourageResult = true;
 
       switch (reason) {
         case 'payment_timeout':
           detail = userPaid
-            ? 'The opponent never finished paying. A refund proposal is being assembled—open the result screen shortly to sign your SOL back.'
+            ? 'The opponent never finished paying. A refund proposal is being assembled—open the result screen shortly to co-sign your SOL back.'
             : 'The opponent never finished paying. We cancelled the match automatically before SOL moved.';
+          if (!userPaid) {
+            tone = 'info';
+            encourageResult = false;
+          }
           break;
         case 'player_cancelled_after_payment':
           detail =
@@ -86,36 +93,54 @@ const Matchmaking: React.FC = () => {
           tone = userPaid ? 'warning' : 'info';
           encourageResult = userPaid;
       }
-    } else if (status === 'queue_cancelled') {
-      heading = 'Queue Cancelled';
-      detail = 'You left the matchmaking queue. Join again any time.';
-      tone = 'info';
-      encourageResult = false;
-    } else {
-      if (reason === 'player_cancelled_before_payment' || (!userPaid && !opponentPaid)) {
-        detail = 'The opponent bailed before anyone deposited. No funds moved.';
-        tone = 'info';
-      } else if (reason === 'payment_timeout' || reason === 'player_cancelled_after_payment') {
-        heading = 'Match Cancelled - Refund Inbound';
-        detail =
-          'Funds from your deposit are safe. The refund proposal will appear soon in your result feed.';
-        tone = 'warning';
-        encourageResult = true;
-      } else {
-        detail = userPaid
-          ? 'Your deposit is being returned. Check the result page shortly to sign the refund proposal.'
-          : 'Opponent left the queue. No deposits were taken.';
-        tone = userPaid ? 'warning' : 'info';
-        encourageResult = userPaid;
-      }
+
+      return {
+        heading: 'Refund Pending',
+        detail,
+        tone,
+        encourageResult,
+      };
     }
 
-    return {
-      heading,
-      detail,
-      tone,
-      encourageResult,
-    };
+    if (status === 'queue_cancelled') {
+      return {
+        heading: 'Queue Cancelled',
+        detail: 'You left the matchmaking queue. Join again any time.',
+        tone: 'info' as const,
+        encourageResult: false,
+      };
+    }
+
+    if (status === 'cancelled') {
+      if (reason === 'player_cancelled_before_payment' || (!userPaid && !opponentPaid)) {
+        return {
+          heading: 'Match Cancelled',
+          detail: 'The opponent bailed before anyone deposited. No funds moved.',
+          tone: 'info' as const,
+          encourageResult: false,
+        };
+      }
+
+      if (reason === 'payment_timeout' || reason === 'player_cancelled_after_payment') {
+        return {
+          heading: 'Match Cancelled - Refund Inbound',
+          detail: 'Funds from your deposit are safe. The refund proposal will appear soon in your result feed.',
+          tone: 'warning' as const,
+          encourageResult: true,
+        };
+      }
+
+      return {
+        heading: 'Match Cancelled',
+        detail: userPaid
+          ? 'Your deposit is being returned. Check the result page shortly to sign the refund proposal.'
+          : 'Opponent left the queue. No deposits were taken.',
+        tone: userPaid ? 'warning' : 'info',
+        encourageResult: userPaid,
+      };
+    }
+
+    return null;
   }, [status, matchData, currentWallet]);
   
   // Use ref to track current matchData to avoid closure issues
@@ -255,6 +280,7 @@ const Matchmaking: React.FC = () => {
     setIsPaymentInProgress(true);
     if (!publicKey || !matchData) {
       console.error('❌ Missing publicKey or matchData');
+      setIsPaymentInProgress(false);
       return;
     }
 
@@ -270,11 +296,107 @@ const Matchmaking: React.FC = () => {
     
     if (currentPlayerPaid) {
       console.log('⚠️ Current player already paid');
+      setIsPaymentInProgress(false);
       return;
     }
 
     try {
       console.log('💰 Starting payment to multisig vault deposit...');
+
+      if (matchData.status && matchData.status !== 'payment_required') {
+        setIsPaymentInProgress(false);
+        if (matchData.status === 'cancelled') {
+          setStatus('opponent_left');
+        } else if (matchData.status === 'refund_pending') {
+          setStatus('refund_pending');
+        }
+        return;
+      }
+
+      let latestStatus: any;
+      try {
+        latestStatus = await getMatchStatus(matchData.matchId);
+      } catch (statusCheckError) {
+        console.warn('⚠️ Unable to fetch latest match status before payment', statusCheckError);
+      }
+
+      const allowedPaymentStatuses = ['payment_required', 'waiting_for_payment'];
+      if (
+        latestStatus?.status &&
+        !allowedPaymentStatuses.includes(latestStatus.status)
+      ) {
+        if (latestStatus.status === 'cancelled') {
+          const depositMade = !!latestStatus.player1Paid || !!latestStatus.player2Paid;
+          if (depositMade) {
+            setStatus('refund_pending');
+            setMatchData((prev: any) =>
+              prev
+                ? {
+                    ...prev,
+                    ...latestStatus,
+                    status: 'refund_pending',
+                  }
+                : latestStatus
+            );
+            matchDataRef.current = {
+              ...(matchDataRef.current || {}),
+              ...latestStatus,
+              status: 'refund_pending',
+            };
+          } else {
+            setStatus('opponent_left');
+            setMatchData((prev: any) =>
+              prev
+                ? {
+                    ...prev,
+                    ...latestStatus,
+                    status: 'opponent_left',
+                  }
+                : latestStatus
+            );
+            matchDataRef.current = {
+              ...(matchDataRef.current || {}),
+              ...latestStatus,
+              status: 'opponent_left',
+            };
+          }
+        } else if (latestStatus.status === 'refund_pending' || latestStatus.status === 'refunded') {
+          setStatus('refund_pending');
+          setMatchData((prev: any) =>
+            prev
+              ? {
+                  ...prev,
+                  ...latestStatus,
+                  status: 'refund_pending',
+                }
+              : latestStatus
+          );
+          matchDataRef.current = {
+            ...(matchDataRef.current || {}),
+            ...latestStatus,
+            status: 'refund_pending',
+          };
+        } else {
+          setStatus(latestStatus.status as any);
+        }
+        setIsPaymentInProgress(false);
+        return;
+      }
+
+      if (latestStatus?.status && allowedPaymentStatuses.includes(latestStatus.status)) {
+        setMatchData((prev: any) =>
+          prev
+            ? {
+                ...prev,
+                ...latestStatus,
+              }
+            : latestStatus
+        );
+        matchDataRef.current = {
+          ...(matchDataRef.current || {}),
+          ...latestStatus,
+        };
+      }
 
       // Create connection to Solana network
       const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
@@ -633,14 +755,52 @@ const Matchmaking: React.FC = () => {
               }
 
               if (normalizedStatus === 'cancelled') {
-                setStatus('cancelled');
+                const depositMade = !!data.player1Paid || !!data.player2Paid;
+                matchDataRef.current = {
+                  ...(matchDataRef.current || {}),
+                  status: depositMade ? 'refund_pending' : 'opponent_left',
+                };
+                setMatchData((prev: any) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: depositMade ? 'refund_pending' : 'opponent_left',
+                      }
+                    : prev
+                );
                 clearInterval(pollInterval);
                 setIsPolling(false);
                 setIsMatchmakingInProgress(false);
+                if (depositMade) {
+                  setStatus('refund_pending');
+                  if (currentMatchData.matchId) {
+                    localStorage.setItem('matchId', currentMatchData.matchId);
+                    if (data.entryFee) {
+                      localStorage.setItem('entryFee', data.entryFee.toString());
+                    }
+                  }
+                } else {
+                  localStorage.removeItem('matchId');
+                  localStorage.removeItem('word');
+                  localStorage.removeItem('entryFee');
+                  setStatus('opponent_left');
+                }
                 return;
               }
 
               if (normalizedStatus === 'refund_pending' || normalizedStatus === 'refunded') {
+                matchDataRef.current = {
+                  ...(matchDataRef.current || {}),
+                  status: 'refund_pending',
+                };
+                setMatchData((prev: any) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: 'refund_pending',
+                      }
+                    : prev
+                );
                 setStatus('refund_pending');
                 clearInterval(pollInterval);
                 setIsPolling(false);
@@ -849,7 +1009,7 @@ const Matchmaking: React.FC = () => {
       if (matchData.entryFee) {
         localStorage.setItem('entryFee', matchData.entryFee.toString());
       }
-    } else if (status === 'cancelled' || status === 'queue_cancelled') {
+    } else if (status === 'cancelled' || status === 'queue_cancelled' || status === 'opponent_left') {
       localStorage.removeItem('matchId');
       localStorage.removeItem('word');
       localStorage.removeItem('entryFee');
@@ -861,6 +1021,27 @@ const Matchmaking: React.FC = () => {
       router.push(`/result?matchId=${matchData.matchId}`);
     }
   }, [status, matchData?.matchId, router]);
+
+  useEffect(() => {
+    if (status !== 'opponent_left') {
+      return;
+    }
+
+    const parsedQueryFee = queryEntryFee ? parseFloat(queryEntryFee) : NaN;
+    const requeueEntryFee =
+      matchData?.entryFee || entryFee || (Number.isNaN(parsedQueryFee) ? undefined : parsedQueryFee);
+    const baseTarget =
+      requeueEntryFee && !Number.isNaN(requeueEntryFee)
+        ? `/matchmaking?entryFee=${requeueEntryFee}`
+        : '/matchmaking';
+    const finalTarget = `${baseTarget}${baseTarget.includes('?') ? '&' : '?'}requeue=${Date.now()}`;
+
+    const timer = setTimeout(() => {
+      router.replace(finalTarget);
+    }, 2200);
+
+    return () => clearTimeout(timer);
+  }, [status, matchData?.entryFee, entryFee, router, queryEntryFee]);
 
 
 
@@ -1039,7 +1220,10 @@ const Matchmaking: React.FC = () => {
             </div>
           )}
 
-          {(status === 'cancelled' || status === 'refund_pending' || status === 'queue_cancelled') && (
+          {(status === 'cancelled' ||
+            status === 'refund_pending' ||
+            status === 'queue_cancelled' ||
+            status === 'opponent_left') && (
             <div className="animate-fade-in">
               {(() => {
                 const tone = cancellationContext?.tone ?? 'info';

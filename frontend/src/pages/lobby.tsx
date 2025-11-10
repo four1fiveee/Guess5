@@ -55,12 +55,12 @@ const STAKE_TIERS: StakeTier[] = [
   {
     id: 'highRoller',
     usd: 50,
-    title: 'High Roller',
+    title: 'Veteran',
     badgeText: '🎯 Bonus Stacked',
     badgeTheme: 'blue',
-    headline: 'Raise the stakes with amplified house backing.',
+    headline: 'Bigger stakes with an even bigger bonus.',
     incentive: 'House boost: +$0.75 on every single win.',
-    cta: 'Run High Roller',
+    cta: 'Go Veteran',
     isHighValue: true,
     bonusUsd: 0.75
   },
@@ -70,9 +70,9 @@ const STAKE_TIERS: StakeTier[] = [
     title: 'VIP Elite',
     badgeText: '💎 VIP Showcase',
     badgeTheme: 'purple',
-    headline: 'Top shelf tier with our maximum house boost.',
+    headline: 'The most competitive tier with the biggest bonus we offer.',
     incentive: 'Pocket an extra $1.75 every time you seal the match.',
-    cta: 'Secure VIP Seat',
+    cta: 'Claim a VIP Seat',
     isPremium: true,
     bonusUsd: 1.75
   }
@@ -439,7 +439,7 @@ export default function Lobby() {
               {/* Header Section - Premium Design */}
               <div className="text-center mb-10">
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight">
-                  Pick Your <span className="bg-gradient-to-r from-accent via-yellow-400 to-accent bg-clip-text text-transparent">Stake Tier</span>
+                  Choose Your <span className="bg-gradient-to-r from-accent via-yellow-400 to-accent bg-clip-text text-transparent">Level of Competition</span>
                 </h1>
                 <p className="text-white/70 text-base sm:text-lg mb-8 font-medium">
                   Choose a tier, lock your entry, and we will seat you against a worthy opponent.

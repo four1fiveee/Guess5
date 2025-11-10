@@ -10,10 +10,11 @@ body {
 }
 
 .logo-shell {
-  @apply relative inline-flex items-center justify-center rounded-3xl border border-transparent shadow-[0_18px_45px_rgba(0,0,0,0.45)] backdrop-blur-xl;
-  padding: 1.25rem;
-  background: radial-gradient(circle at 30% 20%, rgba(255, 255, 255, 0.05), transparent 60%), rgba(9, 19, 24, 0.88);
-  transition: box-shadow 0.3s ease, transform 0.3s ease;
+  @apply relative inline-flex items-center justify-center rounded-3xl shadow-[0_16px_42px_rgba(0,0,0,0.45)] backdrop-blur-lg;
+  padding: 1.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background: linear-gradient(140deg, rgba(12, 25, 32, 0.95), rgba(8, 18, 24, 0.92));
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
 }
 
 .logo-shell::after {
@@ -22,22 +23,23 @@ body {
   inset: 0;
   border-radius: inherit;
   pointer-events: none;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0));
-  opacity: 0.4;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.04), rgba(255, 255, 255, 0));
   transition: opacity 0.3s ease;
+  opacity: 0.35;
 }
 
 .logo-shell:hover {
-  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.55);
-  transform: translateY(-2px);
+  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
+  border-color: rgba(255, 255, 255, 0.1);
+  transform: translateY(-1px);
 }
 
 .logo-shell:hover::after {
-  opacity: 0.6;
+  opacity: 0.55;
 }
 
 .logo-shell img {
-  filter: drop-shadow(0 14px 24px rgba(0, 0, 0, 0.32));
+  filter: drop-shadow(0 12px 22px rgba(0, 0, 0, 0.3));
 }
 
 /* Smooth fade-in animation */
