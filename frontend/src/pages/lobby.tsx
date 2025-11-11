@@ -817,7 +817,7 @@ export default function Lobby() {
                               ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
                             </div>
                             <div className="text-white/70 text-xs uppercase tracking-wider mb-1 font-semibold">
-                              House Boost
+                              Platform Bonus
                             </div>
                             <div className="text-accent text-xs font-semibold mb-2">
                               +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
