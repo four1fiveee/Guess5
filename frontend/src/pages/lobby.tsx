@@ -810,23 +810,27 @@ export default function Lobby() {
                           ></div>
 
                           <div className="mb-4">
-                          <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
-                              Core Pot
-                            </div>
-                            <div className="text-white text-lg sm:text-xl font-semibold mb-1 flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
-                              <span className="text-2xl sm:text-3xl font-black text-white">
+                          <div className="space-y-2 mb-3">
+                            <div className="bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-center">
+                              <div className="text-white/70 text-[11px] uppercase tracking-[0.25em] mb-1 font-semibold">
+                                Core Pot
+                              </div>
+                              <div className="text-2xl sm:text-3xl font-black text-white">
                                 ${baseWinningsUsd.toFixed(2)}
-                              </span>
-                              <span className="text-white/70 text-sm sm:text-base font-medium">
-                                (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
-                              </span>
+                              </div>
+                              <div className="text-white/60 text-xs font-medium mt-1">
+                                95% of ${(usdAmount * 2).toFixed(2)} prize pool
+                              </div>
                             </div>
-                            <div className="text-white/70 text-xs uppercase tracking-wider mb-1 font-semibold">
-                              Platform Bonus
+                            <div className="bg-accent/10 border border-accent/25 rounded-xl px-4 py-2.5 text-center">
+                              <div className="text-accent text-[11px] uppercase tracking-[0.25em] mb-1 font-semibold">
+                                Platform Bonus
+                              </div>
+                              <div className="text-accent text-sm font-semibold">
+                                +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
+                              </div>
                             </div>
-                            <div className="text-accent text-xs font-semibold mb-2">
-                              +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
-                            </div>
+                          </div>
                             <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
                               Total Payout
                             </div>
