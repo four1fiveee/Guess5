@@ -2054,7 +2054,8 @@ export class SquadsVaultService {
   async executeProposal(
     vaultAddress: string,
     proposalId: string,
-    executor: Keypair
+    executor: Keypair,
+    overrideVaultPda?: string
   ): Promise<{ success: boolean; signature?: string; slot?: number; executedAt?: string; logs?: string[]; error?: string }> {
     const multisigAddress = new PublicKey(vaultAddress);
     const transactionIndex = BigInt(proposalId);
@@ -2066,19 +2067,35 @@ export class SquadsVaultService {
 
     // Best effort: ensure vault has lamports before attempting execution
     let derivedVaultPda: PublicKey | null = null;
-    try {
-      const [vaultPda] = getVaultPda({
-        multisigPda: multisigAddress,
-        index: 0,
-        programId: this.programId,
-      } as any);
-      derivedVaultPda = vaultPda;
-    } catch (derivationError: unknown) {
-      enhancedLogger.warn('⚠️ Unable to derive vault PDA for balance pre-check', {
-        vaultAddress,
-        proposalId,
-        error: derivationError instanceof Error ? derivationError.message : String(derivationError),
-      });
+
+    if (overrideVaultPda) {
+      try {
+        derivedVaultPda = new PublicKey(overrideVaultPda);
+      } catch (overrideError: unknown) {
+        enhancedLogger.warn('⚠️ Failed to parse override vault PDA for execution pre-check', {
+          vaultAddress,
+          proposalId,
+          overrideVaultPda,
+          error: overrideError instanceof Error ? overrideError.message : String(overrideError),
+        });
+      }
+    }
+
+    if (!derivedVaultPda) {
+      try {
+        const [vaultPda] = getVaultPda({
+          multisigPda: multisigAddress,
+          index: 0,
+          programId: this.programId,
+        } as any);
+        derivedVaultPda = vaultPda;
+      } catch (derivationError: unknown) {
+        enhancedLogger.warn('⚠️ Unable to derive vault PDA for balance pre-check', {
+          vaultAddress,
+          proposalId,
+          error: derivationError instanceof Error ? derivationError.message : String(derivationError),
+        });
+      }
     }
 
     if (derivedVaultPda) {

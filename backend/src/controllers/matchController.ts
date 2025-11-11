@@ -249,7 +249,8 @@ const attemptAutoExecuteIfReady = async (
     const executeResult = await squadsVaultService.executeProposal(
       (match as any).squadsVaultAddress,
       proposalIdString,
-      feeWalletKeypair
+      feeWalletKeypair,
+      (match as any).squadsVaultPda ?? undefined
     );
 
     if (!executeResult.success) {
@@ -4155,7 +4156,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         const executeResult = await squadsVaultService.executeProposal(
           (match as any).squadsVaultAddress,
           proposalIdString,
-          feeWalletKeypair
+          feeWalletKeypair,
+          (match as any).squadsVaultPda ?? undefined
         );
         
         if (executeResult.success) {
@@ -9949,7 +9951,8 @@ const signProposalHandler = async (req: any, res: any) => {
             const executeResult = await squadsVaultService.executeProposal(
               matchRow.squadsVaultAddress,
               proposalIdString,
-              feeWalletKeypair
+              feeWalletKeypair,
+              matchRow.squadsVaultPda ?? undefined
             );
 
             if (executeResult.success) {
