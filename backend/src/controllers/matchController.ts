@@ -3346,6 +3346,44 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       }
     }
 
+    // Ensure we have a vault PDA when a vault exists
+    if (match && (match as any).squadsVaultAddress && !(match as any).squadsVaultPda) {
+      try {
+        const { getSquadsVaultService } = require('../services/squadsVaultService');
+        const squadsVaultService = getSquadsVaultService();
+        const derivedVaultPda = squadsVaultService?.deriveVaultPda?.((match as any).squadsVaultAddress);
+
+        if (derivedVaultPda) {
+          (match as any).squadsVaultPda = derivedVaultPda;
+          if (matchRepository) {
+            try {
+              await matchRepository.update(
+                { id: match.id },
+                { squadsVaultPda: derivedVaultPda }
+              );
+            } catch (updateError: unknown) {
+              enhancedLogger.warn('⚠️ Failed to persist derived vault PDA (non-blocking)', {
+                matchId: match.id,
+                vaultAddress: (match as any).squadsVaultAddress,
+                error: updateError instanceof Error ? updateError.message : String(updateError),
+              });
+            }
+          }
+        } else {
+          enhancedLogger.warn('⚠️ Unable to derive vault PDA', {
+            matchId: match.id,
+            vaultAddress: (match as any).squadsVaultAddress,
+          });
+        }
+      } catch (deriveErr: unknown) {
+        enhancedLogger.warn('⚠️ Vault PDA derivation failed (non-blocking)', {
+          matchId: match?.id,
+          vaultAddress: (match as any)?.squadsVaultAddress,
+          error: deriveErr instanceof Error ? deriveErr.message : String(deriveErr),
+        });
+      }
+    }
+
     // Auto-create Squads vault if missing and match requires escrow
     try {
       if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
