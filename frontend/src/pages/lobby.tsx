@@ -846,11 +846,8 @@ export default function Lobby() {
                           <div className="text-white font-semibold text-sm mb-3">
                             Effective ROI: +{roi.toFixed(2)}%
                           </div>
-                          <div className="text-white/70 text-sm font-medium mb-3">
+                          <div className="text-white/70 text-sm font-medium mb-4">
                             {headline}
-                          </div>
-                          <div className="text-accent text-xs font-semibold bg-accent/10 border border-accent/30 px-3 py-2 rounded-lg mb-4">
-                            {incentive}
                           </div>
                           </div>
 
