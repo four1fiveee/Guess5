@@ -10,44 +10,25 @@ body {
 }
 
 .logo-shell {
-  @apply relative inline-flex items-center justify-center rounded-3xl shadow-[0_16px_42px_rgba(0,0,0,0.45)] backdrop-blur-lg;
-  padding: 1.15rem;
-  border: 1px solid rgba(255, 255, 255, 0.03);
-  background:
-    radial-gradient(
-      circle at 50% 45%,
-      rgba(255, 255, 255, 0.05) 0%,
-      rgba(24, 35, 41, 0.92) 55%,
-      rgba(18, 29, 34, 0.98) 82%,
-      rgba(18, 29, 34, 1) 100%
-    ),
-    #121d22;
-  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s ease;
+  @apply inline-flex items-center justify-center;
+  padding: 0;
+  border: none;
+  border-radius: 0.75rem;
+  background: transparent;
+  box-shadow: none;
 }
 
 .logo-shell::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  pointer-events: none;
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0));
-  transition: opacity 0.3s ease;
-  opacity: 0.3;
+  content: none;
 }
 
 .logo-shell:hover {
-  box-shadow: 0 20px 48px rgba(0, 0, 0, 0.55);
-  border-color: rgba(255, 255, 255, 0.08);
-  transform: translateY(-1px);
-}
-
-.logo-shell:hover::after {
-  opacity: 0.5;
+  transform: none;
+  box-shadow: none;
 }
 
 .logo-shell img {
-  filter: drop-shadow(0 11px 20px rgba(0, 0, 0, 0.28));
+  filter: none;
 }
 
 /* Smooth fade-in animation */
