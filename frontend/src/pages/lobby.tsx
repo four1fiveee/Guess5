@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router'
-import { WalletConnectButton, TopRightWallet } from '../components/WalletConnect'
+import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch, getMatchStatus } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
@@ -221,25 +221,45 @@ export default function Lobby() {
 
   // Check wallet balance when wallet connects
   useEffect(() => {
-    const checkWalletBalance = async () => {
+    let isMounted = true;
+    let interval: NodeJS.Timeout | null = null;
+
+    const fetchBalance = async () => {
       if (!publicKey) {
-        setWalletBalance(null);
+        if (isMounted) {
+          setWalletBalance(null);
+        }
         return;
       }
-      
+
       try {
-        const solanaNetwork = process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
+        const solanaNetwork =
+          process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
         const connection = new Connection(solanaNetwork, 'confirmed');
         const balance = await connection.getBalance(publicKey);
-        const balanceInSol = balance / LAMPORTS_PER_SOL;
-        setWalletBalance(balanceInSol);
+        if (isMounted) {
+          setWalletBalance(balance / LAMPORTS_PER_SOL);
+        }
       } catch (error) {
         console.error('Failed to check wallet balance:', error);
-        setWalletBalance(null);
+        if (isMounted) {
+          setWalletBalance(null);
+        }
       }
     };
-    
-    checkWalletBalance();
+
+    fetchBalance();
+
+    if (publicKey) {
+      interval = setInterval(fetchBalance, 15000);
+    }
+
+    return () => {
+      isMounted = false;
+      if (interval) {
+        clearInterval(interval);
+      }
+    };
   }, [publicKey]);
 
   // Clean up stale match data and check for existing matches when lobby loads
@@ -400,8 +420,6 @@ export default function Lobby() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 py-8 relative">
-      <TopRightWallet />
-      
       <div className="flex flex-col items-center w-full max-w-6xl">
         {/* Logo and Header */}
         <div className="flex flex-col items-center mb-6 sm:mb-8">
