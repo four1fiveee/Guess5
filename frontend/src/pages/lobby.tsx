@@ -813,8 +813,13 @@ export default function Lobby() {
                           <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
                               Core Pot
                             </div>
-                            <div className="text-white text-lg sm:text-xl font-semibold mb-1">
-                              ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
+                            <div className="text-white text-lg sm:text-xl font-semibold mb-1 flex flex-col sm:flex-row sm:items-baseline sm:gap-2">
+                              <span className="text-2xl sm:text-3xl font-black text-white">
+                                ${baseWinningsUsd.toFixed(2)}
+                              </span>
+                              <span className="text-white/70 text-sm sm:text-base font-medium">
+                                (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
+                              </span>
                             </div>
                             <div className="text-white/70 text-xs uppercase tracking-wider mb-1 font-semibold">
                               Platform Bonus
