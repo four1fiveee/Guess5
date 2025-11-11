@@ -810,6 +810,18 @@ export default function Lobby() {
                           ></div>
 
                           <div className="mb-4">
+                          <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
+                              Core Pot
+                            </div>
+                            <div className="text-white text-lg sm:text-xl font-semibold mb-1">
+                              ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
+                            </div>
+                            <div className="text-white/70 text-xs uppercase tracking-wider mb-1 font-semibold">
+                              House Boost
+                            </div>
+                            <div className="text-accent text-xs font-semibold mb-2">
+                              +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
+                            </div>
                             <div className="text-white/70 text-xs uppercase tracking-wider mb-1.5 font-semibold">
                               Total Payout
                             </div>
@@ -819,14 +831,6 @@ export default function Lobby() {
                               }`}
                             >
                               ${totalWinUsd.toFixed(2)}
-                            </div>
-                            {bonusUsd > 0 && (
-                              <div className="text-accent text-xs font-semibold mb-2">
-                                House Boost: +${bonusUsd.toFixed(2)} {bonusSol ? `(≈ ${bonusSol} SOL)` : ''}
-                              </div>
-                            )}
-                            <div className="text-white/60 text-xs font-semibold">
-                              Core pot: ${baseWinningsUsd.toFixed(2)} (95% of ${(usdAmount * 2).toFixed(2)} prize pool)
                             </div>
                           </div>
                           
