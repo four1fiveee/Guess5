@@ -4153,6 +4153,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           feeWalletApprovalError,
         });
       } else if (feeWalletKeypair) {
+        console.log('🔁 Auto-execute (fallback) using vault PDA', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          vaultAddress: (match as any).squadsVaultAddress,
+          vaultPda: (match as any).squadsVaultPda ?? null,
+        });
         const executeResult = await squadsVaultService.executeProposal(
           (match as any).squadsVaultAddress,
           proposalIdString,
@@ -9947,6 +9953,8 @@ const signProposalHandler = async (req: any, res: any) => {
               signers: finalSigners,
               needsSignaturesBeforeExecute: newNeedsSignatures,
               proposalStatusBeforeExecute: newProposalStatus,
+              vaultAddress: matchRow.squadsVaultAddress,
+              vaultPda: matchRow.squadsVaultPda ?? null,
             });
             const executeResult = await squadsVaultService.executeProposal(
               matchRow.squadsVaultAddress,

@@ -2071,6 +2071,11 @@ export class SquadsVaultService {
     if (overrideVaultPda) {
       try {
         derivedVaultPda = new PublicKey(overrideVaultPda);
+        enhancedLogger.info('🔁 Using override vault PDA for execution', {
+          vaultAddress,
+          proposalId,
+          overrideVaultPda: derivedVaultPda.toString(),
+        });
       } catch (overrideError: unknown) {
         enhancedLogger.warn('⚠️ Failed to parse override vault PDA for execution pre-check', {
           vaultAddress,
