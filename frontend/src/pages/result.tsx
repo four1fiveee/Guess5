@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
 import Image from 'next/image';
@@ -84,6 +84,49 @@ const Result: React.FC = () => {
   const [squadsClient] = useState(() => new SquadsClient());
   const [isPolling, setIsPolling] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const stopRefreshLoops = () => {
+    if (refreshIntervalRef.current) {
+      clearInterval(refreshIntervalRef.current);
+      refreshIntervalRef.current = null;
+    }
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+      refreshTimeoutRef.current = null;
+    }
+  };
+
+  const shouldContinuePolling = (info: any) => {
+    if (!info) return false;
+    const normalizedStatus = (info.proposalStatus || '').toString().toUpperCase();
+    const needs = Number.isFinite(info.needsSignatures)
+      ? Number(info.needsSignatures)
+      : 0;
+
+    if (!info.proposalId) {
+      return true;
+    }
+
+    if (info.proposalTransactionId) {
+      return false;
+    }
+
+    if (normalizedStatus === 'EXECUTED') {
+      return false;
+    }
+
+    if (normalizedStatus === 'READY_TO_EXECUTE' && needs <= 0) {
+      return false;
+    }
+
+    if (needs > 0) {
+      return true;
+    }
+
+    return normalizedStatus === 'ACTIVE' || normalizedStatus === 'PENDING';
+  };
 
   const normalizedProposalSigners = useMemo(
     () => normalizeProposalSigners(payoutData?.proposalSigners),
@@ -188,23 +231,10 @@ const Result: React.FC = () => {
             
             setPayoutData(payoutData);
             setLoading(false);
-
-            // Continue polling if:
-            // 1. No proposalId yet (waiting for proposal creation)
-            // 2. Proposal exists but is ACTIVE and needs signatures (waiting for signing/execution)
-            // Stop polling only when proposal is EXECUTED or needsSignatures is 0
-            if (!payoutData.proposalId) {
-              // No proposal yet - start polling
-              setIsPolling(true);
-            } else if (payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures > 0) {
-              // Proposal exists but needs signatures - continue polling
-              setIsPolling(true);
-            } else if (payoutData.proposalStatus === 'EXECUTED' || payoutData.needsSignatures === 0) {
-              // Proposal executed or ready - stop polling
-              setIsPolling(false);
-            } else {
-              // Other status - continue polling to catch updates
-              setIsPolling(true);
+            const keepPolling = shouldContinuePolling(payoutData);
+            setIsPolling(keepPolling);
+            if (!keepPolling) {
+              stopRefreshLoops();
             }
             return;
           } else {
@@ -255,16 +285,10 @@ const Result: React.FC = () => {
         
         setPayoutData(data);
         setLoading(false);
-
-        // Continue polling if proposal is active and needs signatures
-        if (!data.proposalId) {
-          setIsPolling(true);
-        } else if (data.proposalStatus === 'ACTIVE' && data.needsSignatures > 0) {
-          setIsPolling(true);
-        } else if (data.proposalStatus === 'EXECUTED' || data.needsSignatures === 0) {
-          setIsPolling(false);
-        } else {
-          setIsPolling(true);
+        const keepPolling = shouldContinuePolling(data);
+        setIsPolling(keepPolling);
+        if (!keepPolling) {
+          stopRefreshLoops();
         }
         return;
       } catch (error) {
@@ -283,6 +307,7 @@ const Result: React.FC = () => {
     setError('Failed to load game results');
     setLoading(false);
     setIsPolling(false);
+    stopRefreshLoops();
   };
 
   useEffect(() => {
@@ -356,39 +381,29 @@ const Result: React.FC = () => {
           }
           
           // Immediately refresh payout data to get latest status
+          stopRefreshLoops();
           loadPayoutData();
-          
+
           // Hide sign button since only 1 signature needed
           setSigningProposal(false);
-          
-          // Refresh data periodically to catch execution
-          const refreshInterval = setInterval(() => {
+
+          // Poll a little faster for a short period to detect execution
+          refreshIntervalRef.current = setInterval(() => {
             loadPayoutData();
-          }, 2000);
-          
-          // Stop refreshing after 20 seconds
-          setTimeout(() => {
-            clearInterval(refreshInterval);
-            // Update notification based on final status
-            loadPayoutData().then(() => {
-              // Notification will be updated by loadPayoutData
-            });
+          }, 4000);
+
+          refreshTimeoutRef.current = setTimeout(() => {
+            stopRefreshLoops();
+            loadPayoutData();
           }, 20000);
         }
       } catch (error) {
         console.error('❌ Error parsing proposal_signed event:', error);
       }
     });
-    
-    // Also listen for balance updates which might indicate payment execution
-    eventSource.addEventListener('balance_update', () => {
-      // Refresh payout data when balance updates (might indicate payment received)
-      if (matchId) {
-        loadPayoutData();
-      }
-    });
 
     return () => {
+      stopRefreshLoops();
       eventSource.close();
     };
   }, [router.query.matchId, publicKey]);

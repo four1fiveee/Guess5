@@ -253,13 +253,25 @@ const attemptAutoExecuteIfReady = async (
     );
 
     if (!executeResult.success) {
-      enhancedLogger.error('❌ Auto-execute attempt failed', {
+      const isVaultEmpty =
+        executeResult.error === 'INSUFFICIENT_VAULT_BALANCE' ||
+        executeResult.logs?.some((entry: string) =>
+          entry?.toLowerCase?.().includes('vault balance is zero')
+        );
+
+      const logPayload = {
         matchId: match.id,
         proposalId: proposalIdString,
         context,
         error: executeResult.error,
         logs: executeResult.logs?.slice(-5),
-      });
+      };
+
+      if (isVaultEmpty) {
+        enhancedLogger.warn('⚠️ Auto-execute deferred - vault has no funds yet', logPayload);
+      } else {
+        enhancedLogger.error('❌ Auto-execute attempt failed', logPayload);
+      }
       return false;
     }
 
@@ -3207,7 +3219,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           "proposalSigners", "needsSignatures", "proposalExecutedAt",
           "proposalTransactionId", "entryFeeUSD", "solPriceAtTransaction",
           "bonusPercent", "bonusAmount", "bonusAmountUSD",
-          "bonusSignature", "bonusPaid", "bonusPaidAt", "bonusTier"
+          "bonusSignature", "bonusPaid", "bonusPaidAt", "bonusTier",
+          "refundReason", "refundedAt", "matchOutcome"
         FROM "match"
         WHERE id = $1
         LIMIT 1
@@ -3431,6 +3444,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         // Requesting player hasn't paid yet
         playerSpecificStatus = 'payment_required';
       }
+    } else if (match.status === 'cancelled') {
+      const paidByEitherPlayer = !!(match.player1Paid || match.player2Paid);
+      playerSpecificStatus = paidByEitherPlayer ? 'refund_pending' : 'cancelled';
     }
     
     console.log('✅ Returning match data:', {
@@ -4252,6 +4268,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       proposalTransactionId: (match as any).proposalTransactionId || null,
       entryFeeUSD: (match as any).entryFeeUSD || null,
       solPriceAtTransaction: (match as any).solPriceAtTransaction || null,
+      refundReason: (match as any).refundReason || null,
+      refundedAt: (match as any).refundedAt || null,
+      matchOutcome: (match as any).matchOutcome || null,
       bonus: {
         paid: !!((match as any).bonusPaid),
         signature: (match as any).bonusSignature || null,
@@ -4679,6 +4698,126 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
     res.status(500).json({ 
       error: 'Internal server error',
       details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
+    });
+  }
+};
+
+const cancelMatchHandler = async (req: any, res: any) => {
+  try {
+    const { matchId, wallet, reason } = req.body || {};
+
+    const walletAddress =
+      typeof wallet === 'string'
+        ? wallet
+        : wallet?.toString?.();
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+
+    const normalizedWallet = walletAddress.toLowerCase();
+    const { redisMatchmakingService } = require('../services/redisMatchmakingService');
+
+    if (!matchId) {
+      await redisMatchmakingService.evictPlayer(walletAddress);
+      return res.json({
+        success: true,
+        status: 'queue_cancelled',
+      });
+    }
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+
+    if (!match) {
+      await redisMatchmakingService.cancelMatch(matchId);
+      return res.status(404).json({ error: 'Match not found or already cancelled' });
+    }
+
+    const participantWallets = [match.player1, match.player2]
+      .filter(Boolean)
+      .map((value: string) => value.toLowerCase());
+
+    if (!participantWallets.includes(normalizedWallet)) {
+      return res.status(403).json({ error: 'Wallet not associated with this match' });
+    }
+
+    if (match.status === 'completed' || match.status === 'active' || match.isCompleted) {
+      return res.status(400).json({ error: 'Cannot cancel an active or completed match' });
+    }
+
+    if (match.status === 'cancelled') {
+      await redisMatchmakingService.cancelMatch(matchId);
+      return res.json({
+        success: true,
+        status: 'cancelled',
+        refundReason: match.refundReason || null,
+        refundPending: !!(match.player1Paid || match.player2Paid),
+      });
+    }
+
+    const cancellationReason = reason || (
+      match.player1Paid || match.player2Paid
+        ? 'player_cancelled_after_payment'
+        : 'player_cancelled_before_payment'
+    );
+
+    const refundPending = !!(match.player1Paid || match.player2Paid);
+
+    match.status = 'cancelled';
+    match.matchOutcome = 'cancelled';
+    match.refundReason = cancellationReason;
+
+    if (refundPending) {
+      await processAutomatedRefunds(match, cancellationReason);
+    } else {
+      match.player1Paid = false;
+      match.player2Paid = false;
+      match.refundedAt = new Date();
+      await matchRepository.save(match);
+    }
+
+    await matchRepository.update(match.id, {
+      status: 'cancelled',
+      matchOutcome: 'cancelled',
+      refundReason: cancellationReason,
+    });
+
+    try {
+      const { deleteMatchmakingLock } = require('../utils/redisMatchmakingLocks');
+      await deleteMatchmakingLock(matchId);
+    } catch (lockError) {
+      console.warn('⚠️ Failed to delete matchmaking lock for cancelled match', {
+        matchId,
+        error: lockError instanceof Error ? lockError.message : String(lockError),
+      });
+    }
+
+    try {
+      const { deleteGameState } = require('../utils/redisGameState');
+      await deleteGameState(matchId);
+    } catch (stateError) {
+      console.warn('⚠️ Failed to delete game state for cancelled match', {
+        matchId,
+        error: stateError instanceof Error ? stateError.message : String(stateError),
+      });
+    }
+
+    await redisMatchmakingService.cancelMatch(matchId);
+
+    res.json({
+      success: true,
+      status: 'cancelled',
+      refundPending,
+      refundReason: cancellationReason,
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error cancelling match:', error);
+    res.status(500).json({
+      error: 'Failed to cancel match',
+      details: errorMessage,
     });
   }
 };
@@ -10015,6 +10154,7 @@ module.exports = {
   confirmPaymentHandler,
   memoryStatsHandler,
   debugMatchmakingHandler,
+  cancelMatchHandler,
   manualRefundHandler,
   manualMatchHandler,
   clearMatchmakingDataHandler,

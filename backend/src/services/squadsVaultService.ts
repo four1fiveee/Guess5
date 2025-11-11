@@ -2064,6 +2064,57 @@ export class SquadsVaultService {
       executor: executor.publicKey.toString(),
     });
 
+    // Best effort: ensure vault has lamports before attempting execution
+    let derivedVaultPda: PublicKey | null = null;
+    try {
+      const [vaultPda] = getVaultPda({
+        multisigPda: multisigAddress,
+        index: 0,
+        programId: this.programId,
+      } as any);
+      derivedVaultPda = vaultPda;
+    } catch (derivationError: unknown) {
+      enhancedLogger.warn('⚠️ Unable to derive vault PDA for balance pre-check', {
+        vaultAddress,
+        proposalId,
+        error: derivationError instanceof Error ? derivationError.message : String(derivationError),
+      });
+    }
+
+    if (derivedVaultPda) {
+      try {
+        const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
+        enhancedLogger.info('🔎 Vault balance before execution attempt', {
+          vaultAddress,
+          proposalId,
+          vaultPda: derivedVaultPda.toString(),
+          balanceLamports: vaultBalance,
+          balanceSOL: vaultBalance / LAMPORTS_PER_SOL,
+        });
+
+        if (vaultBalance === 0) {
+          const errorMessage = 'Vault balance is zero, skipping execution';
+          enhancedLogger.warn('⚠️ Skipping proposal execution due to empty vault', {
+            vaultAddress,
+            proposalId,
+            vaultPda: derivedVaultPda.toString(),
+          });
+          return {
+            success: false,
+            error: 'INSUFFICIENT_VAULT_BALANCE',
+            logs: [errorMessage],
+          };
+        }
+      } catch (balanceError: unknown) {
+        enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution', {
+          vaultAddress,
+          proposalId,
+          vaultPda: derivedVaultPda.toString(),
+          error: balanceError instanceof Error ? balanceError.message : String(balanceError),
+        });
+      }
+    }
+
     const maxAttempts = 2;
     let lastErrorMessage = '';
     let lastLogs: string[] | undefined;
@@ -2212,7 +2263,7 @@ export class SquadsVaultService {
       const matchRepository = AppDataSource.getRepository(Match);
       const matchRows = await matchRepository.query(`
         SELECT id, "player1", "player2", "entryFee", status, "matchStatus", 
-               "squadsVaultAddress", word, "gameStartTime", "depositAConfirmations", 
+               "squadsVaultAddress", "squadsVaultPda", word, "gameStartTime", "depositAConfirmations", 
                "depositBConfirmations", "depositATx", "depositBTx", "player1Paid", "player2Paid"
         FROM "match"
         WHERE id = $1
@@ -2227,17 +2278,30 @@ export class SquadsVaultService {
 
       const match = matchRows[0];
 
-      // TypeScript assertion after null check
-      const vaultAddress: string = match.squadsVaultAddress as string;
-      const vaultPublicKey = new PublicKey(vaultAddress);
+      const depositAddress: string | null = match.squadsVaultPda || match.squadsVaultAddress;
+      const multisigAddress: string | null = match.squadsVaultAddress || null;
 
-      // Check vault balance on Solana
+      if (!depositAddress) {
+        enhancedLogger.error('❌ Missing deposit address for vault', {
+          matchId,
+          multisigAddress,
+        });
+        return {
+          success: false,
+          error: 'Vault deposit address not available yet',
+        };
+      }
+
+      const vaultPublicKey = new PublicKey(depositAddress);
+
+      // Check vault balance on Solana (use deposit PDA first)
       const balance = await this.connection.getBalance(vaultPublicKey);
       const balanceSOL = balance / LAMPORTS_PER_SOL;
 
       enhancedLogger.info('💰 Current Squads vault balance', {
         matchId,
-        vaultAddress: match.squadsVaultAddress,
+        vaultAddress: multisigAddress,
+        vaultDepositAddress: depositAddress,
         balanceLamports: balance,
         balanceSOL,
       });

@@ -31,6 +31,11 @@ router.post('/request-match',
   asyncHandlerWrapper(matchController.requestMatchHandler)
 );
 
+router.post('/cancel',
+  validateVercelBotProtection,
+  asyncHandlerWrapper(matchController.cancelMatchHandler)
+);
+
 router.post('/submit-result', 
   validateVercelBotProtection,
   resultLimiter, // 2 results per minute per wallet

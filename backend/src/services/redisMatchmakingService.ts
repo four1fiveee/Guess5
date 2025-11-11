@@ -365,6 +365,50 @@ export class RedisMatchmakingService {
       enhancedLogger.error('❌ Error during cleanup:', error);
     }
   }
+
+  async evictPlayer(wallet: string): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
+      await this.cleanupOldEntriesForWallet(wallet);
+      enhancedLogger.info(`🚪 Player ${wallet} evicted from matchmaking queues`);
+    } catch (error: unknown) {
+      enhancedLogger.error(`❌ Error evicting player ${wallet}:`, error);
+      throw error;
+    }
+  }
+
+  async cancelMatch(matchId: string): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
+      const matchKey = `match:${matchId}`;
+      const matchDataJson = await this.redis.hGet(matchKey, 'data');
+
+      if (matchDataJson) {
+        const matchData: MatchData = JSON.parse(matchDataJson as string);
+
+        if (matchData.player1) {
+          await this.cleanupOldEntriesForWallet(matchData.player1);
+        }
+        if (matchData.player2) {
+          await this.cleanupOldEntriesForWallet(matchData.player2);
+        }
+      }
+
+      await this.redis.del(matchKey);
+      enhancedLogger.info(`🛑 Match ${matchId} removed from Redis matchmaking service`);
+    } catch (error: unknown) {
+      enhancedLogger.error(`❌ Error cancelling match ${matchId}:`, error);
+      throw error;
+    }
+  }
 }
 
 // Export singleton instance
