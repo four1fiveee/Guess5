@@ -2651,23 +2651,81 @@ export class SquadsVaultService {
           };
         }
 
-        // If Proposal is Approved but not ExecuteReady, attempt execution anyway
-        // The execution instruction may accept Approved state or trigger the transition itself
+        // If Proposal is Approved but not ExecuteReady, wait for state transition
+        // According to Squads Protocol docs, transactions must be in ExecuteReady state before execution
+        // The state transition happens automatically when threshold is met, but may take a moment
         if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
           if (approvedCount >= this.config.threshold) {
-            enhancedLogger.warn('⚠️ Proposal is Approved (not ExecuteReady) but has enough signatures - attempting execution', {
+            enhancedLogger.info('⏳ Proposal is Approved but not ExecuteReady - waiting for state transition', {
               vaultAddress,
               proposalId,
               statusKind: proposalStatusKind,
               approvedCount,
               threshold: this.config.threshold,
               approvedSigners: (proposal as any).approved,
-              note: 'The vaultTransactionExecute instruction may accept Approved state or trigger the transition to ExecuteReady during execution. Attempting execution immediately.',
+              note: 'According to Squads Protocol, transactions must be in ExecuteReady state before execution. Polling for state transition...',
             });
-            // Don't wait - attempt execution immediately. The instruction will either:
-            // 1. Accept Approved state and execute
-            // 2. Trigger the transition to ExecuteReady and then execute
-            // 3. Fail with a clear error that tells us what's wrong
+            
+            // Poll for ExecuteReady state transition (max 10 seconds, 500ms intervals)
+            const maxPollAttempts = 20;
+            const pollIntervalMs = 500;
+            let transitionedToExecuteReady = false;
+            
+            for (let pollAttempt = 0; pollAttempt < maxPollAttempts; pollAttempt++) {
+              await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
+              
+              try {
+                // Re-check VaultTransaction status
+                const recheckTransaction = await accounts.VaultTransaction.fromAccountAddress(
+                  this.connection,
+                  transactionPda,
+                  'confirmed'
+                );
+                const recheckVaultTxStatus = (recheckTransaction as any).status;
+                
+                // Re-check Proposal status
+                const recheckProposal = await accounts.Proposal.fromAccountAddress(
+                  this.connection,
+                  proposalPda,
+                  'confirmed'
+                );
+                const recheckProposalStatusKind = (recheckProposal as any).status?.__kind;
+                
+                if (recheckVaultTxStatus === 1 || recheckProposalStatusKind === 'ExecuteReady') {
+                  transitionedToExecuteReady = true;
+                  vaultTransactionIsExecuteReady = recheckVaultTxStatus === 1;
+                  proposalIsExecuteReady = recheckProposalStatusKind === 'ExecuteReady';
+                  enhancedLogger.info('✅ Proposal transitioned to ExecuteReady state', {
+                    vaultAddress,
+                    proposalId,
+                    pollAttempt: pollAttempt + 1,
+                    vaultTxStatus: recheckVaultTxStatus,
+                    proposalStatusKind: recheckProposalStatusKind,
+                    elapsedMs: (pollAttempt + 1) * pollIntervalMs,
+                  });
+                  break;
+                }
+              } catch (recheckError: unknown) {
+                enhancedLogger.warn('⚠️ Failed to recheck proposal status during polling', {
+                  vaultAddress,
+                  proposalId,
+                  pollAttempt: pollAttempt + 1,
+                  error: recheckError instanceof Error ? recheckError.message : String(recheckError),
+                });
+                // Continue polling despite error
+              }
+            }
+            
+            if (!transitionedToExecuteReady) {
+              enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady within polling window - attempting execution anyway', {
+                vaultAddress,
+                proposalId,
+                maxPollAttempts,
+                pollIntervalMs,
+                totalWaitMs: maxPollAttempts * pollIntervalMs,
+                note: 'The execution instruction may still accept Approved state or trigger the transition',
+              });
+            }
           } else {
             enhancedLogger.warn('⚠️ Proposal is Approved but does not have enough signatures yet', {
               vaultAddress,
@@ -2831,7 +2889,20 @@ export class SquadsVaultService {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let tx: VersionedTransaction | null = null;
       try {
-        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        // Get fresh blockhash right before building transaction to minimize expiration risk
+        // According to Solana best practices, blockhashes expire after ~60 seconds
+        // Getting it right before use ensures maximum validity window
+        let latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        
+        enhancedLogger.info('🔨 Building execution transaction with fresh blockhash', {
+          vaultAddress,
+          proposalId,
+          attempt: attempt + 1,
+          blockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          note: 'Using fresh blockhash to minimize expiration risk',
+        });
+        
         tx = await transactions.vaultTransactionExecute({
           connection: this.connection,
           blockhash: latestBlockhash.blockhash,
@@ -2843,6 +2914,37 @@ export class SquadsVaultService {
         });
 
         tx.sign([executor]);
+        
+        // Get another fresh blockhash right before sending to ensure maximum validity
+        // This is critical for avoiding "block height exceeded" errors
+        const sendBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        
+        // If blockhash changed, update transaction with new blockhash
+        if (sendBlockhash.blockhash !== latestBlockhash.blockhash) {
+          enhancedLogger.info('🔄 Blockhash changed between build and send - updating transaction', {
+            vaultAddress,
+            proposalId,
+            oldBlockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
+            newBlockhash: sendBlockhash.blockhash.substring(0, 8) + '...',
+            note: 'Updating transaction with latest blockhash to prevent expiration',
+          });
+          
+          // Rebuild transaction with fresh blockhash
+          tx = await transactions.vaultTransactionExecute({
+            connection: this.connection,
+            blockhash: sendBlockhash.blockhash,
+            feePayer: executor.publicKey,
+            multisigPda: multisigAddress,
+            transactionIndex,
+            member: executor.publicKey,
+            programId: this.programId,
+          });
+          tx.sign([executor]);
+          
+          // Use the newer blockhash for confirmation
+          latestBlockhash.blockhash = sendBlockhash.blockhash;
+          latestBlockhash.lastValidBlockHeight = sendBlockhash.lastValidBlockHeight;
+        }
 
         // Simulate transaction before sending to get detailed error information
         try {
@@ -3144,13 +3246,21 @@ export class SquadsVaultService {
           }
           
           // If timeout error and we couldn't verify success, retry with fresh blockhash
-          if (isTimeoutError && attempt === 0) {
+          // Add exponential backoff: wait longer between retries
+          if (isTimeoutError && attempt < maxAttempts - 1) {
+            const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000); // Max 5 seconds
             enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after confirmTransaction timeout', {
               vaultAddress,
               proposalId,
+              attempt: attempt + 1,
+              maxAttempts,
+              backoffMs,
               error: confirmErrorMessage,
-              note: 'Transaction may still be processing - will retry with fresh blockhash',
+              note: 'Transaction may still be processing - will retry with fresh blockhash after backoff',
             });
+            
+            // Wait before retry to allow network to catch up
+            await new Promise(resolve => setTimeout(resolve, backoffMs));
             continue;
           }
           
