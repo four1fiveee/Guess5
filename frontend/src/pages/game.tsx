@@ -189,8 +189,17 @@ const Game: React.FC = () => {
             if (response.ok) {
               const matchData = await response.json();
               
-              if (matchData.isCompleted && matchData.payout) {
-                console.log('🏆 Game completed via polling:', matchData);
+              // Check if both players have results (more reliable than just isCompleted)
+              const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+              const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
+              
+              if (isCompleted && (matchData.payout || bothPlayersHaveResults)) {
+                console.log('🏆 Game completed via polling:', {
+                  isCompleted: matchData.isCompleted,
+                  bothPlayersHaveResults,
+                  hasPayout: !!matchData.payout,
+                  matchData
+                });
                 
                 // Create payout data from match data
                 const isPlayer1 = publicKey?.toString() === matchData.player1;

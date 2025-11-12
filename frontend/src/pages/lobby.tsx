@@ -519,7 +519,7 @@ export default function Lobby() {
                           {' '}
                           ${highestTierData.totalWinUsd.toFixed(2)}
                         </span>
-                        including our house boost.
+                        {' '}including our house boost.
                       </>
                     ) : nextTierToUnlock && amountToUnlock !== null ? (
                       <>

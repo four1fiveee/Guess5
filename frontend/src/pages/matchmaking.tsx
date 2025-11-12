@@ -588,12 +588,19 @@ const Matchmaking: React.FC = () => {
                        (confirmData.status === 'payment_required' && 
                         (confirmData.depositAConfirmations >= 1 && confirmData.depositBConfirmations >= 1));
       
+      // Check if current player has paid
+      const isPlayer1 = publicKey?.toString() === matchData.player1;
+      const currentPlayerPaid = isPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
+      
       if (bothPaid) {
         console.log('✅ Both players paid, waiting for game to start...');
         setStatus('waiting_for_game');
+      } else if (currentPlayerPaid) {
+        console.log('⏳ Current player paid, waiting for opponent to pay...');
+        setStatus('waiting_for_payment');
       } else {
-        console.log('⏳ Waiting for other player to pay...');
-        setStatus('waiting_for_game');
+        console.log('⏳ Current player has not paid yet...');
+        setStatus('payment_required');
         
         // Set a timeout to redirect back to lobby if game doesn't start within 2 minutes
         const timeout = setTimeout(() => {
@@ -823,9 +830,16 @@ const Matchmaking: React.FC = () => {
                 return;
               }
 
-              if (normalizedStatus === 'waiting_for_payment') {
+              // Verify player has actually paid before showing waiting_for_payment
+              const currentPlayerPaid = publicKey?.toString() === data.player1 
+                ? data.player1Paid 
+                : publicKey?.toString() === data.player2 
+                ? data.player2Paid 
+                : false;
+              
+              if (normalizedStatus === 'waiting_for_payment' && currentPlayerPaid) {
                 setStatus('waiting_for_payment');
-              } else if (normalizedStatus === 'payment_required') {
+              } else if (normalizedStatus === 'payment_required' && !currentPlayerPaid) {
                 setStatus('payment_required');
               } else if (normalizedStatus === 'completed') {
                 setStatus('completed');

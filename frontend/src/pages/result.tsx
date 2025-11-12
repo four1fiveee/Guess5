@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { useWallet } from '@solana/wallet-adapter-react';
+import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
@@ -84,6 +85,8 @@ const Result: React.FC = () => {
   const [squadsClient] = useState(() => new SquadsClient());
   const [isPolling, setIsPolling] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [actualBonusAmount, setActualBonusAmount] = useState<number | null>(null);
+  const [solPrice, setSolPrice] = useState<number | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -104,6 +107,12 @@ const Result: React.FC = () => {
     const needs = Number.isFinite(info.needsSignatures)
       ? Number(info.needsSignatures)
       : 0;
+
+    // If both players have results, stop polling (game is complete)
+    // This prevents stuck "waiting for opponent" state
+    if (info.player1Result && info.player2Result) {
+      return false;
+    }
 
     if (!info.proposalId) {
       return true;
@@ -159,7 +168,11 @@ const Result: React.FC = () => {
         if (response.ok) {
           const matchData = await response.json();
 
-          if (matchData.isCompleted) {
+          // Check if both players have results (more reliable indicator of completion)
+          const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+          const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
+          
+          if (isCompleted) {
             // Get player results from match data
             const isPlayer1 = publicKey?.toString() === matchData.player1;
             const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
@@ -231,7 +244,8 @@ const Result: React.FC = () => {
             
             setPayoutData(payoutData);
             setLoading(false);
-            const keepPolling = shouldContinuePolling(payoutData);
+            // Stop polling if both players have results (game is complete)
+            const keepPolling = bothPlayersHaveResults ? false : shouldContinuePolling(payoutData);
             setIsPolling(keepPolling);
             if (!keepPolling) {
               stopRefreshLoops();
@@ -285,7 +299,9 @@ const Result: React.FC = () => {
         
         setPayoutData(data);
         setLoading(false);
-        const keepPolling = shouldContinuePolling(data);
+        // Stop polling if both players have results (game is complete)
+        const bothPlayersHaveResults = data.player1Result && data.player2Result;
+        const keepPolling = bothPlayersHaveResults ? false : shouldContinuePolling(data);
         setIsPolling(keepPolling);
         if (!keepPolling) {
           stopRefreshLoops();
@@ -333,6 +349,70 @@ const Result: React.FC = () => {
     return () => clearInterval(pollInterval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPolling, router.query.matchId, publicKey]);
+
+  // Fetch SOL price
+  useEffect(() => {
+    const fetchPrice = async () => {
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com';
+        const response = await fetch(`${API_URL}/api/match/sol-price`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.price && typeof data.price === 'number' && data.price > 0) {
+            setSolPrice(data.price);
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to fetch SOL price:', error);
+      }
+    };
+    fetchPrice();
+  }, []);
+
+  // Fetch actual bonus amount from blockchain when proposal is executed
+  useEffect(() => {
+    const fetchBonusAmount = async () => {
+      if (
+        payoutData?.proposalStatus === 'EXECUTED' &&
+        payoutData?.bonus?.signature &&
+        payoutData?.bonus?.eligible &&
+        publicKey &&
+        !actualBonusAmount
+      ) {
+        try {
+          const connection = new Connection(
+            process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
+          );
+          const transaction = await connection.getTransaction(payoutData.bonus.signature, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          });
+
+          if (transaction && transaction.meta && !transaction.meta.err) {
+            const accountKeys = transaction.transaction.message.accountKeys;
+            const playerPubkey = publicKey.toString();
+            const playerIndex = accountKeys.findIndex(
+              (key: any) => key.toString() === playerPubkey
+            );
+
+            if (playerIndex !== -1) {
+              const preBalance = transaction.meta.preBalances[playerIndex] || 0;
+              const postBalance = transaction.meta.postBalances[playerIndex] || 0;
+              const bonusLamports = postBalance - preBalance;
+              if (bonusLamports > 0) {
+                const bonusSol = bonusLamports / LAMPORTS_PER_SOL;
+                setActualBonusAmount(bonusSol);
+              }
+            }
+          }
+        } catch (error) {
+          console.error('❌ Failed to fetch bonus transaction:', error);
+        }
+      }
+    };
+
+    fetchBonusAmount();
+  }, [payoutData?.proposalStatus, payoutData?.bonus?.signature, payoutData?.bonus?.eligible, publicKey, actualBonusAmount]);
 
   // Debug logging for payout data
   useEffect(() => {
@@ -499,7 +579,11 @@ const Result: React.FC = () => {
         const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
         if (statusResponse.ok) {
           const matchData = await statusResponse.json();
-          if (matchData.isCompleted) {
+          // Check if both players have results (more reliable indicator of completion)
+          const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+          const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
+          
+          if (isCompleted) {
             const isPlayer1 = publicKey.toString() === matchData.player1;
             const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
             const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
@@ -669,7 +753,7 @@ const Result: React.FC = () => {
     return {
       emoji: '🔥',
       title: 'Tough Loss',
-      subtitle: 'The vault paid the winner this time. Sign below to finalize the payout and queue again.',
+      subtitle: 'Your opponent outguessed you. Sign below to finalize the payout and queue again.',
       background: 'from-red-500/15 via-orange-500/10 to-rose-500/10',
       border: 'border-red-400/40',
       accentText: 'text-red-300',
@@ -800,16 +884,18 @@ const Result: React.FC = () => {
               </div>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
-                      <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
-                        Tempo Check
-                      </span>
-                      <span className={`text-sm font-semibold ${resultTheme.accentText}`}>
-                        {tempoCopy || 'Timing data will appear once both players finish.'}
-                      </span>
+                  {payoutData.isTie && (
+                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
+                        <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
+                          Tie Breaker
+                        </span>
+                        <span className={`text-sm font-semibold ${resultTheme.accentText}`}>
+                          {tempoCopy || 'Timing data will appear once both players finish.'}
+                        </span>
+                      </div>
                     </div>
-                  </div>
+                  )}
                 </div>
               )}
               
@@ -855,6 +941,11 @@ const Result: React.FC = () => {
                           {hasRefundProposal ? (
                             <div className="text-3xl font-bold text-yellow-400 mb-2">
                               {payoutData.refundAmount?.toFixed(4)} SOL
+                              {solPrice && payoutData.refundAmount && (
+                                <span className="text-yellow-300 text-xl ml-2">
+                                  (${(payoutData.refundAmount * solPrice).toFixed(2)} USD)
+                                </span>
+                              )}
                             </div>
                           ) : (
                             <div className="text-white/70 text-sm mb-2">
@@ -952,6 +1043,7 @@ const Result: React.FC = () => {
                                     {payoutData.totalPayoutSol && (
                                       <div className="text-white/70 text-xs">
                                         Total received: {payoutData.totalPayoutSol.toFixed(4)} SOL
+                                        {solPrice && ` ($${(payoutData.totalPayoutSol * solPrice).toFixed(2)} USD)`}
                                       </div>
                                     )}
                                     {payoutData.bonus.signature && (
@@ -980,10 +1072,22 @@ const Result: React.FC = () => {
                           {payoutData.proposalStatus === 'EXECUTED' ? (
                             <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                               ✅ Payment Sent to Your Wallet!
+                              {payoutData.bonus?.eligible && actualBonusAmount !== null && (
+                                <div className="text-green-300 text-sm mt-2">
+                                  Bonus: +{actualBonusAmount.toFixed(4)} SOL
+                                  {solPrice && ` (+$${(actualBonusAmount * solPrice).toFixed(2)} USD)`}
+                                </div>
+                              )}
                             </div>
                           ) : (
                           <p className="text-sm text-white/80 mb-3">
-                              Sign the proposal below to claim your winnings.
+                              You must sign to claim your winnings before starting a new game. Sign the proposal below to receive your payout.
+                              {payoutData.bonus?.eligible && payoutData.bonus?.expectedSol && (
+                                <span className="block mt-1 text-yellow-300">
+                                  Bonus: +{payoutData.bonus.expectedSol.toFixed(4)} SOL
+                                  {solPrice && ` (+$${(payoutData.bonus.expectedSol * solPrice).toFixed(2)} USD)`} will be sent when proposal executes.
+                                </span>
+                              )}
                           </p>
                           )}
                           
@@ -1040,6 +1144,11 @@ const Result: React.FC = () => {
                               <p className="text-lg text-white/90 mb-2 font-semibold">Perfect Match - Both players solved with same moves and time!</p>
                               <div className="text-3xl font-bold text-yellow-400 mb-2">
                                 {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
+                                {solPrice && payoutData.refundAmount && (
+                                  <span className="text-yellow-300 text-xl ml-2">
+                                    (${(payoutData.refundAmount * solPrice).toFixed(2)} USD)
+                                  </span>
+                                )}
                               </div>
                               {payoutData.proposalStatus === 'EXECUTED' ? (
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
@@ -1047,7 +1156,7 @@ const Result: React.FC = () => {
                                 </div>
                               ) : (
                                 <p className="text-sm text-white/80 mb-3">
-                                  Full refund: Sign proposal to claim
+                                  You must sign to receive your refund. Full refund: Sign proposal to claim your funds back.
                             </p>
                               )}
                           </>
@@ -1056,6 +1165,11 @@ const Result: React.FC = () => {
                               <p className="text-lg text-white/90 mb-2 font-semibold">Both players failed to solve the puzzle</p>
                               <div className="text-3xl font-bold text-yellow-400 mb-2">
                                 {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
+                                {solPrice && payoutData.refundAmount && (
+                                  <span className="text-yellow-300 text-xl ml-2">
+                                    (${(payoutData.refundAmount * solPrice).toFixed(2)} USD)
+                                  </span>
+                                )}
                               </div>
                               {payoutData.proposalStatus === 'EXECUTED' ? (
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
@@ -1063,7 +1177,7 @@ const Result: React.FC = () => {
                                 </div>
                               ) : (
                                 <p className="text-sm text-white/80 mb-3">
-                                  95% refund: Sign proposal to claim
+                                  You must sign to receive your refund. 95% refund: Sign proposal to claim your funds back.
                             </p>
                               )}
                           </>
@@ -1128,7 +1242,7 @@ const Result: React.FC = () => {
                             </div>
                           ) : (
                             <p className="text-sm text-white/80 mb-3">
-                              Sign the proposal to help process the payout and get back to playing faster.
+                              You must sign to finalize the payout before starting a new game. Sign the proposal to help process the payout and get back to playing faster.
                           </p>
                           )}
                           
@@ -1234,6 +1348,32 @@ const Result: React.FC = () => {
                     <span>📷</span>
                     <span>@Guess5.io</span>
                   </a>
+                </div>
+              </div>
+              
+              {/* Match ID and Transaction ID Footer */}
+              <div className="mt-6 pt-4 border-t border-white/10">
+                <div className="flex flex-wrap items-center justify-center gap-4 text-xs text-white/40">
+                  {router.query.matchId && (
+                    <span className="font-mono">
+                      Match: {String(router.query.matchId).slice(0, 8)}...
+                    </span>
+                  )}
+                  {payoutData?.payoutSignature && (
+                    <span className="font-mono">
+                      TX: {payoutData.payoutSignature.slice(0, 8)}...
+                    </span>
+                  )}
+                  {payoutData?.proposalTransactionId && !payoutData?.payoutSignature && (
+                    <span className="font-mono">
+                      TX: {payoutData.proposalTransactionId.slice(0, 8)}...
+                    </span>
+                  )}
+                  {payoutData?.refundTxHash && (
+                    <span className="font-mono">
+                      Refund TX: {payoutData.refundTxHash.slice(0, 8)}...
+                    </span>
+                  )}
                 </div>
               </div>
             </div>

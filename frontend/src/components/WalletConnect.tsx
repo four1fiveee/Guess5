@@ -58,7 +58,7 @@ export const WalletConnectButton: React.FC = () => {
   return (
     <div className="flex flex-col items-center mb-4">
       <button
-        className={`px-6 py-2 rounded-lg font-bold transition-colors shadow ${
+        className={`px-8 py-3 rounded-lg font-bold transition-colors shadow ${
           connected
             ? 'bg-green-600 text-white hover:bg-green-700'
             : 'bg-accent text-primary hover:bg-yellow-400'
@@ -72,16 +72,6 @@ export const WalletConnectButton: React.FC = () => {
             ? 'Processing...' 
             : 'Connect Wallet'}
       </button>
-      
-      {/* Wallet Balance Display */}
-      {connected && walletBalance !== null && (
-        <div className="mt-2 text-center">
-          <div className="text-sm text-white/80">Wallet Balance</div>
-          <div className="text-lg font-bold text-accent">
-            {walletBalance.toFixed(4)} SOL
-          </div>
-        </div>
-      )}
 
       {/* Legal Disclaimer Modal */}
       <LegalDisclaimer
