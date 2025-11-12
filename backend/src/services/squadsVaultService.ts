@@ -2562,8 +2562,7 @@ export class SquadsVaultService {
       });
       const [transactionPda] = getTransactionPda({
         multisigPda: multisigAddress,
-        vaultIndex: 0,
-        transactionIndex,
+        index: transactionIndex,
         programId: this.programId,
       });
 
