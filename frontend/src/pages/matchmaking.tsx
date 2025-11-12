@@ -317,7 +317,6 @@ const Matchmaking: React.FC = () => {
         return;
       }
 
-    try {
       console.log('💰 Starting payment to multisig vault deposit...');
 
       if (matchData.status && matchData.status !== 'payment_required') {
