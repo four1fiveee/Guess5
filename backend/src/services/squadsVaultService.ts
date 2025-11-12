@@ -934,15 +934,11 @@ export class SquadsVaultService {
         });
       }
       
-      // Create transfer instructions using SystemProgram
-      const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
-      let feeLamports = Math.floor(feeAmount * LAMPORTS_PER_SOL);
-      
       // Ensure all PublicKeys are properly instantiated
       const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
       const winnerKey = typeof winner === 'string' ? new PublicKey(winner) : winner;
       const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
-      
+
       // Ensure we leave the rent-exempt reserve in the vault PDA
       const vaultAccountInfo = await this.connection.getAccountInfo(vaultPdaKey, 'confirmed');
       if (!vaultAccountInfo) {
@@ -960,52 +956,64 @@ export class SquadsVaultService {
       const rentExemptReserve = await this.connection.getMinimumBalanceForRentExemption(
         vaultAccountInfo.data?.length ?? 0
       );
-      const transferableLamports = Math.max(0, vaultAccountInfo.lamports - rentExemptReserve);
-      let totalRequestedLamports = winnerLamports + feeLamports;
 
-      enhancedLogger.info('🏦 Vault rent check', {
+      const vaultLamportsBig = BigInt(vaultAccountInfo.lamports);
+      const rentReserveBig = BigInt(rentExemptReserve);
+
+      if (vaultLamportsBig <= rentReserveBig) {
+        const errorMsg = `Vault lamports ${vaultLamportsBig.toString()} are not sufficient to cover rent reserve ${rentReserveBig.toString()}`;
+        enhancedLogger.error('❌ Vault balance below rent reserve', {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+          vaultLamports: vaultLamportsBig.toString(),
+          rentReserve: rentReserveBig.toString(),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      const transferableLamportsBig = vaultLamportsBig - rentReserveBig;
+      const desiredWinnerLamportsBig = (vaultLamportsBig * BigInt(95)) / BigInt(100);
+      const desiredFeeLamportsBig = vaultLamportsBig - desiredWinnerLamportsBig;
+
+      let winnerFromVaultBig = desiredWinnerLamportsBig;
+      let feeFromVaultBig = transferableLamportsBig - desiredWinnerLamportsBig;
+      let winnerTopUpBig = BigInt(0);
+
+      if (feeFromVaultBig < BigInt(0)) {
+        // Not enough transferable lamports to cover the full winner share; cap to transferable and top-up externally
+        winnerTopUpBig = desiredWinnerLamportsBig - transferableLamportsBig;
+        winnerFromVaultBig = transferableLamportsBig;
+        feeFromVaultBig = BigInt(0);
+      }
+
+      if (feeFromVaultBig < BigInt(0)) {
+        feeFromVaultBig = BigInt(0);
+      }
+
+      const totalRequestedFromVaultBig = winnerFromVaultBig + feeFromVaultBig;
+      const feeShortfallBig = desiredFeeLamportsBig - feeFromVaultBig;
+
+      enhancedLogger.info('🏦 Vault rent & payout plan', {
         vaultAddress,
         vaultPda: vaultPdaKey.toString(),
         currentLamports: vaultAccountInfo.lamports,
         rentExemptReserve,
-        transferableLamports,
-        totalRequestedLamports,
-        winnerLamports,
-        feeLamports,
+        transferableLamports: Number(transferableLamportsBig),
+        desiredWinnerLamports: Number(desiredWinnerLamportsBig),
+        desiredFeeLamports: Number(desiredFeeLamportsBig),
+        winnerLamportsFromVault: Number(winnerFromVaultBig),
+        feeLamportsFromVault: Number(feeFromVaultBig),
+        winnerTopUpLamports: Number(winnerTopUpBig),
+        feeShortfallLamports: Number(feeShortfallBig > BigInt(0) ? feeShortfallBig : BigInt(0)),
+        totalRequestedLamports: Number(totalRequestedFromVaultBig),
       });
 
-      if (transferableLamports < totalRequestedLamports) {
-        const shortfall = totalRequestedLamports - transferableLamports;
-
-        if (shortfall >= feeLamports) {
-          const errorMsg = `Vault has ${transferableLamports} lamports available after reserving rent, but ${totalRequestedLamports} lamports are required for payout. Shortfall ${shortfall} exceeds fee allocation.`;
-          enhancedLogger.error('❌ Insufficient vault balance after reserving rent', {
-            vaultAddress,
-            vaultPda: vaultPdaKey.toString(),
-            transferableLamports,
-            totalRequestedLamports,
-            winnerLamports,
-            feeLamports,
-            rentExemptReserve,
-            shortfall,
-          });
-          return {
-            success: false,
-            error: errorMsg,
-            needsSignatures: undefined,
-          };
-        }
-
-        feeLamports -= shortfall;
-        totalRequestedLamports = winnerLamports + feeLamports;
-        enhancedLogger.warn('⚠️ Adjusted fee to preserve rent reserve', {
-          vaultAddress,
-          shortfall,
-          adjustedFeeLamports: feeLamports,
-          totalRequestedLamports,
-          transferableLamports,
-        });
-      }
+      const winnerLamports = Number(winnerFromVaultBig);
+      const feeLamports = Number(feeFromVaultBig);
+      const winnerTopUpLamports = Number(winnerTopUpBig);
 
       // Create System Program transfer instruction for winner using SystemProgram.transfer directly
       // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
@@ -1017,15 +1025,29 @@ export class SquadsVaultService {
       // Correct the keys: vaultPda is a PDA and cannot be a signer
       winnerTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
       
-      // Create System Program transfer instruction for fee
-      const feeTransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: feeWalletKey,
-        lamports: feeLamports,
-      });
-      // Correct the keys: vaultPda is a PDA and cannot be a signer
-      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
-      
+      const instructions: TransactionInstruction[] = [winnerTransferIx];
+
+      let feeTransferIx: TransactionInstruction | null = null;
+      if (feeLamports > 0) {
+        feeTransferIx = SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: feeWalletKey,
+          lamports: feeLamports,
+        });
+        feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
+        instructions.push(feeTransferIx);
+      }
+
+      let winnerTopUpIx: TransactionInstruction | null = null;
+      if (winnerTopUpLamports > 0) {
+        winnerTopUpIx = SystemProgram.transfer({
+          fromPubkey: this.config.systemPublicKey,
+          toPubkey: winnerKey,
+          lamports: winnerTopUpLamports,
+        });
+        instructions.push(winnerTopUpIx);
+      }
+
       // Log instruction keys for debugging
       enhancedLogger.info('🔍 Instruction keys check', {
         winnerIxKeys: winnerTransferIx.keys.map(k => ({
@@ -1033,13 +1055,23 @@ export class SquadsVaultService {
           isSigner: k.isSigner,
           isWritable: k.isWritable,
         })),
-        feeIxKeys: feeTransferIx.keys.map(k => ({
-          pubkey: k.pubkey.toString(),
-          isSigner: k.isSigner,
-          isWritable: k.isWritable,
-        })),
+        feeIxKeys: feeTransferIx
+          ? feeTransferIx.keys.map(k => ({
+              pubkey: k.pubkey.toString(),
+              isSigner: k.isSigner,
+              isWritable: k.isWritable,
+            }))
+          : null,
+        topUpIxKeys: winnerTopUpIx
+          ? winnerTopUpIx.keys.map(k => ({
+              pubkey: k.pubkey.toString(),
+              isSigner: k.isSigner,
+              isWritable: k.isWritable,
+            }))
+          : null,
         winnerIxProgramId: winnerTransferIx.programId.toString(),
-        feeIxProgramId: feeTransferIx.programId.toString(),
+        feeIxProgramId: feeTransferIx ? feeTransferIx.programId.toString() : null,
+        topUpIxProgramId: winnerTopUpIx ? winnerTopUpIx.programId.toString() : null,
       });
       
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
@@ -1049,7 +1081,7 @@ export class SquadsVaultService {
       const transactionMessage = new TransactionMessage({
         payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
         recentBlockhash: blockhash,
-        instructions: [winnerTransferIx, feeTransferIx],
+        instructions,
       });
       
       // Create the Squads vault transaction
