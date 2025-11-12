@@ -1395,7 +1395,8 @@ export class SquadsVaultService {
     player1: PublicKey,
     player2: PublicKey,
     refundAmount: number,
-    overrideVaultPda?: string
+    overrideVaultPda?: string,
+    playerPaymentStatus?: { player1Paid?: boolean; player2Paid?: boolean }
   ): Promise<ProposalResult> {
     try {
       // Defensive checks: Validate all required values
@@ -1598,49 +1599,155 @@ export class SquadsVaultService {
         });
       }
       
-      // Create transfer instructions using SystemProgram
-      const refundLamports = Math.floor(refundAmount * LAMPORTS_PER_SOL);
-      
       // Ensure all PublicKeys are properly instantiated
       const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
       const player1Key = typeof player1 === 'string' ? new PublicKey(player1) : player1;
       const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
-      
-      // Create System Program transfer instruction for player 1 using SystemProgram.transfer directly
-      // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
-      const player1TransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: player1Key,
-        lamports: refundLamports,
+
+      const player1Paid = playerPaymentStatus?.player1Paid ?? true;
+      const player2Paid = playerPaymentStatus?.player2Paid ?? true;
+
+      const refundLamportsBig = BigInt(Math.floor(refundAmount * LAMPORTS_PER_SOL));
+
+      const vaultAccountInfo = await this.connection.getAccountInfo(vaultPdaKey, 'confirmed');
+      if (!vaultAccountInfo) {
+        const errorMsg = `Vault account ${vaultPdaKey.toString()} not found on-chain`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      const rentExemptReserve = await this.connection.getMinimumBalanceForRentExemption(
+        vaultAccountInfo.data?.length ?? 0
+      );
+      const vaultLamportsBig = BigInt(vaultAccountInfo.lamports);
+      const rentReserveBig = BigInt(rentExemptReserve);
+
+      if (vaultLamportsBig <= rentReserveBig) {
+        enhancedLogger.warn('⚠️ Vault balance is at or below rent reserve for tie refund', {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+          vaultLamports: vaultLamportsBig.toString(),
+          rentReserve: rentReserveBig.toString(),
+        });
+      }
+
+      const transferableLamportsBig = vaultLamportsBig > rentReserveBig ? vaultLamportsBig - rentReserveBig : BigInt(0);
+
+      const desiredPlayer1Big = player1Paid ? refundLamportsBig : BigInt(0);
+      const desiredPlayer2Big = player2Paid ? refundLamportsBig : BigInt(0);
+      const desiredTotalBig = desiredPlayer1Big + desiredPlayer2Big;
+
+      let remainingTransferable = transferableLamportsBig;
+
+      const player1FromVaultBig =
+        desiredPlayer1Big === BigInt(0)
+          ? BigInt(0)
+          : remainingTransferable >= desiredPlayer1Big
+            ? desiredPlayer1Big
+            : remainingTransferable;
+      remainingTransferable = remainingTransferable - player1FromVaultBig;
+
+      const player2FromVaultBig =
+        desiredPlayer2Big === BigInt(0)
+          ? BigInt(0)
+          : remainingTransferable >= desiredPlayer2Big
+            ? desiredPlayer2Big
+            : remainingTransferable;
+      remainingTransferable = remainingTransferable - player2FromVaultBig;
+
+      const player1TopUpBig = desiredPlayer1Big - player1FromVaultBig;
+      const player2TopUpBig = desiredPlayer2Big - player2FromVaultBig;
+
+      enhancedLogger.info('🔄 Tie refund payout plan', {
+        vaultAddress,
+        vaultPda: vaultPdaKey.toString(),
+        player1Paid,
+        player2Paid,
+        currentLamports: vaultAccountInfo.lamports,
+        rentExemptReserve,
+        transferableLamports: Number(transferableLamportsBig),
+        desiredPlayer1Lamports: Number(desiredPlayer1Big),
+        desiredPlayer2Lamports: Number(desiredPlayer2Big),
+        player1LamportsFromVault: Number(player1FromVaultBig),
+        player2LamportsFromVault: Number(player2FromVaultBig),
+        player1TopUpLamports: Number(player1TopUpBig > BigInt(0) ? player1TopUpBig : BigInt(0)),
+        player2TopUpLamports: Number(player2TopUpBig > BigInt(0) ? player2TopUpBig : BigInt(0)),
+        totalDesiredLamports: Number(desiredTotalBig),
+        totalVaultLamportsRequested: Number(player1FromVaultBig + player2FromVaultBig),
       });
-      // Correct the keys: vaultPda is a PDA and cannot be a signer
-      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
-      
-      // Create System Program transfer instruction for player 2
-      const player2TransferIx = SystemProgram.transfer({
-        fromPubkey: vaultPdaKey,
-        toPubkey: player2Key,
-        lamports: refundLamports,
-      });
-      // Correct the keys: vaultPda is a PDA and cannot be a signer
-      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
-      
-      // Log instruction keys for debugging
+
+      const instructions: TransactionInstruction[] = [];
+
+      if (player1FromVaultBig > BigInt(0)) {
+        const player1TransferIx = SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: player1Key,
+          lamports: Number(player1FromVaultBig),
+        });
+        player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
+        instructions.push(player1TransferIx);
+      }
+
+      if (player2FromVaultBig > BigInt(0)) {
+        const player2TransferIx = SystemProgram.transfer({
+          fromPubkey: vaultPdaKey,
+          toPubkey: player2Key,
+          lamports: Number(player2FromVaultBig),
+        });
+        player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
+        instructions.push(player2TransferIx);
+      }
+
+      if (player1TopUpBig > BigInt(0)) {
+        const topUpIx = SystemProgram.transfer({
+          fromPubkey: this.config.systemPublicKey,
+          toPubkey: player1Key,
+          lamports: Number(player1TopUpBig),
+        });
+        instructions.push(topUpIx);
+      }
+
+      if (player2TopUpBig > BigInt(0)) {
+        const topUpIx = SystemProgram.transfer({
+          fromPubkey: this.config.systemPublicKey,
+          toPubkey: player2Key,
+          lamports: Number(player2TopUpBig),
+        });
+        instructions.push(topUpIx);
+      }
+
+      if (instructions.length === 0) {
+        const errorMsg = 'No refund instructions generated (no eligible players or refund amount zero)';
+        enhancedLogger.warn('⚠️ ' + errorMsg, {
+          vaultAddress,
+          player1Paid,
+          player2Paid,
+          refundAmount,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
       enhancedLogger.info('🔍 Instruction keys check for tie refund', {
-        player1IxKeys: player1TransferIx.keys.map(k => ({
-          pubkey: k.pubkey.toString(),
-          isSigner: k.isSigner,
-          isWritable: k.isWritable,
+        instructionCount: instructions.length,
+        details: instructions.map(ix => ({
+          programId: ix.programId.toString(),
+          keys: ix.keys.map(k => ({
+            pubkey: k.pubkey.toString(),
+            isSigner: k.isSigner,
+            isWritable: k.isWritable,
+          })),
         })),
-        player2IxKeys: player2TransferIx.keys.map(k => ({
-          pubkey: k.pubkey.toString(),
-          isSigner: k.isSigner,
-          isWritable: k.isWritable,
-        })),
-        player1IxProgramId: player1TransferIx.programId.toString(),
-        player2IxProgramId: player2TransferIx.programId.toString(),
       });
-      
+
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
       // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
       // The vault PDA holds funds but cannot pay fees (it's not a signer)
@@ -1648,7 +1755,7 @@ export class SquadsVaultService {
       const transactionMessage = new TransactionMessage({
         payerKey: this.config.systemPublicKey, // System pays for transaction creation fees
         recentBlockhash: blockhash2,
-        instructions: [player1TransferIx, player2TransferIx],
+        instructions,
       });
       
       // CRITICAL: Verify multisig account ownership before creating transaction
@@ -1702,7 +1809,12 @@ export class SquadsVaultService {
         lastValidBlockHeight,
         player1: player1.toString(),
         player2: player2.toString(),
-        refundLamports,
+        desiredPlayer1Lamports: Number(desiredPlayer1Big),
+        desiredPlayer2Lamports: Number(desiredPlayer2Big),
+        vaultContributionPlayer1: Number(player1FromVaultBig),
+        vaultContributionPlayer2: Number(player2FromVaultBig),
+        topUpPlayer1: Number(player1TopUpBig > BigInt(0) ? player1TopUpBig : BigInt(0)),
+        topUpPlayer2: Number(player2TopUpBig > BigInt(0) ? player2TopUpBig : BigInt(0)),
           transactionIndex: index.toString(),
           attempt: attemptLabel,
       });

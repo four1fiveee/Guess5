@@ -2766,12 +2766,18 @@ const submitResultHandler = async (req: any, res: any) => {
             
             // Create Squads proposal for tie refund
             try {
+              const tiePaymentStatus = {
+                ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
+              };
+
               const refundResult = await squadsVaultService.proposeTieRefund(
                 updatedMatch.squadsVaultAddress,
                 new PublicKey(updatedMatch.player1),
                 new PublicKey(updatedMatch.player2),
                 refundAmount,
-                updatedMatch.squadsVaultPda ?? undefined
+                updatedMatch.squadsVaultPda ?? undefined,
+                tiePaymentStatus
               );
               
               if (refundResult.success) {
@@ -2995,13 +3001,18 @@ const submitResultHandler = async (req: any, res: any) => {
                     console.log('✅ Creating tie refund proposal for losing tie...', { matchId: finalMatch.id });
                     const entryFee = finalMatch.entryFee;
                     const refundAmount = entryFee * 0.95;
+                    const tiePaymentStatus = {
+                      ...(finalMatch.player1Paid !== undefined && { player1Paid: !!finalMatch.player1Paid }),
+                      ...(finalMatch.player2Paid !== undefined && { player2Paid: !!finalMatch.player2Paid }),
+                    };
                     
                     const proposalResult = await squadsService.proposeTieRefund(
                       (finalMatch as any).squadsVaultAddress,
                       new PublicKey(finalMatch.player1),
                       new PublicKey(finalMatch.player2),
                       refundAmount,
-                      (finalMatch as any).squadsVaultPda ?? undefined
+                      (finalMatch as any).squadsVaultPda ?? undefined,
+                      tiePaymentStatus
                     );
 
                     if (proposalResult.success && proposalResult.proposalId) {
@@ -3111,13 +3122,18 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (isLosingTie) {
                     const entryFee = updatedMatch.entryFee;
                     const refundAmount = entryFee * 0.95;
+                    const tiePaymentStatus = {
+                      ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                      ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
+                    };
                     
                     const proposalResult = await squadsService.proposeTieRefund(
                       (updatedMatch as any).squadsVaultAddress,
                       new PublicKey(updatedMatch.player1),
                       new PublicKey(updatedMatch.player2),
-                    refundAmount,
-                    (updatedMatch as any).squadsVaultPda ?? undefined
+                      refundAmount,
+                      (updatedMatch as any).squadsVaultPda ?? undefined,
+                      tiePaymentStatus
                     );
 
                     if (proposalResult.success && proposalResult.proposalId) {
@@ -3630,13 +3646,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     player2: match.player2,
                     refundAmount,
                   });
+                  const tiePaymentStatus = {
+                    ...(match.player1Paid !== undefined && { player1Paid: !!match.player1Paid }),
+                    ...(match.player2Paid !== undefined && { player2Paid: !!match.player2Paid }),
+                  };
                   
                   const proposalResult = await squadsVaultService.proposeTieRefund(
                     (match as any).squadsVaultAddress,
                     new PublicKey(match.player1),
                     new PublicKey(match.player2),
                     refundAmount,
-                    (match as any).squadsVaultPda ?? undefined
+                    (match as any).squadsVaultPda ?? undefined,
+                    tiePaymentStatus
                   );
 
                   if (proposalResult.success && proposalResult.proposalId) {
@@ -3979,13 +4000,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 player2: freshMatch.player2,
                 squadsVaultAddress: (freshMatch as any).squadsVaultAddress
               });
+              const tiePaymentStatus = {
+                ...(freshMatch.player1Paid !== undefined && { player1Paid: !!freshMatch.player1Paid }),
+                ...(freshMatch.player2Paid !== undefined && { player2Paid: !!freshMatch.player2Paid }),
+              };
               
               const proposalResult = await squadsVaultService.proposeTieRefund(
                 (freshMatch as any).squadsVaultAddress,
                 new PublicKey(freshMatch.player1),
                 new PublicKey(freshMatch.player2),
                 refundAmount,
-                (freshMatch as any).squadsVaultPda ?? undefined
+                (freshMatch as any).squadsVaultPda ?? undefined,
+                tiePaymentStatus
               );
               
               if (proposalResult.success && proposalResult.proposalId) {
@@ -6709,12 +6735,18 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
       if (winner === 'tie') {
         // Create tie refund proposal
         console.log('💰 Creating tie refund proposal...');
+        const tiePaymentStatus = {
+          ...(matchRow.player1Paid !== undefined && { player1Paid: !!matchRow.player1Paid }),
+          ...(matchRow.player2Paid !== undefined && { player2Paid: !!matchRow.player2Paid }),
+        };
+
         const tieResult = await squadsVaultService.proposeTieRefund(
           matchRow.squadsVaultAddress,
           new PublicKey(matchRow.player1),
           new PublicKey(matchRow.player2),
           matchRow.entryFee,
-          matchRow.squadsVaultPda ?? undefined
+          matchRow.squadsVaultPda ?? undefined,
+          tiePaymentStatus
         );
         
         if (tieResult?.proposalId) {
