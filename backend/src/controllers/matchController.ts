@@ -10459,7 +10459,7 @@ const signProposalHandler = async (req: any, res: any) => {
       console.log('✅ Match updated with signer:', {
         matchId,
         wallet,
-        needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
+        needsSignatures: Math.max(0, newNeedsSignatures),
         proposalStatus: newProposalStatus,
         finalSigners: uniqueSigners,
       });
@@ -10505,7 +10505,7 @@ const signProposalHandler = async (req: any, res: any) => {
           type: 'proposal_signed',
           matchId: matchId,
           signer: wallet,
-          needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
+          needsSignatures: Math.max(0, newNeedsSignatures),
           proposalStatus: newProposalStatus,
           message: 'Opponent has signed the transaction'
         };
