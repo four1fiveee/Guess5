@@ -284,8 +284,14 @@ const Matchmaking: React.FC = () => {
       return;
     }
 
-    if (!signTransaction) {
-      console.error('❌ Missing signTransaction function');
+    const hasSendTransaction = typeof sendTransaction === 'function';
+    const hasSignTransaction = typeof signTransaction === 'function';
+
+    if (!hasSendTransaction && !hasSignTransaction) {
+      console.error('❌ Wallet adapter missing both sendTransaction and signTransaction capabilities');
+      alert(
+        'Your connected wallet cannot send transactions in this context. Please reconnect your wallet or try a different one.'
+      );
       setIsPaymentInProgress(false);
       return;
     }
@@ -470,9 +476,9 @@ const Matchmaking: React.FC = () => {
       let signature: string;
       
       // Try using sendTransaction if available (handles wallet submission properly)
-      if (sendTransaction) {
+      if (hasSendTransaction) {
         console.log('📤 Sending transaction via wallet adapter...');
-        signature = await sendTransaction(transaction, connection, {
+        signature = await sendTransaction!(transaction, connection, {
           skipPreflight: false,
           maxRetries: 3,
         });
@@ -488,8 +494,11 @@ const Matchmaking: React.FC = () => {
         console.log('✅ Transaction confirmed successfully');
       } else {
         // Fallback to manual signing/sending
+        if (!hasSignTransaction) {
+          throw new Error('Wallet does not support signing transactions');
+        }
         console.log('🔐 Signing transaction...');
-        const signedTransaction = await signTransaction(transaction);
+        const signedTransaction = await signTransaction!(transaction);
         console.log('📤 Sending transaction to Solana...');
         
         try {
@@ -724,7 +733,7 @@ const Matchmaking: React.FC = () => {
                   vaultAddress: va,
                   squadsVaultPda:
                     (data as any)?.squadsVaultPda ?? prev?.squadsVaultPda ?? vp,
-                  vaultPda: vp,
+                vaultPda: vp,
                 };
                 matchDataRef.current = updated; // Update ref to avoid closure issues
                 return updated;
@@ -1267,14 +1276,14 @@ const Matchmaking: React.FC = () => {
                       <p className="text-white/80 text-sm text-center">
                         {cancellationContext?.detail ||
                           'Match cancelled. Queue up again whenever you are ready.'}
-                      </p>
-                    </div>
+                </p>
+              </div>
                   </>
                 );
               })()}
               <div className="flex flex-col gap-3">
                 {cancellationContext?.encourageResult && matchData?.matchId && (
-                  <button
+              <button
                     onClick={navigateToResult}
                     className="w-full bg-white/10 hover:bg-white/20 text-white font-semibold py-3 px-6 rounded-lg transition-all duration-200 border border-white/20"
                   >
@@ -1283,10 +1292,10 @@ const Matchmaking: React.FC = () => {
                 )}
                 <button
                   onClick={() => router.push('/lobby')}
-                  className="w-full bg-accent hover:bg-yellow-400 text-primary font-bold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
-                >
-                  Return to Lobby
-                </button>
+                className="w-full bg-accent hover:bg-yellow-400 text-primary font-bold py-3 px-6 rounded-lg transition-all duration-200 hover:shadow-lg transform hover:scale-[1.02] active:scale-[0.98]"
+              >
+                Return to Lobby
+              </button>
               </div>
             </div>
           )}
