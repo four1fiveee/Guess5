@@ -2909,37 +2909,68 @@ export class SquadsVaultService {
         let signature: string;
         
         try {
+          // Skip preflight since we already simulated manually
+          // Preflight can fail even when simulation succeeds due to timing/state differences
           signature = await this.connection.sendRawTransaction(rawTx, {
-            skipPreflight: false,
+            skipPreflight: true,
             maxRetries: 3,
           });
         } catch (sendError: unknown) {
           // Handle SendTransactionError specifically to extract logs
           if (sendError instanceof SendTransactionError) {
-            const errorLogs = sendError.logs || [];
+            // Try to get logs from the error - SendTransactionError has logs property
+            let errorLogs: string[] = [];
+            try {
+              // SendTransactionError may have logs directly or via getLogs() method
+              if (sendError.logs && Array.isArray(sendError.logs)) {
+                errorLogs = sendError.logs;
+              } else if (typeof (sendError as any).getLogs === 'function') {
+                errorLogs = (sendError as any).getLogs() || [];
+              }
+            } catch (logError: unknown) {
+              enhancedLogger.warn('⚠️ Failed to extract logs from SendTransactionError', {
+                vaultAddress,
+                proposalId,
+                error: logError instanceof Error ? logError.message : String(logError),
+              });
+            }
+            
             const errorMessage = sendError.message || String(sendError);
+            
+            // Extract simulation response if available
+            const simulationResponse = (sendError as any).simulationResponse;
+            const simulationError = simulationResponse?.value?.err 
+              ? JSON.stringify(simulationResponse.value.err)
+              : null;
+            const simulationLogs = simulationResponse?.value?.logs || [];
             
             enhancedLogger.error('❌ sendRawTransaction failed with SendTransactionError', {
               vaultAddress,
               proposalId,
               error: errorMessage,
-              logs: errorLogs,
+              logs: errorLogs.length > 0 ? errorLogs : simulationLogs,
+              simulationError,
+              simulationLogs: simulationLogs.length > 0 ? simulationLogs : undefined,
               proposalIsExecuteReady,
               vaultTransactionIsExecuteReady,
               note: 'This error occurs during preflight check or transaction submission. Check logs for on-chain error details.',
             });
             
             lastErrorMessage = `SendTransactionError: ${errorMessage}`;
-            lastLogs = errorLogs;
+            if (simulationError) {
+              lastErrorMessage += ` | Simulation error: ${simulationError}`;
+            }
+            lastLogs = errorLogs.length > 0 ? errorLogs : simulationLogs;
             
             // Check if error is related to proposal status
-            const errorStr = errorMessage.toLowerCase();
+            const errorStr = (errorMessage + (simulationError || '')).toLowerCase();
             if (errorStr.includes('insufficient') || errorStr.includes('signature')) {
               enhancedLogger.error('❌ SendTransactionError indicates signature-related issue', {
                 vaultAddress,
                 proposalId,
                 error: errorMessage,
-                logs: errorLogs?.slice(-20),
+                simulationError,
+                logs: lastLogs?.slice(-20),
                 proposalIsExecuteReady,
                 vaultTransactionIsExecuteReady,
                 note: 'The proposal may need to be in ExecuteReady state, or there may be a mismatch between approved signers and what execution requires',
