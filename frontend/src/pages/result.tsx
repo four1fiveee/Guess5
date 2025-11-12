@@ -383,15 +383,15 @@ const Result: React.FC = () => {
           // Immediately refresh payout data to get latest status
           stopRefreshLoops();
           loadPayoutData();
-
+          
           // Hide sign button since only 1 signature needed
           setSigningProposal(false);
-
+          
           // Poll a little faster for a short period to detect execution
           refreshIntervalRef.current = setInterval(() => {
             loadPayoutData();
           }, 4000);
-
+          
           refreshTimeoutRef.current = setTimeout(() => {
             stopRefreshLoops();
             loadPayoutData();
@@ -717,7 +717,7 @@ const Result: React.FC = () => {
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
             <div className="text-center">
               <h1 className="text-3xl font-bold text-white mb-6">Match Recap</h1>
-
+              
               {/* Result Hero Banner */}
               <div
                 className={`mb-6 rounded-3xl border ${resultTheme.border} bg-gradient-to-br ${resultTheme.background} px-6 py-8 sm:px-8 sm:py-10 shadow-xl`}
@@ -732,7 +732,7 @@ const Result: React.FC = () => {
                   </p>
                 </div>
               </div>
-
+              
               {/* Game Details */}
               {matchWasCancelled ? (
                 <div className="space-y-4 mb-6">
@@ -768,36 +768,36 @@ const Result: React.FC = () => {
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
                       <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Your Run</div>
                       <div className="flex flex-col gap-3">
-                        <div>
+                  <div>
                           <div className="text-white/60 text-xs">Guesses Used</div>
                           <div className="text-white text-2xl font-semibold">
                             {payoutData.numGuesses || 0}/7
                           </div>
-                        </div>
-                        <div>
+                  </div>
+                  <div>
                           <div className="text-white/60 text-xs">Time to Solve</div>
                           <div className="text-white text-lg font-medium">
                             {payoutData.timeElapsed || '—'}
-                          </div>
+                  </div>
                         </div>
                       </div>
                     </div>
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
                       <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Opponent</div>
                       <div className="flex flex-col gap-3">
-                        <div>
+                  <div>
                           <div className="text-white/60 text-xs">Guesses Used</div>
                           <div className="text-white text-2xl font-semibold">
                             {payoutData.opponentGuesses || 0}/7
                           </div>
-                        </div>
-                        <div>
+                  </div>
+                  <div>
                           <div className="text-white/60 text-xs">Time to Solve</div>
                           <div className="text-white text-lg font-medium">
                             {payoutData.opponentTimeElapsed || '—'}
-                          </div>
-                        </div>
-                      </div>
+                  </div>
+                </div>
+              </div>
                     </div>
                   </div>
                   <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">

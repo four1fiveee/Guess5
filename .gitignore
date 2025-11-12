@@ -26,3 +26,7 @@ OneDrive/**
 # Ignore OS files
 Thumbs.db
 desktop.ini
+
+# DASHBOARD IS LOCAL-ONLY - NEVER COMMIT
+/dashboard/
+dashboard/

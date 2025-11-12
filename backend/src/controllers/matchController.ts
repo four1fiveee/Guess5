@@ -2786,7 +2786,9 @@ const submitResultHandler = async (req: any, res: any) => {
                 const proposalState = buildInitialProposalState(refundResult.needsSignatures);
 
                 // Update match with proposal information
+                // CRITICAL: Set both payoutProposalId and tieRefundProposalId for tie refunds
                 updatedMatch.payoutProposalId = refundResult.proposalId;
+                updatedMatch.tieRefundProposalId = refundResult.proposalId;
                 updatedMatch.proposalCreatedAt = new Date();
                 updatedMatch.proposalStatus = 'ACTIVE';
                 updatedMatch.matchStatus = 'PROPOSAL_CREATED';

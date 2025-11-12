@@ -2270,8 +2270,54 @@ export class SquadsVaultService {
     enhancedLogger.info('🚀 Executing Squads proposal', {
       vaultAddress,
       proposalId,
+      transactionIndex: transactionIndex.toString(),
       executor: executor.publicKey.toString(),
     });
+
+    // Verify proposal status before executing
+    try {
+      const proposalStatus = await this.checkProposalStatus(vaultAddress, proposalId);
+      enhancedLogger.info('🔍 Proposal status check before execution', {
+        vaultAddress,
+        proposalId,
+        executed: proposalStatus.executed,
+        signers: proposalStatus.signers.map(s => s.toString()),
+        needsSignatures: proposalStatus.needsSignatures,
+      });
+
+      if (proposalStatus.executed) {
+        enhancedLogger.warn('⚠️ Proposal already executed, skipping', {
+          vaultAddress,
+          proposalId,
+        });
+        return {
+          success: false,
+          error: 'PROPOSAL_ALREADY_EXECUTED',
+          logs: ['Proposal has already been executed'],
+        };
+      }
+
+      if (proposalStatus.needsSignatures > 0) {
+        enhancedLogger.warn('⚠️ Proposal does not have enough signatures yet', {
+          vaultAddress,
+          proposalId,
+          needsSignatures: proposalStatus.needsSignatures,
+          signers: proposalStatus.signers.map(s => s.toString()),
+        });
+        return {
+          success: false,
+          error: 'INSUFFICIENT_SIGNATURES',
+          logs: [`Proposal needs ${proposalStatus.needsSignatures} more signature(s)`],
+        };
+      }
+    } catch (statusError: unknown) {
+      enhancedLogger.warn('⚠️ Failed to check proposal status before execution (continuing anyway)', {
+        vaultAddress,
+        proposalId,
+        error: statusError instanceof Error ? statusError.message : String(statusError),
+      });
+      // Continue with execution attempt even if status check fails
+    }
 
     // Best effort: ensure vault has lamports before attempting execution
     let derivedVaultPda: PublicKey | null = null;

@@ -227,11 +227,11 @@ export default function Lobby() {
     const fetchBalance = async () => {
       if (!publicKey) {
         if (isMounted) {
-          setWalletBalance(null);
+        setWalletBalance(null);
         }
         return;
       }
-
+      
       try {
         const solanaNetwork =
           process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com';
@@ -243,11 +243,11 @@ export default function Lobby() {
       } catch (error) {
         console.error('Failed to check wallet balance:', error);
         if (isMounted) {
-          setWalletBalance(null);
-        }
+        setWalletBalance(null);
+      }
       }
     };
-
+    
     fetchBalance();
 
     if (publicKey) {

@@ -231,3 +231,4 @@ This endpoint:
 **Note**: After fixing the issue, the frontend should automatically pick up the proposal ID on the next poll (every 3 seconds).
 
 
+
