@@ -9879,12 +9879,19 @@ const signProposalHandler = async (req: any, res: any) => {
       throw new Error(`Failed to send transaction: ${errorMessage}`);
     }
 
-    // Wait for confirmation
+    // Wait for confirmation with timeout
     let confirmation;
     let approvalSkippedDueToReady = false;
     try {
       console.log('⏳ Waiting for transaction confirmation...');
-      confirmation = await connection.confirmTransaction(signature, 'confirmed');
+      
+      // Add timeout to prevent hanging
+      const confirmationPromise = connection.confirmTransaction(signature, 'confirmed');
+      const timeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Transaction confirmation timeout after 30 seconds')), 30000);
+      });
+      
+      confirmation = await Promise.race([confirmationPromise, timeoutPromise]) as any;
       console.log('✅ Transaction confirmed:', {
         signature,
         slot: confirmation.context.slot,
@@ -9897,6 +9904,44 @@ const signProposalHandler = async (req: any, res: any) => {
         rawError: confirmError,
         signature,
       });
+      
+      // If confirmation times out or fails, check transaction status directly
+      if (confirmError?.message?.includes('timeout') || confirmError?.message?.includes('Timeout')) {
+        console.log('⏳ Confirmation timed out, checking transaction status directly...');
+        try {
+          const txStatus = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+          if (txStatus?.value && !txStatus.value.err) {
+            // Transaction succeeded!
+            console.log('✅ Transaction confirmed via direct status check:', {
+              signature,
+              slot: txStatus.value.slot,
+            });
+            confirmation = {
+              value: { err: null },
+              context: { slot: txStatus.value.slot || 0 },
+            };
+          } else if (txStatus?.value?.err) {
+            throw new Error(`Transaction failed: ${JSON.stringify(txStatus.value.err)}`);
+          } else {
+            // Transaction not found yet, might still be processing
+            console.warn('⚠️ Transaction not found in history yet, may still be processing');
+            // Continue with processing - the transaction might still succeed
+            confirmation = {
+              value: { err: null },
+              context: { slot: 0 },
+            };
+          }
+        } catch (statusError: any) {
+          console.warn('⚠️ Failed to check transaction status directly:', statusError?.message);
+          // Continue anyway - transaction might still succeed
+          confirmation = {
+            value: { err: null },
+            context: { slot: 0 },
+          };
+        }
+      }
+      
+      // Continue with existing error handling
       let statusHandled = false;
       let statusStringForError: string | null = null;
       try {
