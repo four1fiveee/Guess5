@@ -9903,23 +9903,64 @@ const signProposalHandler = async (req: any, res: any) => {
           }
         }
       } else {
-        if (hadFeeWalletSignature || proposalAlreadyReady || approvalSkippedDueToReady) {
+        // Fee wallet already signed OR proposal is already ready OR approval was skipped
+        if (hadFeeWalletSignature) {
+          // Fee wallet already signed previously - mark as approved
           feeWalletAutoApproved = true;
-        }
-        if (!hadFeeWalletSignature) {
-          signers.push(feeWalletAddress);
+        } else if (proposalAlreadyReady || approvalSkippedDueToReady) {
+          // Proposal is already ready to execute on-chain, so fee wallet must have signed
+          // Verify on-chain before adding to signers
+          try {
+            const proposalStatus = await squadsVaultService.checkProposalStatus(
+              matchRow.squadsVaultAddress,
+              proposalIdString
+            );
+            
+            if (proposalStatus && proposalStatus.needsSignatures === 0) {
+              // Proposal has enough signatures on-chain, fee wallet must have signed
+              feeWalletAutoApproved = true;
+              signers.push(feeWalletAddress);
+              console.log('✅ Fee wallet confirmed as signer (proposal ready on-chain)', {
+                matchId,
+                proposalId: proposalIdString,
+                needsSignatures: proposalStatus.needsSignatures,
+                signers: proposalStatus.signers.map(s => s.toString()),
+              });
+            } else {
+              // Proposal not ready yet, fee wallet hasn't signed - don't add it
+              console.warn('⚠️ Proposal not ready on-chain, fee wallet signature not confirmed', {
+                matchId,
+                proposalId: proposalIdString,
+                needsSignatures: proposalStatus?.needsSignatures ?? 'unknown',
+                signers: proposalStatus?.signers?.map(s => s.toString()) ?? [],
+              });
+            }
+          } catch (verifyError: any) {
+            console.warn('⚠️ Could not verify fee wallet signature on-chain, assuming not signed', {
+              matchId,
+              proposalId: proposalIdString,
+              error: verifyError?.message,
+            });
+            // Don't add fee wallet to signers if we can't verify
+          }
         }
       }
 
-      // Ensure our local signer list reflects the system signature added during proposal creation.
-      if (!signers.includes(feeWalletAddress)) {
+      // Only add fee wallet to signers if it actually signed on-chain
+      // Don't add it unconditionally - this was causing the bug where database showed 2 signatures
+      // but on-chain only had 1 signature
+      if (feeWalletAutoApproved && !signers.includes(feeWalletAddress)) {
         signers.push(feeWalletAddress);
       }
 
       const uniqueSigners = Array.from(new Set(signers));
       const currentNeedsSignatures = normalizeRequiredSignatures(matchRow.needsSignatures);
+      
+      // Decrement for player signature
       newNeedsSignatures = Math.max(0, currentNeedsSignatures - 1);
-      if (uniqueSigners.includes(feeWalletAddress)) {
+      
+      // Only decrement for fee wallet if it actually signed on-chain
+      if (feeWalletAutoApproved && uniqueSigners.includes(feeWalletAddress)) {
         newNeedsSignatures = Math.max(0, newNeedsSignatures - 1);
       }
       newProposalStatus = newNeedsSignatures === 0 ? 'READY_TO_EXECUTE' : 'ACTIVE';
