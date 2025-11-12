@@ -273,43 +273,55 @@ const Matchmaking: React.FC = () => {
 
   const handlePayment = async () => {
     if (isPaymentInProgress) {
-      console.log('⚠️ Payment already in progress');
+      console.log('⚠️ Payment already in progress - ignoring click');
       return;
     }
 
     setIsPaymentInProgress(true);
-    if (!publicKey || !matchData) {
-      console.error('❌ Missing publicKey or matchData');
-      setIsPaymentInProgress(false);
-      return;
-    }
-
-    const hasSendTransaction = typeof sendTransaction === 'function';
-    const hasSignTransaction = typeof signTransaction === 'function';
-
-    if (!hasSendTransaction && !hasSignTransaction) {
-      console.error('❌ Wallet adapter missing both sendTransaction and signTransaction capabilities');
-      alert(
-        'Your connected wallet cannot send transactions in this context. Please reconnect your wallet or try a different one.'
-      );
-      setIsPaymentInProgress(false);
-      return;
-    }
-
-    // Check if current player already paid
-    const isPlayer1 = publicKey.toString() === matchData.player1;
-    const currentPlayerPaid = isPlayer1 ? matchData.player1Paid : matchData.player2Paid;
     
-    if (currentPlayerPaid) {
-      console.log('⚠️ Current player already paid');
+    // Safety timeout: reset payment state after 2 minutes if something goes wrong
+    const safetyTimeout = setTimeout(() => {
+      console.warn('⚠️ Payment safety timeout - resetting payment state');
       setIsPaymentInProgress(false);
-      return;
-    }
+    }, 120000); // 2 minutes
+    
+    try {
+      if (!publicKey || !matchData) {
+        console.error('❌ Missing publicKey or matchData');
+        clearTimeout(safetyTimeout);
+        setIsPaymentInProgress(false);
+        return;
+      }
+
+      const hasSendTransaction = typeof sendTransaction === 'function';
+      const hasSignTransaction = typeof signTransaction === 'function';
+
+      if (!hasSendTransaction && !hasSignTransaction) {
+        console.error('❌ Wallet adapter missing both sendTransaction and signTransaction capabilities');
+        alert(
+          'Your connected wallet cannot send transactions in this context. Please reconnect your wallet or try a different one.'
+        );
+        clearTimeout(safetyTimeout);
+        setIsPaymentInProgress(false);
+        return;
+      }
+
+      // Check if current player already paid
+      const isPlayer1 = publicKey.toString() === matchData.player1;
+      const currentPlayerPaid = isPlayer1 ? matchData.player1Paid : matchData.player2Paid;
+      
+      if (currentPlayerPaid) {
+        console.log('⚠️ Current player already paid');
+        clearTimeout(safetyTimeout);
+        setIsPaymentInProgress(false);
+        return;
+      }
 
     try {
       console.log('💰 Starting payment to multisig vault deposit...');
 
       if (matchData.status && matchData.status !== 'payment_required') {
+        clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
         if (matchData.status === 'cancelled') {
           setStatus('opponent_left');
@@ -385,6 +397,7 @@ const Matchmaking: React.FC = () => {
         } else {
           setStatus(latestStatus.status as any);
         }
+        clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
         return;
       }
@@ -584,6 +597,8 @@ const Matchmaking: React.FC = () => {
             localStorage.setItem('entryFee', confirmData.entryFee.toString());
           }
           
+          clearTimeout(safetyTimeout);
+          setIsPaymentInProgress(false);
           setTimeout(() => {
             router.push(`/game?matchId=${matchData.matchId}`);
           }, 500);
@@ -616,6 +631,8 @@ const Matchmaking: React.FC = () => {
           setPaymentTimeout(timeout);
         }
         
+        clearTimeout(safetyTimeout);
+        setIsPaymentInProgress(false);
         return; // Exit early since we handled the retry case
       }
 
@@ -748,6 +765,8 @@ const Matchmaking: React.FC = () => {
           localStorage.setItem('entryFee', confirmData.entryFee.toString());
         }
         
+        clearTimeout(safetyTimeout);
+        setIsPaymentInProgress(false);
         setTimeout(() => {
           router.push(`/game?matchId=${matchData.matchId}`);
         }, 500);
@@ -787,6 +806,7 @@ const Matchmaking: React.FC = () => {
       console.error('❌ Payment error:', error);
       alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
+      clearTimeout(safetyTimeout);
       setIsPaymentInProgress(false);
     }
   };
