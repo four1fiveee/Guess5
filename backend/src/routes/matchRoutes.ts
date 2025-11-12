@@ -165,6 +165,9 @@ router.post('/manual-refund', asyncHandlerWrapper(matchController.manualRefundHa
 // Manual match endpoint for testing
 router.post('/manual-match', asyncHandlerWrapper(matchController.manualMatchHandler));
 
+// Manual execution endpoint to manually trigger proposal execution
+router.post('/manual-execute-proposal', asyncHandlerWrapper(matchController.manualExecuteProposalHandler));
+
 // Force proposal creation for stuck matches (for testing/devnet)
 router.post('/force-proposal', asyncHandlerWrapper(matchController.forceProposalCreationHandler));
 

@@ -4173,14 +4173,40 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const bonusAlreadyPaidFallback = (match as any).bonusPaid === true;
       const bonusSignatureExistingFallback = (match as any).bonusSignature || null;
       
-      if (!hasFeeWalletSignature) {
-        console.warn('⚠️ Skipping fallback execution because fee wallet signature is still missing', {
+      // Check on-chain proposal status to verify it's actually ready
+      let onChainReady = false;
+      try {
+        const proposalStatus = await squadsVaultService.checkProposalStatus(
+          (match as any).squadsVaultAddress,
+          proposalIdString
+        );
+        onChainReady = proposalStatus.needsSignatures === 0 && !proposalStatus.executed;
+        console.log('🔍 On-chain proposal status check (fallback)', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          onChainReady,
+          needsSignatures: proposalStatus.needsSignatures,
+          executed: proposalStatus.executed,
+          signers: proposalStatus.signers.map((s: any) => s.toString()),
+        });
+      } catch (statusCheckError: any) {
+        console.warn('⚠️ Failed to check on-chain proposal status (fallback)', {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          error: statusCheckError?.message || String(statusCheckError),
+        });
+        // Continue with execution attempt anyway if database says it's ready
+        onChainReady = true;
+      }
+
+      if (!hasFeeWalletSignature && !onChainReady) {
+        console.warn('⚠️ Skipping fallback execution because fee wallet signature is still missing and proposal not ready on-chain', {
           matchId: match.id,
           proposalId: proposalIdString,
           proposalSigners: finalProposalSigners,
           feeWalletApprovalError,
         });
-      } else if (feeWalletKeypair) {
+      } else if (feeWalletKeypair && (hasFeeWalletSignature || onChainReady)) {
         console.log('🔁 Auto-execute (fallback) using vault PDA', {
           matchId: match.id,
           proposalId: proposalIdString,
@@ -6517,6 +6543,125 @@ const manualRefundHandler = async (req: any, res: any) => {
   } catch (error: unknown) {
     console.error('❌ Error in manual refund:', error);
     res.status(500).json({ error: 'Failed to process manual refund' });
+  }
+};
+
+// Manual execution endpoint to manually trigger proposal execution
+const manualExecuteProposalHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.body;
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID required' });
+    }
+    
+    console.log(`🚀 Manual execution requested for match: ${matchId}`);
+    
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+    if (!proposalId) {
+      return res.status(400).json({ error: 'No proposal found for this match' });
+    }
+    
+    const proposalIdString = String(proposalId).trim();
+    const proposalStatus = ((match as any).proposalStatus || '').toUpperCase();
+    
+    if (proposalStatus === 'EXECUTED') {
+      return res.json({
+        success: true,
+        message: 'Proposal already executed',
+        executionSignature: (match as any).proposalTransactionId || (match as any).refundTxHash || (match as any).payoutTxHash,
+      });
+    }
+    
+    if (!(match as any).squadsVaultAddress) {
+      return res.status(400).json({ error: 'No vault address found for this match' });
+    }
+    
+    const { getSquadsVaultService } = require('../services/squadsVaultService');
+    const { getFeeWalletKeypair } = require('../config/wallet');
+    const squadsVaultService = getSquadsVaultService();
+    
+    let feeWalletKeypair: any = null;
+    try {
+      feeWalletKeypair = getFeeWalletKeypair();
+    } catch (keypairError: any) {
+      return res.status(500).json({ 
+        error: 'Fee wallet keypair unavailable',
+        details: keypairError?.message || String(keypairError)
+      });
+    }
+    
+    console.log('🚀 Executing proposal manually', {
+      matchId,
+      proposalId: proposalIdString,
+      vaultAddress: (match as any).squadsVaultAddress,
+      vaultPda: (match as any).squadsVaultPda ?? null,
+    });
+    
+    const executeResult = await squadsVaultService.executeProposal(
+      (match as any).squadsVaultAddress,
+      proposalIdString,
+      feeWalletKeypair,
+      (match as any).squadsVaultPda ?? undefined
+    );
+    
+    if (!executeResult.success) {
+      return res.status(500).json({
+        error: 'Execution failed',
+        details: executeResult.error,
+        logs: executeResult.logs?.slice(-10),
+      });
+    }
+    
+    const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+    const isTieRefund =
+      !!(match as any).tieRefundProposalId &&
+      String((match as any).tieRefundProposalId).trim() === proposalIdString;
+    const isWinnerPayout =
+      !!(match as any).payoutProposalId &&
+      String((match as any).payoutProposalId).trim() === proposalIdString &&
+      (match as any).winner &&
+      (match as any).winner !== 'tie';
+    
+    const executionUpdates = buildProposalExecutionUpdates({
+      executedAt,
+      signature: executeResult.signature ?? null,
+      isTieRefund,
+      isWinnerPayout,
+    });
+    
+    await persistExecutionUpdates(matchRepository, matchId, executionUpdates);
+    
+    console.log('✅ Proposal executed successfully (manual)', {
+      matchId,
+      proposalId: proposalIdString,
+      executionSignature: executeResult.signature,
+      slot: executeResult.slot,
+    });
+    
+    res.json({
+      success: true,
+      message: 'Proposal executed successfully',
+      executionSignature: executeResult.signature,
+      slot: executeResult.slot,
+      executedAt: executedAt.toISOString(),
+      matchId,
+    });
+    
+  } catch (error: unknown) {
+    console.error('❌ Error in manual execution:', error);
+    res.status(500).json({ 
+      error: 'Failed to execute proposal',
+      details: error instanceof Error ? error.message : String(error)
+    });
   }
 };
 
@@ -10152,7 +10297,22 @@ const signProposalHandler = async (req: any, res: any) => {
                 needsSignatures: newNeedsSignatures,
                 logs: executeResult.logs?.slice(-5),
               });
-              console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
+              
+              // CRITICAL: If execution failed but proposal is ready, mark it as READY_TO_EXECUTE
+              // so the fallback execution in getMatchStatusHandler can retry it
+              if (newNeedsSignatures === 0 && newProposalStatus !== 'EXECUTED') {
+                await matchRepository.query(`
+                  UPDATE "match"
+                  SET "proposalStatus" = 'READY_TO_EXECUTE'
+                  WHERE id = $1
+                `, [matchId]);
+                console.warn('⚠️ Proposal marked as READY_TO_EXECUTE for fallback retry', {
+                  matchId,
+                  proposalId: proposalIdString,
+                });
+              } else {
+                console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
+              }
             }
           } else {
             console.warn('⚠️ Skipping automatic execution because fee wallet keypair is not configured', {
@@ -10166,7 +10326,29 @@ const signProposalHandler = async (req: any, res: any) => {
             proposalId: proposalIdString,
             error: executeError?.message || String(executeError),
           });
-          console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
+          
+          // CRITICAL: If execution error occurred but proposal is ready, mark it as READY_TO_EXECUTE
+          // so the fallback execution in getMatchStatusHandler can retry it
+          if (newNeedsSignatures === 0 && newProposalStatus !== 'EXECUTED') {
+            try {
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = 'READY_TO_EXECUTE'
+                WHERE id = $1
+              `, [matchId]);
+              console.warn('⚠️ Proposal marked as READY_TO_EXECUTE for fallback retry after error', {
+                matchId,
+                proposalId: proposalIdString,
+              });
+            } catch (updateError: any) {
+              console.error('❌ Failed to update proposal status for fallback retry', {
+                matchId,
+                error: updateError?.message || String(updateError),
+              });
+            }
+          } else {
+            console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
+          }
         }
       } else {
         console.log('⏳ Proposal still awaiting additional signatures before execution', {
@@ -10281,6 +10463,7 @@ module.exports = {
   cancelMatchHandler,
   manualRefundHandler,
   manualMatchHandler,
+  manualExecuteProposalHandler,
   clearMatchmakingDataHandler,
   forceProposalCreationHandler,
   runMigrationHandler,

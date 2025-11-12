@@ -98,3 +98,4 @@ Remember this is never meant to be pushed beyond local.
 - [ ] Configure lint/format tooling and write README emphasizing “never push dashboard”.
 - [ ] Evaluate/implement optional enhancements once core dashboard is stable.
 
+

@@ -1014,7 +1014,7 @@ export class SquadsVaultService {
       const winnerLamports = Number(winnerFromVaultBig);
       const feeLamports = Number(feeFromVaultBig);
       const winnerTopUpLamports = Number(winnerTopUpBig);
-
+      
       // Create System Program transfer instruction for winner using SystemProgram.transfer directly
       // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
       const winnerTransferIx = SystemProgram.transfer({
@@ -1030,11 +1030,11 @@ export class SquadsVaultService {
       let feeTransferIx: TransactionInstruction | null = null;
       if (feeLamports > 0) {
         feeTransferIx = SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: feeWalletKey,
-          lamports: feeLamports,
-        });
-        feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
+        fromPubkey: vaultPdaKey,
+        toPubkey: feeWalletKey,
+        lamports: feeLamports,
+      });
+      feeTransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
         instructions.push(feeTransferIx);
       }
 
@@ -1047,7 +1047,7 @@ export class SquadsVaultService {
         });
         instructions.push(winnerTopUpIx);
       }
-
+      
       // Log instruction keys for debugging
       enhancedLogger.info('🔍 Instruction keys check', {
         winnerIxKeys: winnerTransferIx.keys.map(k => ({
@@ -1057,9 +1057,9 @@ export class SquadsVaultService {
         })),
         feeIxKeys: feeTransferIx
           ? feeTransferIx.keys.map(k => ({
-              pubkey: k.pubkey.toString(),
-              isSigner: k.isSigner,
-              isWritable: k.isWritable,
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
             }))
           : null,
         topUpIxKeys: winnerTopUpIx
@@ -1603,7 +1603,7 @@ export class SquadsVaultService {
       const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
       const player1Key = typeof player1 === 'string' ? new PublicKey(player1) : player1;
       const player2Key = typeof player2 === 'string' ? new PublicKey(player2) : player2;
-
+      
       const player1Paid = playerPaymentStatus?.player1Paid ?? true;
       const player2Paid = playerPaymentStatus?.player2Paid ?? true;
 
@@ -1685,22 +1685,22 @@ export class SquadsVaultService {
       const instructions: TransactionInstruction[] = [];
 
       if (player1FromVaultBig > BigInt(0)) {
-        const player1TransferIx = SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: player1Key,
+      const player1TransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: player1Key,
           lamports: Number(player1FromVaultBig),
-        });
-        player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
+      });
+      player1TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
         instructions.push(player1TransferIx);
       }
-
+      
       if (player2FromVaultBig > BigInt(0)) {
-        const player2TransferIx = SystemProgram.transfer({
-          fromPubkey: vaultPdaKey,
-          toPubkey: player2Key,
+      const player2TransferIx = SystemProgram.transfer({
+        fromPubkey: vaultPdaKey,
+        toPubkey: player2Key,
           lamports: Number(player2FromVaultBig),
-        });
-        player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
+      });
+      player2TransferIx.keys[0] = { pubkey: vaultPdaKey, isSigner: true, isWritable: true };
         instructions.push(player2TransferIx);
       }
 
@@ -1741,13 +1741,13 @@ export class SquadsVaultService {
         details: instructions.map(ix => ({
           programId: ix.programId.toString(),
           keys: ix.keys.map(k => ({
-            pubkey: k.pubkey.toString(),
-            isSigner: k.isSigner,
-            isWritable: k.isWritable,
-          })),
+          pubkey: k.pubkey.toString(),
+          isSigner: k.isSigner,
+          isWritable: k.isWritable,
+        })),
         })),
       });
-
+      
       // Create transaction message (uncompiled - Squads SDK compiles it internally)
       // Note: payerKey must be a signer account (systemPublicKey) that pays for transaction creation
       // The vault PDA holds funds but cannot pay fees (it's not a signer)
@@ -2181,8 +2181,8 @@ export class SquadsVaultService {
       if (!transactionAccount) {
         // Transaction account doesn't exist - likely executed (accounts are closed after execution)
         enhancedLogger.info('📊 Transaction account not found - likely executed', {
-          vaultAddress,
-          proposalId,
+        vaultAddress,
+        proposalId,
           transactionPda: transactionPda.toString(),
         });
         return {
