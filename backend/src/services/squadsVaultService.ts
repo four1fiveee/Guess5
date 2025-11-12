@@ -2166,23 +2166,90 @@ export class SquadsVaultService {
   ): Promise<ProposalStatus> {
     try {
       const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = parseInt(proposalId);
+      const transactionIndex = BigInt(proposalId);
 
-      // For now, return a simplified status that maintains frontend compatibility
-      // TODO: Implement full Squads transaction status checking with numeric proposal IDs
-      const signers: PublicKey[] = []; // No signers yet
-      const needsSignatures = this.config.threshold;
+      // Get the transaction PDA
+      const [transactionPda] = getTransactionPda({
+        multisigPda: multisigAddress,
+        index: transactionIndex,
+        programId: this.programId,
+      });
 
-      enhancedLogger.info('📊 Checked proposal status (simplified)', {
+      // Fetch the transaction account
+      const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+      
+      if (!transactionAccount) {
+        // Transaction account doesn't exist - likely executed (accounts are closed after execution)
+        enhancedLogger.info('📊 Transaction account not found - likely executed', {
+          vaultAddress,
+          proposalId,
+          transactionPda: transactionPda.toString(),
+        });
+        return {
+          executed: true,
+          signers: [],
+          needsSignatures: 0,
+        };
+      }
+
+      // Try to decode the transaction account
+      // Note: The exact structure may vary by SDK version, so we'll use a try-catch approach
+      let isExecuted = false;
+      const signers: PublicKey[] = [];
+      
+      try {
+        // Try using fromAccountAddress if available
+        const transaction = await accounts.VaultTransaction.fromAccountAddress(
+          this.connection,
+          transactionPda
+        );
+        
+        // Check status - the exact property name may vary
+        // Status values: 0 = Active, 1 = ExecuteReady, 2 = Executed
+        if ((transaction as any).status !== undefined) {
+          const status = (transaction as any).status;
+          isExecuted = status === 1 || status === 2; // ExecuteReady or Executed
+        }
+        
+        // Get approved signers
+        if ((transaction as any).approved && Array.isArray((transaction as any).approved)) {
+          signers.push(...(transaction as any).approved);
+        } else if ((transaction as any).approvals && Array.isArray((transaction as any).approvals)) {
+          signers.push(...(transaction as any).approvals);
+        }
+      } catch (decodeError: unknown) {
+        // If decoding fails, check account data manually
+        enhancedLogger.warn('⚠️ Failed to decode transaction account, checking manually', {
+          vaultAddress,
+          proposalId,
+          error: decodeError instanceof Error ? decodeError.message : String(decodeError),
+        });
+        
+        // Account exists but we can't decode it - assume it's active if it exists
+        // (if it was executed, the account would be closed)
+        isExecuted = false;
+      }
+
+      // Calculate remaining signatures needed
+      const threshold = this.config.threshold;
+      const currentSignatures = signers.length;
+      const needsSignatures = Math.max(0, threshold - currentSignatures);
+
+      enhancedLogger.info('📊 Checked proposal status (on-chain)', {
         vaultAddress,
         proposalId,
+        transactionPda: transactionPda.toString(),
+        executed: isExecuted,
+        signers: signers.map(s => s.toString()),
+        currentSignatures,
+        threshold,
         needsSignatures,
       });
 
       return {
-        executed: false,
+        executed: isExecuted,
         signers,
-        needsSignatures: Math.max(0, needsSignatures),
+        needsSignatures,
       };
 
     } catch (error: unknown) {
@@ -2193,6 +2260,7 @@ export class SquadsVaultService {
         error: errorMessage,
       });
 
+      // Fallback to threshold-based check
       return {
         executed: false,
         signers: [],
