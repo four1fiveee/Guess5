@@ -3526,52 +3526,6 @@ export class SquadsVaultService {
           // Throw error to trigger retry with fresh blockhash
           throw confirmationError || new Error('Transaction confirmation failed');
         }
-      } catch (confirmError: unknown) {
-          // This catch block handles any errors from the confirmation process above
-          const confirmErrorMessage = confirmError instanceof Error ? confirmError.message : String(confirmError);
-          
-          enhancedLogger.error('❌ Transaction confirmation failed', {
-            vaultAddress,
-            proposalId,
-            signature,
-            error: confirmErrorMessage,
-            errorType: confirmError?.constructor?.name || typeof confirmError,
-            note: 'Transaction was sent but confirmation failed. Will retry with fresh blockhash if timeout error.',
-          });
-          
-          lastErrorMessage = `confirmTransaction error: ${confirmErrorMessage}`;
-          
-          // Check if this is a timeout/expired blockhash error - transaction may still succeed
-          const isTimeoutError = confirmErrorMessage.includes('expired') || 
-                                 confirmErrorMessage.includes('block height exceeded') ||
-                                 confirmErrorMessage.includes('timeout') ||
-                                 confirmErrorMessage.includes('Confirmation timeout');
-          
-          // If timeout error and we couldn't verify success, retry with fresh blockhash
-          // Add exponential backoff: wait longer between retries
-          if (isTimeoutError && attempt < maxAttempts - 1) {
-            const backoffMs = Math.min(1000 * Math.pow(2, attempt), 5000); // Max 5 seconds
-            enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after confirmTransaction timeout', {
-              vaultAddress,
-              proposalId,
-              attempt: attempt + 1,
-              maxAttempts,
-              backoffMs,
-              error: confirmErrorMessage,
-              note: 'Transaction may still be processing - will retry with fresh blockhash after backoff',
-            });
-            
-            // Wait before retry to allow network to catch up
-            await new Promise(resolve => setTimeout(resolve, backoffMs));
-            continue;
-          }
-          
-          // For non-timeout errors or if we've already retried, break
-          break;
-        }
-        
-        // If we get here, an error occurred - break to retry or fail
-        break;
       } catch (rawError: unknown) {
         // This catch block handles errors from the entire try block (transaction building, sending, confirmation)
         const { message, logs } = await this.buildExecutionErrorDetails(tx, rawError);
