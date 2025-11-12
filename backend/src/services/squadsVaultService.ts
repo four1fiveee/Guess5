@@ -3503,60 +3503,48 @@ export class SquadsVaultService {
           break;
         }
         
-        // If we get here, confirmation succeeded (shouldn't happen due to return above, but handle it)
-        if (confirmation && confirmation.value && confirmation.value.err) {
-          const errorDetails = JSON.stringify(confirmation.value.err);
-          lastErrorMessage = `Transaction failure: ${errorDetails}`;
-          const insights = await this.collectSimulationLogs(tx);
-          lastLogs = insights.logs;
-          if (insights.errorInfo) {
-            lastErrorMessage += ` | Simulation error: ${insights.errorInfo}`;
-          }
-          
-          // Check if error is related to proposal status or insufficient signatures
-          const errorStr = errorDetails.toLowerCase();
-          if (errorStr.includes('insufficient') || errorStr.includes('signature')) {
-            enhancedLogger.error('❌ Execution failed with signature-related error', {
-              vaultAddress,
-              proposalId,
-              error: errorDetails,
-              proposalIsExecuteReady,
-              logs: lastLogs?.slice(-10),
-              note: 'This may indicate the Proposal needs to be in ExecuteReady state, or there is a mismatch between approved signers and what execution requires',
-            });
-          }
-          
-          break;
+        // If we get here, an error occurred - break to retry or fail
+        break;
+      } catch (rawError: unknown) {
+        // This catch block handles errors from the entire try block (transaction building, sending, confirmation)
+        const { message, logs } = await this.buildExecutionErrorDetails(tx, rawError);
+        lastErrorMessage = message;
+        lastLogs = logs;
+
+        // Check if we should retry with fresh blockhash
+        if (attempt < maxAttempts - 1 && this.shouldRetryWithFreshBlockhash(rawError)) {
+          enhancedLogger.warn('🔄 Retrying Squads proposal execution with a fresh blockhash', {
+            vaultAddress,
+            proposalId,
+            reason: lastErrorMessage,
+            attempt: attempt + 1,
+            maxAttempts,
+          });
+          continue;
         }
 
-        const executedAt = new Date();
-        enhancedLogger.info('✅ Proposal executed successfully - funds should be released', {
-          vaultAddress,
-          proposalId,
-          executor: executor.publicKey.toString(),
-          signature,
-          slot: confirmation.context.slot,
-          note: 'The vaultTransactionExecute instruction executed all transfer instructions in the proposal. Check transaction logs to verify funds were transferred to players/fee wallet.',
+        break;
+      }
+      
+      // If we get here, the transaction was confirmed successfully
+      // Verify the transaction actually executed the transfers by checking transaction details
+      try {
+        const txDetails = await this.connection.getTransaction(signature, {
+          commitment: 'confirmed',
+          maxSupportedTransactionVersion: 0,
         });
         
-        // Verify the transaction actually executed the transfers by checking transaction details
-        try {
-          const txDetails = await this.connection.getTransaction(signature, {
-            commitment: 'confirmed',
-            maxSupportedTransactionVersion: 0,
+        if (txDetails?.meta?.err) {
+          enhancedLogger.error('❌ Transaction execution failed despite confirmation', {
+            vaultAddress,
+            proposalId,
+            signature,
+            error: JSON.stringify(txDetails.meta.err),
+            logs: txDetails.meta.logMessages?.slice(-10),
           });
-          
-          if (txDetails?.meta?.err) {
-            enhancedLogger.error('❌ Transaction execution failed despite confirmation', {
-              vaultAddress,
-              proposalId,
-              signature,
-              error: JSON.stringify(txDetails.meta.err),
-              logs: txDetails.meta.logMessages?.slice(-10),
-            });
-          } else {
-            // Check if transfers were included in the transaction
-            // Handle both legacy and versioned transactions
+        } else {
+          // Check if transfers were included in the transaction
+          // Handle both legacy and versioned transactions
             let hasTransfers = false;
             const message = txDetails?.transaction?.message;
             if (message) {
@@ -3595,28 +3583,36 @@ export class SquadsVaultService {
           });
         }
 
+        // Get transaction slot for return value
+        let confirmedSlot: number | undefined;
+        try {
+          const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+          confirmedSlot = txStatus?.value?.slot;
+        } catch (slotError: unknown) {
+          enhancedLogger.warn('⚠️ Could not get transaction slot (non-critical)', {
+            vaultAddress,
+            proposalId,
+            signature,
+            error: slotError instanceof Error ? slotError.message : String(slotError),
+          });
+        }
+
+        const executedAt = new Date();
+        enhancedLogger.info('✅ Proposal executed successfully - funds should be released', {
+          vaultAddress,
+          proposalId,
+          executor: executor.publicKey.toString(),
+          signature,
+          slot: confirmedSlot,
+          note: 'The vaultTransactionExecute instruction executed all transfer instructions in the proposal. Check transaction logs to verify funds were transferred to players/fee wallet.',
+        });
+
         return {
           success: true,
           signature,
-          slot: confirmation.context.slot,
+          slot: confirmedSlot,
           executedAt: executedAt.toISOString(),
         };
-      } catch (rawError: unknown) {
-        const { message, logs } = await this.buildExecutionErrorDetails(tx, rawError);
-        lastErrorMessage = message;
-        lastLogs = logs;
-
-        if (attempt === 0 && this.shouldRetryWithFreshBlockhash(rawError)) {
-          enhancedLogger.warn('🔄 Retrying Squads proposal execution with a fresh blockhash', {
-            vaultAddress,
-            proposalId,
-            reason: lastErrorMessage,
-          });
-          continue;
-        }
-
-        break;
-      }
     }
 
     // Ensure we have a meaningful error message
