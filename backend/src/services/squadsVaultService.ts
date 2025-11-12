@@ -3526,8 +3526,7 @@ export class SquadsVaultService {
           // Throw error to trigger retry with fresh blockhash
           throw confirmationError || new Error('Transaction confirmation failed');
         }
-        
-        } catch (confirmError: unknown) {
+      } catch (confirmError: unknown) {
           // This catch block handles any errors from the confirmation process above
           const confirmErrorMessage = confirmError instanceof Error ? confirmError.message : String(confirmError);
           
