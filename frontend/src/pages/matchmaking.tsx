@@ -560,12 +560,15 @@ const Matchmaking: React.FC = () => {
         const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}`);
         const confirmData = await statusResponse.json();
 
+        // Determine if current player is player 1 (needed in retry block scope)
+        const retryIsPlayer1 = publicKey.toString() === matchData.player1;
+
         // Update match data with payment status
         setMatchData((prev: any) => ({
           ...prev,
           ...confirmData,
-          player1Paid: isPlayer1 ? true : (confirmData.player1Paid ?? prev.player1Paid),
-          player2Paid: isPlayer1 ? (confirmData.player2Paid ?? prev.player2Paid) : true
+          player1Paid: retryIsPlayer1 ? true : (confirmData.player1Paid ?? prev.player1Paid),
+          player2Paid: retryIsPlayer1 ? (confirmData.player2Paid ?? prev.player2Paid) : true
         }));
 
         // If match is active, redirect to game immediately
@@ -592,7 +595,7 @@ const Matchmaking: React.FC = () => {
                          (confirmData.status === 'payment_required' && 
                           (confirmData.depositAConfirmations >= 1 && confirmData.depositBConfirmations >= 1));
         
-        const currentPlayerPaid = isPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
+        const currentPlayerPaid = retryIsPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
         
         if (bothPaid) {
           console.log('✅ Both players paid, waiting for game to start...');
