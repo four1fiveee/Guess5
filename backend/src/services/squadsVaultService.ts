@@ -3020,42 +3020,75 @@ export class SquadsVaultService {
           
           // Try to check transaction status directly - it may have succeeded despite timeout
           let transactionSucceeded = false;
+          let onChainError: any = null;
           try {
             // First try getSignatureStatus with searchTransactionHistory
             const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-            if (txStatus?.value?.err) {
-              lastErrorMessage += ` | Transaction error: ${JSON.stringify(txStatus.value.err)}`;
-            } else if (txStatus?.value && !txStatus.value.err) {
-              // Transaction succeeded!
-              transactionSucceeded = true;
-              enhancedLogger.info('✅ Transaction confirmed via direct status check (despite confirmTransaction timeout)', {
+            if (txStatus?.value) {
+              if (txStatus.value.err) {
+                // Transaction failed on-chain - capture the error
+                onChainError = txStatus.value.err;
+                lastErrorMessage += ` | On-chain error: ${JSON.stringify(txStatus.value.err)}`;
+                enhancedLogger.error('❌ Transaction failed on-chain (found via getSignatureStatus)', {
+                  vaultAddress,
+                  proposalId,
+                  signature,
+                  error: JSON.stringify(txStatus.value.err),
+                  slot: txStatus.value.slot,
+                });
+              } else {
+                // Transaction succeeded!
+                transactionSucceeded = true;
+                enhancedLogger.info('✅ Transaction confirmed via direct status check (despite confirmTransaction timeout)', {
+                  vaultAddress,
+                  proposalId,
+                  signature,
+                  slot: txStatus.value.slot,
+                  note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
+                });
+              }
+            } else {
+              // Transaction not found - might still be processing or failed before being included
+              enhancedLogger.warn('⚠️ Transaction not found in signature status (may still be processing or failed)', {
                 vaultAddress,
                 proposalId,
                 signature,
-                slot: txStatus.value.slot,
-                note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
+                note: 'Transaction may have failed before being included in a block, or is still processing',
               });
             }
             
-            // If getSignatureStatus didn't find it, try getTransaction to verify
-            if (!transactionSucceeded && isTimeoutError) {
+            // If getSignatureStatus didn't find it or returned null, try getTransaction to verify
+            if (!transactionSucceeded && !onChainError && isTimeoutError) {
               try {
                 const txDetails = await this.connection.getTransaction(signature, {
                   commitment: 'confirmed',
                   maxSupportedTransactionVersion: 0,
                 });
                 
-                if (txDetails && !txDetails.meta?.err) {
-                  transactionSucceeded = true;
-                  enhancedLogger.info('✅ Transaction confirmed via getTransaction (despite confirmTransaction timeout)', {
-                    vaultAddress,
-                    proposalId,
-                    signature,
-                    slot: txDetails.slot,
-                    note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
-                  });
-                } else if (txDetails?.meta?.err) {
-                  lastErrorMessage += ` | Transaction error from getTransaction: ${JSON.stringify(txDetails.meta.err)}`;
+                if (txDetails) {
+                  if (txDetails.meta?.err) {
+                    // Transaction failed on-chain
+                    onChainError = txDetails.meta.err;
+                    lastErrorMessage += ` | Transaction error from getTransaction: ${JSON.stringify(txDetails.meta.err)}`;
+                    enhancedLogger.error('❌ Transaction failed on-chain (found via getTransaction)', {
+                      vaultAddress,
+                      proposalId,
+                      signature,
+                      error: JSON.stringify(txDetails.meta.err),
+                      logs: txDetails.meta.logMessages?.slice(-10),
+                      slot: txDetails.slot,
+                    });
+                  } else {
+                    // Transaction succeeded!
+                    transactionSucceeded = true;
+                    enhancedLogger.info('✅ Transaction confirmed via getTransaction (despite confirmTransaction timeout)', {
+                      vaultAddress,
+                      proposalId,
+                      signature,
+                      slot: txDetails.slot,
+                      note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
+                    });
+                  }
                 }
               } catch (txError: unknown) {
                 enhancedLogger.warn('⚠️ Failed to check transaction via getTransaction', {
