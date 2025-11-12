@@ -2633,89 +2633,31 @@ export class SquadsVaultService {
           };
         }
 
-        // If Proposal is Approved but not ExecuteReady, wait for transition with retries
+        // If Proposal is Approved but not ExecuteReady, attempt execution anyway
+        // The execution instruction may accept Approved state or trigger the transition itself
         if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
-          enhancedLogger.warn('⚠️ Proposal is Approved but not ExecuteReady - waiting for transition', {
-            vaultAddress,
-            proposalId,
-            statusKind: proposalStatusKind,
-            approvedCount,
-            threshold: this.config.threshold,
-            note: 'Proposal should automatically transition to ExecuteReady when threshold is met. Waiting for transition...',
-          });
-          
-          // Wait for transition with exponential backoff (max 3 attempts, ~5 seconds total)
-          const maxWaitAttempts = 3;
-          const waitIntervalMs = 2000; // 2 seconds between checks
-          
-          for (let waitAttempt = 0; waitAttempt < maxWaitAttempts; waitAttempt++) {
-            await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
-            
-            try {
-              const refreshedProposal = await accounts.Proposal.fromAccountAddress(
-                this.connection,
-                proposalPda,
-                'confirmed'
-              );
-              
-              const refreshedStatusKind = (refreshedProposal as any).status?.__kind;
-              if (refreshedStatusKind === 'ExecuteReady') {
-                proposalIsExecuteReady = true;
-                enhancedLogger.info('✅ Proposal transitioned to ExecuteReady after waiting', {
-                  vaultAddress,
-                  proposalId,
-                  waitAttempt: waitAttempt + 1,
-                  totalWaitMs: (waitAttempt + 1) * waitIntervalMs,
-                });
-                break;
-              }
-              
-              // Also check VaultTransaction status
-              try {
-                const refreshedTransaction = await accounts.VaultTransaction.fromAccountAddress(
-                  this.connection,
-                  transactionPda,
-                  'confirmed'
-                );
-                const refreshedVaultTxStatus = (refreshedTransaction as any).status;
-                if (refreshedVaultTxStatus === 1) { // ExecuteReady
-                  vaultTransactionIsExecuteReady = true;
-                  enhancedLogger.info('✅ VaultTransaction transitioned to ExecuteReady after waiting', {
-                    vaultAddress,
-                    proposalId,
-                    waitAttempt: waitAttempt + 1,
-                    totalWaitMs: (waitAttempt + 1) * waitIntervalMs,
-                  });
-                  break;
-                }
-              } catch (vaultTxRefreshError: unknown) {
-                // Ignore errors during refresh
-              }
-              
-              enhancedLogger.info('⏳ Still waiting for ExecuteReady transition', {
-                vaultAddress,
-                proposalId,
-                waitAttempt: waitAttempt + 1,
-                maxAttempts: maxWaitAttempts,
-                currentStatus: refreshedStatusKind,
-              });
-            } catch (refreshError: unknown) {
-              enhancedLogger.warn('⚠️ Error refreshing proposal status during wait', {
-                vaultAddress,
-                proposalId,
-                waitAttempt: waitAttempt + 1,
-                error: refreshError instanceof Error ? refreshError.message : String(refreshError),
-              });
-            }
-          }
-          
-          if (!proposalIsExecuteReady && !vaultTransactionIsExecuteReady && approvedCount >= this.config.threshold) {
-            enhancedLogger.warn('⚠️ Proposal has enough approvals but did not transition to ExecuteReady after waiting', {
+          if (approvedCount >= this.config.threshold) {
+            enhancedLogger.warn('⚠️ Proposal is Approved (not ExecuteReady) but has enough signatures - attempting execution', {
               vaultAddress,
               proposalId,
+              statusKind: proposalStatusKind,
               approvedCount,
               threshold: this.config.threshold,
-              note: 'This may be a Squads SDK bug. Attempting execution anyway - the execution instruction might accept Approved state or trigger the transition',
+              approvedSigners: (proposal as any).approved,
+              note: 'The vaultTransactionExecute instruction may accept Approved state or trigger the transition to ExecuteReady during execution. Attempting execution immediately.',
+            });
+            // Don't wait - attempt execution immediately. The instruction will either:
+            // 1. Accept Approved state and execute
+            // 2. Trigger the transition to ExecuteReady and then execute
+            // 3. Fail with a clear error that tells us what's wrong
+          } else {
+            enhancedLogger.warn('⚠️ Proposal is Approved but does not have enough signatures yet', {
+              vaultAddress,
+              proposalId,
+              statusKind: proposalStatusKind,
+              approvedCount,
+              threshold: this.config.threshold,
+              note: 'Waiting for more signatures before attempting execution',
             });
           }
         }
