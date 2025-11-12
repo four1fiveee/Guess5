@@ -2941,9 +2941,11 @@ export class SquadsVaultService {
           });
           tx.sign([executor]);
           
-          // Use the newer blockhash for confirmation
-          latestBlockhash.blockhash = sendBlockhash.blockhash;
-          latestBlockhash.lastValidBlockHeight = sendBlockhash.lastValidBlockHeight;
+          // Use the newer blockhash for confirmation (create new object since properties are read-only)
+          latestBlockhash = {
+            blockhash: sendBlockhash.blockhash,
+            lastValidBlockHeight: sendBlockhash.lastValidBlockHeight,
+          };
         }
 
         // Simulate transaction before sending to get detailed error information
