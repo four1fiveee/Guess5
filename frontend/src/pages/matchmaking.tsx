@@ -272,11 +272,19 @@ const Matchmaking: React.FC = () => {
   };
 
   const handlePayment = async () => {
+    console.log('🖱️ Deposit button clicked', {
+      isPaymentInProgress,
+      hasMatchData: !!matchData,
+      hasPublicKey: !!publicKey,
+      matchId: matchData?.matchId,
+    });
+    
     if (isPaymentInProgress) {
       console.log('⚠️ Payment already in progress - ignoring click');
       return;
     }
 
+    console.log('✅ Starting payment process...');
     setIsPaymentInProgress(true);
     
     // Safety timeout: reset payment state after 2 minutes if something goes wrong
@@ -287,11 +295,22 @@ const Matchmaking: React.FC = () => {
     
     try {
       if (!publicKey || !matchData) {
-        console.error('❌ Missing publicKey or matchData');
+        console.error('❌ Missing publicKey or matchData', {
+          hasPublicKey: !!publicKey,
+          hasMatchData: !!matchData,
+          publicKey: publicKey?.toString(),
+          matchDataKeys: matchData ? Object.keys(matchData) : [],
+        });
         clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
         return;
       }
+      
+      console.log('✅ Validation passed, proceeding with payment...', {
+        matchId: matchData.matchId,
+        playerWallet: publicKey.toString(),
+        entryFee,
+      });
 
       const hasSendTransaction = typeof sendTransaction === 'function';
       const hasSignTransaction = typeof signTransaction === 'function';
