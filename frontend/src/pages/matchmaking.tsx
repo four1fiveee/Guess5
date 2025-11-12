@@ -796,8 +796,7 @@ const Matchmaking: React.FC = () => {
                        (confirmData.status === 'payment_required' && 
                         (confirmData.depositAConfirmations >= 1 && confirmData.depositBConfirmations >= 1));
       
-      // Check if current player has paid
-      const isPlayer1 = publicKey?.toString() === matchData.player1;
+      // Check if current player has paid (reuse isPlayer1 from earlier in function)
       const currentPlayerPaid = isPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
       
       if (bothPaid) {
