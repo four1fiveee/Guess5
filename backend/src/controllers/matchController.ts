@@ -10453,25 +10453,34 @@ const signProposalHandler = async (req: any, res: any) => {
       });
       
       // Re-fetch match to ensure we have the latest state for the response
-      const updatedMatchRows = await matchRepository.query(`
-        SELECT 
-          "proposalSigners", "proposalStatus", "needsSignatures",
-          "proposalExecutedAt", "refundTxHash", "payoutTxHash"
-        FROM "match"
-        WHERE id = $1
-        LIMIT 1
-      `, [matchId]);
-      
-      const updatedMatch = updatedMatchRows?.[0];
-      if (updatedMatch) {
-        // Use the freshly fetched values for the response
-        newNeedsSignatures = normalizeRequiredSignatures(updatedMatch.needsSignatures);
-        newProposalStatus = updatedMatch.proposalStatus || newProposalStatus;
-        console.log('✅ Using fresh database state for response:', {
+      let updatedMatch: any = null;
+      try {
+        const updatedMatchRows = await matchRepository.query(`
+          SELECT 
+            "proposalSigners", "proposalStatus", "needsSignatures",
+            "proposalExecutedAt", "refundTxHash", "payoutTxHash"
+          FROM "match"
+          WHERE id = $1
+          LIMIT 1
+        `, [matchId]);
+        
+        updatedMatch = updatedMatchRows?.[0];
+        if (updatedMatch) {
+          // Use the freshly fetched values for the response
+          newNeedsSignatures = normalizeRequiredSignatures(updatedMatch.needsSignatures);
+          newProposalStatus = updatedMatch.proposalStatus || newProposalStatus;
+          console.log('✅ Using fresh database state for response:', {
+            matchId,
+            needsSignatures: newNeedsSignatures,
+            proposalStatus: newProposalStatus,
+          });
+        }
+      } catch (refetchError: any) {
+        console.warn('⚠️ Failed to re-fetch match state for response, using calculated values:', {
           matchId,
-          needsSignatures: newNeedsSignatures,
-          proposalStatus: newProposalStatus,
+          error: refetchError?.message,
         });
+        // Continue with calculated values
       }
       
       // Notify opponent via SSE if they're connected (optional, non-critical)
