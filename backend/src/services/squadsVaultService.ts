@@ -3261,8 +3261,8 @@ export class SquadsVaultService {
               });
             }
           }
-            
-            if (transactionSucceeded) {
+          
+          if (transactionSucceeded) {
               // Double-check proposal was actually executed by checking on-chain state
               try {
                 const proposalStatusAfter = await this.checkProposalStatus(vaultAddress, proposalId);
