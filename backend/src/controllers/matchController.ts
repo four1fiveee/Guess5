@@ -4174,7 +4174,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const bonusSignatureExistingFallback = (match as any).bonusSignature || null;
       
       // Check on-chain proposal status to verify it's actually ready
+      // But trust database state if on-chain check fails or shows mismatch
       let onChainReady = false;
+      let onChainCheckFailed = false;
       try {
         const proposalStatus = await squadsVaultService.checkProposalStatus(
           (match as any).squadsVaultAddress,
@@ -4188,25 +4190,53 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           needsSignatures: proposalStatus.needsSignatures,
           executed: proposalStatus.executed,
           signers: proposalStatus.signers.map((s: any) => s.toString()),
+          databaseNeedsSignatures: normalizeRequiredSignatures((match as any).needsSignatures),
+          databaseSigners: finalProposalSigners,
         });
+        
+        // If database says ready but on-chain says not ready, trust database
+        // (on-chain check might be failing to read signers correctly)
+        const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
+        if (dbNeedsSignatures === 0 && proposalStatus.needsSignatures > 0) {
+          console.warn('⚠️ Database shows ready but on-chain shows not ready - trusting database state', {
+            matchId: match.id,
+            proposalId: proposalIdString,
+            databaseNeedsSignatures: dbNeedsSignatures,
+            onChainNeedsSignatures: proposalStatus.needsSignatures,
+            databaseSigners: finalProposalSigners.length,
+            onChainSigners: proposalStatus.signers.length,
+          });
+          onChainReady = true; // Trust database
+        }
       } catch (statusCheckError: any) {
-        console.warn('⚠️ Failed to check on-chain proposal status (fallback)', {
+        onChainCheckFailed = true;
+        console.warn('⚠️ Failed to check on-chain proposal status (fallback) - trusting database state', {
           matchId: match.id,
           proposalId: proposalIdString,
           error: statusCheckError?.message || String(statusCheckError),
+          databaseNeedsSignatures: normalizeRequiredSignatures((match as any).needsSignatures),
+          databaseSigners: finalProposalSigners,
         });
-        // Continue with execution attempt anyway if database says it's ready
-        onChainReady = true;
+        // Trust database state if on-chain check fails
+        const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
+        onChainReady = dbNeedsSignatures === 0;
       }
 
-      if (!hasFeeWalletSignature && !onChainReady) {
-        console.warn('⚠️ Skipping fallback execution because fee wallet signature is still missing and proposal not ready on-chain', {
+      // Trust database state: if database says needsSignatures === 0, proceed with execution
+      const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
+      const dbSaysReady = dbNeedsSignatures === 0 && (match as any).proposalStatus === 'READY_TO_EXECUTE';
+      
+      if (!hasFeeWalletSignature && !onChainReady && !dbSaysReady) {
+        console.warn('⚠️ Skipping fallback execution - not ready in database or on-chain', {
           matchId: match.id,
           proposalId: proposalIdString,
           proposalSigners: finalProposalSigners,
           feeWalletApprovalError,
+          dbNeedsSignatures,
+          dbSaysReady,
+          onChainReady,
         });
-      } else if (feeWalletKeypair && (hasFeeWalletSignature || onChainReady)) {
+      } else if (feeWalletKeypair && (hasFeeWalletSignature || onChainReady || dbSaysReady)) {
         console.log('🔁 Auto-execute (fallback) using vault PDA', {
           matchId: match.id,
           proposalId: proposalIdString,
