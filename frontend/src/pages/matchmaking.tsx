@@ -797,12 +797,12 @@ const Matchmaking: React.FC = () => {
                         (confirmData.depositAConfirmations >= 1 && confirmData.depositBConfirmations >= 1));
       
       // Check if current player has paid (reuse isPlayer1 from earlier in function)
-      const currentPlayerPaid = isPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
+      const currentPlayerPaidAfterPayment = isPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
       
       if (bothPaid) {
         console.log('✅ Both players paid, waiting for game to start...');
         setStatus('waiting_for_game');
-      } else if (currentPlayerPaid) {
+      } else if (currentPlayerPaidAfterPayment) {
         console.log('⏳ Current player paid, waiting for opponent to pay...');
         setStatus('waiting_for_payment');
       } else {
