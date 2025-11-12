@@ -2882,7 +2882,10 @@ export class SquadsVaultService {
       }
     }
 
-    const maxAttempts = 2;
+    // Increased maxAttempts for more aggressive retry strategy
+    // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
+    // We'll retry up to 3 times with fresh blockhashes to handle network congestion
+    const maxAttempts = 3;
     let lastErrorMessage = '';
     let lastLogs: string[] | undefined;
 
@@ -2996,9 +2999,10 @@ export class SquadsVaultService {
         try {
           // Skip preflight since we already simulated manually
           // Preflight can fail even when simulation succeeds due to timing/state differences
+          // Increased maxRetries for better reliability during network congestion
           signature = await this.connection.sendRawTransaction(rawTx, {
             skipPreflight: true,
-            maxRetries: 3,
+            maxRetries: 5, // Increased from 3 to 5 for better reliability
           });
         } catch (sendError: unknown) {
           // Handle SendTransactionError specifically to extract logs
@@ -3094,9 +3098,18 @@ export class SquadsVaultService {
           }
         }
 
+        // Use a more reliable confirmation strategy with longer timeout
+        // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
+        // We'll use a custom confirmation strategy that polls getSignatureStatus
+        // This is more reliable than confirmTransaction which can timeout prematurely
         let confirmation;
+        let transactionConfirmed = false;
+        let confirmationError: any = null;
+        
         try {
-          confirmation = await this.connection.confirmTransaction(
+          // First, try the standard confirmTransaction with a longer timeout
+          // But we'll also implement a fallback polling strategy
+          const confirmationPromise = this.connection.confirmTransaction(
             {
               signature,
               blockhash: latestBlockhash.blockhash,
@@ -3104,31 +3117,173 @@ export class SquadsVaultService {
             },
             'confirmed'
           );
+          
+          // Set a timeout of 90 seconds (longer than default ~30 seconds)
+          // This gives more time for network congestion scenarios
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Confirmation timeout after 90 seconds')), 90000);
+          });
+          
+          try {
+            confirmation = await Promise.race([confirmationPromise, timeoutPromise]);
+            transactionConfirmed = true;
+          } catch (raceError: any) {
+            // Timeout or other error - we'll fall back to polling strategy
+            confirmationError = raceError;
+            enhancedLogger.warn('⚠️ confirmTransaction timed out or failed, falling back to polling strategy', {
+              vaultAddress,
+              proposalId,
+              signature,
+              error: raceError instanceof Error ? raceError.message : String(raceError),
+            });
+          }
         } catch (confirmError: unknown) {
-          const confirmErrorMessage = confirmError instanceof Error ? confirmError.message : String(confirmError);
-          enhancedLogger.error('❌ confirmTransaction failed', {
+          confirmationError = confirmError;
+        }
+        
+        // If standard confirmation failed, use polling strategy
+        if (!transactionConfirmed) {
+          enhancedLogger.info('🔄 Using polling strategy for transaction confirmation', {
+            vaultAddress,
+            proposalId,
+            signature,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          });
+          
+          // Poll getSignatureStatus until transaction is confirmed or blockhash expires
+          // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
+          // We'll poll every 1 second for up to 90 seconds (with blockheight checking)
+          const maxPollingDuration = 90000; // 90 seconds
+          const pollInterval = 1000; // 1 second
+          const startTime = Date.now();
+          let currentBlockHeight = await this.connection.getBlockHeight('confirmed');
+          
+          while (Date.now() - startTime < maxPollingDuration && currentBlockHeight < latestBlockhash.lastValidBlockHeight) {
+            try {
+              const txStatus = await this.connection.getSignatureStatus(signature, {
+                searchTransactionHistory: true,
+              });
+              
+              if (txStatus?.value) {
+                if (txStatus.value.err) {
+                  // Transaction failed on-chain
+                  confirmationError = new Error(`Transaction failed: ${JSON.stringify(txStatus.value.err)}`);
+                  enhancedLogger.error('❌ Transaction failed on-chain (polling strategy)', {
+                    vaultAddress,
+                    proposalId,
+                    signature,
+                    error: JSON.stringify(txStatus.value.err),
+                    slot: txStatus.value.slot,
+                  });
+                  break;
+                } else if (txStatus.value.confirmationStatus === 'confirmed' || txStatus.value.confirmationStatus === 'finalized') {
+                  // Transaction succeeded!
+                  transactionConfirmed = true;
+                  confirmation = { value: { err: null } }; // Create mock confirmation object
+                  enhancedLogger.info('✅ Transaction confirmed via polling strategy', {
+                    vaultAddress,
+                    proposalId,
+                    signature,
+                    slot: txStatus.value.slot,
+                    confirmationStatus: txStatus.value.confirmationStatus,
+                    elapsedMs: Date.now() - startTime,
+                  });
+                  break;
+                }
+              }
+              
+              // Check current block height to ensure we haven't exceeded lastValidBlockHeight
+              currentBlockHeight = await this.connection.getBlockHeight('confirmed');
+              
+              if (currentBlockHeight >= latestBlockhash.lastValidBlockHeight) {
+                enhancedLogger.warn('⚠️ Blockhash expired during polling', {
+                  vaultAddress,
+                  proposalId,
+                  signature,
+                  currentBlockHeight,
+                  lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+                });
+                break;
+              }
+              
+              // Wait before next poll (respect rate limits)
+              await new Promise(resolve => setTimeout(resolve, pollInterval));
+            } catch (pollError: unknown) {
+              enhancedLogger.warn('⚠️ Error during polling (will continue)', {
+                vaultAddress,
+                proposalId,
+                signature,
+                error: pollError instanceof Error ? pollError.message : String(pollError),
+              });
+              // Continue polling despite error
+              await new Promise(resolve => setTimeout(resolve, pollInterval));
+            }
+          }
+          
+          if (!transactionConfirmed && !confirmationError) {
+            confirmationError = new Error('Transaction confirmation timeout - transaction may still be processing');
+          }
+        }
+        
+        // If we got a successful confirmation, proceed
+        if (transactionConfirmed && confirmation && !confirmation.value?.err) {
+          // Success - transaction confirmed
+          enhancedLogger.info('✅ Transaction confirmed successfully', {
+            vaultAddress,
+            proposalId,
+            signature,
+            slot: (confirmation as any).value?.slot,
+          });
+          
+          // Get transaction slot for return value
+          let confirmedSlot: number | undefined;
+          try {
+            const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+            confirmedSlot = txStatus?.value?.slot;
+          } catch (slotError: unknown) {
+            enhancedLogger.warn('⚠️ Could not get transaction slot (non-critical)', {
+              vaultAddress,
+              proposalId,
+              signature,
+              error: slotError instanceof Error ? slotError.message : String(slotError),
+            });
+          }
+          
+          // Return success immediately - transaction confirmed
+          return {
+            success: true,
+            signature,
+            slot: confirmedSlot,
+            executedAt: new Date().toISOString(),
+          };
+        } else {
+          // Confirmation failed or timed out - check if it's a retryable error
+          const confirmErrorMessage = confirmationError instanceof Error ? confirmationError.message : String(confirmationError);
+          const isTimeoutError = confirmErrorMessage.includes('expired') || 
+                                 confirmErrorMessage.includes('block height exceeded') ||
+                                 confirmErrorMessage.includes('timeout') ||
+                                 confirmErrorMessage.includes('Confirmation timeout');
+          
+          enhancedLogger.error('❌ Transaction confirmation failed', {
             vaultAddress,
             proposalId,
             signature,
             error: confirmErrorMessage,
-            errorType: confirmError?.constructor?.name || typeof confirmError,
-            note: 'Transaction was sent but confirmation failed. The transaction may still be processing on-chain.',
+            isTimeoutError,
+            note: 'Transaction was sent but confirmation failed. Will retry with fresh blockhash if timeout error.',
           });
           
           lastErrorMessage = `confirmTransaction error: ${confirmErrorMessage}`;
           
-          // Check if this is a timeout/expired blockhash error - transaction may still succeed
-          const isTimeoutError = confirmErrorMessage.includes('expired') || 
-                                 confirmErrorMessage.includes('block height exceeded') ||
-                                 confirmErrorMessage.includes('timeout');
-          
-          // Try to check transaction status directly - it may have succeeded despite timeout
-          // Retry checking status multiple times with delays, as transaction may still be processing
-          let transactionSucceeded = false;
-          let onChainError: any = null;
-          let txDetails: any = null;
-          
+          // If timeout error, we'll retry with fresh blockhash below
+          // Otherwise, check transaction status directly as fallback
           if (isTimeoutError) {
+            // Try to check transaction status directly - it may have succeeded despite timeout
+            // Retry checking status multiple times with delays, as transaction may still be processing
+            let transactionSucceeded = false;
+            let onChainError: any = null;
+            let txDetails: any = null;
+            
             // Retry checking transaction status up to 5 times with increasing delays
             // This handles cases where the transaction is still being processed on-chain
             const maxStatusCheckRetries = 5;
@@ -3260,9 +3415,8 @@ export class SquadsVaultService {
                 note: 'Transaction may still be processing, or may have failed before being included in a block',
               });
             }
-          }
-          
-          if (transactionSucceeded) {
+            
+            if (transactionSucceeded) {
               // Double-check proposal was actually executed by checking on-chain state
               try {
                 const proposalStatusAfter = await this.checkProposalStatus(vaultAddress, proposalId);
@@ -3289,6 +3443,8 @@ export class SquadsVaultService {
                 });
               }
               
+              // Return success - transaction was found on-chain
+              const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
               return {
                 success: true,
                 signature,
@@ -3296,14 +3452,33 @@ export class SquadsVaultService {
                 executedAt: new Date().toISOString(),
               };
             }
-          } catch (statusError: unknown) {
-            enhancedLogger.warn('⚠️ Failed to check transaction status directly', {
-              vaultAddress,
-              proposalId,
-              signature,
-              error: statusError instanceof Error ? statusError.message : String(statusError),
-            });
           }
+          
+          // If we get here, confirmation failed and we couldn't verify success
+          // Throw error to trigger retry with fresh blockhash
+          throw confirmationError || new Error('Transaction confirmation failed');
+        }
+        
+        } catch (confirmError: unknown) {
+          // This catch block handles any errors from the confirmation process above
+          const confirmErrorMessage = confirmError instanceof Error ? confirmError.message : String(confirmError);
+          
+          enhancedLogger.error('❌ Transaction confirmation failed', {
+            vaultAddress,
+            proposalId,
+            signature,
+            error: confirmErrorMessage,
+            errorType: confirmError?.constructor?.name || typeof confirmError,
+            note: 'Transaction was sent but confirmation failed. Will retry with fresh blockhash if timeout error.',
+          });
+          
+          lastErrorMessage = `confirmTransaction error: ${confirmErrorMessage}`;
+          
+          // Check if this is a timeout/expired blockhash error - transaction may still succeed
+          const isTimeoutError = confirmErrorMessage.includes('expired') || 
+                                 confirmErrorMessage.includes('block height exceeded') ||
+                                 confirmErrorMessage.includes('timeout') ||
+                                 confirmErrorMessage.includes('Confirmation timeout');
           
           // If timeout error and we couldn't verify success, retry with fresh blockhash
           // Add exponential backoff: wait longer between retries
@@ -3327,8 +3502,9 @@ export class SquadsVaultService {
           // For non-timeout errors or if we've already retried, break
           break;
         }
-
-        if (confirmation.value.err) {
+        
+        // If we get here, confirmation succeeded (shouldn't happen due to return above, but handle it)
+        if (confirmation && confirmation.value && confirmation.value.err) {
           const errorDetails = JSON.stringify(confirmation.value.err);
           lastErrorMessage = `Transaction failure: ${errorDetails}`;
           const insights = await this.collectSimulationLogs(tx);
