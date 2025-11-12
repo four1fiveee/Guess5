@@ -3012,23 +3012,92 @@ export class SquadsVaultService {
           });
           
           lastErrorMessage = `confirmTransaction error: ${confirmErrorMessage}`;
-          // Try to check transaction status directly
+          
+          // Check if this is a timeout/expired blockhash error - transaction may still succeed
+          const isTimeoutError = confirmErrorMessage.includes('expired') || 
+                                 confirmErrorMessage.includes('block height exceeded') ||
+                                 confirmErrorMessage.includes('timeout');
+          
+          // Try to check transaction status directly - it may have succeeded despite timeout
+          let transactionSucceeded = false;
           try {
+            // First try getSignatureStatus with searchTransactionHistory
             const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
             if (txStatus?.value?.err) {
               lastErrorMessage += ` | Transaction error: ${JSON.stringify(txStatus.value.err)}`;
             } else if (txStatus?.value && !txStatus.value.err) {
               // Transaction succeeded!
-              enhancedLogger.info('✅ Transaction confirmed via direct status check', {
+              transactionSucceeded = true;
+              enhancedLogger.info('✅ Transaction confirmed via direct status check (despite confirmTransaction timeout)', {
                 vaultAddress,
                 proposalId,
                 signature,
                 slot: txStatus.value.slot,
+                note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
               });
+            }
+            
+            // If getSignatureStatus didn't find it, try getTransaction to verify
+            if (!transactionSucceeded && isTimeoutError) {
+              try {
+                const txDetails = await this.connection.getTransaction(signature, {
+                  commitment: 'confirmed',
+                  maxSupportedTransactionVersion: 0,
+                });
+                
+                if (txDetails && !txDetails.meta?.err) {
+                  transactionSucceeded = true;
+                  enhancedLogger.info('✅ Transaction confirmed via getTransaction (despite confirmTransaction timeout)', {
+                    vaultAddress,
+                    proposalId,
+                    signature,
+                    slot: txDetails.slot,
+                    note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
+                  });
+                } else if (txDetails?.meta?.err) {
+                  lastErrorMessage += ` | Transaction error from getTransaction: ${JSON.stringify(txDetails.meta.err)}`;
+                }
+              } catch (txError: unknown) {
+                enhancedLogger.warn('⚠️ Failed to check transaction via getTransaction', {
+                  vaultAddress,
+                  proposalId,
+                  signature,
+                  error: txError instanceof Error ? txError.message : String(txError),
+                });
+              }
+            }
+            
+            if (transactionSucceeded) {
+              // Double-check proposal was actually executed by checking on-chain state
+              try {
+                const proposalStatusAfter = await this.checkProposalStatus(vaultAddress, proposalId);
+                if (proposalStatusAfter.executed) {
+                  enhancedLogger.info('✅ Verified proposal execution on-chain after timeout recovery', {
+                    vaultAddress,
+                    proposalId,
+                    signature,
+                  });
+                } else {
+                  enhancedLogger.warn('⚠️ Transaction succeeded but proposal not marked as executed on-chain', {
+                    vaultAddress,
+                    proposalId,
+                    signature,
+                    proposalStatus: proposalStatusAfter,
+                  });
+                }
+              } catch (verifyError: unknown) {
+                enhancedLogger.warn('⚠️ Could not verify proposal execution state (non-critical)', {
+                  vaultAddress,
+                  proposalId,
+                  signature,
+                  error: verifyError instanceof Error ? verifyError.message : String(verifyError),
+                });
+              }
+              
               return {
                 success: true,
                 signature,
-                slot: txStatus.value.slot || undefined,
+                slot: txStatus?.value?.slot || undefined,
                 executedAt: new Date().toISOString(),
               };
             }
@@ -3041,14 +3110,18 @@ export class SquadsVaultService {
             });
           }
           
-          if (attempt === 0) {
-            enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after confirmTransaction error', {
+          // If timeout error and we couldn't verify success, retry with fresh blockhash
+          if (isTimeoutError && attempt === 0) {
+            enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after confirmTransaction timeout', {
               vaultAddress,
               proposalId,
               error: confirmErrorMessage,
+              note: 'Transaction may still be processing - will retry with fresh blockhash',
             });
             continue;
           }
+          
+          // For non-timeout errors or if we've already retried, break
           break;
         }
 
