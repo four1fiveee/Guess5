@@ -943,6 +943,55 @@ export class SquadsVaultService {
       const winnerKey = typeof winner === 'string' ? new PublicKey(winner) : winner;
       const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
       
+      // Ensure we leave the rent-exempt reserve in the vault PDA
+      const vaultAccountInfo = await this.connection.getAccountInfo(vaultPdaKey, 'confirmed');
+      if (!vaultAccountInfo) {
+        const errorMsg = `Vault account ${vaultPdaKey.toString()} not found on-chain`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+        });
+        return {
+          success: false,
+          error: errorMsg,
+        };
+      }
+
+      const rentExemptReserve = await this.connection.getMinimumBalanceForRentExemption(
+        vaultAccountInfo.data?.length ?? 0
+      );
+      const transferableLamports = Math.max(0, vaultAccountInfo.lamports - rentExemptReserve);
+      const totalRequestedLamports = winnerLamports + feeLamports;
+
+      enhancedLogger.info('🏦 Vault rent check', {
+        vaultAddress,
+        vaultPda: vaultPdaKey.toString(),
+        currentLamports: vaultAccountInfo.lamports,
+        rentExemptReserve,
+        transferableLamports,
+        totalRequestedLamports,
+        winnerLamports,
+        feeLamports,
+      });
+
+      if (transferableLamports < totalRequestedLamports) {
+        const errorMsg = `Vault has ${transferableLamports} lamports available after reserving rent, but ${totalRequestedLamports} lamports are required for payout.`;
+        enhancedLogger.error('❌ Insufficient vault balance after reserving rent', {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+          transferableLamports,
+          totalRequestedLamports,
+          winnerLamports,
+          feeLamports,
+          rentExemptReserve,
+        });
+        return {
+          success: false,
+          error: errorMsg,
+          needsSignatures: undefined,
+        };
+      }
+
       // Create System Program transfer instruction for winner using SystemProgram.transfer directly
       // Then correct the isSigner flag for vaultPda (PDAs cannot sign)
       const winnerTransferIx = SystemProgram.transfer({
