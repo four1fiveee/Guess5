@@ -10208,8 +10208,8 @@ const signProposalHandler = async (req: any, res: any) => {
         feeWalletApprovalError,
       });
       const updatedSignersJson = JSON.stringify(uniqueSigners);
-      const persistedNeedsSignatures =
-        newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures);
+      // newNeedsSignatures is already calculated correctly, just ensure it's non-negative
+      const persistedNeedsSignatures = Math.max(0, newNeedsSignatures);
       
       // Update database using raw SQL
       await matchRepository.query(`
