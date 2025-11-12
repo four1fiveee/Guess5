@@ -2757,34 +2757,52 @@ export class SquadsVaultService {
     if (derivedVaultPda) {
       try {
         const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
+        const vaultAccountInfo = await this.connection.getAccountInfo(derivedVaultPda, 'confirmed');
+        const rentExemptReserve = vaultAccountInfo 
+          ? await this.connection.getMinimumBalanceForRentExemption(vaultAccountInfo.data.length)
+          : 0;
+        
         enhancedLogger.info('🔎 Vault balance before execution attempt', {
           vaultAddress,
           proposalId,
           vaultPda: derivedVaultPda.toString(),
           balanceLamports: vaultBalance,
           balanceSOL: vaultBalance / LAMPORTS_PER_SOL,
+          rentExemptReserve,
+          transferableBalance: Math.max(0, vaultBalance - rentExemptReserve),
         });
 
+        // Only skip if vault balance is zero AND we can't proceed with top-up from fee wallet
+        // For tie refunds, the proposal creation already validated funds, so allow execution
+        // even if balance is low (proposal will handle top-up from fee wallet if needed)
         if (vaultBalance === 0) {
-          const errorMessage = 'Vault balance is zero, skipping execution';
-          enhancedLogger.warn('⚠️ Skipping proposal execution due to empty vault', {
+          enhancedLogger.warn('⚠️ Vault balance is zero, but proceeding with execution (proposal may use fee wallet top-up)', {
             vaultAddress,
             proposalId,
             vaultPda: derivedVaultPda.toString(),
+            note: 'Tie refund proposals can top up from fee wallet if vault balance is insufficient',
           });
-          return {
-            success: false,
-            error: 'INSUFFICIENT_VAULT_BALANCE',
-            logs: [errorMessage],
-          };
+          // Don't return error - allow execution to proceed, proposal creation already validated the refund plan
+        } else if (vaultBalance < rentExemptReserve) {
+          enhancedLogger.warn('⚠️ Vault balance below rent reserve, but proceeding with execution', {
+            vaultAddress,
+            proposalId,
+            vaultPda: derivedVaultPda.toString(),
+            balanceLamports: vaultBalance,
+            rentExemptReserve,
+            note: 'Proposal will handle top-up from fee wallet if needed',
+          });
+          // Don't return error - allow execution to proceed
         }
       } catch (balanceError: unknown) {
-        enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution', {
+        enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution, proceeding anyway', {
           vaultAddress,
           proposalId,
           vaultPda: derivedVaultPda.toString(),
           error: balanceError instanceof Error ? balanceError.message : String(balanceError),
+          note: 'Proposal creation already validated funds, execution will proceed',
         });
+        // Don't block execution on balance check failure - proposal creation already validated
       }
     }
 
