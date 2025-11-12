@@ -2332,9 +2332,35 @@ export class SquadsVaultService {
               allKeys: Object.keys(proposal),
             });
             
+            // Check proposal status - it can be Draft, Active, Approved, ExecuteReady, or Executed
+            const proposalStatusKind = (proposal as any).status?.__kind;
+            enhancedLogger.info('🔍 Proposal status kind', {
+              vaultAddress,
+              proposalId,
+              statusKind: proposalStatusKind,
+              fullStatus: (proposal as any).status,
+            });
+            
             // Check if proposal is executed
-            if ((proposal as any).status?.__kind === 'Executed') {
+            if (proposalStatusKind === 'Executed') {
               isExecuted = true;
+            }
+            
+            // Check if proposal is in ExecuteReady state (ready for execution)
+            // According to Squads SDK, proposals should transition to ExecuteReady when they have enough approvals
+            const isExecuteReady = proposalStatusKind === 'ExecuteReady';
+            if (isExecuteReady) {
+              enhancedLogger.info('✅ Proposal is in ExecuteReady state - ready for execution', {
+                vaultAddress,
+                proposalId,
+              });
+            } else if (proposalStatusKind === 'Approved') {
+              enhancedLogger.warn('⚠️ Proposal is in Approved state but not ExecuteReady - may need transition', {
+                vaultAddress,
+                proposalId,
+                approvedSigners: (proposal as any).approved,
+                note: 'Proposal should automatically transition to ExecuteReady when threshold is met',
+              });
             }
             
             // Try multiple possible field names for approved signers in Proposal account
@@ -2523,7 +2549,81 @@ export class SquadsVaultService {
     });
 
     // Verify proposal status before executing
+    let proposalIsExecuteReady = false;
     try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const transactionIndex = BigInt(proposalId);
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex,
+        programId: this.programId,
+      });
+
+      // Check the Proposal account status directly
+      try {
+        const proposal = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda,
+          'confirmed'
+        );
+        
+        const proposalStatusKind = (proposal as any).status?.__kind;
+        proposalIsExecuteReady = proposalStatusKind === 'ExecuteReady';
+        
+        enhancedLogger.info('🔍 Direct Proposal account status check before execution', {
+          vaultAddress,
+          proposalId,
+          proposalPda: proposalPda.toString(),
+          statusKind: proposalStatusKind,
+          isExecuteReady: proposalIsExecuteReady,
+          approvedSigners: (proposal as any).approved,
+        });
+
+        if (proposalStatusKind === 'Executed') {
+          enhancedLogger.warn('⚠️ Proposal already executed, skipping', {
+            vaultAddress,
+            proposalId,
+          });
+          return {
+            success: false,
+            error: 'PROPOSAL_ALREADY_EXECUTED',
+            logs: ['Proposal has already been executed'],
+          };
+        }
+
+        if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady) {
+          enhancedLogger.warn('⚠️ Proposal is Approved but not ExecuteReady - execution may fail', {
+            vaultAddress,
+            proposalId,
+            statusKind: proposalStatusKind,
+            approvedSigners: (proposal as any).approved,
+            approvedCount: Array.isArray((proposal as any).approved) ? (proposal as any).approved.length : 0,
+            threshold: this.config.threshold,
+            note: 'Proposal should automatically transition to ExecuteReady when threshold is met. This may indicate a Squads SDK issue or the transition is pending.',
+          });
+          
+          // Check if we have enough approvals but the transition hasn't happened yet
+          const approvedCount = Array.isArray((proposal as any).approved) ? (proposal as any).approved.length : 0;
+          if (approvedCount >= this.config.threshold) {
+            enhancedLogger.warn('⚠️ Proposal has enough approvals but is not ExecuteReady - this may be a Squads SDK bug or timing issue', {
+              vaultAddress,
+              proposalId,
+              approvedCount,
+              threshold: this.config.threshold,
+              note: 'Attempting execution anyway - the transition might happen during execution or the execution instruction might accept Approved state',
+            });
+          }
+          // Continue with execution attempt - the transition might happen during execution
+          // or there might be a timing issue, or the execution instruction might accept Approved state
+        }
+      } catch (proposalCheckError: unknown) {
+        enhancedLogger.warn('⚠️ Failed to check Proposal account directly (using checkProposalStatus fallback)', {
+          vaultAddress,
+          proposalId,
+          error: proposalCheckError instanceof Error ? proposalCheckError.message : String(proposalCheckError),
+        });
+      }
+
       const proposalStatus = await this.checkProposalStatus(vaultAddress, proposalId);
       enhancedLogger.info('🔍 Proposal status check before execution', {
         vaultAddress,
@@ -2531,10 +2631,11 @@ export class SquadsVaultService {
         executed: proposalStatus.executed,
         signers: proposalStatus.signers.map(s => s.toString()),
         needsSignatures: proposalStatus.needsSignatures,
+        isExecuteReady: proposalIsExecuteReady,
       });
 
       if (proposalStatus.executed) {
-        enhancedLogger.warn('⚠️ Proposal already executed, skipping', {
+        enhancedLogger.warn('⚠️ Proposal already executed (from checkProposalStatus), skipping', {
           vaultAddress,
           proposalId,
         });
@@ -2545,12 +2646,13 @@ export class SquadsVaultService {
         };
       }
 
-      if (proposalStatus.needsSignatures > 0) {
+      if (proposalStatus.needsSignatures > 0 && !proposalIsExecuteReady) {
         enhancedLogger.warn('⚠️ On-chain check shows proposal does not have enough signatures yet', {
           vaultAddress,
           proposalId,
           needsSignatures: proposalStatus.needsSignatures,
           signers: proposalStatus.signers.map(s => s.toString()),
+          isExecuteReady: proposalIsExecuteReady,
           note: 'Continuing with execution attempt - database state may be more accurate than on-chain check',
         });
         // Don't fail here - the on-chain check might be failing to read signers correctly
@@ -2674,12 +2776,27 @@ export class SquadsVaultService {
         );
 
         if (confirmation.value.err) {
-          lastErrorMessage = `Transaction failure: ${JSON.stringify(confirmation.value.err)}`;
+          const errorDetails = JSON.stringify(confirmation.value.err);
+          lastErrorMessage = `Transaction failure: ${errorDetails}`;
           const insights = await this.collectSimulationLogs(tx);
           lastLogs = insights.logs;
           if (insights.errorInfo) {
             lastErrorMessage += ` | Simulation error: ${insights.errorInfo}`;
           }
+          
+          // Check if error is related to proposal status or insufficient signatures
+          const errorStr = errorDetails.toLowerCase();
+          if (errorStr.includes('insufficient') || errorStr.includes('signature')) {
+            enhancedLogger.error('❌ Execution failed with signature-related error', {
+              vaultAddress,
+              proposalId,
+              error: errorDetails,
+              proposalIsExecuteReady,
+              logs: lastLogs?.slice(-10),
+              note: 'This may indicate the Proposal needs to be in ExecuteReady state, or there is a mismatch between approved signers and what execution requires',
+            });
+          }
+          
           break;
         }
 
@@ -3360,6 +3477,16 @@ export class SquadsVaultService {
       errorInfo = JSON.stringify(simulation.value.err);
       enhancedLogger.warn('⚠️ Simulation reported an error during execution diagnostics', {
         error: errorInfo,
+        logs: simulation.value.logs?.slice(-20),
+      });
+    }
+
+    // Log all simulation logs for debugging
+    if (simulation.value.logs && simulation.value.logs.length > 0) {
+      enhancedLogger.info('📋 Simulation logs', {
+        logCount: simulation.value.logs.length,
+        lastLogs: simulation.value.logs.slice(-10),
+        allLogs: simulation.value.logs,
       });
     }
 
