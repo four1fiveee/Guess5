@@ -960,9 +960,11 @@ export class SquadsVaultService {
       const vaultLamportsBig = BigInt(vaultAccountInfo.lamports);
       const rentReserveBig = BigInt(rentExemptReserve);
 
-      if (vaultLamportsBig <= rentReserveBig) {
-        const errorMsg = `Vault lamports ${vaultLamportsBig.toString()} are not sufficient to cover rent reserve ${rentReserveBig.toString()}`;
-        enhancedLogger.error('❌ Vault balance below rent reserve', {
+      // Allow proposal creation even if vault balance is low - top-up from fee wallet will handle it
+      // Only fail if vault account doesn't exist or has zero balance (which would indicate a problem)
+      if (vaultLamportsBig === BigInt(0)) {
+        const errorMsg = `Vault account has zero balance - this indicates funds were never deposited or already withdrawn`;
+        enhancedLogger.error('❌ Vault balance is zero during proposal creation', {
           vaultAddress,
           vaultPda: vaultPdaKey.toString(),
           vaultLamports: vaultLamportsBig.toString(),
@@ -973,8 +975,24 @@ export class SquadsVaultService {
           error: errorMsg,
         };
       }
+      
+      if (vaultLamportsBig <= rentReserveBig) {
+        enhancedLogger.warn('⚠️ Vault balance is at or below rent reserve, but allowing proposal creation (fee wallet top-up will handle payout)', {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+          vaultLamports: vaultLamportsBig.toString(),
+          rentReserve: rentReserveBig.toString(),
+          note: 'Proposal will use fee wallet top-up to cover winner payout if vault balance is insufficient',
+        });
+        // Continue with proposal creation - top-up logic will handle it
+      }
 
-      const transferableLamportsBig = vaultLamportsBig - rentReserveBig;
+      // Calculate transferable balance (vault balance minus rent reserve)
+      // If vault balance is below rent reserve, transferable is 0 (all funds will come from fee wallet top-up)
+      const transferableLamportsBig = vaultLamportsBig > rentReserveBig ? vaultLamportsBig - rentReserveBig : BigInt(0);
+      
+      // Calculate desired amounts based on total pot (entryFee * 2)
+      // These are the target amounts, actual amounts from vault may be less if balance is low
       const desiredWinnerLamportsBig = (vaultLamportsBig * BigInt(95)) / BigInt(100);
       const desiredFeeLamportsBig = vaultLamportsBig - desiredWinnerLamportsBig;
 
