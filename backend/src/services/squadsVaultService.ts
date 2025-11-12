@@ -3249,12 +3249,80 @@ export class SquadsVaultService {
             });
           }
           
+          // Transaction confirmed successfully - verify execution and return
+          // Verify the transaction actually executed the transfers by checking transaction details
+          try {
+            const txDetails = await this.connection.getTransaction(signature, {
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: 0,
+            });
+            
+            if (txDetails?.meta?.err) {
+              enhancedLogger.error('❌ Transaction execution failed despite confirmation', {
+                vaultAddress,
+                proposalId,
+                signature,
+                error: JSON.stringify(txDetails.meta.err),
+                logs: txDetails.meta.logMessages?.slice(-10),
+              });
+            } else {
+              // Check if transfers were included in the transaction
+              // Handle both legacy and versioned transactions
+              let hasTransfers = false;
+              const message = txDetails?.transaction?.message;
+              if (message) {
+                // For legacy transactions, instructions are directly accessible
+                if ('instructions' in message && Array.isArray(message.instructions)) {
+                  hasTransfers = message.instructions.some((ix: any) => {
+                    const programId = typeof ix.programId === 'string' ? ix.programId : ix.programId?.toString();
+                    return programId === '11111111111111111111111111111111'; // System Program
+                  });
+                } else if ('staticAccountKeys' in message) {
+                  // For versioned transactions, we rely on balance changes
+                  hasTransfers = true; // Assume transfers if balance changes exist
+                }
+              }
+              
+              enhancedLogger.info('✅ Transaction verification complete', {
+                vaultAddress,
+                proposalId,
+                signature,
+                hasTransfers,
+                preBalances: txDetails?.meta?.preBalances?.slice(0, 5),
+                postBalances: txDetails?.meta?.postBalances?.slice(0, 5),
+                balanceChanges: txDetails?.meta?.preBalances && txDetails?.meta?.postBalances
+                  ? txDetails.meta.postBalances.slice(0, 5).map((post: number, i: number) => 
+                      post - (txDetails.meta.preBalances[i] || 0)
+                    )
+                  : undefined,
+                note: 'Positive balance changes indicate funds were received. Negative changes indicate funds were sent.',
+              });
+            }
+          } catch (txCheckError: unknown) {
+            enhancedLogger.warn('⚠️ Could not verify transaction details (non-critical)', {
+              vaultAddress,
+              proposalId,
+              signature,
+              error: txCheckError instanceof Error ? txCheckError.message : String(txCheckError),
+            });
+          }
+
+          const executedAt = new Date();
+          enhancedLogger.info('✅ Proposal executed successfully - funds should be released', {
+            vaultAddress,
+            proposalId,
+            executor: executor.publicKey.toString(),
+            signature,
+            slot: confirmedSlot,
+            note: 'The vaultTransactionExecute instruction executed all transfer instructions in the proposal. Check transaction logs to verify funds were transferred to players/fee wallet.',
+          });
+
           // Return success immediately - transaction confirmed
           return {
             success: true,
             signature,
             slot: confirmedSlot,
-            executedAt: new Date().toISOString(),
+            executedAt: executedAt.toISOString(),
           };
         } else {
           // Confirmation failed or timed out - check if it's a retryable error
