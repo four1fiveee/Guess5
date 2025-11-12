@@ -2824,13 +2824,16 @@ export class SquadsVaultService {
               logs: simulation.value.logs?.slice(-20),
               proposalIsExecuteReady,
               vaultTransactionIsExecuteReady,
-              note: 'This indicates the execution will fail. Check logs for details.',
+              note: 'This indicates the execution will fail. However, we will still attempt execution to get the actual on-chain error.',
             });
             
-            // If simulation fails, we can still try to send it (sometimes simulation is wrong)
-            // But log the error for debugging
+            // Store simulation error but continue with execution attempt
+            // The actual on-chain execution will provide more detailed error information
             lastErrorMessage = `Simulation error: ${simError}`;
             lastLogs = simulation.value.logs ?? undefined;
+            
+            // Continue with execution attempt even if simulation fails
+            // Sometimes simulation fails but execution succeeds, or execution provides better error details
           } else {
             enhancedLogger.info('✅ Transaction simulation succeeded', {
               vaultAddress,
