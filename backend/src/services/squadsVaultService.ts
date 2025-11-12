@@ -936,7 +936,7 @@ export class SquadsVaultService {
       
       // Create transfer instructions using SystemProgram
       const winnerLamports = Math.floor(winnerAmount * LAMPORTS_PER_SOL);
-      const feeLamports = Math.floor(feeAmount * LAMPORTS_PER_SOL);
+      let feeLamports = Math.floor(feeAmount * LAMPORTS_PER_SOL);
       
       // Ensure all PublicKeys are properly instantiated
       const vaultPdaKey = typeof vaultPda === 'string' ? new PublicKey(vaultPda) : vaultPda;
@@ -961,7 +961,7 @@ export class SquadsVaultService {
         vaultAccountInfo.data?.length ?? 0
       );
       const transferableLamports = Math.max(0, vaultAccountInfo.lamports - rentExemptReserve);
-      const totalRequestedLamports = winnerLamports + feeLamports;
+      let totalRequestedLamports = winnerLamports + feeLamports;
 
       enhancedLogger.info('🏦 Vault rent check', {
         vaultAddress,
@@ -975,21 +975,36 @@ export class SquadsVaultService {
       });
 
       if (transferableLamports < totalRequestedLamports) {
-        const errorMsg = `Vault has ${transferableLamports} lamports available after reserving rent, but ${totalRequestedLamports} lamports are required for payout.`;
-        enhancedLogger.error('❌ Insufficient vault balance after reserving rent', {
+        const shortfall = totalRequestedLamports - transferableLamports;
+
+        if (shortfall >= feeLamports) {
+          const errorMsg = `Vault has ${transferableLamports} lamports available after reserving rent, but ${totalRequestedLamports} lamports are required for payout. Shortfall ${shortfall} exceeds fee allocation.`;
+          enhancedLogger.error('❌ Insufficient vault balance after reserving rent', {
+            vaultAddress,
+            vaultPda: vaultPdaKey.toString(),
+            transferableLamports,
+            totalRequestedLamports,
+            winnerLamports,
+            feeLamports,
+            rentExemptReserve,
+            shortfall,
+          });
+          return {
+            success: false,
+            error: errorMsg,
+            needsSignatures: undefined,
+          };
+        }
+
+        feeLamports -= shortfall;
+        totalRequestedLamports = winnerLamports + feeLamports;
+        enhancedLogger.warn('⚠️ Adjusted fee to preserve rent reserve', {
           vaultAddress,
-          vaultPda: vaultPdaKey.toString(),
-          transferableLamports,
+          shortfall,
+          adjustedFeeLamports: feeLamports,
           totalRequestedLamports,
-          winnerLamports,
-          feeLamports,
-          rentExemptReserve,
+          transferableLamports,
         });
-        return {
-          success: false,
-          error: errorMsg,
-          needsSignatures: undefined,
-        };
       }
 
       // Create System Program transfer instruction for winner using SystemProgram.transfer directly
