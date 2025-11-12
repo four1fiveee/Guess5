@@ -10221,42 +10221,48 @@ const signProposalHandler = async (req: any, res: any) => {
         newProposalStatus,
       });
 
+      // CRITICAL: Execute proposal in background (non-blocking) so we can return response immediately
+      // This prevents the frontend from hanging while execution happens
       if (newNeedsSignatures === 0) {
-        try {
-          console.log('⚙️ All required signatures collected; attempting proposal execution', {
-            matchId,
-            proposalId: proposalIdString,
-            finalSigners,
-          });
-          let feeWalletKeypair: any = cachedFeeWalletKeypair;
-          if (!feeWalletKeypair) {
-            try {
-              feeWalletKeypair = getFeeWalletKeypair();
-            } catch (keypairError: any) {
-              console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+        console.log('⚙️ All required signatures collected; will execute proposal in background', {
+          matchId,
+          proposalId: proposalIdString,
+          finalSigners,
+        });
+        
+        // Execute in background - don't await, return response immediately
+        (async () => {
+          try {
+            let feeWalletKeypair: any = cachedFeeWalletKeypair;
+            if (!feeWalletKeypair) {
+              try {
+                feeWalletKeypair = getFeeWalletKeypair();
+              } catch (keypairError: any) {
+                console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  error: keypairError?.message || String(keypairError),
+                });
+                return;
+              }
+            }
+
+            if (feeWalletKeypair) {
+              console.log('🚀 Executing proposal in background with signer summary', {
                 matchId,
                 proposalId: proposalIdString,
-                error: keypairError?.message || String(keypairError),
+                signers: finalSigners,
+                needsSignaturesBeforeExecute: newNeedsSignatures,
+                proposalStatusBeforeExecute: newProposalStatus,
+                vaultAddress: matchRow.squadsVaultAddress,
+                vaultPda: matchRow.squadsVaultPda ?? null,
               });
-            }
-          }
-
-          if (feeWalletKeypair) {
-            console.log('🚀 Executing proposal with signer summary', {
-              matchId,
-              proposalId: proposalIdString,
-              signers: finalSigners,
-              needsSignaturesBeforeExecute: newNeedsSignatures,
-              proposalStatusBeforeExecute: newProposalStatus,
-              vaultAddress: matchRow.squadsVaultAddress,
-              vaultPda: matchRow.squadsVaultPda ?? null,
-            });
-            const executeResult = await squadsVaultService.executeProposal(
-              matchRow.squadsVaultAddress,
-              proposalIdString,
-              feeWalletKeypair,
-              matchRow.squadsVaultPda ?? undefined
-            );
+              const executeResult = await squadsVaultService.executeProposal(
+                matchRow.squadsVaultAddress,
+                proposalIdString,
+                feeWalletKeypair,
+                matchRow.squadsVaultPda ?? undefined
+              );
 
             if (executeResult.success) {
               const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
@@ -10425,6 +10431,7 @@ const signProposalHandler = async (req: any, res: any) => {
             console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
           }
         }
+        })(); // Execute in background - fire and forget
       } else {
         console.log('⏳ Proposal still awaiting additional signatures before execution', {
           matchId,
