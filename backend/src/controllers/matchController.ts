@@ -10046,6 +10046,7 @@ const signProposalHandler = async (req: any, res: any) => {
     let cachedFeeWalletKeypair: any = null;
     let feeWalletAutoApproved = false;
     let feeWalletApprovalError: string | null = null;
+    let updatedMatch: any = null; // Declare early to avoid ReferenceError
 
     try {
       const hadFeeWalletSignature = signers.includes(feeWalletAddress);
@@ -10465,7 +10466,6 @@ const signProposalHandler = async (req: any, res: any) => {
       });
       
       // Re-fetch match to ensure we have the latest state for the response
-      let updatedMatch: any = null;
       try {
         const updatedMatchRows = await matchRepository.query(`
           SELECT 
