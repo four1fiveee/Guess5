@@ -10176,13 +10176,25 @@ const signProposalHandler = async (req: any, res: any) => {
       const uniqueSigners = Array.from(new Set(signers));
       const currentNeedsSignatures = normalizeRequiredSignatures(matchRow.needsSignatures);
       
-      // Decrement for player signature
-      newNeedsSignatures = Math.max(0, currentNeedsSignatures - 1);
+      // CRITICAL: Calculate needsSignatures based on threshold (2) minus actual signers
+      // Threshold is 2 (2-of-3 multisig: fee wallet + 2 players)
+      // We need 2 signatures total: fee wallet + 1 player
+      const THRESHOLD = 2;
+      const actualSignerCount = uniqueSigners.length;
       
-      // Only decrement for fee wallet if it actually signed on-chain
-      if (feeWalletAutoApproved && uniqueSigners.includes(feeWalletAddress)) {
-        newNeedsSignatures = Math.max(0, newNeedsSignatures - 1);
-      }
+      // Calculate based on actual signers, not decrementing (more reliable)
+      newNeedsSignatures = Math.max(0, THRESHOLD - actualSignerCount);
+      
+      console.log('🧮 Calculating needsSignatures:', {
+        matchId,
+        threshold: THRESHOLD,
+        actualSignerCount,
+        uniqueSigners: uniqueSigners.map(s => s.toString()),
+        feeWalletAutoApproved,
+        calculatedNeedsSignatures: newNeedsSignatures,
+        previousNeedsSignatures: currentNeedsSignatures,
+      });
+      
       newProposalStatus = newNeedsSignatures === 0 ? 'READY_TO_EXECUTE' : 'ACTIVE';
 
       console.log('🧾 Recording new proposal signature', {

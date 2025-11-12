@@ -3042,13 +3042,60 @@ export class SquadsVaultService {
         }
 
         const executedAt = new Date();
-        enhancedLogger.info('✅ Proposal executed successfully', {
+        enhancedLogger.info('✅ Proposal executed successfully - funds should be released', {
           vaultAddress,
           proposalId,
           executor: executor.publicKey.toString(),
           signature,
           slot: confirmation.context.slot,
+          note: 'The vaultTransactionExecute instruction executed all transfer instructions in the proposal. Check transaction logs to verify funds were transferred to players/fee wallet.',
         });
+        
+        // Verify the transaction actually executed the transfers by checking transaction details
+        try {
+          const txDetails = await this.connection.getTransaction(signature, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          });
+          
+          if (txDetails?.meta?.err) {
+            enhancedLogger.error('❌ Transaction execution failed despite confirmation', {
+              vaultAddress,
+              proposalId,
+              signature,
+              error: JSON.stringify(txDetails.meta.err),
+              logs: txDetails.meta.logMessages?.slice(-10),
+            });
+          } else {
+            // Check if transfers were included in the transaction
+            const hasTransfers = txDetails?.transaction?.message?.instructions?.some((ix: any) => {
+              const programId = ix.programId?.toString();
+              return programId === '11111111111111111111111111111111'; // System Program
+            });
+            
+            enhancedLogger.info('📊 Transaction execution verification', {
+              vaultAddress,
+              proposalId,
+              signature,
+              hasSystemProgramTransfers: hasTransfers,
+              preBalances: txDetails?.meta?.preBalances?.slice(0, 5),
+              postBalances: txDetails?.meta?.postBalances?.slice(0, 5),
+              balanceChanges: txDetails?.meta?.preBalances && txDetails?.meta?.postBalances
+                ? txDetails.meta.postBalances.slice(0, 5).map((post: number, i: number) => 
+                    post - (txDetails.meta.preBalances[i] || 0)
+                  )
+                : undefined,
+              note: 'Positive balance changes indicate funds were received. Negative changes indicate funds were sent.',
+            });
+          }
+        } catch (txCheckError: unknown) {
+          enhancedLogger.warn('⚠️ Could not verify transaction details (non-critical)', {
+            vaultAddress,
+            proposalId,
+            signature,
+            error: txCheckError instanceof Error ? txCheckError.message : String(txCheckError),
+          });
+        }
 
         return {
           success: true,

@@ -7,12 +7,13 @@ export const MIN_REQUIRED_PROPOSAL_SIGNATURES = 2;
 export const normalizeRequiredSignatures = (value: unknown): number => {
   const numeric = Number(value ?? Number.NaN);
   if (!Number.isFinite(numeric)) {
-    return MIN_REQUIRED_PROPOSAL_SIGNATURES;
+    return MIN_REQUIRED_PROPOSAL_SIGNATURES; // Default to threshold if invalid
   }
   if (numeric <= 0) {
     return 0;
   }
-  return Math.max(MIN_REQUIRED_PROPOSAL_SIGNATURES, Math.ceil(numeric));
+  // Return the actual value, don't force a minimum - the value should be 0-2 based on actual signatures
+  return Math.ceil(numeric);
 };
 
 export const resolveFeeWalletAddress = (): string | null => {
