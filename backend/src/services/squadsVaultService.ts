@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError } from '@solana/web3.js';
 import {
   rpc,
   PROGRAM_ID,
@@ -2906,10 +2906,51 @@ export class SquadsVaultService {
         }
 
         const rawTx = tx.serialize();
-        const signature = await this.connection.sendRawTransaction(rawTx, {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
+        let signature: string;
+        
+        try {
+          signature = await this.connection.sendRawTransaction(rawTx, {
+            skipPreflight: false,
+            maxRetries: 3,
+          });
+        } catch (sendError: unknown) {
+          // Handle SendTransactionError specifically to extract logs
+          if (sendError instanceof SendTransactionError) {
+            const errorLogs = sendError.logs || [];
+            const errorMessage = sendError.message || String(sendError);
+            
+            enhancedLogger.error('❌ sendRawTransaction failed with SendTransactionError', {
+              vaultAddress,
+              proposalId,
+              error: errorMessage,
+              logs: errorLogs,
+              proposalIsExecuteReady,
+              vaultTransactionIsExecuteReady,
+              note: 'This error occurs during preflight check or transaction submission. Check logs for on-chain error details.',
+            });
+            
+            lastErrorMessage = `SendTransactionError: ${errorMessage}`;
+            lastLogs = errorLogs;
+            
+            // Check if error is related to proposal status
+            const errorStr = errorMessage.toLowerCase();
+            if (errorStr.includes('insufficient') || errorStr.includes('signature')) {
+              enhancedLogger.error('❌ SendTransactionError indicates signature-related issue', {
+                vaultAddress,
+                proposalId,
+                error: errorMessage,
+                logs: errorLogs?.slice(-20),
+                proposalIsExecuteReady,
+                vaultTransactionIsExecuteReady,
+                note: 'The proposal may need to be in ExecuteReady state, or there may be a mismatch between approved signers and what execution requires',
+              });
+            }
+            
+            break;
+          }
+          // Re-throw if it's not a SendTransactionError
+          throw sendError;
+        }
 
         const confirmation = await this.connection.confirmTransaction(
           {
