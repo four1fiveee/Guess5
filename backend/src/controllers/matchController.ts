@@ -10449,7 +10449,30 @@ const signProposalHandler = async (req: any, res: any) => {
         wallet,
         needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
         proposalStatus: newProposalStatus,
+        finalSigners: uniqueSigners,
       });
+      
+      // Re-fetch match to ensure we have the latest state for the response
+      const updatedMatchRows = await matchRepository.query(`
+        SELECT 
+          "proposalSigners", "proposalStatus", "needsSignatures",
+          "proposalExecutedAt", "refundTxHash", "payoutTxHash"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchId]);
+      
+      const updatedMatch = updatedMatchRows?.[0];
+      if (updatedMatch) {
+        // Use the freshly fetched values for the response
+        newNeedsSignatures = normalizeRequiredSignatures(updatedMatch.needsSignatures);
+        newProposalStatus = updatedMatch.proposalStatus || newProposalStatus;
+        console.log('✅ Using fresh database state for response:', {
+          matchId,
+          needsSignatures: newNeedsSignatures,
+          proposalStatus: newProposalStatus,
+        });
+      }
       
       // Notify opponent via SSE if they're connected (optional, non-critical)
       try {
@@ -10493,6 +10516,11 @@ const signProposalHandler = async (req: any, res: any) => {
       console.warn('⚠️ Transaction was submitted but database update failed');
     }
 
+    // Get final signers list for response
+    const finalSignersForResponse = updatedMatch?.proposalSigners 
+      ? normalizeProposalSigners(updatedMatch.proposalSigners)
+      : uniqueSigners;
+    
     res.json({
       success: true,
       message: 'Proposal signed successfully',
@@ -10500,6 +10528,7 @@ const signProposalHandler = async (req: any, res: any) => {
       proposalId: proposalIdString,
       needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
       proposalStatus: newProposalStatus,
+      proposalSigners: finalSignersForResponse,
     });
 
   } catch (error: unknown) {
