@@ -2175,14 +2175,21 @@ export class SquadsVaultService {
         programId: this.programId,
       });
 
+      // Get the proposal PDA
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex,
+        programId: this.programId,
+      });
+
       // Fetch the transaction account
       const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
       
       if (!transactionAccount) {
         // Transaction account doesn't exist - likely executed (accounts are closed after execution)
         enhancedLogger.info('📊 Transaction account not found - likely executed', {
-        vaultAddress,
-        proposalId,
+          vaultAddress,
+          proposalId,
           transactionPda: transactionPda.toString(),
         });
         return {
@@ -2193,9 +2200,9 @@ export class SquadsVaultService {
       }
 
       // Try to decode the transaction account
-      // Note: The exact structure may vary by SDK version, so we'll use a try-catch approach
       let isExecuted = false;
       const signers: PublicKey[] = [];
+      let transactionFields: any = {};
       
       try {
         // Try using fromAccountAddress if available
@@ -2204,6 +2211,30 @@ export class SquadsVaultService {
           transactionPda
         );
         
+        // Log all available fields for debugging
+        transactionFields = {
+          keys: Object.keys(transaction),
+          status: (transaction as any).status,
+          approved: (transaction as any).approved,
+          approvals: (transaction as any).approvals,
+          approvedBy: (transaction as any).approvedBy,
+          memberKeys: (transaction as any).memberKeys,
+          signers: (transaction as any).signers,
+          authorityIndex: (transaction as any).authorityIndex,
+          vaultIndex: (transaction as any).vaultIndex,
+          transactionIndex: (transaction as any).transactionIndex,
+          executedAt: (transaction as any).executedAt,
+          createdAt: (transaction as any).createdAt,
+        };
+        
+        enhancedLogger.info('🔍 VaultTransaction account fields', {
+          vaultAddress,
+          proposalId,
+          transactionPda: transactionPda.toString(),
+          fields: transactionFields,
+          allKeys: Object.keys(transaction),
+        });
+        
         // Check status - the exact property name may vary
         // Status values: 0 = Active, 1 = ExecuteReady, 2 = Executed
         if ((transaction as any).status !== undefined) {
@@ -2211,11 +2242,48 @@ export class SquadsVaultService {
           isExecuted = status === 1 || status === 2; // ExecuteReady or Executed
         }
         
-        // Get approved signers
-        if ((transaction as any).approved && Array.isArray((transaction as any).approved)) {
-          signers.push(...(transaction as any).approved);
-        } else if ((transaction as any).approvals && Array.isArray((transaction as any).approvals)) {
-          signers.push(...(transaction as any).approvals);
+        // Try multiple possible field names for approved signers
+        const possibleApprovalFields = [
+          (transaction as any).approved,
+          (transaction as any).approvals,
+          (transaction as any).approvedBy,
+          (transaction as any).memberKeys,
+          (transaction as any).signers,
+        ];
+        
+        for (const field of possibleApprovalFields) {
+          if (Array.isArray(field)) {
+            const parsedSigners = field
+              .map((item: any) => {
+                if (item instanceof PublicKey) {
+                  return item;
+                } else if (item?.key instanceof PublicKey) {
+                  return item.key;
+                } else if (typeof item === 'string') {
+                  try {
+                    return new PublicKey(item);
+                  } catch {
+                    return null;
+                  }
+                }
+                return null;
+              })
+              .filter((pk: PublicKey | null): pk is PublicKey => pk !== null);
+            
+            if (parsedSigners.length > 0) {
+              signers.push(...parsedSigners);
+              enhancedLogger.info('✅ Found approved signers in VaultTransaction', {
+                vaultAddress,
+                proposalId,
+                field: field === possibleApprovalFields[0] ? 'approved' :
+                      field === possibleApprovalFields[1] ? 'approvals' :
+                      field === possibleApprovalFields[2] ? 'approvedBy' :
+                      field === possibleApprovalFields[3] ? 'memberKeys' : 'signers',
+                signers: parsedSigners.map(s => s.toString()),
+              });
+              break;
+            }
+          }
         }
       } catch (decodeError: unknown) {
         // If decoding fails, check account data manually
@@ -2230,25 +2298,137 @@ export class SquadsVaultService {
         isExecuted = false;
       }
 
+      // Also check the Proposal account for approved signers
+      try {
+        const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+        
+        if (proposalAccount) {
+          try {
+            const proposal = await accounts.Proposal.fromAccountAddress(
+              this.connection,
+              proposalPda,
+              'confirmed'
+            );
+            
+            // Log all available fields for debugging
+            const proposalFields = {
+              keys: Object.keys(proposal),
+              status: (proposal as any).status,
+              statusKind: (proposal as any).status?.__kind,
+              approved: (proposal as any).approved,
+              approvals: (proposal as any).approvals,
+              approvedBy: (proposal as any).approvedBy,
+              memberKeys: (proposal as any).memberKeys,
+              signers: (proposal as any).signers,
+              transactionIndex: (proposal as any).transactionIndex,
+              multisig: (proposal as any).multisig,
+            };
+            
+            enhancedLogger.info('🔍 Proposal account fields', {
+              vaultAddress,
+              proposalId,
+              proposalPda: proposalPda.toString(),
+              fields: proposalFields,
+              allKeys: Object.keys(proposal),
+            });
+            
+            // Check if proposal is executed
+            if ((proposal as any).status?.__kind === 'Executed') {
+              isExecuted = true;
+            }
+            
+            // Try multiple possible field names for approved signers in Proposal account
+            const proposalApprovalFields = [
+              (proposal as any).approved,
+              (proposal as any).approvals,
+              (proposal as any).approvedBy,
+              (proposal as any).memberKeys,
+              (proposal as any).signers,
+            ];
+            
+            for (const field of proposalApprovalFields) {
+              if (Array.isArray(field)) {
+                const parsedSigners = field
+                  .map((item: any) => {
+                    if (item instanceof PublicKey) {
+                      return item;
+                    } else if (item?.key instanceof PublicKey) {
+                      return item.key;
+                    } else if (typeof item === 'string') {
+                      try {
+                        return new PublicKey(item);
+                      } catch {
+                        return null;
+                      }
+                    }
+                    return null;
+                  })
+                  .filter((pk: PublicKey | null): pk is PublicKey => pk !== null);
+                
+                if (parsedSigners.length > 0) {
+                  // Merge with existing signers, avoiding duplicates
+                  const existingSignerStrings = signers.map(s => s.toString());
+                  const newSigners = parsedSigners.filter(
+                    (pk: PublicKey) => !existingSignerStrings.includes(pk.toString())
+                  );
+                  if (newSigners.length > 0) {
+                    signers.push(...newSigners);
+                    enhancedLogger.info('✅ Found approved signers in Proposal account', {
+                      vaultAddress,
+                      proposalId,
+                      field: field === proposalApprovalFields[0] ? 'approved' :
+                            field === proposalApprovalFields[1] ? 'approvals' :
+                            field === proposalApprovalFields[2] ? 'approvedBy' :
+                            field === proposalApprovalFields[3] ? 'memberKeys' : 'signers',
+                      signers: parsedSigners.map(s => s.toString()),
+                      newSigners: newSigners.map(s => s.toString()),
+                    });
+                  }
+                  break;
+                }
+              }
+            }
+          } catch (proposalDecodeError: unknown) {
+            enhancedLogger.warn('⚠️ Failed to decode proposal account', {
+              vaultAddress,
+              proposalId,
+              proposalPda: proposalPda.toString(),
+              error: proposalDecodeError instanceof Error ? proposalDecodeError.message : String(proposalDecodeError),
+            });
+          }
+        }
+      } catch (proposalError: unknown) {
+        enhancedLogger.warn('⚠️ Failed to fetch proposal account', {
+          vaultAddress,
+          proposalId,
+          proposalPda: proposalPda.toString(),
+          error: proposalError instanceof Error ? proposalError.message : String(proposalError),
+        });
+      }
+
       // Calculate remaining signatures needed
       const threshold = this.config.threshold;
-      const currentSignatures = signers.length;
+      const uniqueSigners = Array.from(new Set(signers.map(s => s.toString())))
+        .map(s => new PublicKey(s));
+      const currentSignatures = uniqueSigners.length;
       const needsSignatures = Math.max(0, threshold - currentSignatures);
 
       enhancedLogger.info('📊 Checked proposal status (on-chain)', {
         vaultAddress,
         proposalId,
         transactionPda: transactionPda.toString(),
+        proposalPda: proposalPda.toString(),
         executed: isExecuted,
-        signers: signers.map(s => s.toString()),
+        signers: uniqueSigners.map(s => s.toString()),
         currentSignatures,
         threshold,
         needsSignatures,
+        transactionFields,
       });
 
       return {
         executed: isExecuted,
-        signers,
+        signers: uniqueSigners,
         needsSignatures,
       };
 
