@@ -2923,19 +2923,98 @@ export class SquadsVaultService {
             }
             
             break;
+          } else {
+            // Handle non-SendTransactionError from sendRawTransaction
+            const errorMessage = sendError instanceof Error ? sendError.message : String(sendError);
+            enhancedLogger.error('❌ sendRawTransaction failed with non-SendTransactionError', {
+              vaultAddress,
+              proposalId,
+              error: errorMessage,
+              errorType: sendError?.constructor?.name || typeof sendError,
+              errorDetails: sendError,
+              proposalIsExecuteReady,
+              vaultTransactionIsExecuteReady,
+            });
+            
+            lastErrorMessage = `sendRawTransaction error: ${errorMessage}`;
+            // Try to extract logs from the error if available
+            if ((sendError as any)?.logs && Array.isArray((sendError as any).logs)) {
+              lastLogs = (sendError as any).logs;
+            }
+            
+            if (attempt === 0) {
+              enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after sendRawTransaction error', {
+                vaultAddress,
+                proposalId,
+                error: errorMessage,
+              });
+              continue;
+            }
+            break;
           }
-          // Re-throw if it's not a SendTransactionError
-          throw sendError;
         }
 
-        const confirmation = await this.connection.confirmTransaction(
-          {
+        let confirmation;
+        try {
+          confirmation = await this.connection.confirmTransaction(
+            {
+              signature,
+              blockhash: latestBlockhash.blockhash,
+              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            },
+            'confirmed'
+          );
+        } catch (confirmError: unknown) {
+          const confirmErrorMessage = confirmError instanceof Error ? confirmError.message : String(confirmError);
+          enhancedLogger.error('❌ confirmTransaction failed', {
+            vaultAddress,
+            proposalId,
             signature,
-            blockhash: latestBlockhash.blockhash,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          },
-          'confirmed'
-        );
+            error: confirmErrorMessage,
+            errorType: confirmError?.constructor?.name || typeof confirmError,
+            note: 'Transaction was sent but confirmation failed. The transaction may still be processing on-chain.',
+          });
+          
+          lastErrorMessage = `confirmTransaction error: ${confirmErrorMessage}`;
+          // Try to check transaction status directly
+          try {
+            const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
+            if (txStatus?.value?.err) {
+              lastErrorMessage += ` | Transaction error: ${JSON.stringify(txStatus.value.err)}`;
+            } else if (txStatus?.value && !txStatus.value.err) {
+              // Transaction succeeded!
+              enhancedLogger.info('✅ Transaction confirmed via direct status check', {
+                vaultAddress,
+                proposalId,
+                signature,
+                slot: txStatus.value.slot,
+              });
+              return {
+                success: true,
+                signature,
+                slot: txStatus.value.slot || undefined,
+                executedAt: new Date().toISOString(),
+              };
+            }
+          } catch (statusError: unknown) {
+            enhancedLogger.warn('⚠️ Failed to check transaction status directly', {
+              vaultAddress,
+              proposalId,
+              signature,
+              error: statusError instanceof Error ? statusError.message : String(statusError),
+            });
+          }
+          
+          if (attempt === 0) {
+            enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after confirmTransaction error', {
+              vaultAddress,
+              proposalId,
+              error: confirmErrorMessage,
+            });
+            continue;
+          }
+          break;
+        }
 
         if (confirmation.value.err) {
           const errorDetails = JSON.stringify(confirmation.value.err);
@@ -2995,17 +3074,23 @@ export class SquadsVaultService {
       }
     }
 
+    // Ensure we have a meaningful error message
+    const finalErrorMessage = lastErrorMessage || 'Unknown execution error - no error details captured';
+    
     enhancedLogger.error('❌ Failed to execute proposal', {
       vaultAddress,
       proposalId,
       executor: executor.publicKey.toString(),
-      error: lastErrorMessage,
+      error: finalErrorMessage,
+      errorString: String(finalErrorMessage),
       logs: lastLogs?.slice(-5),
+      hasLogs: !!lastLogs && lastLogs.length > 0,
+      note: 'If error is empty, check simulation logs and transaction confirmation status above',
     });
 
     return {
       success: false,
-      error: lastErrorMessage || 'Unknown execution error',
+      error: finalErrorMessage,
       logs: lastLogs,
     };
   }
