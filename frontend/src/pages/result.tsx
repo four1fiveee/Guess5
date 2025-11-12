@@ -389,7 +389,19 @@ const Result: React.FC = () => {
           });
 
           if (transaction && transaction.meta && !transaction.meta.err) {
-            const accountKeys = transaction.transaction.message.accountKeys;
+            // Handle both legacy and versioned transactions
+            const message = transaction.transaction.message;
+            let accountKeys: any[];
+            if ('accountKeys' in message) {
+              // Legacy transaction
+              accountKeys = message.accountKeys;
+            } else if ('getAccountKeys' in message && typeof message.getAccountKeys === 'function') {
+              // Versioned transaction (MessageV0)
+              accountKeys = message.getAccountKeys().staticAccountKeys;
+            } else {
+              // Fallback: use staticAccountKeys if available
+              accountKeys = (message as any).staticAccountKeys || [];
+            }
             const playerPubkey = publicKey.toString();
             const playerIndex = accountKeys.findIndex(
               (key: any) => key.toString() === playerPubkey
