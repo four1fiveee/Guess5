@@ -10547,7 +10547,7 @@ const signProposalHandler = async (req: any, res: any) => {
       message: 'Proposal signed successfully',
       signature,
       proposalId: proposalIdString,
-      needsSignatures: newNeedsSignatures <= 0 ? 0 : normalizeRequiredSignatures(newNeedsSignatures),
+      needsSignatures: Math.max(0, newNeedsSignatures),
       proposalStatus: newProposalStatus,
       proposalSigners: finalSignersForResponse,
     });

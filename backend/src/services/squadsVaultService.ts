@@ -3068,10 +3068,20 @@ export class SquadsVaultService {
             });
           } else {
             // Check if transfers were included in the transaction
-            const hasTransfers = txDetails?.transaction?.message?.instructions?.some((ix: any) => {
-              const programId = ix.programId?.toString();
-              return programId === '11111111111111111111111111111111'; // System Program
-            });
+            // Handle both legacy and versioned transactions
+            let hasTransfers = false;
+            const message = txDetails?.transaction?.message;
+            if (message) {
+              // For legacy transactions, instructions are directly accessible
+              if ('instructions' in message && Array.isArray(message.instructions)) {
+                hasTransfers = message.instructions.some((ix: any) => {
+                  const programId = ix.programId?.toString();
+                  return programId === '11111111111111111111111111111111'; // System Program
+                });
+              }
+              // For versioned transactions (MessageV0), instructions are in compiledInstructions
+              // but we can't easily access them here, so we rely on balance changes instead
+            }
             
             enhancedLogger.info('📊 Transaction execution verification', {
               vaultAddress,
