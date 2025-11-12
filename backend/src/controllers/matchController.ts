@@ -4237,58 +4237,58 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           onChainReady,
         });
       } else if (feeWalletKeypair && (hasFeeWalletSignature || onChainReady || dbSaysReady)) {
-        console.log('🔁 Auto-execute (fallback) using vault PDA', {
+        console.log('🔁 Auto-execute (fallback) using vault PDA - executing in background', {
           matchId: match.id,
           proposalId: proposalIdString,
           vaultAddress: (match as any).squadsVaultAddress,
           vaultPda: (match as any).squadsVaultPda ?? null,
         });
-        const executeResult = await squadsVaultService.executeProposal(
+        // Execute in background without blocking the status request
+        // This prevents timeout errors when execution takes a long time
+        squadsVaultService.executeProposal(
           (match as any).squadsVaultAddress,
           proposalIdString,
           feeWalletKeypair,
           (match as any).squadsVaultPda ?? undefined
-        );
+        ).then((executeResult) => {
         
-        if (executeResult.success) {
-          const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
-          const isTieRefund =
-            !!(match as any).tieRefundProposalId &&
-            String((match as any).tieRefundProposalId).trim() === proposalIdString;
-          const isWinnerPayout =
-            !!(match as any).payoutProposalId &&
-            String((match as any).payoutProposalId).trim() === proposalIdString &&
-            (match as any).winner &&
-            (match as any).winner !== 'tie';
+          if (executeResult.success) {
+            const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+            const isTieRefund =
+              !!(match as any).tieRefundProposalId &&
+              String((match as any).tieRefundProposalId).trim() === proposalIdString;
+            const isWinnerPayout =
+              !!(match as any).payoutProposalId &&
+              String((match as any).payoutProposalId).trim() === proposalIdString &&
+              (match as any).winner &&
+              (match as any).winner !== 'tie';
 
-          const executionUpdates = buildProposalExecutionUpdates({
-            executedAt,
-            signature: executeResult.signature ?? null,
-            isTieRefund,
-            isWinnerPayout,
-          });
+            const executionUpdates = buildProposalExecutionUpdates({
+              executedAt,
+              signature: executeResult.signature ?? null,
+              isTieRefund,
+              isWinnerPayout,
+            });
 
-          await persistExecutionUpdates(matchRepository, match.id, executionUpdates);
-          applyExecutionUpdatesToMatch(match as any, executionUpdates);
+            persistExecutionUpdates(matchRepository, match.id, executionUpdates).then(() => {
+              console.log('✅ Proposal executed successfully (fallback)', {
+                matchId: match.id,
+                proposalId: proposalIdString,
+                executionSignature: executeResult.signature,
+                slot: executeResult.slot,
+                signers: finalProposalSigners,
+                autoApproved,
+              });
+            }).catch((dbError: any) => {
+              console.error('❌ Failed to persist execution updates (fallback)', {
+                matchId: match.id,
+                proposalId: proposalIdString,
+                error: dbError?.message || String(dbError),
+              });
+            });
 
-          console.log('✅ Proposal executed successfully (fallback)', {
-            matchId: match.id,
-            proposalId: proposalIdString,
-            executionSignature: executeResult.signature,
-            slot: executeResult.slot,
-            signers: finalProposalSigners,
-            autoApproved,
-          });
-
-          if (isWinnerPayout) {
-            try {
-              if (!executeResult.signature) {
-                console.warn('⚠️ Skipping bonus payout because execution signature is missing', {
-                  matchId: match.id,
-                  proposalId: proposalIdString
-                });
-              } else {
-                const bonusResult = await disburseBonusIfEligible({
+            if (isWinnerPayout) {
+              disburseBonusIfEligible({
                   matchId: match.id,
                   winner: (match as any).winner,
                   entryFeeSol: entryFeeSolFallback,
@@ -4296,13 +4296,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   solPriceAtTransaction: solPriceAtTransactionFallback,
                   alreadyPaid: bonusAlreadyPaidFallback,
                   existingSignature: bonusSignatureExistingFallback,
-                  executionSignature: executeResult.signature,
-                  executionTimestamp: executedAt,
-                  executionSlot: executeResult.slot
-                });
-
+                executionSignature: executeResult.signature,
+                executionTimestamp: executedAt,
+                executionSlot: executeResult.slot
+              }).then((bonusResult) => {
                 if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
-                  await matchRepository.query(`
+                  return matchRepository.query(`
                   UPDATE "match"
                   SET "bonusPaid" = true,
                       "bonusSignature" = $1,
@@ -4321,41 +4320,47 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     bonusResult.tierId ?? null,
                     bonusResult.solPriceUsed ?? null,
                     match.id,
-                  ]);
-
-                  (match as any).bonusPaid = true;
-                  (match as any).bonusSignature = bonusResult.signature;
-                  (match as any).bonusAmount = bonusResult.bonusSol ?? null;
-                  (match as any).bonusAmountUSD = bonusResult.bonusUsd ?? null;
-                  (match as any).bonusPercent = bonusResult.bonusPercent ?? null;
-                  (match as any).bonusTier = bonusResult.tierId ?? null;
-                  if (bonusResult.solPriceUsed && !(match as any).solPriceAtTransaction) {
-                    (match as any).solPriceAtTransaction = bonusResult.solPriceUsed;
-                  }
+                  ]).then(() => {
+                    console.log('✅ Bonus payout persisted (fallback)', {
+                      matchId: match.id,
+                      signature: bonusResult.signature,
+                    });
+                  }).catch((bonusDbError: any) => {
+                    console.error('❌ Failed to persist bonus payout (fallback)', {
+                      matchId: match.id,
+                      error: bonusDbError?.message || String(bonusDbError),
+                    });
+                  });
                 } else if (bonusResult.triggered && !bonusResult.success) {
                   console.warn('⚠️ Bonus payout attempted in fallback but not successful', {
                     matchId: match.id,
                     reason: bonusResult.reason,
                   });
                 }
-              }
-            } catch (bonusError: any) {
-              console.error('❌ Error processing bonus payout (fallback)', {
-                matchId: match.id,
-                error: bonusError?.message || String(bonusError),
+              }).catch((bonusError: any) => {
+                console.error('❌ Error processing bonus payout (fallback)', {
+                  matchId: match.id,
+                  error: bonusError?.message || String(bonusError),
+                });
               });
             }
+          } else {
+            console.error('❌ Failed to execute proposal (fallback)', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              error: executeResult.error,
+              proposalSigners: finalProposalSigners,
+              feeWalletAutoApproved: autoApproved,
+              logs: executeResult.logs?.slice(-5),
+            });
           }
-        } else {
-          console.error('❌ Failed to execute proposal (fallback)', {
+        }).catch((executeError: any) => {
+          console.error('❌ Error executing proposal (fallback - promise rejection)', {
             matchId: match.id,
             proposalId: proposalIdString,
-            error: executeResult.error,
-            proposalSigners: finalProposalSigners,
-            feeWalletAutoApproved: autoApproved,
-            logs: executeResult.logs?.slice(-5),
+            error: executeError?.message || String(executeError),
           });
-        }
+        });
       } else {
         console.warn('⚠️ Skipping automatic proposal execution (fallback) because fee wallet keypair is not configured', {
           matchId: match.id,

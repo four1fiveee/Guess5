@@ -193,7 +193,9 @@ const Game: React.FC = () => {
               const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
               const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
               
-              if (isCompleted && (matchData.payout || bothPlayersHaveResults)) {
+              // Redirect if game is completed OR both players have results (regardless of payout status)
+              // This ensures both players always redirect when the game ends
+              if (isCompleted || bothPlayersHaveResults) {
                 console.log('🏆 Game completed via polling:', {
                   isCompleted: matchData.isCompleted,
                   bothPlayersHaveResults,

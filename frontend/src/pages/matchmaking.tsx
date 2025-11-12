@@ -445,7 +445,175 @@ const Matchmaking: React.FC = () => {
       const { multisigAddress, depositAddress } = await resolveVaultAddresses();
 
       if (!depositAddress) {
-        throw new Error('Vault deposit address not found. Please wait a moment and try again.');
+        // Retry resolving vault addresses one more time with a short delay
+        console.log('⚠️ Vault deposit address not found, retrying after short delay...');
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        const retryResult = await resolveVaultAddresses();
+        if (!retryResult.depositAddress) {
+          throw new Error('Vault deposit address not found. Please wait a moment and try again.');
+        }
+        // Update matchData with retried addresses
+        setMatchData((prev: any) => ({
+          ...prev,
+          squadsVaultAddress: retryResult.multisigAddress ?? prev?.squadsVaultAddress ?? null,
+          vaultAddress: retryResult.multisigAddress ?? prev?.vaultAddress ?? null,
+          squadsVaultPda: retryResult.depositAddress ?? prev?.squadsVaultPda ?? null,
+          vaultPda: retryResult.depositAddress ?? prev?.vaultPda ?? null,
+        }));
+        // Use retried addresses
+        const finalDepositAddress = retryResult.depositAddress;
+        const finalMultisigAddress = retryResult.multisigAddress;
+        
+        if (!finalDepositAddress) {
+          throw new Error('Vault deposit address still not found after retry. Please refresh the page.');
+        }
+        
+        // Continue with final addresses
+        const depositAddressToUse = finalDepositAddress;
+        const multisigAddressToUse = finalMultisigAddress;
+        
+        // Create transaction with final addresses
+        const transaction = new Transaction().add(
+          SystemProgram.transfer({
+            fromPubkey: publicKey,
+            toPubkey: new PublicKey(depositAddressToUse),
+            lamports: requiredAmount,
+          })
+        );
+        
+        // Get recent blockhash
+        const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
+        transaction.recentBlockhash = blockhash;
+        transaction.feePayer = publicKey;
+
+        let signature: string;
+        
+        // Try using sendTransaction if available
+        if (hasSendTransaction) {
+          console.log('📤 Sending transaction via wallet adapter...');
+          signature = await sendTransaction!(transaction, connection, {
+            skipPreflight: false,
+            maxRetries: 3,
+          });
+          console.log('✅ Transaction sent with signature:', signature);
+          
+          await connection.confirmTransaction({
+            blockhash,
+            lastValidBlockHeight,
+            signature,
+          }, 'confirmed');
+          console.log('✅ Transaction confirmed successfully');
+        } else {
+          if (!hasSignTransaction) {
+            throw new Error('Wallet does not support signing transactions');
+          }
+          console.log('🔐 Signing transaction...');
+          const signedTransaction = await signTransaction!(transaction);
+          console.log('📤 Sending transaction to Solana...');
+          
+          try {
+            signature = await connection.sendRawTransaction(signedTransaction.serialize(), {
+              skipPreflight: false,
+              maxRetries: 3,
+            });
+            console.log('✅ Transaction sent with signature:', signature);
+          } catch (sendErr: any) {
+            if (sendErr?.message?.includes('already been processed') || 
+                sendErr?.message?.includes('This transaction has already been processed')) {
+              console.log('⚠️ Transaction already processed - extracting signature from error');
+              throw new Error('Transaction was already submitted. Please check your wallet for the transaction signature.');
+            }
+            throw sendErr;
+          }
+          
+          console.log('⏳ Waiting for transaction confirmation...');
+          await connection.confirmTransaction({
+            blockhash,
+            lastValidBlockHeight,
+            signature,
+          }, 'confirmed');
+          console.log('✅ Transaction confirmed successfully');
+        }
+
+        // Notify backend of deposit
+        const depositResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/multisig/deposits`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            matchId: matchData.matchId,
+            playerWallet: publicKey.toString(),
+            amount: entryFee,
+            depositTxSignature: signature,
+          }),
+        });
+
+        if (!depositResponse.ok) {
+          throw new Error('Failed to notify backend of deposit');
+        }
+
+        const depositData = await depositResponse.json();
+        console.log('✅ Deposit confirmed by backend:', depositData);
+
+        // Fetch updated match status
+        const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}`);
+        const confirmData = await statusResponse.json();
+
+        // Update match data with payment status
+        setMatchData((prev: any) => ({
+          ...prev,
+          ...confirmData,
+          player1Paid: isPlayer1 ? true : (confirmData.player1Paid ?? prev.player1Paid),
+          player2Paid: isPlayer1 ? (confirmData.player2Paid ?? prev.player2Paid) : true
+        }));
+
+        // If match is active, redirect to game immediately
+        if (confirmData.status === 'active') {
+          console.log('✅ Match is active, redirecting to game...');
+          setStatus('active');
+          
+          localStorage.setItem('matchId', matchData.matchId);
+          if (confirmData.word) {
+            localStorage.setItem('word', confirmData.word);
+          }
+          if (confirmData.entryFee) {
+            localStorage.setItem('entryFee', confirmData.entryFee.toString());
+          }
+          
+          setTimeout(() => {
+            router.push(`/game?matchId=${matchData.matchId}`);
+          }, 500);
+          return;
+        }
+
+        // Check if both players have paid
+        const bothPaid = (confirmData.player1Paid && confirmData.player2Paid) || 
+                         (confirmData.status === 'payment_required' && 
+                          (confirmData.depositAConfirmations >= 1 && confirmData.depositBConfirmations >= 1));
+        
+        const currentPlayerPaid = isPlayer1 ? confirmData.player1Paid : confirmData.player2Paid;
+        
+        if (bothPaid) {
+          console.log('✅ Both players paid, waiting for game to start...');
+          setStatus('waiting_for_game');
+        } else if (currentPlayerPaid) {
+          console.log('⏳ Current player paid, waiting for opponent to pay...');
+          setStatus('waiting_for_payment');
+        } else {
+          console.log('⏳ Current player has not paid yet...');
+          setStatus('payment_required');
+          
+          const timeout = setTimeout(() => {
+            console.log('⏰ Payment timeout - redirecting to lobby');
+            alert('Game failed to start within 2 minutes. Please try again.');
+            router.push('/lobby');
+          }, 120000);
+          
+          setPaymentTimeout(timeout);
+        }
+        
+        return; // Exit early since we handled the retry case
       }
 
       if (!multisigAddress) {
@@ -1154,9 +1322,9 @@ const Matchmaking: React.FC = () => {
 
               <button
                 onClick={handlePayment}
-                disabled={isPaymentInProgress || !(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)}
+                disabled={isPaymentInProgress || !matchData || !publicKey}
                 className={`w-full font-bold py-3.5 px-6 rounded-lg transition-all duration-200 min-h-[52px] flex items-center justify-center ${
-                  isPaymentInProgress || !(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)
+                  isPaymentInProgress || !matchData || !publicKey
                     ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
                     : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'
                 }`}
@@ -1166,7 +1334,7 @@ const Matchmaking: React.FC = () => {
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
                     Processing Payment...
                   </span>
-                ) : (matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress) ? (
+                ) : matchData && publicKey ? (
                   `Pay ${entryFee} SOL Entry Fee`
                 ) : (
                   'Waiting for Vault...'
