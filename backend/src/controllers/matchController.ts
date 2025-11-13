@@ -4138,13 +4138,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       
       // Check on-chain proposal status to verify it's actually ready
       // But trust database state if on-chain check fails or shows mismatch
+      // CRITICAL: Use timeout to prevent blocking the status response
       let onChainReady = false;
       let onChainCheckFailed = false;
       try {
-        const proposalStatus = await squadsVaultService.checkProposalStatus(
+        // Use Promise.race with timeout to prevent blocking
+        const timeoutMs = 3000; // 3 seconds max for on-chain check
+        const statusCheckPromise = squadsVaultService.checkProposalStatus(
           (match as any).squadsVaultAddress,
           proposalIdString
         );
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('On-chain check timeout')), timeoutMs);
+        });
+        
+        const proposalStatus = await Promise.race([statusCheckPromise, timeoutPromise]) as any;
         onChainReady = proposalStatus.needsSignatures === 0 && !proposalStatus.executed;
         console.log('🔍 On-chain proposal status check (fallback)', {
           matchId: match.id,
@@ -4173,14 +4181,15 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         }
       } catch (statusCheckError: any) {
         onChainCheckFailed = true;
-        console.warn('⚠️ Failed to check on-chain proposal status (fallback) - trusting database state', {
+        const isTimeout = statusCheckError?.message?.includes('timeout');
+        console.warn(`⚠️ ${isTimeout ? 'Timeout' : 'Failed'} checking on-chain proposal status (fallback) - trusting database state`, {
           matchId: match.id,
           proposalId: proposalIdString,
           error: statusCheckError?.message || String(statusCheckError),
           databaseNeedsSignatures: normalizeRequiredSignatures((match as any).needsSignatures),
           databaseSigners: finalProposalSigners,
         });
-        // Trust database state if on-chain check fails
+        // Trust database state if on-chain check fails or times out
         const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
         onChainReady = dbNeedsSignatures === 0;
       }
