@@ -10617,6 +10617,12 @@ const signProposalHandler = async (req: any, res: any) => {
               matchId,
               proposalId: proposalIdString,
             });
+            // Reset execution status if we can't execute
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "proposalStatus" = 'READY_TO_EXECUTE'
+              WHERE id = $1 AND "proposalExecutedAt" IS NULL
+            `, [matchId]);
           }
         } catch (executeError: any) {
           console.error('❌ Error executing proposal', {
@@ -10649,6 +10655,7 @@ const signProposalHandler = async (req: any, res: any) => {
           }
         }
         })(); // Execute in background - fire and forget
+        } // Close else block for alreadyExecuted check
       } else {
         console.log('⏳ Proposal still awaiting additional signatures before execution', {
           matchId,
