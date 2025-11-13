@@ -4342,31 +4342,24 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           });
           // Continue execution in background as fallback
           squadsVaultService.executeProposal(
-              (match as any).squadsVaultAddress,
-              proposalIdString,
-              feeWalletKeypair,
-              (match as any).squadsVaultPda ?? undefined
-            ).then((bgResult) => {
-              if (bgResult.success) {
-                const executedAt = bgResult.executedAt ? new Date(bgResult.executedAt) : new Date();
-                const isTieRefund = !!(match as any).tieRefundProposalId && String((match as any).tieRefundProposalId).trim() === proposalIdString;
-                const isWinnerPayout = !!(match as any).payoutProposalId && String((match as any).payoutProposalId).trim() === proposalIdString && (match as any).winner && (match as any).winner !== 'tie';
-                const executionUpdates = buildProposalExecutionUpdates({
-                  executedAt,
-                  signature: bgResult.signature ?? null,
-                  isTieRefund,
-                  isWinnerPayout,
-                });
-                persistExecutionUpdates(matchRepository, match.id, executionUpdates).catch(console.error);
-              }
-            }).catch(console.error);
-          } else {
-            console.error('❌ Error executing proposal (fallback)', {
-              matchId: match.id,
-              proposalId: proposalIdString,
-              error: executeError?.message || String(executeError),
-            });
-          }
+            (match as any).squadsVaultAddress,
+            proposalIdString,
+            feeWalletKeypair,
+            (match as any).squadsVaultPda ?? undefined
+          ).then((bgResult) => {
+            if (bgResult.success) {
+              const executedAt = bgResult.executedAt ? new Date(bgResult.executedAt) : new Date();
+              const isTieRefund = !!(match as any).tieRefundProposalId && String((match as any).tieRefundProposalId).trim() === proposalIdString;
+              const isWinnerPayout = !!(match as any).payoutProposalId && String((match as any).payoutProposalId).trim() === proposalIdString && (match as any).winner && (match as any).winner !== 'tie';
+              const executionUpdates = buildProposalExecutionUpdates({
+                executedAt,
+                signature: bgResult.signature ?? null,
+                isTieRefund,
+                isWinnerPayout,
+              });
+              persistExecutionUpdates(matchRepository, match.id, executionUpdates).catch(console.error);
+            }
+          }).catch(console.error);
         }
       } else {
         console.warn('⚠️ Skipping automatic proposal execution (fallback) because fee wallet keypair is not configured', {
