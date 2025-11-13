@@ -163,7 +163,14 @@ const Result: React.FC = () => {
     if (matchId) {
       try {
         const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-        const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
+        const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {
+          // Add credentials to help with CORS
+          credentials: 'include',
+          // Add headers to help with CORS
+          headers: {
+            'Content-Type': 'application/json',
+          },
+        });
         
         if (response.ok) {
           const matchData = await response.json();
@@ -244,6 +251,8 @@ const Result: React.FC = () => {
             
             setPayoutData(payoutData);
             setLoading(false);
+            // CRITICAL: Always stop loading even if proposal doesn't exist yet
+            // This prevents the spinning wheel from blocking the UI
             // Stop polling if both players have results (game is complete)
             const keepPolling = bothPlayersHaveResults ? false : shouldContinuePolling(payoutData);
             setIsPolling(keepPolling);
@@ -255,10 +264,17 @@ const Result: React.FC = () => {
             console.log('⏳ Game not yet completed, falling back to localStorage');
           }
         } else {
-          console.error('❌ Failed to fetch match data from backend, falling back to localStorage');
+          console.error('❌ Failed to fetch match data from backend, falling back to localStorage', {
+            status: response.status,
+            statusText: response.statusText,
+          });
+          // If it's a CORS error or network error, don't fail completely - try localStorage
+          // The polling will retry later
         }
       } catch (error) {
         console.error('❌ Error fetching match data, falling back to localStorage:', error);
+        // CORS/network errors are non-fatal - continue with localStorage and polling will retry
+        // Don't set error state for network issues
       }
     }
 
@@ -320,7 +336,12 @@ const Result: React.FC = () => {
       return;
     }
 
-    setError('Failed to load game results');
+    // CRITICAL: Don't set error if we have localStorage data or if it's just a network issue
+    // Only set error if we truly have no data at all
+    // This prevents CORS errors from blocking the UI
+    if (!storedPayoutData) {
+      setError('Failed to load game results');
+    }
     setLoading(false);
     setIsPolling(false);
     stopRefreshLoops();
