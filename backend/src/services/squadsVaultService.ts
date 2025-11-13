@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, ComputeBudgetProgram } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, Transaction, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, ComputeBudgetProgram } from '@solana/web3.js';
 import {
   rpc,
   PROGRAM_ID,
@@ -1722,22 +1722,25 @@ export class SquadsVaultService {
         instructions.push(player2TransferIx);
       }
 
-      if (player1TopUpBig > BigInt(0)) {
-        const topUpIx = SystemProgram.transfer({
-          fromPubkey: this.config.systemPublicKey,
-          toPubkey: player1Key,
-          lamports: Number(player1TopUpBig),
+      // CRITICAL FIX: Do NOT include top-up instructions in the proposal
+      // Top-up transfers from fee wallet require fee wallet signature at execution time
+      // which causes simulation failures. Instead, we'll top-up the vault BEFORE execution.
+      // Store top-up amounts for later use in executeProposal
+      const topUpAmounts = {
+        player1TopUp: Number(player1TopUpBig),
+        player2TopUp: Number(player2TopUpBig),
+        totalTopUp: Number(player1TopUpBig + player2TopUpBig),
+      };
+      
+      if (topUpAmounts.totalTopUp > 0) {
+        enhancedLogger.info('⚠️ Vault balance insufficient - top-up will be done separately before execution', {
+          vaultAddress,
+          vaultPda: vaultPdaKey.toString(),
+          player1TopUp: topUpAmounts.player1TopUp,
+          player2TopUp: topUpAmounts.player2TopUp,
+          totalTopUp: topUpAmounts.totalTopUp,
+          note: 'Top-up instructions NOT included in proposal. Will transfer from fee wallet to vault before execution.',
         });
-        instructions.push(topUpIx);
-      }
-
-      if (player2TopUpBig > BigInt(0)) {
-        const topUpIx = SystemProgram.transfer({
-          fromPubkey: this.config.systemPublicKey,
-          toPubkey: player2Key,
-          lamports: Number(player2TopUpBig),
-        });
-        instructions.push(topUpIx);
       }
 
       if (instructions.length === 0) {
@@ -2778,6 +2781,9 @@ export class SquadsVaultService {
       }
     }
 
+    // CRITICAL FIX: Top-up vault BEFORE execution if needed
+    // Expert recommendation: Do NOT embed fee wallet transfers in proposal
+    // Instead, top-up vault separately before executing proposal
     if (derivedVaultPda) {
       try {
         const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
@@ -2796,37 +2802,182 @@ export class SquadsVaultService {
           transferableBalance: Math.max(0, vaultBalance - rentExemptReserve),
         });
 
-        // Only skip if vault balance is zero AND we can't proceed with top-up from fee wallet
-        // For tie refunds, the proposal creation already validated funds, so allow execution
-        // even if balance is low (proposal will handle top-up from fee wallet if needed)
-        if (vaultBalance === 0) {
-          enhancedLogger.warn('⚠️ Vault balance is zero, but proceeding with execution (proposal may use fee wallet top-up)', {
+        // Calculate required lamports from the vault transaction proposal
+        // We need to check what transfers the proposal requires
+        let requiredLamports = 0;
+        try {
+          const [transactionPda] = getTransactionPda({
+            multisigPda: new PublicKey(vaultAddress),
+            index: BigInt(proposalId),
+            programId: this.programId,
+          });
+          
+          const vaultTx = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda,
+            'confirmed'
+          );
+          
+          // Extract transfer amounts from the transaction message
+          const message = (vaultTx as any).message;
+          if (message) {
+            // The message contains instructions - we need to sum transfers FROM the vault
+            // For versioned messages, we need to parse the instructions differently
+            try {
+              const accountKeys = message.getAccountKeys ? message.getAccountKeys() : null;
+              if (accountKeys && message.compiledInstructions) {
+                for (const ix of message.compiledInstructions) {
+                  const programId = accountKeys.get(ix.programIdIndex);
+                  // Check if this is a SystemProgram transfer
+                  if (programId && programId.equals(SystemProgram.programId)) {
+                    // Parse transfer instruction: 4 bytes instruction discriminator + 8 bytes lamports
+                    if (ix.data && ix.data.length >= 12) {
+                      const lamports = Number(ix.data.readBigUInt64LE(4));
+                      // Check if first account is the vault PDA (transfer FROM vault)
+                      if (ix.accountKeyIndexes && ix.accountKeyIndexes.length > 0) {
+                        const fromAccount = accountKeys.get(ix.accountKeyIndexes[0]);
+                        if (fromAccount && fromAccount.equals(derivedVaultPda)) {
+                          requiredLamports += lamports;
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            } catch (parseError: unknown) {
+              enhancedLogger.warn('⚠️ Could not parse vault transaction instructions', {
+                vaultAddress,
+                proposalId,
+                error: parseError instanceof Error ? parseError.message : String(parseError),
+              });
+            }
+          }
+        } catch (txParseError: unknown) {
+          enhancedLogger.warn('⚠️ Could not fetch vault transaction to determine required amount', {
+            vaultAddress,
+            proposalId,
+            error: txParseError instanceof Error ? txParseError.message : String(txParseError),
+            note: 'Will proceed with execution - simulation will show clear error if balance insufficient',
+          });
+        }
+
+        const transferableBalance = Math.max(0, vaultBalance - rentExemptReserve);
+        const topUpNeeded = Math.max(0, requiredLamports - transferableBalance);
+
+        if (topUpNeeded > 0) {
+          enhancedLogger.info('💰 Top-up needed - transferring from fee wallet to vault BEFORE execution', {
             vaultAddress,
             proposalId,
             vaultPda: derivedVaultPda.toString(),
-            note: 'Tie refund proposals can top up from fee wallet if vault balance is insufficient',
+            currentBalance: vaultBalance,
+            requiredLamports,
+            transferableBalance,
+            topUpNeeded,
+            feeWallet: executor.publicKey.toString(),
+            note: 'Expert recommendation: Top-up separately before execution to avoid signature issues',
           });
-          // Don't return error - allow execution to proceed, proposal creation already validated the refund plan
-        } else if (vaultBalance < rentExemptReserve) {
-          enhancedLogger.warn('⚠️ Vault balance below rent reserve, but proceeding with execution', {
+
+          // Perform top-up transfer from fee wallet to vault
+          const topUpTx = new Transaction().add(
+            SystemProgram.transfer({
+              fromPubkey: executor.publicKey,
+              toPubkey: derivedVaultPda,
+              lamports: topUpNeeded,
+            })
+          );
+          
+          const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+          topUpTx.feePayer = executor.publicKey;
+          topUpTx.recentBlockhash = latestBlockhash.blockhash;
+          topUpTx.sign(executor);
+
+          // Send and confirm top-up transaction
+          const topUpSignature = await this.connection.sendRawTransaction(topUpTx.serialize(), {
+            skipPreflight: false,
+            maxRetries: 3,
+          });
+
+          enhancedLogger.info('📤 Top-up transaction sent, waiting for confirmation', {
             vaultAddress,
             proposalId,
-            vaultPda: derivedVaultPda.toString(),
-            balanceLamports: vaultBalance,
-            rentExemptReserve,
-            note: 'Proposal will handle top-up from fee wallet if needed',
+            topUpSignature,
+            topUpAmount: topUpNeeded,
+            topUpAmountSOL: topUpNeeded / LAMPORTS_PER_SOL,
           });
-          // Don't return error - allow execution to proceed
+
+          // Wait for confirmation with timeout
+          try {
+            const confirmation = await Promise.race([
+              this.connection.confirmTransaction(topUpSignature, 'confirmed'),
+              new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Top-up confirmation timeout')), 30000)
+              ),
+            ]) as any;
+
+            if (confirmation.value?.err) {
+              const errorMsg = `Top-up transaction failed: ${JSON.stringify(confirmation.value.err)}`;
+              enhancedLogger.error('❌ Top-up transaction failed', {
+                vaultAddress,
+                proposalId,
+                topUpSignature,
+                error: confirmation.value.err,
+                logs: confirmation.value.logs,
+              });
+              return {
+                success: false,
+                error: errorMsg,
+                logs: [`Top-up failed: ${JSON.stringify(confirmation.value.err)}`],
+              };
+            }
+
+            enhancedLogger.info('✅ Top-up transaction confirmed, vault balance should now be sufficient', {
+              vaultAddress,
+              proposalId,
+              topUpSignature,
+              topUpAmount: topUpNeeded,
+              slot: confirmation.value?.context?.slot,
+            });
+
+            // Verify vault balance increased
+            const newVaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
+            enhancedLogger.info('🔍 Vault balance after top-up', {
+              vaultAddress,
+              proposalId,
+              vaultPda: derivedVaultPda.toString(),
+              previousBalance: vaultBalance,
+              newBalance: newVaultBalance,
+              topUpAmount: topUpNeeded,
+              balanceIncrease: newVaultBalance - vaultBalance,
+              note: 'If balance did not increase, top-up may have failed or been delayed',
+            });
+          } catch (confirmError: unknown) {
+            enhancedLogger.error('❌ Top-up confirmation failed or timed out', {
+              vaultAddress,
+              proposalId,
+              topUpSignature,
+              error: confirmError instanceof Error ? confirmError.message : String(confirmError),
+              note: 'Will proceed with execution - if balance is still insufficient, simulation will show error',
+            });
+            // Don't block execution - simulation will catch if balance is still insufficient
+          }
+        } else {
+          enhancedLogger.info('✅ Vault balance sufficient, no top-up needed', {
+            vaultAddress,
+            proposalId,
+            vaultBalance,
+            requiredLamports,
+            transferableBalance,
+          });
         }
       } catch (balanceError: unknown) {
-        enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution, proceeding anyway', {
+        enhancedLogger.warn('⚠️ Failed to check/fix vault balance before execution', {
           vaultAddress,
           proposalId,
-          vaultPda: derivedVaultPda.toString(),
+          vaultPda: derivedVaultPda?.toString(),
           error: balanceError instanceof Error ? balanceError.message : String(balanceError),
-          note: 'Proposal creation already validated funds, execution will proceed',
+          note: 'Proceeding with execution - simulation will show clear error if balance insufficient',
         });
-        // Don't block execution on balance check failure - proposal creation already validated
+        // Don't block execution on balance check failure - simulation will catch it
       }
     }
 
@@ -2915,25 +3066,72 @@ export class SquadsVaultService {
         tx = new VersionedTransaction(compiledMessage);
         tx.sign([executor]);
         
-        // Simulate transaction to catch errors early
+        // CRITICAL: Always simulate and capture detailed logs before sending
+        // Expert recommendation: This shows exact failure reasons
         try {
           const simulation = await this.connection.simulateTransaction(tx, {
             replaceRecentBlockhash: true,
             sigVerify: false,
           });
           
+          // Log ALL simulation details for debugging
+          enhancedLogger.info('🔬 Transaction simulation result', {
+            vaultAddress,
+            proposalId,
+            attempt: attempt + 1,
+            maxAttempts,
+            err: simulation.value.err ? JSON.stringify(simulation.value.err, null, 2) : null,
+            unitsConsumed: simulation.value.unitsConsumed,
+            logs: simulation.value.logs || [],
+            logCount: simulation.value.logs?.length || 0,
+            note: 'Full simulation logs captured - check logs array for exact failure reason',
+          });
+          
           if (simulation.value.err) {
-            const simError = JSON.stringify(simulation.value.err);
-            enhancedLogger.error('❌ Transaction simulation failed', {
+            const simError = JSON.stringify(simulation.value.err, null, 2);
+            const errorLogs = simulation.value.logs || [];
+            
+            enhancedLogger.error('❌ Transaction simulation failed - DETAILED ERROR ANALYSIS', {
               vaultAddress,
               proposalId,
+              attempt: attempt + 1,
+              maxAttempts,
               error: simError,
-              logs: simulation.value.logs?.slice(-20),
-              note: 'Simulation failure indicates execution will fail. Will retry with fresh blockhash.',
+              errorType: typeof simulation.value.err === 'object' && simulation.value.err !== null 
+                ? Object.keys(simulation.value.err)[0] 
+                : 'unknown',
+              logs: errorLogs,
+              logCount: errorLogs.length,
+              unitsConsumed: simulation.value.unitsConsumed,
+              note: 'Simulation failure indicates execution will fail. Check logs array for program errors, missing signers, or account issues.',
             });
             
+            // Extract specific error messages from logs
+            const programErrors = errorLogs.filter((log: string) => 
+              log.includes('Program failed') || 
+              log.includes('custom program error') ||
+              log.includes('insufficient funds') ||
+              log.includes('signature') ||
+              log.includes('Account') ||
+              log.includes('Instruction') ||
+              log.includes('Error')
+            );
+            
+            if (programErrors.length > 0) {
+              enhancedLogger.error('🔍 Program errors extracted from simulation logs', {
+                vaultAddress,
+                proposalId,
+                programErrors,
+                programErrorCount: programErrors.length,
+                note: 'These are the specific on-chain errors that caused simulation to fail',
+              });
+            }
+            
             lastErrorMessage = `Simulation error: ${simError}`;
-            lastLogs = simulation.value.logs ?? undefined;
+            if (programErrors.length > 0) {
+              lastErrorMessage += ` | Program errors: ${programErrors.slice(0, 5).join('; ')}`;
+            }
+            lastLogs = errorLogs;
             
             // If simulation fails, retry with fresh blockhash
             if (attempt < maxAttempts - 1) {
@@ -2941,6 +3139,7 @@ export class SquadsVaultService {
                 vaultAddress,
                 proposalId,
                 attempt: attempt + 1,
+                errorSummary: programErrors.slice(0, 3), // First 3 errors
               });
               continue;
             }
@@ -2948,15 +3147,22 @@ export class SquadsVaultService {
             enhancedLogger.info('✅ Transaction simulation succeeded', {
               vaultAddress,
               proposalId,
+              attempt: attempt + 1,
               computeUnitsUsed: simulation.value.unitsConsumed,
+              logCount: simulation.value.logs?.length || 0,
+              note: 'Simulation passed - transaction should execute successfully',
             });
           }
         } catch (simError: unknown) {
-          enhancedLogger.warn('⚠️ Simulation error (will attempt execution anyway)', {
+          enhancedLogger.error('❌ Simulation threw exception (not just failed)', {
             vaultAddress,
             proposalId,
+            attempt: attempt + 1,
             error: simError instanceof Error ? simError.message : String(simError),
+            stack: simError instanceof Error ? simError.stack : undefined,
+            note: 'Simulation exception indicates transaction structure issue - will attempt execution anyway but likely to fail',
           });
+          // Don't continue - let execution attempt proceed to see actual error
         }
 
         // Serialize and send transaction
