@@ -642,6 +642,101 @@ const Game: React.FC = () => {
     return () => clearInterval(pollInterval);
   }, [matchId, gameState, publicKey]);
 
+  // Poll for match completion status continuously (ensures both players redirect)
+  useEffect(() => {
+    if ((gameState !== 'playing' && gameState !== 'waiting') || !matchId || !publicKey) return;
+
+    let isPolling = true;
+    let pollTimeout: NodeJS.Timeout | null = null;
+
+    const pollForMatchCompletion = async () => {
+      if (!isPolling) return;
+
+      try {
+        const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+        const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
+        
+        if (response.ok) {
+          const matchData = await response.json();
+          
+          // Check if both players have results (game is complete)
+          const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+          const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
+          
+          if (isCompleted || bothPlayersHaveResults) {
+            console.log('🏆 Match completed detected via continuous polling:', {
+              isCompleted: matchData.isCompleted,
+              bothPlayersHaveResults,
+              hasPayout: !!matchData.payout,
+              matchData
+            });
+            
+            // Stop polling
+            isPolling = false;
+            if (pollTimeout) {
+              clearTimeout(pollTimeout);
+              pollTimeout = null;
+            }
+            
+            // Create payout data from match data
+            const isPlayer1 = publicKey.toString() === matchData.player1;
+            const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+            const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+            
+            const payoutData = {
+              won: matchData.winner === publicKey.toString(),
+              isTie: matchData.winner === 'tie',
+              winner: matchData.winner,
+              numGuesses: playerResult?.numGuesses || 0,
+              entryFee: matchData.entryFee || 0,
+              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : '0s',
+              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+              opponentGuesses: opponentResult?.numGuesses || 0,
+              winnerAmount: matchData.payout?.winnerAmount || 0,
+              feeAmount: matchData.payout?.feeAmount || 0,
+              refundAmount: matchData.payout?.refundAmount || 0,
+              isWinningTie: matchData.payout?.isWinningTie || false,
+              feeWallet: matchData.payout?.feeWallet || '',
+              transactions: matchData.payout?.transactions || [],
+              automatedPayout: matchData.payout?.paymentSuccess || false,
+              payoutSignature: matchData.payout?.transactions?.[0]?.signature || null,
+              player1Result: matchData.player1Result,
+              player2Result: matchData.player2Result
+            };
+            
+            // Store payout data
+            const safeLocalStorage = typeof window !== 'undefined' ? window.localStorage : null;
+            if (safeLocalStorage) {
+              safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
+            }
+            
+            // Redirect to results page
+            router.push(`/result?matchId=${matchId}`);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Error polling for match completion:', error);
+      }
+      
+      // Continue polling if match not completed
+      if (isPolling) {
+        pollTimeout = setTimeout(pollForMatchCompletion, 2000); // Poll every 2 seconds
+      }
+    };
+    
+    // Start polling after a short delay
+    pollTimeout = setTimeout(pollForMatchCompletion, 2000);
+    
+    return () => {
+      isPolling = false;
+      if (pollTimeout) {
+        clearTimeout(pollTimeout);
+        pollTimeout = null;
+      }
+    };
+  }, [matchId, gameState, publicKey, router]);
+
   // Check for inactivity timeout (5 minutes)
   useEffect(() => {
     const checkTimeout = setInterval(() => {
