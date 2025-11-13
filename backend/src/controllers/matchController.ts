@@ -2630,7 +2630,6 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
           }
-        }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
@@ -2693,10 +2692,9 @@ const submitResultHandler = async (req: any, res: any) => {
                 player1: updatedMatch.player1,
                 player2: updatedMatch.player2,
               });
-              throw new Error('Cannot create tie refund: missing squadsVaultAddress');
-            }
-            
-            // CRITICAL: Create tie refund proposal in background to prevent blocking response
+              // Don't throw - just log error and continue (proposal creation is non-blocking)
+            } else {
+              // CRITICAL: Create tie refund proposal in background to prevent blocking response
             (async () => {
               try {
                 const tiePaymentStatus = {
@@ -2786,10 +2784,11 @@ const submitResultHandler = async (req: any, res: any) => {
             
             (payoutResult as any).paymentInstructions = paymentInstructions;
             (payoutResult as any).paymentSuccess = true;
+            }
           }
         }
         
-                  // Mark match as completed and ensure winner is set
+        // Mark match as completed and ensure winner is set
           // IMPORTANT: Reload match to get latest proposal info before final save
           const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
           if (finalMatch) {
