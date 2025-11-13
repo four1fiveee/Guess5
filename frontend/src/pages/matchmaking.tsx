@@ -657,35 +657,24 @@ const Matchmaking: React.FC = () => {
         setIsPaymentInProgress(false);
         return; // Exit early since we handled the retry case
       }
-
-      if (!multisigAddress) {
-        // Try one quick status fetch to populate vault
-        console.warn('⚠️ Multisig address missing while deposit address present', { matchId: matchData.matchId });
-      }
-
-      console.log('📍 Resolved vault addresses', {
-        matchId: matchData.matchId,
-        multisigAddress,
-        depositAddress,
-      });
       
-      // Create transaction to send SOL to vault
+      // Create transaction with addresses (works for both initial and retry cases)
       const transaction = new Transaction().add(
         SystemProgram.transfer({
           fromPubkey: publicKey,
-          toPubkey: new PublicKey(depositAddress),
+          toPubkey: new PublicKey(depositAddressToUse),
           lamports: requiredAmount,
         })
       );
-
-      // Get recent blockhash - use getLatestBlockhash for better reliability
+      
+      // Get recent blockhash
       const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash('finalized');
       transaction.recentBlockhash = blockhash;
       transaction.feePayer = publicKey;
 
       let signature: string;
       
-      // Try using sendTransaction if available (handles wallet submission properly)
+      // Try using sendTransaction if available
       if (hasSendTransaction) {
         console.log('📤 Sending transaction via wallet adapter...');
         signature = await sendTransaction!(transaction, connection, {
@@ -694,8 +683,6 @@ const Matchmaking: React.FC = () => {
         });
         console.log('✅ Transaction sent with signature:', signature);
         
-        // Wait for confirmation using the lastValidBlockHeight
-        console.log('⏳ Waiting for transaction confirmation...');
         await connection.confirmTransaction({
           blockhash,
           lastValidBlockHeight,
