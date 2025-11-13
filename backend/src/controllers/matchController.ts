@@ -10817,4 +10817,3 @@ module.exports = {
   checkPendingClaimsHandler,
   voidMatchHandler,
 };
-};
