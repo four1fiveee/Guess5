@@ -373,23 +373,50 @@ const Result: React.FC = () => {
   }, [publicKey, router]);
 
   // Poll for proposal updates when polling is active
+  // Expert recommendation: More aggressive polling when game is active
   useEffect(() => {
     if (!isPolling || !router.query.matchId || !publicKey) {
       return;
     }
-
-    console.log('🔄 Starting proposal polling...', {
+    
+    // Expert recommendation: Poll every 1s for first 10s, then 2s
+    console.log('🔄 Starting proposal polling (aggressive: 1s for 10s, then 2s)...', {
       matchId: router.query.matchId,
       hasProposalId: !!payoutData?.proposalId,
     });
 
+    let pollCount = 0;
+    const maxAggressivePolls = 10;
+    
     const pollInterval = setInterval(() => {
+      pollCount++;
+      const isAggressive = pollCount <= maxAggressivePolls;
+      const currentInterval = isAggressive ? 1000 : 2000;
+      
       console.log('🔄 Polling for proposal updates...', {
         matchId: router.query.matchId,
         hasProposalId: !!payoutData?.proposalId,
+        pollCount,
+        interval: currentInterval,
+        isAggressive,
       });
+      
       loadPayoutData();
-    }, 2000); // Poll every 2 seconds (faster to catch proposal creation)
+      
+      // After 10 aggressive polls, switch to normal interval
+      if (pollCount === maxAggressivePolls) {
+        clearInterval(pollInterval);
+        const normalPollInterval = setInterval(() => {
+          loadPayoutData();
+        }, 2000);
+        
+        // Store in ref for cleanup
+        refreshIntervalRef.current = normalPollInterval;
+      }
+    }, 1000); // Start with 1 second intervals
+    
+    // Store initial interval in ref for cleanup
+    refreshIntervalRef.current = pollInterval;
 
     return () => {
       console.log('🛑 Stopping proposal polling');
@@ -679,6 +706,24 @@ const Result: React.FC = () => {
             };
             
             setPayoutData(updatedPayoutData);
+            
+            // CRITICAL: Start aggressive polling after signing (expert recommendation)
+            console.log('🚀 Starting aggressive polling (1s interval) for 10 seconds after signing...');
+            let aggressivePollCount = 0;
+            const aggressiveInterval = setInterval(() => {
+              aggressivePollCount++;
+              if (aggressivePollCount >= 10) {
+                clearInterval(aggressiveInterval);
+                console.log('✅ Aggressive polling complete, returning to normal polling');
+              } else {
+                loadPayoutData();
+              }
+            }, 1000); // 1 second intervals for first 10 seconds
+            
+            // Fallback: stop aggressive polling after 10 seconds
+            setTimeout(() => {
+              clearInterval(aggressiveInterval);
+            }, 10000);
           }
         } else {
           console.warn('⚠️ Failed to refresh status after signing (non-critical)', {

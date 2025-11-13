@@ -10402,20 +10402,54 @@ const signProposalHandler = async (req: any, res: any) => {
             executionSignature: matchRow.proposalTransactionId,
           });
         } else {
-          // Mark execution as started (idempotent flag - expert recommendation)
+          // CRITICAL: Atomic execution enqueue (expert recommendation)
+          // Use atomic update to ensure only one execution is enqueued
           try {
-            await matchRepository.query(`
+            const updated = await matchRepository.query(`
               UPDATE "match"
               SET "proposalStatus" = 'EXECUTING'
-              WHERE id = $1 AND "proposalExecutedAt" IS NULL
+              WHERE id = $1 
+                AND "proposalExecutedAt" IS NULL 
+                AND "proposalStatus" != 'EXECUTING'
+              RETURNING id
             `, [matchId]);
+            
+            if (updated.length === 0) {
+              console.log('⚠️ Execution already enqueued or executed (atomic check)', {
+                matchId,
+                proposalId: proposalIdString,
+                currentStatus: matchRow.proposalStatus,
+                executedAt: matchRow.proposalExecutedAt,
+              });
+              // Execution already in progress or completed, skip
+              return;
+            }
+            
+            console.log('✅ Execution enqueued atomically', {
+              matchId,
+              proposalId: proposalIdString,
+            });
           } catch (markError: any) {
-            console.warn('⚠️ Could not mark execution as started (may already be executing)', {
+            console.warn('⚠️ Could not atomically enqueue execution', {
               matchId,
               proposalId: proposalIdString,
               error: markError?.message || String(markError),
             });
+            // If atomic update fails, don't proceed with execution to avoid duplicates
+            return;
           }
+          
+          // CRITICAL: Log pre-execution check (expert recommendation)
+          console.log('🔍 Pre-execution check (expert recommendation):', {
+            matchId,
+            proposalId: proposalIdString,
+            dbSignerCount: uniqueSigners.length,
+            onChainSignerCount,
+            dbNeedsSignatures: currentNeedsSignatures,
+            newNeedsSignatures,
+            finalSigners: finalSigners.map(s => s.toString()),
+            source: onChainNeedsSignatures !== undefined ? 'on-chain' : 'database',
+          });
           
           console.log('⚙️ All required signatures collected; will execute proposal in background', {
             matchId,

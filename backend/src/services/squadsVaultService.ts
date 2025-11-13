@@ -2504,7 +2504,7 @@ export class SquadsVaultService {
         programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
       });
 
-      enhancedLogger.info('📝 Proposal approval transaction sent', {
+      enhancedLogger.info('📝 Fee wallet approve sig (expert recommendation)', {
         vaultAddress,
         proposalId,
         signer: signer.publicKey.toString(),
