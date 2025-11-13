@@ -475,6 +475,9 @@ const Matchmaking: React.FC = () => {
 
       const { multisigAddress, depositAddress } = await resolveVaultAddresses();
 
+      let depositAddressToUse: string;
+      let multisigAddressToUse: string | null;
+
       if (!depositAddress) {
         // Retry resolving vault addresses one more time with a short delay
         console.log('⚠️ Vault deposit address not found, retrying after short delay...');
@@ -492,18 +495,19 @@ const Matchmaking: React.FC = () => {
           vaultPda: retryResult.depositAddress ?? prev?.vaultPda ?? null,
         }));
         // Use retried addresses
-        const finalDepositAddress = retryResult.depositAddress;
-        const finalMultisigAddress = retryResult.multisigAddress;
+        depositAddressToUse = retryResult.depositAddress;
+        multisigAddressToUse = retryResult.multisigAddress;
         
-        if (!finalDepositAddress) {
+        if (!depositAddressToUse) {
           throw new Error('Vault deposit address still not found after retry. Please refresh the page.');
         }
-        
-        // Continue with final addresses
-        const depositAddressToUse = finalDepositAddress;
-        const multisigAddressToUse = finalMultisigAddress;
-        
-        // Create transaction with final addresses
+      } else {
+        // Use the addresses we found initially
+        depositAddressToUse = depositAddress;
+        multisigAddressToUse = multisigAddress;
+      }
+      
+      // Create transaction with addresses (works for both initial and retry cases)
         const transaction = new Transaction().add(
           SystemProgram.transfer({
             fromPubkey: publicKey,
