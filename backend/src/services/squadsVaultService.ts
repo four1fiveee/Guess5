@@ -2842,64 +2842,29 @@ export class SquadsVaultService {
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let tx: VersionedTransaction | null = null;
       try {
-        // Calculate priority fee based on attempt number (exponential backoff for fees)
-        // First attempt: 20000 microLamports, subsequent attempts: higher fees
-        // This is done early so it's available throughout the attempt
-        const basePriorityFee = 20000; // 0.00002 SOL base fee
-        const priorityFeeMultiplier = Math.min(1 + (attempt * 0.5), 2.5); // Up to 2.5x for later attempts
+        // CRITICAL FIX: Calculate priority fee and build transaction ONCE with fee included
+        // Multiple rebuilds were corrupting the transaction structure
+        // Increased base fee for devnet reliability
+        const basePriorityFee = 50000; // 0.00005 SOL base fee (increased for devnet)
+        const priorityFeeMultiplier = Math.min(1 + (attempt * 0.3), 2.0); // Up to 2x for later attempts
         const priorityFeeMicroLamports = Math.round(basePriorityFee * priorityFeeMultiplier);
         
-        // CRITICAL: Check current block height BEFORE fetching blockhash
-        // This ensures we're aware of network state and can detect if previous blockhash expired
-        const currentBlockHeight = await this.connection.getBlockHeight('confirmed');
+        // Get fresh blockhash immediately before building
+        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
         
-        // Get fresh blockhash right before building transaction to minimize expiration risk
-        // According to Solana best practices, blockhashes expire after ~150 blocks (~60 seconds)
-        // Getting it right before use ensures maximum validity window
-        let latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        
-        // Calculate remaining blocks before expiration
-        const blocksUntilExpiration = latestBlockhash.lastValidBlockHeight - currentBlockHeight;
-        const estimatedSecondsUntilExpiration = blocksUntilExpiration * 0.4; // ~0.4 seconds per block
-        
-        enhancedLogger.info('📊 Blockhash validity check before execution attempt', {
+        enhancedLogger.info('🔨 Building execution transaction with priority fee', {
           vaultAddress,
           proposalId,
           attempt: attempt + 1,
-          currentBlockHeight,
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          blocksUntilExpiration,
-          estimatedSecondsUntilExpiration: Math.round(estimatedSecondsUntilExpiration),
           blockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
           priorityFeeMicroLamports,
           priorityFeeSOL: priorityFeeMicroLamports / 1_000_000,
-          note: 'Monitoring block height to prevent expiration during execution',
+          note: 'Building transaction ONCE with priority fee included to prevent structure corruption',
         });
         
-        // If blockhash is about to expire (less than 30 blocks remaining), wait briefly for a fresher one
-        if (blocksUntilExpiration < 30) {
-          enhancedLogger.warn('⚠️ Blockhash has limited validity remaining, waiting briefly for fresher blockhash', {
-            vaultAddress,
-            proposalId,
-            blocksUntilExpiration,
-            estimatedSecondsUntilExpiration: Math.round(estimatedSecondsUntilExpiration),
-            note: 'Waiting 2 seconds to get a fresher blockhash with more validity window',
-          });
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          // Fetch a fresh blockhash after waiting
-          latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        }
-        
-        enhancedLogger.info('🔨 Building execution transaction with fresh blockhash', {
-          vaultAddress,
-          proposalId,
-          attempt: attempt + 1,
-          blockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          note: 'Using fresh blockhash to minimize expiration risk',
-        });
-        
-        tx = await transactions.vaultTransactionExecute({
+        // Build base execution transaction
+        const baseTx = await transactions.vaultTransactionExecute({
           connection: this.connection,
           blockhash: latestBlockhash.blockhash,
           feePayer: executor.publicKey,
@@ -2909,11 +2874,48 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
+        // Add priority fee BEFORE signing to ensure it's part of the transaction structure
+        const message = baseTx.message;
+        const accountKeys = message.getAccountKeys();
+        const totalAccounts = accountKeys.length;
+        const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
+        
+        // Extract existing instructions
+        const existingInstructions = message.compiledInstructions.map((ix: any) => {
+          const programId = accountKeys.get(ix.programIdIndex);
+          const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
+            const pubkey = accountKeys.get(keyIndex);
+            const isSigner = keyIndex < numRequiredSignatures;
+            const isWritable = keyIndex < numRequiredSignatures || 
+                              (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
+                               keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
+            return { pubkey, isSigner, isWritable };
+          });
+          return new TransactionInstruction({
+            programId,
+            keys,
+            data: Buffer.from(ix.data),
+          });
+        });
+        
+        // Add priority fee instruction at the beginning
+        const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
+          microLamports: priorityFeeMicroLamports,
+        });
+        const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
+        
+        // Build final transaction message with priority fee
+        const transactionMessage = new TransactionMessage({
+          payerKey: executor.publicKey,
+          recentBlockhash: latestBlockhash.blockhash,
+          instructions: instructionsWithPriorityFee,
+        });
+        
+        const compiledMessage = transactionMessage.compileToV0Message();
+        tx = new VersionedTransaction(compiledMessage);
         tx.sign([executor]);
         
-        // Simulate transaction BEFORE getting final blockhash to minimize time between blockhash fetch and send
-        // Simulation uses replaceRecentBlockhash: true, so it doesn't need a fresh blockhash
-        // This optimization reduces the risk of blockhash expiration during the send process
+        // Simulate transaction to catch errors early
         try {
           const simulation = await this.connection.simulateTransaction(tx, {
             replaceRecentBlockhash: true,
@@ -2922,270 +2924,54 @@ export class SquadsVaultService {
           
           if (simulation.value.err) {
             const simError = JSON.stringify(simulation.value.err);
-            enhancedLogger.error('❌ Transaction simulation failed before execution', {
+            enhancedLogger.error('❌ Transaction simulation failed', {
               vaultAddress,
               proposalId,
               error: simError,
               logs: simulation.value.logs?.slice(-20),
-              proposalIsExecuteReady,
-              vaultTransactionIsExecuteReady,
-              note: 'This indicates the execution will fail. However, we will still attempt execution to get the actual on-chain error.',
+              note: 'Simulation failure indicates execution will fail. Will retry with fresh blockhash.',
             });
             
-            // Store simulation error but continue with execution attempt
-            // The actual on-chain execution will provide more detailed error information
             lastErrorMessage = `Simulation error: ${simError}`;
             lastLogs = simulation.value.logs ?? undefined;
             
-            // Continue with execution attempt even if simulation fails
-            // Sometimes simulation fails but execution succeeds, or execution provides better error details
+            // If simulation fails, retry with fresh blockhash
+            if (attempt < maxAttempts - 1) {
+              enhancedLogger.info('🔄 Retrying with fresh blockhash after simulation failure', {
+                vaultAddress,
+                proposalId,
+                attempt: attempt + 1,
+              });
+              continue;
+            }
           } else {
             enhancedLogger.info('✅ Transaction simulation succeeded', {
               vaultAddress,
               proposalId,
               computeUnitsUsed: simulation.value.unitsConsumed,
-              logs: simulation.value.logs?.slice(-5),
             });
           }
         } catch (simError: unknown) {
-          enhancedLogger.warn('⚠️ Failed to simulate transaction (continuing with execution attempt)', {
+          enhancedLogger.warn('⚠️ Simulation error (will attempt execution anyway)', {
             vaultAddress,
             proposalId,
             error: simError instanceof Error ? simError.message : String(simError),
           });
         }
-        
-        // CRITICAL: Check block height again before sending to ensure blockhash hasn't expired
-        const currentBlockHeightBeforeSend = await this.connection.getBlockHeight('confirmed');
-        const blocksRemainingBeforeSend = latestBlockhash.lastValidBlockHeight - currentBlockHeightBeforeSend;
-        
-        // If blockhash is about to expire (less than 20 blocks remaining), fetch a fresh one
-        if (blocksRemainingBeforeSend < 20) {
-          enhancedLogger.warn('⚠️ Blockhash expiring soon, fetching fresh blockhash before send', {
-            vaultAddress,
-            proposalId,
-            blocksRemaining: blocksRemainingBeforeSend,
-            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            currentBlockHeight: currentBlockHeightBeforeSend,
-            note: 'Fetching fresh blockhash to prevent expiration during send',
-          });
-          // Fetch fresh blockhash and rebuild transaction
-          const freshBlockhash = await this.connection.getLatestBlockhash('confirmed');
-          tx = await transactions.vaultTransactionExecute({
-            connection: this.connection,
-            blockhash: freshBlockhash.blockhash,
-            feePayer: executor.publicKey,
-            multisigPda: multisigAddress,
-            transactionIndex,
-            member: executor.publicKey,
-            programId: this.programId,
-          });
-          tx.sign([executor]);
-          
-          // Re-add priority fee with fresh blockhash
-          try {
-            const message = tx.message;
-            const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-              microLamports: priorityFeeMicroLamports,
-            });
-            const accountKeys = message.getAccountKeys();
-            const totalAccounts = accountKeys.length;
-            const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
-            const existingInstructions = message.compiledInstructions.map((ix: any) => {
-              const programId = accountKeys.get(ix.programIdIndex);
-              const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
-                const pubkey = accountKeys.get(keyIndex);
-                const isSigner = keyIndex < numRequiredSignatures;
-                const isWritable = keyIndex < numRequiredSignatures || 
-                                  (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
-                                   keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
-                return { pubkey, isSigner, isWritable };
-              });
-              return new TransactionInstruction({ programId, keys, data: Buffer.from(ix.data) });
-            });
-            const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
-            const transactionMessage = new TransactionMessage({
-              payerKey: executor.publicKey,
-              recentBlockhash: freshBlockhash.blockhash,
-              instructions: instructionsWithPriorityFee,
-            });
-            const compiledMessage = transactionMessage.compileToV0Message();
-            tx = new VersionedTransaction(compiledMessage);
-            tx.sign([executor]);
-            latestBlockhash = {
-              blockhash: freshBlockhash.blockhash,
-              lastValidBlockHeight: freshBlockhash.lastValidBlockHeight,
-            };
-          } catch (priorityFeeError: unknown) {
-            enhancedLogger.warn('⚠️ Failed to add priority fee to rebuilt transaction', {
-              vaultAddress,
-              proposalId,
-              error: priorityFeeError instanceof Error ? priorityFeeError.message : String(priorityFeeError),
-            });
-          }
-        }
-        
-        // Get final fresh blockhash IMMEDIATELY before sending to ensure maximum validity
-        // This minimizes the time window between blockhash fetch and transaction send
-        // According to Solana best practices, blockhashes expire after ~150 blocks (~60 seconds)
-        // Getting it right before send ensures we have the maximum validity window
-        const sendBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        
-        // If blockhash changed, rebuild transaction with fresh blockhash
-        // This ensures the transaction uses the most recent blockhash for maximum validity
-        if (sendBlockhash.blockhash !== latestBlockhash.blockhash) {
-          enhancedLogger.info('🔄 Blockhash changed after simulation - updating transaction with fresh blockhash', {
-            vaultAddress,
-            proposalId,
-            oldBlockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
-            newBlockhash: sendBlockhash.blockhash.substring(0, 8) + '...',
-            note: 'Updating transaction with latest blockhash immediately before send to prevent expiration',
-          });
-          
-          // Rebuild transaction with fresh blockhash
-          tx = await transactions.vaultTransactionExecute({
-            connection: this.connection,
-            blockhash: sendBlockhash.blockhash,
-            feePayer: executor.publicKey,
-            multisigPda: multisigAddress,
-            transactionIndex,
-            member: executor.publicKey,
-            programId: this.programId,
-          });
-          tx.sign([executor]);
-          
-          // Re-add priority fee to rebuilt transaction
-          try {
-            const message = tx.message;
-            const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-              microLamports: priorityFeeMicroLamports,
-            });
-            const accountKeys = message.getAccountKeys();
-            const totalAccounts = accountKeys.length;
-            const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
-            const existingInstructions = message.compiledInstructions.map((ix: any) => {
-              const programId = accountKeys.get(ix.programIdIndex);
-              const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
-                const pubkey = accountKeys.get(keyIndex);
-                const isSigner = keyIndex < numRequiredSignatures;
-                const isWritable = keyIndex < numRequiredSignatures || 
-                                  (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
-                                   keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
-                return { pubkey, isSigner, isWritable };
-              });
-              return new TransactionInstruction({ programId, keys, data: Buffer.from(ix.data) });
-            });
-            const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
-            const transactionMessage = new TransactionMessage({
-              payerKey: executor.publicKey,
-              recentBlockhash: sendBlockhash.blockhash,
-              instructions: instructionsWithPriorityFee,
-            });
-            const compiledMessage = transactionMessage.compileToV0Message();
-            tx = new VersionedTransaction(compiledMessage);
-            tx.sign([executor]);
-          } catch (priorityFeeError: unknown) {
-            enhancedLogger.warn('⚠️ Failed to add priority fee to rebuilt transaction', {
-              vaultAddress,
-              proposalId,
-              error: priorityFeeError instanceof Error ? priorityFeeError.message : String(priorityFeeError),
-            });
-          }
-          
-          // Use the newer blockhash for confirmation (create new object since properties are read-only)
-          latestBlockhash = {
-            blockhash: sendBlockhash.blockhash,
-            lastValidBlockHeight: sendBlockhash.lastValidBlockHeight,
-          };
-        }
 
-        // Add priority fee to improve transaction inclusion speed
-        // Increased priority fee (20000 microLamports base = 0.00002 SOL) for better inclusion during congestion
-        // Research shows higher priority fees significantly improve inclusion rate and reduce expiration risk
-        // This is critical for preventing blockhash expiration during confirmation
-        // Priority fee is calculated at the start of the loop attempt
-        try {
-          const message = tx.message;
-          const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-            microLamports: priorityFeeMicroLamports,
-          });
-          
-          // Rebuild transaction with priority fee instruction added
-          // Extract existing instructions and add priority fee at the beginning
-          const accountKeys = message.getAccountKeys();
-          const totalAccounts = accountKeys.length;
-          const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
-          
-          const existingInstructions = message.compiledInstructions.map((ix: any) => {
-            const programId = accountKeys.get(ix.programIdIndex);
-            const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
-              const pubkey = accountKeys.get(keyIndex);
-              // Determine if account is a signer (first numRequiredSignatures accounts)
-              const isSigner = keyIndex < numRequiredSignatures;
-              // Determine if account is writable:
-              // - Writable signers: keyIndex < numRequiredSignatures
-              // - Writable non-signers: keyIndex >= numRequiredSignatures + numReadonlySignedAccounts AND keyIndex < (totalAccounts - numReadonlyUnsignedAccounts)
-              const isWritable = keyIndex < numRequiredSignatures || 
-                                (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
-                                 keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
-              return {
-                pubkey,
-                isSigner,
-                isWritable,
-              };
-            });
-            return new TransactionInstruction({
-              programId,
-              keys,
-              data: Buffer.from(ix.data),
-            });
-          });
-          
-          // Add priority fee instruction at the beginning
-          const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
-          
-          // Rebuild transaction message with priority fee
-          const transactionMessage = new TransactionMessage({
-            payerKey: executor.publicKey,
-            recentBlockhash: latestBlockhash.blockhash,
-            instructions: instructionsWithPriorityFee,
-          });
-          
-          const compiledMessage = transactionMessage.compileToV0Message();
-          tx = new VersionedTransaction(compiledMessage);
-          tx.sign([executor]);
-          
-          enhancedLogger.info('💰 Added priority fee to execution transaction', {
-            vaultAddress,
-            proposalId,
-            attempt: attempt + 1,
-            priorityFeeMicroLamports: priorityFeeMicroLamports,
-            priorityFeeSOL: priorityFeeMicroLamports / 1_000_000,
-            multiplier: priorityFeeMultiplier.toFixed(2),
-            note: 'Priority fee improves transaction inclusion speed and reduces blockhash expiration risk. Higher fees on retries.',
-          });
-        } catch (priorityFeeError: unknown) {
-          enhancedLogger.warn('⚠️ Failed to add priority fee (continuing without it)', {
-            vaultAddress,
-            proposalId,
-            error: priorityFeeError instanceof Error ? priorityFeeError.message : String(priorityFeeError),
-            note: 'Transaction will be sent without priority fee - may have slower inclusion',
-          });
-          // Continue with original transaction if priority fee addition fails
-        }
-
-        // Serialize and send immediately after getting final blockhash
-        // This minimizes the time between blockhash fetch and transaction submission
+        // Serialize and send transaction
+        // CRITICAL FIX: Use preflight validation instead of skipPreflight
+        // Preflight catches errors before submission and provides better error messages
         const rawTx = tx.serialize();
         let signature: string;
         
         try {
-          // Skip preflight since we already simulated manually
-          // Preflight can fail even when simulation succeeds due to timing/state differences
-          // Increased maxRetries for better reliability during network congestion
+          // Use preflight to validate transaction before sending
+          // This catches errors early and provides better diagnostics
           signature = await this.connection.sendRawTransaction(rawTx, {
-            skipPreflight: true,
-            maxRetries: 5, // Increased from 3 to 5 for better reliability
+            skipPreflight: false, // Enable preflight for better error detection
+            preflightCommitment: 'confirmed',
+            maxRetries: 3, // Standard retries since we're using preflight
           });
         } catch (sendError: unknown) {
           // Handle SendTransactionError specifically to extract logs
