@@ -2866,40 +2866,9 @@ export class SquadsVaultService {
 
         tx.sign([executor]);
         
-        // Get another fresh blockhash right before sending to ensure maximum validity
-        // This is critical for avoiding "block height exceeded" errors
-        const sendBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        
-        // If blockhash changed, update transaction with new blockhash
-        if (sendBlockhash.blockhash !== latestBlockhash.blockhash) {
-          enhancedLogger.info('🔄 Blockhash changed between build and send - updating transaction', {
-            vaultAddress,
-            proposalId,
-            oldBlockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
-            newBlockhash: sendBlockhash.blockhash.substring(0, 8) + '...',
-            note: 'Updating transaction with latest blockhash to prevent expiration',
-          });
-          
-          // Rebuild transaction with fresh blockhash
-          tx = await transactions.vaultTransactionExecute({
-            connection: this.connection,
-            blockhash: sendBlockhash.blockhash,
-            feePayer: executor.publicKey,
-            multisigPda: multisigAddress,
-            transactionIndex,
-            member: executor.publicKey,
-            programId: this.programId,
-          });
-          tx.sign([executor]);
-          
-          // Use the newer blockhash for confirmation (create new object since properties are read-only)
-          latestBlockhash = {
-            blockhash: sendBlockhash.blockhash,
-            lastValidBlockHeight: sendBlockhash.lastValidBlockHeight,
-          };
-        }
-
-        // Simulate transaction before sending to get detailed error information
+        // Simulate transaction BEFORE getting final blockhash to minimize time between blockhash fetch and send
+        // Simulation uses replaceRecentBlockhash: true, so it doesn't need a fresh blockhash
+        // This optimization reduces the risk of blockhash expiration during the send process
         try {
           const simulation = await this.connection.simulateTransaction(tx, {
             replaceRecentBlockhash: true,
@@ -2940,7 +2909,45 @@ export class SquadsVaultService {
             error: simError instanceof Error ? simError.message : String(simError),
           });
         }
+        
+        // Get final fresh blockhash IMMEDIATELY before sending to ensure maximum validity
+        // This minimizes the time window between blockhash fetch and transaction send
+        // According to Solana best practices, blockhashes expire after ~150 blocks (~60 seconds)
+        // Getting it right before send ensures we have the maximum validity window
+        const sendBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        
+        // If blockhash changed, rebuild transaction with fresh blockhash
+        // This ensures the transaction uses the most recent blockhash for maximum validity
+        if (sendBlockhash.blockhash !== latestBlockhash.blockhash) {
+          enhancedLogger.info('🔄 Blockhash changed after simulation - updating transaction with fresh blockhash', {
+            vaultAddress,
+            proposalId,
+            oldBlockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
+            newBlockhash: sendBlockhash.blockhash.substring(0, 8) + '...',
+            note: 'Updating transaction with latest blockhash immediately before send to prevent expiration',
+          });
+          
+          // Rebuild transaction with fresh blockhash
+          tx = await transactions.vaultTransactionExecute({
+            connection: this.connection,
+            blockhash: sendBlockhash.blockhash,
+            feePayer: executor.publicKey,
+            multisigPda: multisigAddress,
+            transactionIndex,
+            member: executor.publicKey,
+            programId: this.programId,
+          });
+          tx.sign([executor]);
+          
+          // Use the newer blockhash for confirmation (create new object since properties are read-only)
+          latestBlockhash = {
+            blockhash: sendBlockhash.blockhash,
+            lastValidBlockHeight: sendBlockhash.lastValidBlockHeight,
+          };
+        }
 
+        // Serialize and send immediately after getting final blockhash
+        // This minimizes the time between blockhash fetch and transaction submission
         const rawTx = tx.serialize();
         let signature: string;
         
