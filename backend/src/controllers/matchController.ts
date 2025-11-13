@@ -9287,6 +9287,15 @@ const voidMatchHandler = async (req: any, res: any) => {
 
 // Get approval transaction to sign (for frontend)
 const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
+  // Set CORS headers explicitly to ensure they're always present
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
+  const originToUse = corsOrigin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   try {
     const { matchId, wallet } = req.query;
     const { getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
