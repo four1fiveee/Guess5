@@ -4315,25 +4315,33 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 });
               });
             }
-          } else {
-            console.error('❌ Failed to execute proposal (fallback)', {
-              matchId: match.id,
-              proposalId: proposalIdString,
-              error: executeResult.error,
-              proposalSigners: finalProposalSigners,
-              feeWalletAutoApproved: autoApproved,
-              logs: executeResult.logs?.slice(-5),
-            });
-          }
+              } else {
+                console.error('❌ Failed to execute proposal (fallback)', {
+                  matchId: match.id,
+                  proposalId: proposalIdString,
+                  error: executeResult.error,
+                  proposalSigners: finalProposalSigners,
+                  feeWalletAutoApproved: autoApproved,
+                  logs: executeResult.logs?.slice(-5),
+                });
+              }
+            } catch (executeError: any) {
+              console.error('❌ Error executing proposal in background', {
+                matchId: match.id,
+                proposalId: proposalIdString,
+                error: executeError?.message || String(executeError),
+              });
+            }
+          })();
         } catch (executeError: any) {
-          if (executeError?.message?.includes('timeout')) {
-            // If timeout, continue in background
-            console.warn('⚠️ Execution timed out, continuing in background', {
-              matchId: match.id,
-              proposalId: proposalIdString,
-            });
-            // Continue execution in background
-            squadsVaultService.executeProposal(
+          // If there's an error starting the background execution, log it but don't block
+          console.error('❌ Error starting background execution', {
+            matchId: match.id,
+            proposalId: proposalIdString,
+            error: executeError?.message || String(executeError),
+          });
+          // Continue execution in background as fallback
+          squadsVaultService.executeProposal(
               (match as any).squadsVaultAddress,
               proposalIdString,
               feeWalletKeypair,
