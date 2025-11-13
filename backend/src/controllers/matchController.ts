@@ -4048,12 +4048,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
   }
 
-  // CRITICAL: Execute proposals that are READY_TO_EXECUTE but haven't been executed yet
+  // CRITICAL: Move all execution logic to background to prevent blocking the status response
+  // Execute proposals that are READY_TO_EXECUTE but haven't been executed yet
   // This is a fallback in case execution failed during signProposalHandler
+  // Run in background - don't await, return response immediately
   if ((match as any).proposalStatus === 'READY_TO_EXECUTE' && 
       ((match as any).payoutProposalId || (match as any).tieRefundProposalId) &&
       (match as any).squadsVaultAddress &&
       !(match as any).proposalExecutedAt) {
+    // Execute in background - don't block the response
+    (async () => {
     console.log('🚀 Found READY_TO_EXECUTE proposal - executing now (fallback)', {
       matchId: match.id,
       payoutProposalId: (match as any).payoutProposalId,
@@ -4384,6 +4388,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       });
       // Don't fail the request - just log the error
     }
+    })(); // End background execution IIFE
   }
 
     applyNoCacheHeaders();
