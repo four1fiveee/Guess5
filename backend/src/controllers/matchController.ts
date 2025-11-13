@@ -9276,6 +9276,13 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     if (responseSent) return;
     responseSent = true;
     if (timeoutId) clearTimeout(timeoutId);
+    // CRITICAL: Always set CORS headers before sending response
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
     res.status(status).json(data);
   };
   
