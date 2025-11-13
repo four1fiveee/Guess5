@@ -254,10 +254,15 @@ const Result: React.FC = () => {
             // CRITICAL: Always stop loading even if proposal doesn't exist yet
             // This prevents the spinning wheel from blocking the UI
             // Stop polling if both players have results (game is complete)
+            // CRITICAL: If proposalId is missing, we MUST continue polling until it appears
             const keepPolling = bothPlayersHaveResults ? false : shouldContinuePolling(payoutData);
             setIsPolling(keepPolling);
             if (!keepPolling) {
               stopRefreshLoops();
+            } else if (!payoutData.proposalId) {
+              // CRITICAL: If no proposalId yet, ensure polling is active
+              // This ensures both players see the signing button as soon as proposal is created
+              setIsPolling(true);
             }
             return;
           } else {
@@ -321,6 +326,10 @@ const Result: React.FC = () => {
         setIsPolling(keepPolling);
         if (!keepPolling) {
           stopRefreshLoops();
+        } else if (!data.proposalId) {
+          // CRITICAL: If no proposalId yet, ensure polling is active
+          // This ensures both players see the signing button as soon as proposal is created
+          setIsPolling(true);
         }
         return;
       } catch (error) {
@@ -343,8 +352,15 @@ const Result: React.FC = () => {
       setError('Failed to load game results');
     }
     setLoading(false);
-    setIsPolling(false);
-    stopRefreshLoops();
+    // CRITICAL: If we have a matchId but no proposalId, we MUST continue polling
+    // This ensures both players see the signing button as soon as proposal is created
+    if (matchId) {
+      // Start polling to wait for proposal creation
+      setIsPolling(true);
+    } else {
+      setIsPolling(false);
+      stopRefreshLoops();
+    }
   };
 
   useEffect(() => {
