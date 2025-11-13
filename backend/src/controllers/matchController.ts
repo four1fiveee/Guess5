@@ -3231,11 +3231,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   // Set CORS headers explicitly to ensure they're always present
   const requestOrigin = req.headers.origin;
   const corsOrigin = resolveCorsOrigin(requestOrigin);
-  if (corsOrigin) {
-    res.header('Access-Control-Allow-Origin', corsOrigin);
-    res.header('Vary', 'Origin');
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
+  // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
+  const originToUse = corsOrigin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
   
   try {
     const { matchId } = req.params;
@@ -4449,6 +4449,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
   } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
+    // Ensure CORS headers are set even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
     applyNoCacheHeaders();
     res.status(500).json({ error: 'Internal server error' });
   }

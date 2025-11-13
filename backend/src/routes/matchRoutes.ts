@@ -62,6 +62,19 @@ router.get('/sol-price',
 );
 
 // Less critical endpoints (still rate limited but no ReCaptcha for testing)
+// OPTIONS handler for status endpoint to handle CORS preflight
+router.options('/status/:matchId', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
 router.get('/status/:matchId', 
   // Removed rate limiting for match status - ReCaptcha provides sufficient protection
   asyncHandlerWrapper(matchController.getMatchStatusHandler)
