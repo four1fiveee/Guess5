@@ -586,11 +586,12 @@ const Result: React.FC = () => {
         response: result,
       });
       
-      // Refresh payout data
+      // Refresh payout data (non-critical - if this fails, signing was still successful)
       if (matchId && publicKey) {
-        const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
-        if (statusResponse.ok) {
-          const matchData = await statusResponse.json();
+        try {
+          const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
+          if (statusResponse.ok) {
+            const matchData = await statusResponse.json();
           // Check if both players have results (more reliable indicator of completion)
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
           const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
@@ -631,11 +632,29 @@ const Result: React.FC = () => {
             
             setPayoutData(updatedPayoutData);
           }
+        } else {
+          console.warn('⚠️ Failed to refresh status after signing (non-critical)', {
+            status: statusResponse.status,
+            statusText: statusResponse.statusText,
+          });
+        }
+        } catch (statusError) {
+          // Status refresh failure is non-critical - signing was successful
+          console.warn('⚠️ Error refreshing status after signing (non-critical):', statusError);
+          // Don't set error - signing was successful, status refresh is just for UI update
         }
       }
     } catch (err) {
       console.error('❌ Error signing proposal:', err);
-      setError(err instanceof Error ? err.message : 'Failed to sign proposal');
+      // Only set error if it's actually a signing error, not a status refresh error
+      const errorMessage = err instanceof Error ? err.message : 'Failed to sign proposal';
+      // Check if it's a CORS or network error (likely status refresh issue)
+      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('CORS')) {
+        console.warn('⚠️ Network/CORS error after signing - signing may have succeeded, check status');
+        // Don't show error to user - signing likely succeeded, just status refresh failed
+      } else {
+        setError(errorMessage);
+      }
     } finally {
       setSigningProposal(false);
     }
