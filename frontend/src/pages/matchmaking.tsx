@@ -69,7 +69,7 @@ const Matchmaking: React.FC = () => {
       switch (reason) {
         case 'payment_timeout':
           detail = userPaid
-            ? 'The opponent never finished paying. A refund proposal is being assembled—open the result screen shortly to co-sign your SOL back.'
+            ? 'The opponent never finished paying. A refund proposal is being assembled—open the result screen shortly to co-sign your SOL back. Your refund will be available within 2-3 minutes after the proposal is created.'
             : 'The opponent never finished paying. We cancelled the match automatically before SOL moved.';
           if (!userPaid) {
             tone = 'info';
@@ -78,7 +78,7 @@ const Matchmaking: React.FC = () => {
           break;
         case 'player_cancelled_after_payment':
           detail =
-            'The other player backed out after you deposited. The multisig refund will appear in the result view within ~2 minutes.';
+            'The other player backed out after you deposited. The multisig refund will appear in the result view within ~2 minutes. Once the proposal is created, you can sign to receive your full refund.';
           break;
         case 'player_cancelled_before_payment':
           detail =

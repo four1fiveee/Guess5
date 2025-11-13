@@ -384,14 +384,15 @@ const Result: React.FC = () => {
       return;
     }
     
-    // Expert recommendation: Poll every 1s for first 10s, then 2s
-    console.log('🔄 Starting proposal polling (aggressive: 1s for 10s, then 2s)...', {
+    // Expert recommendation: Poll every 1s for first 30s (to catch proposal creation), then 2s
+    console.log('🔄 Starting proposal polling (aggressive: 1s for 30s, then 2s)...', {
       matchId: router.query.matchId,
       hasProposalId: !!payoutData?.proposalId,
+      bothPlayersHaveResults: !!(payoutData?.player1Result && payoutData?.player2Result),
     });
 
     let pollCount = 0;
-    const maxAggressivePolls = 10;
+    const maxAggressivePolls = 30; // Increased from 10 to 30 to catch proposal creation faster
     
     const pollInterval = setInterval(() => {
       pollCount++;
@@ -408,7 +409,7 @@ const Result: React.FC = () => {
       
       loadPayoutData();
       
-      // After 10 aggressive polls, switch to normal interval
+      // After 30 aggressive polls, switch to normal interval
       if (pollCount === maxAggressivePolls) {
         clearInterval(pollInterval);
         const normalPollInterval = setInterval(() => {
@@ -426,6 +427,10 @@ const Result: React.FC = () => {
     return () => {
       console.log('🛑 Stopping proposal polling');
       clearInterval(pollInterval);
+      if (refreshIntervalRef.current) {
+        clearInterval(refreshIntervalRef.current);
+        refreshIntervalRef.current = null;
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPolling, router.query.matchId, publicKey]);
@@ -1090,14 +1095,38 @@ const Result: React.FC = () => {
                             {cancellationSubtitle}
                           </p>
                           {hasRefundProposal ? (
-                            <div className="text-3xl font-bold text-yellow-400 mb-2">
-                              {payoutData.refundAmount?.toFixed(4)} SOL
-                              {solPrice && payoutData.refundAmount && (
-                                <span className="text-yellow-300 text-xl ml-2">
-                                  (${(payoutData.refundAmount * solPrice).toFixed(2)} USD)
-                                </span>
+                            <>
+                              <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                                <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
+                                <div className="text-white text-lg font-semibold">
+                                  {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
+                                  {solPrice && payoutData.entryFee && (
+                                    <span className="text-white/60 text-sm ml-2">
+                                      (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="text-3xl font-bold text-yellow-400 mb-2">
+                                {payoutData.refundAmount?.toFixed(4)} SOL
+                                {solPrice && payoutData.refundAmount && (
+                                  <span className="text-yellow-300 text-xl ml-2">
+                                    (${(payoutData.refundAmount * solPrice).toFixed(2)} USD)
+                                  </span>
+                                )}
+                              </div>
+                              {payoutData.entryFee && payoutData.refundAmount && (
+                                <div className={`text-sm mb-2 ${
+                                  Math.abs(payoutData.entryFee - payoutData.refundAmount) < 0.0001
+                                    ? 'text-green-400'
+                                    : 'text-yellow-400'
+                                }`}>
+                                  {Math.abs(payoutData.entryFee - payoutData.refundAmount) < 0.0001
+                                    ? '✅ Full refund verified'
+                                    : `⚠️ Refund differs from entry fee by ${Math.abs(payoutData.entryFee - payoutData.refundAmount).toFixed(4)} SOL`}
+                                </div>
                               )}
-                            </div>
+                            </>
                           ) : (
                             <div className="text-white/70 text-sm mb-2">
                               No escrow transfer occurred, so no refund needs to be signed.
@@ -1165,9 +1194,31 @@ const Result: React.FC = () => {
                           <div className="text-3xl font-bold text-accent mb-3 animate-bounce">
                             🎉 YOU WON! 🎉
                           </div>
+                          <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                            <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
+                            <div className="text-white text-lg font-semibold">
+                              {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
+                              {solPrice && payoutData.entryFee && (
+                                <span className="text-white/60 text-sm ml-2">
+                                  (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
+                                </span>
+                              )}
+                            </div>
+                          </div>
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {payoutData.winnerAmount?.toFixed(4)} SOL
                           </div>
+                          {payoutData.entryFee && payoutData.winnerAmount && (
+                            <div className={`text-sm mb-2 ${
+                              Math.abs(payoutData.winnerAmount - (payoutData.entryFee * 2 - (payoutData.feeAmount || 0))) < 0.0001
+                                ? 'text-green-400'
+                                : 'text-yellow-400'
+                            }`}>
+                              {Math.abs(payoutData.winnerAmount - (payoutData.entryFee * 2 - (payoutData.feeAmount || 0))) < 0.0001
+                                ? `✅ Payout verified: ${(payoutData.entryFee * 2).toFixed(4)} SOL (both entry fees) - ${(payoutData.feeAmount || 0).toFixed(4)} SOL (platform fee) = ${payoutData.winnerAmount.toFixed(4)} SOL`
+                                : `⚠️ Payout verification: Expected ~${((payoutData.entryFee * 2) - (payoutData.feeAmount || 0)).toFixed(4)} SOL, got ${payoutData.winnerAmount.toFixed(4)} SOL`}
+                            </div>
+                          )}
                           {payoutData.bonus?.eligible ? (
                             <div
                               className={`mb-3 rounded-2xl px-4 py-3 border ${
@@ -1292,6 +1343,17 @@ const Result: React.FC = () => {
                           </div>
                          {payoutData.isWinningTie ? (
                           <>
+                              <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                                <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
+                                <div className="text-white text-lg font-semibold">
+                                  {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
+                                  {solPrice && payoutData.entryFee && (
+                                    <span className="text-white/60 text-sm ml-2">
+                                      (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                               <p className="text-lg text-white/90 mb-2 font-semibold">Perfect Match - Both players solved with same moves and time!</p>
                               <div className="text-3xl font-bold text-yellow-400 mb-2">
                                 {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
@@ -1301,6 +1363,17 @@ const Result: React.FC = () => {
                                   </span>
                                 )}
                               </div>
+                              {payoutData.entryFee && payoutData.refundAmount && (
+                                <div className={`text-sm mb-2 ${
+                                  Math.abs(payoutData.entryFee - payoutData.refundAmount) < 0.0001
+                                    ? 'text-green-400'
+                                    : 'text-yellow-400'
+                                }`}>
+                                  {Math.abs(payoutData.entryFee - payoutData.refundAmount) < 0.0001
+                                    ? '✅ Full refund verified'
+                                    : `⚠️ Refund differs from entry fee by ${Math.abs(payoutData.entryFee - payoutData.refundAmount).toFixed(4)} SOL`}
+                                </div>
+                              )}
                               {payoutData.proposalStatus === 'EXECUTED' ? (
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ Full Refund Sent to Your Wallet!
@@ -1313,6 +1386,17 @@ const Result: React.FC = () => {
                           </>
                         ) : (
                           <>
+                              <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
+                                <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
+                                <div className="text-white text-lg font-semibold">
+                                  {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
+                                  {solPrice && payoutData.entryFee && (
+                                    <span className="text-white/60 text-sm ml-2">
+                                      (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
                               <p className="text-lg text-white/90 mb-2 font-semibold">Both players failed to solve the puzzle</p>
                               <div className="text-3xl font-bold text-yellow-400 mb-2">
                                 {payoutData.refundAmount?.toFixed(4) || '0.0000'} SOL
@@ -1322,6 +1406,17 @@ const Result: React.FC = () => {
                                   </span>
                                 )}
                               </div>
+                              {payoutData.entryFee && payoutData.refundAmount && (
+                                <div className={`text-sm mb-2 ${
+                                  Math.abs(payoutData.entryFee * 0.95 - payoutData.refundAmount) < 0.0001
+                                    ? 'text-green-400'
+                                    : 'text-yellow-400'
+                                }`}>
+                                  {Math.abs(payoutData.entryFee * 0.95 - payoutData.refundAmount) < 0.0001
+                                    ? `✅ 95% refund verified (${(payoutData.entryFee * 0.95).toFixed(4)} SOL expected)`
+                                    : `⚠️ Refund differs from expected 95% (${(payoutData.entryFee * 0.95).toFixed(4)} SOL) by ${Math.abs((payoutData.entryFee * 0.95) - payoutData.refundAmount).toFixed(4)} SOL`}
+                                </div>
+                              )}
                               {payoutData.proposalStatus === 'EXECUTED' ? (
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ 95% Refund Sent to Your Wallet!

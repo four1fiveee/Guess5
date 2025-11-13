@@ -643,11 +643,13 @@ const Game: React.FC = () => {
   }, [matchId, gameState, publicKey]);
 
   // Poll for match completion status continuously (ensures both players redirect)
+  // Improved: More aggressive polling when player has submitted result
   useEffect(() => {
     if ((gameState !== 'playing' && gameState !== 'waiting') || !matchId || !publicKey) return;
 
     let isPolling = true;
     let pollTimeout: NodeJS.Timeout | null = null;
+    let pollCount = 0;
 
     const pollForMatchCompletion = async () => {
       if (!isPolling) return;
@@ -720,13 +722,17 @@ const Game: React.FC = () => {
       }
       
       // Continue polling if match not completed
+      // More aggressive polling: 1s for first 30s, then 2s
+      pollCount++;
+      const pollInterval = pollCount <= 30 ? 1000 : 2000;
+      
       if (isPolling) {
-        pollTimeout = setTimeout(pollForMatchCompletion, 2000); // Poll every 2 seconds
+        pollTimeout = setTimeout(pollForMatchCompletion, pollInterval);
       }
     };
     
-    // Start polling after a short delay
-    pollTimeout = setTimeout(pollForMatchCompletion, 2000);
+    // Start polling immediately (no delay)
+    pollForMatchCompletion();
     
     return () => {
       isPolling = false;
