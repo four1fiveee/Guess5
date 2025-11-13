@@ -378,12 +378,23 @@ const Result: React.FC = () => {
       return;
     }
 
-    const pollInterval = setInterval(() => {
-      console.log('🔄 Polling for proposal updates...');
-      loadPayoutData();
-    }, 3000); // Poll every 3 seconds
+    console.log('🔄 Starting proposal polling...', {
+      matchId: router.query.matchId,
+      hasProposalId: !!payoutData?.proposalId,
+    });
 
-    return () => clearInterval(pollInterval);
+    const pollInterval = setInterval(() => {
+      console.log('🔄 Polling for proposal updates...', {
+        matchId: router.query.matchId,
+        hasProposalId: !!payoutData?.proposalId,
+      });
+      loadPayoutData();
+    }, 2000); // Poll every 2 seconds (faster to catch proposal creation)
+
+    return () => {
+      console.log('🛑 Stopping proposal polling');
+      clearInterval(pollInterval);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isPolling, router.query.matchId, publicKey]);
 
