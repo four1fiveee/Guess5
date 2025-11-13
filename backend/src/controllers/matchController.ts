@@ -10278,14 +10278,15 @@ const signProposalHandler = async (req: any, res: any) => {
       let onChainNeedsSignatures = currentNeedsSignatures;
       
       try {
-        // Add 3-second timeout to prevent endpoint from hanging
+        // Add 2-second timeout to prevent endpoint from hanging (expert recommendation: don't block response)
+        // This check is for verification only - we'll use database state if it times out
         const proposalStatus = await Promise.race([
           squadsVaultService.checkProposalStatus(
             matchRow.squadsVaultAddress,
             proposalIdString
           ),
           new Promise((_, reject) => 
-            setTimeout(() => reject(new Error('On-chain check timeout')), 3000)
+            setTimeout(() => reject(new Error('On-chain check timeout')), 2000)
           ),
         ]) as any;
         
