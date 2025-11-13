@@ -10273,14 +10273,21 @@ const signProposalHandler = async (req: any, res: any) => {
       
       // CRITICAL: Verify on-chain signature count before calculating needsSignatures
       // Expert recommendation: Use on-chain state as source of truth, not database
+      // Add timeout to prevent blocking the response (502 Bad Gateway)
       let onChainSignerCount = uniqueSigners.length;
       let onChainNeedsSignatures = currentNeedsSignatures;
       
       try {
-        const proposalStatus = await squadsVaultService.checkProposalStatus(
-          matchRow.squadsVaultAddress,
-          proposalIdString
-        );
+        // Add 3-second timeout to prevent endpoint from hanging
+        const proposalStatus = await Promise.race([
+          squadsVaultService.checkProposalStatus(
+            matchRow.squadsVaultAddress,
+            proposalIdString
+          ),
+          new Promise((_, reject) => 
+            setTimeout(() => reject(new Error('On-chain check timeout')), 3000)
+          ),
+        ]) as any;
         
         if (proposalStatus) {
           onChainSignerCount = proposalStatus.signers.length;
@@ -10310,6 +10317,7 @@ const signProposalHandler = async (req: any, res: any) => {
         console.warn('⚠️ Could not verify on-chain signature count, using database calculation', {
           matchId,
           error: onChainCheckError?.message || String(onChainCheckError),
+          note: 'On-chain check timed out or failed - using database state. This is safe but may not reflect latest on-chain state.',
         });
       }
       
