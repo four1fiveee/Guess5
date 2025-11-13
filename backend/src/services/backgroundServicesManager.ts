@@ -2,6 +2,7 @@ import { depositWatcherService } from './depositWatcherService';
 import { timeoutScannerService } from './timeoutScannerService';
 import { reconciliationWorkerService } from './reconciliationWorkerService';
 import { proposalExpirationService } from './proposalExpirationService';
+import { executionRetryService } from './executionRetryService';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 export class BackgroundServicesManager {
@@ -43,6 +44,11 @@ export class BackgroundServicesManager {
       }, 5 * 60 * 1000); // 5 minutes
       enhancedLogger.info('✅ Proposal expiration scanner started');
 
+      // Start execution retry service - CRITICAL for 100% payment consistency
+      // This service continuously retries failed executions until they succeed
+      executionRetryService.start();
+      enhancedLogger.info('✅ Execution retry service started (ensures 100% payment consistency)');
+
       enhancedLogger.info('🎉 All background services started successfully');
     } catch (error) {
       enhancedLogger.error('❌ Error starting background services', { error });
@@ -76,6 +82,10 @@ export class BackgroundServicesManager {
       reconciliationWorkerService.stop();
       enhancedLogger.info('✅ Reconciliation worker service stopped');
 
+      // Stop execution retry service
+      executionRetryService.stop();
+      enhancedLogger.info('✅ Execution retry service stopped');
+
       enhancedLogger.info('🎉 All background services stopped successfully');
     } catch (error) {
       enhancedLogger.error('❌ Error stopping background services', { error });
@@ -91,6 +101,7 @@ export class BackgroundServicesManager {
       depositWatcher: any;
       timeoutScanner: any;
       reconciliationWorker: any;
+      executionRetry: any;
     };
   } {
     return {
@@ -99,6 +110,7 @@ export class BackgroundServicesManager {
         depositWatcher: depositWatcherService.getStatus(),
         timeoutScanner: timeoutScannerService.getStatus(),
         reconciliationWorker: reconciliationWorkerService.getStatus(),
+        executionRetry: { isRunning: executionRetryService['isRunning'] },
       },
     };
   }

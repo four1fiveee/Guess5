@@ -2830,11 +2830,12 @@ export class SquadsVaultService {
       }
     }
 
-    // Increased maxAttempts for more aggressive retry strategy
+    // CRITICAL: Increased maxAttempts for 100% payment consistency
     // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
-    // We'll retry up to 5 times with fresh blockhashes to handle network congestion
+    // We'll retry up to 10 times with fresh blockhashes to handle network congestion
     // Each retry will check block height before attempting to ensure blockhash hasn't expired
-    const maxAttempts = 5;
+    // The background ExecutionRetryService will continue retrying if all attempts fail here
+    const maxAttempts = 10;
     let lastErrorMessage = '';
     let lastLogs: string[] | undefined;
 
