@@ -10610,21 +10610,7 @@ const signProposalHandler = async (req: any, res: any) => {
                 console.error('❌ Execution logs:', executeResult.logs.slice(-20));
               }
               
-              // CRITICAL: If execution failed but proposal is ready, mark it as READY_TO_EXECUTE
-              // so the fallback execution in getMatchStatusHandler can retry it
-              if (newNeedsSignatures === 0 && newProposalStatus !== 'EXECUTED') {
-                await matchRepository.query(`
-                  UPDATE "match"
-                  SET "proposalStatus" = 'READY_TO_EXECUTE'
-                  WHERE id = $1
-                `, [matchId]);
-                console.warn('⚠️ Proposal marked as READY_TO_EXECUTE for fallback retry', {
-                  matchId,
-                  proposalId: proposalIdString,
-                });
-              } else {
-                console.warn('⚠️ Proposal signed but execution failed. Will be retried on next status check.');
-              }
+              console.warn('⚠️ Proposal signed but execution failed. Will be retried by execution retry service or on-chain sync service.');
             }
           } else {
             console.warn('⚠️ Skipping automatic execution because fee wallet keypair is not configured', {
@@ -10830,4 +10816,5 @@ module.exports = {
   depositToMultisigVaultHandler,
   checkPendingClaimsHandler,
   voidMatchHandler,
+};
 };
