@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, ComputeBudgetProgram } from '@solana/web3.js';
 import {
   rpc,
   PROGRAM_ID,
@@ -2944,6 +2944,70 @@ export class SquadsVaultService {
             blockhash: sendBlockhash.blockhash,
             lastValidBlockHeight: sendBlockhash.lastValidBlockHeight,
           };
+        }
+
+        // Add priority fee to improve transaction inclusion speed
+        // Small priority fee (5000 microLamports = 0.000005 SOL) helps ensure faster inclusion
+        // This is critical for preventing blockhash expiration during confirmation
+        try {
+          const message = tx.message;
+          const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
+            microLamports: 5000, // Small priority fee to improve inclusion speed
+          });
+          
+          // Rebuild transaction with priority fee instruction added
+          // Extract existing instructions and add priority fee at the beginning
+          const accountKeys = message.getAccountKeys();
+          const existingInstructions = message.compiledInstructions.map((ix: any) => {
+            const programId = accountKeys.get(ix.programIdIndex);
+            const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
+              const pubkey = accountKeys.get(keyIndex);
+              // Determine if account is a signer (first numRequiredSignatures accounts)
+              const isSigner = keyIndex < message.header.numRequiredSignatures;
+              // Determine if account is writable (first numRequiredSignatures + numReadonlyWritableAccounts accounts)
+              const isWritable = keyIndex < (message.header.numRequiredSignatures + message.header.numReadonlyWritableAccounts);
+              return {
+                pubkey,
+                isSigner,
+                isWritable,
+              };
+            });
+            return new TransactionInstruction({
+              programId,
+              keys,
+              data: Buffer.from(ix.data),
+            });
+          });
+          
+          // Add priority fee instruction at the beginning
+          const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
+          
+          // Rebuild transaction message with priority fee
+          const transactionMessage = new TransactionMessage({
+            payerKey: executor.publicKey,
+            recentBlockhash: latestBlockhash.blockhash,
+            instructions: instructionsWithPriorityFee,
+          });
+          
+          const compiledMessage = transactionMessage.compileToV0Message();
+          tx = new VersionedTransaction(compiledMessage);
+          tx.sign([executor]);
+          
+          enhancedLogger.info('💰 Added priority fee to execution transaction', {
+            vaultAddress,
+            proposalId,
+            priorityFeeMicroLamports: 5000,
+            priorityFeeSOL: 0.000005,
+            note: 'Small priority fee improves transaction inclusion speed and reduces blockhash expiration risk',
+          });
+        } catch (priorityFeeError: unknown) {
+          enhancedLogger.warn('⚠️ Failed to add priority fee (continuing without it)', {
+            vaultAddress,
+            proposalId,
+            error: priorityFeeError instanceof Error ? priorityFeeError.message : String(priorityFeeError),
+            note: 'Transaction will be sent without priority fee - may have slower inclusion',
+          });
+          // Continue with original transaction if priority fee addition fails
         }
 
         // Serialize and send immediately after getting final blockhash
