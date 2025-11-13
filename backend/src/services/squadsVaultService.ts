@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, Transaction } from '@solana/web3.js';
 import {
   rpc,
   PROGRAM_ID,
@@ -2885,29 +2885,103 @@ export class SquadsVaultService {
       }
     }
 
+    // Pre-execution top-up logic (expert recommendation)
     if (derivedVaultPda) {
       try {
         const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
+        const vaultBalanceSOL = vaultBalance / LAMPORTS_PER_SOL;
+        const rentExemptReserve = 0.00249864; // Approximate rent reserve for vault PDA
+        
         enhancedLogger.info('🔎 Vault balance before execution attempt', {
           vaultAddress,
           proposalId,
           vaultPda: derivedVaultPda.toString(),
           balanceLamports: vaultBalance,
-          balanceSOL: vaultBalance / LAMPORTS_PER_SOL,
+          balanceSOL: vaultBalanceSOL,
+          rentExemptReserve,
         });
 
-        if (vaultBalance === 0) {
-          const errorMessage = 'Vault balance is zero, skipping execution';
-          enhancedLogger.warn('⚠️ Skipping proposal execution due to empty vault', {
+        // If vault balance is very low (less than rent reserve + 0.01 SOL buffer), top it up
+        const minimumRequiredBalance = rentExemptReserve + 0.01; // Rent + small buffer
+        if (vaultBalanceSOL < minimumRequiredBalance) {
+          // Calculate top-up amount: enough to cover rent reserve + 0.1 SOL for transfers
+          const topUpAmountSOL = 0.1; // Top up with 0.1 SOL to ensure sufficient balance
+          const topUpAmountLamports = Math.ceil(topUpAmountSOL * LAMPORTS_PER_SOL);
+          
+          enhancedLogger.info('💰 Pre-execution top-up needed', {
             vaultAddress,
             proposalId,
             vaultPda: derivedVaultPda.toString(),
+            currentBalanceSOL: vaultBalanceSOL,
+            minimumRequiredBalance,
+            topUpAmountSOL,
+            topUpAmountLamports,
+            feeWallet: executor.publicKey.toString(),
           });
-          return {
-            success: false,
-            error: 'INSUFFICIENT_VAULT_BALANCE',
-            logs: [errorMessage],
-          };
+
+          try {
+            // Create and send top-up transaction from fee wallet to vault
+            const topUpTx = new Transaction().add(
+              SystemProgram.transfer({
+                fromPubkey: executor.publicKey,
+                toPubkey: derivedVaultPda,
+                lamports: topUpAmountLamports,
+              })
+            );
+
+            const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+            topUpTx.recentBlockhash = latestBlockhash.blockhash;
+            topUpTx.feePayer = executor.publicKey;
+            topUpTx.sign(executor);
+
+            const topUpSignature = await this.connection.sendRawTransaction(topUpTx.serialize(), {
+              skipPreflight: false,
+              maxRetries: 3,
+            });
+
+            enhancedLogger.info('📤 Top-up transaction sent', {
+              vaultAddress,
+              proposalId,
+              topUpSignature,
+              topUpAmountSOL,
+            });
+
+            // Wait for top-up confirmation (30 second timeout)
+            try {
+              await Promise.race([
+                this.connection.confirmTransaction(topUpSignature, 'confirmed'),
+                new Promise((_, reject) => 
+                  setTimeout(() => reject(new Error('Top-up confirmation timeout')), 30000)
+                ),
+              ]);
+
+              const newVaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
+              enhancedLogger.info('✅ Top-up transaction confirmed', {
+                vaultAddress,
+                proposalId,
+                topUpSignature,
+                newBalanceSOL: newVaultBalance / LAMPORTS_PER_SOL,
+                topUpAmountSOL,
+              });
+            } catch (topUpConfirmError: unknown) {
+              enhancedLogger.warn('⚠️ Top-up transaction confirmation failed (proceeding anyway)', {
+                vaultAddress,
+                proposalId,
+                topUpSignature,
+                error: topUpConfirmError instanceof Error ? topUpConfirmError.message : String(topUpConfirmError),
+                note: 'Execution will proceed - top-up may still succeed on-chain',
+              });
+              // Continue with execution even if top-up confirmation times out
+            }
+          } catch (topUpError: unknown) {
+            enhancedLogger.error('❌ Failed to send top-up transaction', {
+              vaultAddress,
+              proposalId,
+              error: topUpError instanceof Error ? topUpError.message : String(topUpError),
+              note: 'Execution will proceed - vault may have sufficient balance or top-up may be unnecessary',
+            });
+            // Continue with execution attempt - the simulation will catch any remaining balance issues
+          }
         }
       } catch (balanceError: unknown) {
         enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution', {
@@ -2916,6 +2990,7 @@ export class SquadsVaultService {
           vaultPda: derivedVaultPda.toString(),
           error: balanceError instanceof Error ? balanceError.message : String(balanceError),
         });
+        // Continue with execution attempt even if balance check fails
       }
     }
 
