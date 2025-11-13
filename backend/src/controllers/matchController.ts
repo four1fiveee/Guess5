@@ -4301,6 +4301,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         // CRITICAL FIX: Execute synchronously (await) instead of background
         // Background execution was causing transactions to not complete
         // We'll use a timeout wrapper to prevent blocking the status request too long
+        // REDUCED TIMEOUT: 20 seconds to prevent Render 30s timeout
         try {
           const executePromise = squadsVaultService.executeProposal(
             (match as any).squadsVaultAddress,
@@ -4309,9 +4310,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             (match as any).squadsVaultPda ?? undefined
           );
           
-          // Set a timeout of 30 seconds for execution
+          // Set a timeout of 20 seconds for execution (reduced from 30s to prevent Render timeout)
           const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Execution timeout after 30 seconds')), 30000);
+            setTimeout(() => reject(new Error('Execution timeout after 20 seconds')), 20000);
           });
           
           const executeResult = await Promise.race([executePromise, timeoutPromise]) as any;
@@ -9353,12 +9354,37 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
   res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Credentials', 'true');
   
+  // CRITICAL: Add timeout protection to prevent 502 errors
+  // Wrap the entire handler in a timeout to ensure response is sent
+  const timeoutMs = 25000; // 25 seconds (Render has 30s timeout)
+  let timeoutId: NodeJS.Timeout | null = null;
+  let responseSent = false;
+  
+  const sendResponse = (status: number, data: any) => {
+    if (responseSent) return;
+    responseSent = true;
+    if (timeoutId) clearTimeout(timeoutId);
+    res.status(status).json(data);
+  };
+  
+  timeoutId = setTimeout(() => {
+    if (!responseSent) {
+      console.error('❌ getProposalApprovalTransactionHandler timeout after', timeoutMs, 'ms');
+      sendResponse(504, { 
+        error: 'Request timeout - please try again',
+        timeout: true,
+        matchId: req.query?.matchId 
+      });
+    }
+  }, timeoutMs);
+  
   try {
     const { matchId, wallet } = req.query;
     const { getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
     
     if (!matchId || !wallet) {
-      return res.status(400).json({ error: 'Missing required fields: matchId, wallet' });
+      sendResponse(400, { error: 'Missing required fields: matchId, wallet' });
+      return;
     }
 
     const { AppDataSource } = require('../db/index');
@@ -9376,7 +9402,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     `, [matchId]);
     
     if (!matchRows || matchRows.length === 0) {
-      return res.status(404).json({ error: 'Match not found' });
+      sendResponse(404, { error: 'Match not found' });
+      return;
     }
     
     const matchRow = matchRows[0];
@@ -9391,7 +9418,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     const isPlayer2 = wallet === matchRow.player2;
     
     if (!isPlayer1 && !isPlayer2) {
-      return res.status(403).json({ error: 'You are not part of this match' });
+      sendResponse(403, { error: 'You are not part of this match' });
+      return;
     }
 
     // Check if match has a payout proposal (either payout or tie refund)
@@ -9400,7 +9428,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     let proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
     
     if (!matchRow.squadsVaultAddress || !proposalId) {
-      return res.status(400).json({ 
+      sendResponse(400, { 
         error: 'No payout proposal exists for this match',
         hasPayoutProposal,
         hasTieRefundProposal,
@@ -9408,26 +9436,29 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         payoutProposalId: matchRow.payoutProposalId,
         tieRefundProposalId: matchRow.tieRefundProposalId,
       });
+      return;
     }
     
     // Ensure proposalId is a valid string/number that can be converted to BigInt
     if (proposalId === null || proposalId === undefined) {
       console.error('❌ proposalId is null or undefined');
-      return res.status(400).json({ 
+      sendResponse(400, { 
         error: 'Proposal ID is null or undefined',
         hasPayoutProposal,
         hasTieRefundProposal,
       });
+      return;
     }
     
     // Convert to string and validate
     const proposalIdString = String(proposalId).trim();
     if (!proposalIdString || proposalIdString === 'null' || proposalIdString === 'undefined' || proposalIdString === '') {
       console.error('❌ Invalid proposalId value:', proposalIdString);
-      return res.status(400).json({ 
+      sendResponse(400, { 
         error: 'Invalid proposal ID format',
         proposalId: proposalIdString,
       });
+      return;
     }
     
     // Try to parse as BigInt to validate it's a valid number
@@ -9438,11 +9469,12 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         proposalId: proposalIdString,
         error: bigIntError?.message,
       });
-      return res.status(400).json({ 
+      sendResponse(400, { 
         error: 'Proposal ID is not a valid number',
         proposalId: proposalIdString,
         details: bigIntError?.message,
       });
+      return;
     }
 
     // Verify player hasn't already signed
@@ -9460,7 +9492,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     });
 
     if (signers.includes(wallet)) {
-      return res.status(400).json({ error: 'You have already signed this proposal' });
+      sendResponse(400, { error: 'You have already signed this proposal' });
+      return;
     }
 
     // Build the approval transaction using Squads SDK (backend has access to rpc)
@@ -9637,7 +9670,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to serialize transaction: ${serializeError?.message || String(serializeError)}`);
     }
 
-    res.json({
+    sendResponse(200, {
       transaction: base64Tx,
       matchId,
       proposalId: proposalId,
@@ -9662,7 +9695,10 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       matchId: req.query?.matchId,
       wallet: req.query?.wallet,
     });
-    res.status(500).json({ error: 'Failed to build approval transaction', details: errorMessage });
+    sendResponse(500, { error: 'Failed to build approval transaction', details: errorMessage });
+  } finally {
+    // Ensure timeout is cleared if response was sent
+    if (timeoutId) clearTimeout(timeoutId);
   }
 };
 const signProposalHandler = async (req: any, res: any) => {
