@@ -2832,18 +2832,62 @@ export class SquadsVaultService {
 
     // Increased maxAttempts for more aggressive retry strategy
     // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
-    // We'll retry up to 3 times with fresh blockhashes to handle network congestion
-    const maxAttempts = 3;
+    // We'll retry up to 5 times with fresh blockhashes to handle network congestion
+    // Each retry will check block height before attempting to ensure blockhash hasn't expired
+    const maxAttempts = 5;
     let lastErrorMessage = '';
     let lastLogs: string[] | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let tx: VersionedTransaction | null = null;
       try {
+        // Calculate priority fee based on attempt number (exponential backoff for fees)
+        // First attempt: 20000 microLamports, subsequent attempts: higher fees
+        // This is done early so it's available throughout the attempt
+        const basePriorityFee = 20000; // 0.00002 SOL base fee
+        const priorityFeeMultiplier = Math.min(1 + (attempt * 0.5), 2.5); // Up to 2.5x for later attempts
+        const priorityFeeMicroLamports = Math.round(basePriorityFee * priorityFeeMultiplier);
+        
+        // CRITICAL: Check current block height BEFORE fetching blockhash
+        // This ensures we're aware of network state and can detect if previous blockhash expired
+        const currentBlockHeight = await this.connection.getBlockHeight('confirmed');
+        
         // Get fresh blockhash right before building transaction to minimize expiration risk
-        // According to Solana best practices, blockhashes expire after ~60 seconds
+        // According to Solana best practices, blockhashes expire after ~150 blocks (~60 seconds)
         // Getting it right before use ensures maximum validity window
         let latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        
+        // Calculate remaining blocks before expiration
+        const blocksUntilExpiration = latestBlockhash.lastValidBlockHeight - currentBlockHeight;
+        const estimatedSecondsUntilExpiration = blocksUntilExpiration * 0.4; // ~0.4 seconds per block
+        
+        enhancedLogger.info('📊 Blockhash validity check before execution attempt', {
+          vaultAddress,
+          proposalId,
+          attempt: attempt + 1,
+          currentBlockHeight,
+          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+          blocksUntilExpiration,
+          estimatedSecondsUntilExpiration: Math.round(estimatedSecondsUntilExpiration),
+          blockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
+          priorityFeeMicroLamports,
+          priorityFeeSOL: priorityFeeMicroLamports / 1_000_000,
+          note: 'Monitoring block height to prevent expiration during execution',
+        });
+        
+        // If blockhash is about to expire (less than 30 blocks remaining), wait briefly for a fresher one
+        if (blocksUntilExpiration < 30) {
+          enhancedLogger.warn('⚠️ Blockhash has limited validity remaining, waiting briefly for fresher blockhash', {
+            vaultAddress,
+            proposalId,
+            blocksUntilExpiration,
+            estimatedSecondsUntilExpiration: Math.round(estimatedSecondsUntilExpiration),
+            note: 'Waiting 2 seconds to get a fresher blockhash with more validity window',
+          });
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          // Fetch a fresh blockhash after waiting
+          latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        }
         
         enhancedLogger.info('🔨 Building execution transaction with fresh blockhash', {
           vaultAddress,
@@ -2910,6 +2954,76 @@ export class SquadsVaultService {
           });
         }
         
+        // CRITICAL: Check block height again before sending to ensure blockhash hasn't expired
+        const currentBlockHeightBeforeSend = await this.connection.getBlockHeight('confirmed');
+        const blocksRemainingBeforeSend = latestBlockhash.lastValidBlockHeight - currentBlockHeightBeforeSend;
+        
+        // If blockhash is about to expire (less than 20 blocks remaining), fetch a fresh one
+        if (blocksRemainingBeforeSend < 20) {
+          enhancedLogger.warn('⚠️ Blockhash expiring soon, fetching fresh blockhash before send', {
+            vaultAddress,
+            proposalId,
+            blocksRemaining: blocksRemainingBeforeSend,
+            lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
+            currentBlockHeight: currentBlockHeightBeforeSend,
+            note: 'Fetching fresh blockhash to prevent expiration during send',
+          });
+          // Fetch fresh blockhash and rebuild transaction
+          const freshBlockhash = await this.connection.getLatestBlockhash('confirmed');
+          tx = await transactions.vaultTransactionExecute({
+            connection: this.connection,
+            blockhash: freshBlockhash.blockhash,
+            feePayer: executor.publicKey,
+            multisigPda: multisigAddress,
+            transactionIndex,
+            member: executor.publicKey,
+            programId: this.programId,
+          });
+          tx.sign([executor]);
+          
+          // Re-add priority fee with fresh blockhash
+          try {
+            const message = tx.message;
+            const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
+              microLamports: priorityFeeMicroLamports,
+            });
+            const accountKeys = message.getAccountKeys();
+            const totalAccounts = accountKeys.length;
+            const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
+            const existingInstructions = message.compiledInstructions.map((ix: any) => {
+              const programId = accountKeys.get(ix.programIdIndex);
+              const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
+                const pubkey = accountKeys.get(keyIndex);
+                const isSigner = keyIndex < numRequiredSignatures;
+                const isWritable = keyIndex < numRequiredSignatures || 
+                                  (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
+                                   keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
+                return { pubkey, isSigner, isWritable };
+              });
+              return new TransactionInstruction({ programId, keys, data: Buffer.from(ix.data) });
+            });
+            const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
+            const transactionMessage = new TransactionMessage({
+              payerKey: executor.publicKey,
+              recentBlockhash: freshBlockhash.blockhash,
+              instructions: instructionsWithPriorityFee,
+            });
+            const compiledMessage = transactionMessage.compileToV0Message();
+            tx = new VersionedTransaction(compiledMessage);
+            tx.sign([executor]);
+            latestBlockhash = {
+              blockhash: freshBlockhash.blockhash,
+              lastValidBlockHeight: freshBlockhash.lastValidBlockHeight,
+            };
+          } catch (priorityFeeError: unknown) {
+            enhancedLogger.warn('⚠️ Failed to add priority fee to rebuilt transaction', {
+              vaultAddress,
+              proposalId,
+              error: priorityFeeError instanceof Error ? priorityFeeError.message : String(priorityFeeError),
+            });
+          }
+        }
+        
         // Get final fresh blockhash IMMEDIATELY before sending to ensure maximum validity
         // This minimizes the time window between blockhash fetch and transaction send
         // According to Solana best practices, blockhashes expire after ~150 blocks (~60 seconds)
@@ -2939,6 +3053,44 @@ export class SquadsVaultService {
           });
           tx.sign([executor]);
           
+          // Re-add priority fee to rebuilt transaction
+          try {
+            const message = tx.message;
+            const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
+              microLamports: priorityFeeMicroLamports,
+            });
+            const accountKeys = message.getAccountKeys();
+            const totalAccounts = accountKeys.length;
+            const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
+            const existingInstructions = message.compiledInstructions.map((ix: any) => {
+              const programId = accountKeys.get(ix.programIdIndex);
+              const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
+                const pubkey = accountKeys.get(keyIndex);
+                const isSigner = keyIndex < numRequiredSignatures;
+                const isWritable = keyIndex < numRequiredSignatures || 
+                                  (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
+                                   keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
+                return { pubkey, isSigner, isWritable };
+              });
+              return new TransactionInstruction({ programId, keys, data: Buffer.from(ix.data) });
+            });
+            const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
+            const transactionMessage = new TransactionMessage({
+              payerKey: executor.publicKey,
+              recentBlockhash: sendBlockhash.blockhash,
+              instructions: instructionsWithPriorityFee,
+            });
+            const compiledMessage = transactionMessage.compileToV0Message();
+            tx = new VersionedTransaction(compiledMessage);
+            tx.sign([executor]);
+          } catch (priorityFeeError: unknown) {
+            enhancedLogger.warn('⚠️ Failed to add priority fee to rebuilt transaction', {
+              vaultAddress,
+              proposalId,
+              error: priorityFeeError instanceof Error ? priorityFeeError.message : String(priorityFeeError),
+            });
+          }
+          
           // Use the newer blockhash for confirmation (create new object since properties are read-only)
           latestBlockhash = {
             blockhash: sendBlockhash.blockhash,
@@ -2947,12 +3099,14 @@ export class SquadsVaultService {
         }
 
         // Add priority fee to improve transaction inclusion speed
-        // Small priority fee (5000 microLamports = 0.000005 SOL) helps ensure faster inclusion
+        // Increased priority fee (20000 microLamports base = 0.00002 SOL) for better inclusion during congestion
+        // Research shows higher priority fees significantly improve inclusion rate and reduce expiration risk
         // This is critical for preventing blockhash expiration during confirmation
+        // Priority fee is calculated at the start of the loop attempt
         try {
           const message = tx.message;
           const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-            microLamports: 5000, // Small priority fee to improve inclusion speed
+            microLamports: priorityFeeMicroLamports,
           });
           
           // Rebuild transaction with priority fee instruction added
@@ -3003,9 +3157,11 @@ export class SquadsVaultService {
           enhancedLogger.info('💰 Added priority fee to execution transaction', {
             vaultAddress,
             proposalId,
-            priorityFeeMicroLamports: 5000,
-            priorityFeeSOL: 0.000005,
-            note: 'Small priority fee improves transaction inclusion speed and reduces blockhash expiration risk',
+            attempt: attempt + 1,
+            priorityFeeMicroLamports: priorityFeeMicroLamports,
+            priorityFeeSOL: priorityFeeMicroLamports / 1_000_000,
+            multiplier: priorityFeeMultiplier.toFixed(2),
+            note: 'Priority fee improves transaction inclusion speed and reduces blockhash expiration risk. Higher fees on retries.',
           });
         } catch (priorityFeeError: unknown) {
           enhancedLogger.warn('⚠️ Failed to add priority fee (continuing without it)', {
