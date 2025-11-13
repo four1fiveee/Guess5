@@ -3384,6 +3384,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         } else {
           console.log('❌ Match not found in database or Redis matchmaking service');
           applyNoCacheHeaders();
+          // Ensure CORS headers are set before returning error
+          const requestOrigin = req.headers.origin;
+          const corsOrigin = resolveCorsOrigin(requestOrigin);
+          const originToUse = corsOrigin || 'https://guess5.io';
+          res.header('Access-Control-Allow-Origin', originToUse);
+          res.header('Vary', 'Origin');
+          res.header('Access-Control-Allow-Credentials', 'true');
           return res.status(404).json({ error: 'Match not found' });
         }
       } catch (redisError: unknown) {
@@ -3391,6 +3398,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         console.warn('⚠️ Redis matchmaking service lookup failed:', redisErrorMessage);
         console.log('❌ Match not found in database or Redis');
         applyNoCacheHeaders();
+        // Ensure CORS headers are set before returning error
+        const requestOrigin = req.headers.origin;
+        const corsOrigin = resolveCorsOrigin(requestOrigin);
+        const originToUse = corsOrigin || 'https://guess5.io';
+        res.header('Access-Control-Allow-Origin', originToUse);
+        res.header('Vary', 'Origin');
+        res.header('Access-Control-Allow-Credentials', 'true');
         return res.status(404).json({ error: 'Match not found' });
       }
     }
@@ -4267,20 +4281,33 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           onChainReady,
         });
       } else if (feeWalletKeypair && (hasFeeWalletSignature || onChainReady || dbSaysReady)) {
-        console.log('🔁 Auto-execute (fallback) using vault PDA - executing in background', {
+        console.log('🔁 Auto-execute (fallback) using vault PDA - executing NOW (not background)', {
           matchId: match.id,
           proposalId: proposalIdString,
           vaultAddress: (match as any).squadsVaultAddress,
           vaultPda: (match as any).squadsVaultPda ?? null,
+          hasFeeWalletSignature,
+          onChainReady,
+          dbSaysReady,
+          note: 'Executing synchronously to ensure completion',
         });
-        // Execute in background without blocking the status request
-        // This prevents timeout errors when execution takes a long time
-        squadsVaultService.executeProposal(
-          (match as any).squadsVaultAddress,
-          proposalIdString,
-          feeWalletKeypair,
-          (match as any).squadsVaultPda ?? undefined
-        ).then((executeResult) => {
+        // CRITICAL FIX: Execute synchronously (await) instead of background
+        // Background execution was causing transactions to not complete
+        // We'll use a timeout wrapper to prevent blocking the status request too long
+        try {
+          const executePromise = squadsVaultService.executeProposal(
+            (match as any).squadsVaultAddress,
+            proposalIdString,
+            feeWalletKeypair,
+            (match as any).squadsVaultPda ?? undefined
+          );
+          
+          // Set a timeout of 30 seconds for execution
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Execution timeout after 30 seconds')), 30000);
+          });
+          
+          const executeResult = await Promise.race([executePromise, timeoutPromise]) as any;
         
           if (executeResult.success) {
             const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
@@ -4300,24 +4327,19 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               isWinnerPayout,
             });
 
-            persistExecutionUpdates(matchRepository, match.id, executionUpdates).then(() => {
-              console.log('✅ Proposal executed successfully (fallback)', {
-                matchId: match.id,
-                proposalId: proposalIdString,
-                executionSignature: executeResult.signature,
-                slot: executeResult.slot,
-                signers: finalProposalSigners,
-                autoApproved,
-              });
-            }).catch((dbError: any) => {
-              console.error('❌ Failed to persist execution updates (fallback)', {
-                matchId: match.id,
-                proposalId: proposalIdString,
-                error: dbError?.message || String(dbError),
-              });
+            // CRITICAL FIX: Await database update to ensure it completes
+            await persistExecutionUpdates(matchRepository, match.id, executionUpdates);
+            console.log('✅ Proposal executed successfully (fallback)', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              executionSignature: executeResult.signature,
+              slot: executeResult.slot,
+              signers: finalProposalSigners,
+              autoApproved,
             });
 
             if (isWinnerPayout) {
+              // Execute bonus payout in background (non-blocking)
               disburseBonusIfEligible({
                   matchId: match.id,
                   winner: (match as any).winner,
@@ -4384,13 +4406,41 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               logs: executeResult.logs?.slice(-5),
             });
           }
-        }).catch((executeError: any) => {
-          console.error('❌ Error executing proposal (fallback - promise rejection)', {
-            matchId: match.id,
-            proposalId: proposalIdString,
-            error: executeError?.message || String(executeError),
-          });
-        });
+        } catch (executeError: any) {
+          if (executeError?.message?.includes('timeout')) {
+            // If timeout, continue in background
+            console.warn('⚠️ Execution timed out, continuing in background', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+            });
+            // Continue execution in background
+            squadsVaultService.executeProposal(
+              (match as any).squadsVaultAddress,
+              proposalIdString,
+              feeWalletKeypair,
+              (match as any).squadsVaultPda ?? undefined
+            ).then((bgResult) => {
+              if (bgResult.success) {
+                const executedAt = bgResult.executedAt ? new Date(bgResult.executedAt) : new Date();
+                const isTieRefund = !!(match as any).tieRefundProposalId && String((match as any).tieRefundProposalId).trim() === proposalIdString;
+                const isWinnerPayout = !!(match as any).payoutProposalId && String((match as any).payoutProposalId).trim() === proposalIdString && (match as any).winner && (match as any).winner !== 'tie';
+                const executionUpdates = buildProposalExecutionUpdates({
+                  executedAt,
+                  signature: bgResult.signature ?? null,
+                  isTieRefund,
+                  isWinnerPayout,
+                });
+                persistExecutionUpdates(matchRepository, match.id, executionUpdates).catch(console.error);
+              }
+            }).catch(console.error);
+          } else {
+            console.error('❌ Error executing proposal (fallback)', {
+              matchId: match.id,
+              proposalId: proposalIdString,
+              error: executeError?.message || String(executeError),
+            });
+          }
+        }
       } else {
         console.warn('⚠️ Skipping automatic proposal execution (fallback) because fee wallet keypair is not configured', {
           matchId: match.id,
