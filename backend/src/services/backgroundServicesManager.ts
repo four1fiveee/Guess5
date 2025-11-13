@@ -3,6 +3,7 @@ import { timeoutScannerService } from './timeoutScannerService';
 import { reconciliationWorkerService } from './reconciliationWorkerService';
 import { proposalExpirationService } from './proposalExpirationService';
 import { executionRetryService } from './executionRetryService';
+import { proposalOnChainSyncService } from './proposalOnChainSyncService';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
 export class BackgroundServicesManager {
@@ -49,6 +50,11 @@ export class BackgroundServicesManager {
       executionRetryService.start();
       enhancedLogger.info('✅ Execution retry service started (ensures 100% payment consistency)');
 
+      // Start proposal on-chain sync service - Expert recommendation
+      // Reconciles on-chain proposal state with database and triggers execution if threshold met
+      proposalOnChainSyncService.start();
+      enhancedLogger.info('✅ Proposal on-chain sync service started (expert recommendation)');
+
       enhancedLogger.info('🎉 All background services started successfully');
     } catch (error) {
       enhancedLogger.error('❌ Error starting background services', { error });
@@ -86,6 +92,10 @@ export class BackgroundServicesManager {
       executionRetryService.stop();
       enhancedLogger.info('✅ Execution retry service stopped');
 
+      // Stop proposal on-chain sync service
+      proposalOnChainSyncService.stop();
+      enhancedLogger.info('✅ Proposal on-chain sync service stopped');
+
       enhancedLogger.info('🎉 All background services stopped successfully');
     } catch (error) {
       enhancedLogger.error('❌ Error stopping background services', { error });
@@ -97,12 +107,13 @@ export class BackgroundServicesManager {
    */
   getStatus(): {
     isRunning: boolean;
-    services: {
-      depositWatcher: any;
-      timeoutScanner: any;
-      reconciliationWorker: any;
-      executionRetry: any;
-    };
+      services: {
+        depositWatcher: any;
+        timeoutScanner: any;
+        reconciliationWorker: any;
+        executionRetry: any;
+        proposalOnChainSync: any;
+      };
   } {
     return {
       isRunning: this.isRunning,
@@ -111,6 +122,7 @@ export class BackgroundServicesManager {
         timeoutScanner: timeoutScannerService.getStatus(),
         reconciliationWorker: reconciliationWorkerService.getStatus(),
         executionRetry: { isRunning: executionRetryService['isRunning'] },
+        proposalOnChainSync: { isRunning: proposalOnChainSyncService['isRunning'] },
       },
     };
   }

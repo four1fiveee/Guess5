@@ -10334,11 +10334,14 @@ const signProposalHandler = async (req: any, res: any) => {
         newNeedsSignatures = Math.max(0, THRESHOLD - actualSignerCount);
       }
       
+      // CRITICAL: Log threshold check details (expert recommendation for debugging)
       console.log('🧮 Calculating needsSignatures:', {
         matchId,
         threshold: 2,
         databaseSignerCount: uniqueSigners.length,
         onChainSignerCount,
+        dbNeedsSignatures: currentNeedsSignatures,
+        newNeedsSignatures,
         uniqueSigners: uniqueSigners.map(s => s.toString()),
         feeWalletAutoApproved,
         calculatedNeedsSignatures: newNeedsSignatures,
@@ -10386,40 +10389,79 @@ const signProposalHandler = async (req: any, res: any) => {
 
       // CRITICAL: Execute proposal in background (non-blocking) so we can return response immediately
       // This prevents the frontend from hanging while execution happens
+      // Expert recommendation: Execute using DB-derived state if threshold met, with idempotent execution flag
       if (newNeedsSignatures === 0) {
-        console.log('⚙️ All required signatures collected; will execute proposal in background', {
-          matchId,
-          proposalId: proposalIdString,
-          finalSigners,
-        });
+        // Check if already executed (idempotent execution - expert recommendation)
+        const alreadyExecuted = !!(matchRow.proposalExecutedAt);
         
-        // Execute in background - don't await, return response immediately
-        (async () => {
+        if (alreadyExecuted) {
+          console.log('⚠️ Proposal already executed, skipping duplicate execution (idempotent check)', {
+            matchId,
+            proposalId: proposalIdString,
+            executedAt: matchRow.proposalExecutedAt,
+            executionSignature: matchRow.proposalTransactionId,
+          });
+        } else {
+          // Mark execution as started (idempotent flag - expert recommendation)
           try {
-            let feeWalletKeypair: any = cachedFeeWalletKeypair;
-            if (!feeWalletKeypair) {
-              try {
-                feeWalletKeypair = getFeeWalletKeypair();
-              } catch (keypairError: any) {
-                console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "proposalStatus" = 'EXECUTING'
+              WHERE id = $1 AND "proposalExecutedAt" IS NULL
+            `, [matchId]);
+          } catch (markError: any) {
+            console.warn('⚠️ Could not mark execution as started (may already be executing)', {
+              matchId,
+              proposalId: proposalIdString,
+              error: markError?.message || String(markError),
+            });
+          }
+          
+          console.log('⚙️ All required signatures collected; will execute proposal in background', {
+            matchId,
+            proposalId: proposalIdString,
+            finalSigners,
+            onChainSignerCount,
+            dbSignerCount: uniqueSigners.length,
+            newNeedsSignatures,
+            dbNeedsSignatures: currentNeedsSignatures,
+          });
+          
+          // Execute in background - don't await, return response immediately
+          (async () => {
+            try {
+              let feeWalletKeypair: any = cachedFeeWalletKeypair;
+              if (!feeWalletKeypair) {
+                try {
+                  feeWalletKeypair = getFeeWalletKeypair();
+                } catch (keypairError: any) {
+                  console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution', {
+                    matchId,
+                    proposalId: proposalIdString,
+                    error: keypairError?.message || String(keypairError),
+                  });
+                  // Reset execution status if we can't execute
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "proposalStatus" = 'READY_TO_EXECUTE'
+                    WHERE id = $1 AND "proposalExecutedAt" IS NULL
+                  `, [matchId]);
+                  return;
+                }
+              }
+
+              if (feeWalletKeypair) {
+                console.log('🚀 Executing proposal in background with signer summary', {
                   matchId,
                   proposalId: proposalIdString,
-                  error: keypairError?.message || String(keypairError),
+                  signers: finalSigners,
+                  onChainSignerCount,
+                  dbSignerCount: uniqueSigners.length,
+                  needsSignaturesBeforeExecute: newNeedsSignatures,
+                  proposalStatusBeforeExecute: newProposalStatus,
+                  vaultAddress: matchRow.squadsVaultAddress,
+                  vaultPda: matchRow.squadsVaultPda ?? null,
                 });
-                return;
-              }
-            }
-
-            if (feeWalletKeypair) {
-              console.log('🚀 Executing proposal in background with signer summary', {
-                matchId,
-                proposalId: proposalIdString,
-                signers: finalSigners,
-                needsSignaturesBeforeExecute: newNeedsSignatures,
-                proposalStatusBeforeExecute: newProposalStatus,
-                vaultAddress: matchRow.squadsVaultAddress,
-                vaultPda: matchRow.squadsVaultPda ?? null,
-              });
               const executeResult = await squadsVaultService.executeProposal(
                 matchRow.squadsVaultAddress,
                 proposalIdString,
@@ -10543,6 +10585,25 @@ const signProposalHandler = async (req: any, res: any) => {
                 vaultAddress: matchRow.squadsVaultAddress,
                 vaultPda: matchRow.squadsVaultPda,
               });
+              
+              // Reset execution status if execution failed (expert recommendation: clear flag if threshold not met)
+              try {
+                await matchRepository.query(`
+                  UPDATE "match"
+                  SET "proposalStatus" = 'READY_TO_EXECUTE'
+                  WHERE id = $1 AND "proposalExecutedAt" IS NULL
+                `, [matchId]);
+                console.log('🔄 Reset proposal status to READY_TO_EXECUTE after failed execution', {
+                  matchId,
+                  proposalId: proposalIdString,
+                });
+              } catch (resetError: any) {
+                console.warn('⚠️ Could not reset execution status', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  error: resetError?.message || String(resetError),
+                });
+              }
               
               // Log detailed error for debugging
               if (executeResult.logs && executeResult.logs.length > 0) {

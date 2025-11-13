@@ -1,4 +1,4 @@
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, Transaction, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, ComputeBudgetProgram } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError } from '@solana/web3.js';
 import {
   rpc,
   PROGRAM_ID,
@@ -960,11 +960,9 @@ export class SquadsVaultService {
       const vaultLamportsBig = BigInt(vaultAccountInfo.lamports);
       const rentReserveBig = BigInt(rentExemptReserve);
 
-      // Allow proposal creation even if vault balance is low - top-up from fee wallet will handle it
-      // Only fail if vault account doesn't exist or has zero balance (which would indicate a problem)
-      if (vaultLamportsBig === BigInt(0)) {
-        const errorMsg = `Vault account has zero balance - this indicates funds were never deposited or already withdrawn`;
-        enhancedLogger.error('❌ Vault balance is zero during proposal creation', {
+      if (vaultLamportsBig <= rentReserveBig) {
+        const errorMsg = `Vault lamports ${vaultLamportsBig.toString()} are not sufficient to cover rent reserve ${rentReserveBig.toString()}`;
+        enhancedLogger.error('❌ Vault balance below rent reserve', {
           vaultAddress,
           vaultPda: vaultPdaKey.toString(),
           vaultLamports: vaultLamportsBig.toString(),
@@ -975,24 +973,8 @@ export class SquadsVaultService {
           error: errorMsg,
         };
       }
-      
-      if (vaultLamportsBig <= rentReserveBig) {
-        enhancedLogger.warn('⚠️ Vault balance is at or below rent reserve, but allowing proposal creation (fee wallet top-up will handle payout)', {
-          vaultAddress,
-          vaultPda: vaultPdaKey.toString(),
-          vaultLamports: vaultLamportsBig.toString(),
-          rentReserve: rentReserveBig.toString(),
-          note: 'Proposal will use fee wallet top-up to cover winner payout if vault balance is insufficient',
-        });
-        // Continue with proposal creation - top-up logic will handle it
-      }
 
-      // Calculate transferable balance (vault balance minus rent reserve)
-      // If vault balance is below rent reserve, transferable is 0 (all funds will come from fee wallet top-up)
-      const transferableLamportsBig = vaultLamportsBig > rentReserveBig ? vaultLamportsBig - rentReserveBig : BigInt(0);
-      
-      // Calculate desired amounts based on total pot (entryFee * 2)
-      // These are the target amounts, actual amounts from vault may be less if balance is low
+      const transferableLamportsBig = vaultLamportsBig - rentReserveBig;
       const desiredWinnerLamportsBig = (vaultLamportsBig * BigInt(95)) / BigInt(100);
       const desiredFeeLamportsBig = vaultLamportsBig - desiredWinnerLamportsBig;
 
@@ -1722,25 +1704,22 @@ export class SquadsVaultService {
         instructions.push(player2TransferIx);
       }
 
-      // CRITICAL FIX: Do NOT include top-up instructions in the proposal
-      // Top-up transfers from fee wallet require fee wallet signature at execution time
-      // which causes simulation failures. Instead, we'll top-up the vault BEFORE execution.
-      // Store top-up amounts for later use in executeProposal
-      const topUpAmounts = {
-        player1TopUp: Number(player1TopUpBig),
-        player2TopUp: Number(player2TopUpBig),
-        totalTopUp: Number(player1TopUpBig + player2TopUpBig),
-      };
-      
-      if (topUpAmounts.totalTopUp > 0) {
-        enhancedLogger.info('⚠️ Vault balance insufficient - top-up will be done separately before execution', {
-          vaultAddress,
-          vaultPda: vaultPdaKey.toString(),
-          player1TopUp: topUpAmounts.player1TopUp,
-          player2TopUp: topUpAmounts.player2TopUp,
-          totalTopUp: topUpAmounts.totalTopUp,
-          note: 'Top-up instructions NOT included in proposal. Will transfer from fee wallet to vault before execution.',
+      if (player1TopUpBig > BigInt(0)) {
+        const topUpIx = SystemProgram.transfer({
+          fromPubkey: this.config.systemPublicKey,
+          toPubkey: player1Key,
+          lamports: Number(player1TopUpBig),
         });
+        instructions.push(topUpIx);
+      }
+
+      if (player2TopUpBig > BigInt(0)) {
+        const topUpIx = SystemProgram.transfer({
+          fromPubkey: this.config.systemPublicKey,
+          toPubkey: player2Key,
+          lamports: Number(player2TopUpBig),
+        });
+        instructions.push(topUpIx);
       }
 
       if (instructions.length === 0) {
@@ -2525,6 +2504,79 @@ export class SquadsVaultService {
         programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
       });
 
+      enhancedLogger.info('📝 Proposal approval transaction sent', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        signature,
+      });
+
+      // CRITICAL: Confirm the transaction to verify it was submitted (expert recommendation)
+      try {
+        await this.connection.confirmTransaction(signature, 'confirmed');
+        enhancedLogger.info('✅ Proposal approval transaction confirmed on-chain', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          signature,
+        });
+      } catch (confirmError: any) {
+        enhancedLogger.warn('⚠️ Proposal approval transaction confirmation failed (may still succeed)', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          signature,
+          error: confirmError?.message || String(confirmError),
+        });
+        // Don't fail the approval - transaction may still succeed
+      }
+
+      // Verify fee wallet is in approvals array (expert recommendation)
+      try {
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId: this.programId,
+        });
+        
+        const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+        if (transactionAccount) {
+          const vt = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda
+          );
+          const approvals = (vt as any).approvals || [];
+          const signerPubkeyStr = signer.publicKey.toString();
+          const isInApprovals = approvals.some((a: any) => 
+            a?.toString?.() === signerPubkeyStr || String(a) === signerPubkeyStr
+          );
+          
+          if (isInApprovals) {
+            enhancedLogger.info('✅ Fee wallet confirmed in on-chain approvals array', {
+              vaultAddress,
+              proposalId,
+              signer: signerPubkeyStr,
+              approvals: approvals.map((a: any) => a?.toString?.() || String(a)),
+            });
+          } else {
+            enhancedLogger.warn('⚠️ Fee wallet not found in on-chain approvals array (may need to wait for confirmation)', {
+              vaultAddress,
+              proposalId,
+              signer: signerPubkeyStr,
+              approvals: approvals.map((a: any) => a?.toString?.() || String(a)),
+            });
+          }
+        }
+      } catch (verifyError: any) {
+        enhancedLogger.warn('⚠️ Could not verify fee wallet in approvals array (non-critical)', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          error: verifyError?.message || String(verifyError),
+        });
+        // Non-critical - transaction may still be processing
+      }
+
       enhancedLogger.info('✅ Proposal approved', {
         vaultAddress,
         proposalId,
@@ -2654,38 +2706,90 @@ export class SquadsVaultService {
           };
         }
 
-        // According to Squads Protocol and SDK behavior:
-        // 1. vaultTransactionExecute CAN execute from "Approved" state directly (simulation confirms this)
-        // 2. The ExecuteReady transition may happen DURING execution, not before
-        // 3. If threshold is met, we can proceed with execution immediately
+        // If Proposal is Approved but not ExecuteReady, wait for transition with retries
         if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
-          if (approvedCount >= this.config.threshold) {
-            enhancedLogger.info('✅ Proposal is Approved with threshold met - executing directly', {
+          enhancedLogger.warn('⚠️ Proposal is Approved but not ExecuteReady - waiting for transition', {
+            vaultAddress,
+            proposalId,
+            statusKind: proposalStatusKind,
+            approvedCount,
+            threshold: this.config.threshold,
+            note: 'Proposal should automatically transition to ExecuteReady when threshold is met. Waiting for transition...',
+          });
+          
+          // Wait for transition with exponential backoff (max 3 attempts, ~5 seconds total)
+          const maxWaitAttempts = 3;
+          const waitIntervalMs = 2000; // 2 seconds between checks
+          
+          for (let waitAttempt = 0; waitAttempt < maxWaitAttempts; waitAttempt++) {
+            await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
+            
+            try {
+              const refreshedProposal = await accounts.Proposal.fromAccountAddress(
+                this.connection,
+                proposalPda,
+                'confirmed'
+              );
+              
+              const refreshedStatusKind = (refreshedProposal as any).status?.__kind;
+              if (refreshedStatusKind === 'ExecuteReady') {
+                proposalIsExecuteReady = true;
+                enhancedLogger.info('✅ Proposal transitioned to ExecuteReady after waiting', {
+                  vaultAddress,
+                  proposalId,
+                  waitAttempt: waitAttempt + 1,
+                  totalWaitMs: (waitAttempt + 1) * waitIntervalMs,
+                });
+                break;
+              }
+              
+              // Also check VaultTransaction status
+              try {
+                const refreshedTransaction = await accounts.VaultTransaction.fromAccountAddress(
+                  this.connection,
+                  transactionPda,
+                  'confirmed'
+                );
+                const refreshedVaultTxStatus = (refreshedTransaction as any).status;
+                if (refreshedVaultTxStatus === 1) { // ExecuteReady
+                  vaultTransactionIsExecuteReady = true;
+                  enhancedLogger.info('✅ VaultTransaction transitioned to ExecuteReady after waiting', {
+                    vaultAddress,
+                    proposalId,
+                    waitAttempt: waitAttempt + 1,
+                    totalWaitMs: (waitAttempt + 1) * waitIntervalMs,
+                  });
+                  break;
+                }
+              } catch (vaultTxRefreshError: unknown) {
+                // Ignore errors during refresh
+              }
+              
+              enhancedLogger.info('⏳ Still waiting for ExecuteReady transition', {
+                vaultAddress,
+                proposalId,
+                waitAttempt: waitAttempt + 1,
+                maxAttempts: maxWaitAttempts,
+                currentStatus: refreshedStatusKind,
+              });
+            } catch (refreshError: unknown) {
+              enhancedLogger.warn('⚠️ Error refreshing proposal status during wait', {
+                vaultAddress,
+                proposalId,
+                waitAttempt: waitAttempt + 1,
+                error: refreshError instanceof Error ? refreshError.message : String(refreshError),
+              });
+            }
+          }
+          
+          if (!proposalIsExecuteReady && !vaultTransactionIsExecuteReady && approvedCount >= this.config.threshold) {
+            enhancedLogger.warn('⚠️ Proposal has enough approvals but did not transition to ExecuteReady after waiting', {
               vaultAddress,
               proposalId,
-              statusKind: proposalStatusKind,
               approvedCount,
               threshold: this.config.threshold,
-              approvedSigners: (proposal as any).approved,
-              vaultTransactionStatus: vaultTransactionIsExecuteReady ? 'ExecuteReady' : 'Active',
-              note: 'vaultTransactionExecute can execute from Approved state. ExecuteReady transition may occur during execution.',
+              note: 'This may be a Squads SDK bug. Attempting execution anyway - the execution instruction might accept Approved state or trigger the transition',
             });
-            // Proceed with execution - no need to wait for ExecuteReady transition
-            // The execution instruction will handle the state transition
-          } else {
-            enhancedLogger.warn('⚠️ Proposal is Approved but does not have enough signatures yet', {
-              vaultAddress,
-              proposalId,
-              statusKind: proposalStatusKind,
-              approvedCount,
-              threshold: this.config.threshold,
-              note: 'Waiting for more signatures before attempting execution',
-            });
-            return {
-              success: false,
-              error: 'INSUFFICIENT_SIGNATURES',
-              logs: [`Proposal needs ${this.config.threshold - approvedCount} more signature(s)`],
-            };
           }
         }
       } catch (proposalCheckError: unknown) {
@@ -2781,241 +2885,49 @@ export class SquadsVaultService {
       }
     }
 
-    // CRITICAL FIX: Top-up vault BEFORE execution if needed
-    // Expert recommendation: Do NOT embed fee wallet transfers in proposal
-    // Instead, top-up vault separately before executing proposal
     if (derivedVaultPda) {
       try {
         const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
-        const vaultAccountInfo = await this.connection.getAccountInfo(derivedVaultPda, 'confirmed');
-        const rentExemptReserve = vaultAccountInfo 
-          ? await this.connection.getMinimumBalanceForRentExemption(vaultAccountInfo.data.length)
-          : 0;
-        
         enhancedLogger.info('🔎 Vault balance before execution attempt', {
           vaultAddress,
           proposalId,
           vaultPda: derivedVaultPda.toString(),
           balanceLamports: vaultBalance,
           balanceSOL: vaultBalance / LAMPORTS_PER_SOL,
-          rentExemptReserve,
-          transferableBalance: Math.max(0, vaultBalance - rentExemptReserve),
         });
 
-        // Calculate required lamports from the vault transaction proposal
-        // We need to check what transfers the proposal requires
-        let requiredLamports = 0;
-        try {
-          const [transactionPda] = getTransactionPda({
-            multisigPda: new PublicKey(vaultAddress),
-            index: BigInt(proposalId),
-            programId: this.programId,
-          });
-          
-          const vaultTx = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda,
-            'confirmed'
-          );
-          
-          // Extract transfer amounts from the transaction message
-          const message = (vaultTx as any).message;
-          if (message) {
-            // The message contains instructions - we need to sum transfers FROM the vault
-            // For versioned messages, we need to parse the instructions differently
-            try {
-              const accountKeys = message.getAccountKeys ? message.getAccountKeys() : null;
-              if (accountKeys && message.compiledInstructions) {
-                for (const ix of message.compiledInstructions) {
-                  const programId = accountKeys.get(ix.programIdIndex);
-                  // Check if this is a SystemProgram transfer
-                  if (programId && programId.equals(SystemProgram.programId)) {
-                    // Parse transfer instruction: 4 bytes instruction discriminator + 8 bytes lamports
-                    if (ix.data && ix.data.length >= 12) {
-                      const lamports = Number(ix.data.readBigUInt64LE(4));
-                      // Check if first account is the vault PDA (transfer FROM vault)
-                      if (ix.accountKeyIndexes && ix.accountKeyIndexes.length > 0) {
-                        const fromAccount = accountKeys.get(ix.accountKeyIndexes[0]);
-                        if (fromAccount && fromAccount.equals(derivedVaultPda)) {
-                          requiredLamports += lamports;
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            } catch (parseError: unknown) {
-              enhancedLogger.warn('⚠️ Could not parse vault transaction instructions', {
-                vaultAddress,
-                proposalId,
-                error: parseError instanceof Error ? parseError.message : String(parseError),
-              });
-            }
-          }
-        } catch (txParseError: unknown) {
-          enhancedLogger.warn('⚠️ Could not fetch vault transaction to determine required amount', {
-            vaultAddress,
-            proposalId,
-            error: txParseError instanceof Error ? txParseError.message : String(txParseError),
-            note: 'Will proceed with execution - simulation will show clear error if balance insufficient',
-          });
-        }
-
-        const transferableBalance = Math.max(0, vaultBalance - rentExemptReserve);
-        const topUpNeeded = Math.max(0, requiredLamports - transferableBalance);
-
-        if (topUpNeeded > 0) {
-          enhancedLogger.info('💰 Top-up needed - transferring from fee wallet to vault BEFORE execution', {
+        if (vaultBalance === 0) {
+          const errorMessage = 'Vault balance is zero, skipping execution';
+          enhancedLogger.warn('⚠️ Skipping proposal execution due to empty vault', {
             vaultAddress,
             proposalId,
             vaultPda: derivedVaultPda.toString(),
-            currentBalance: vaultBalance,
-            requiredLamports,
-            transferableBalance,
-            topUpNeeded,
-            feeWallet: executor.publicKey.toString(),
-            note: 'Expert recommendation: Top-up separately before execution to avoid signature issues',
           });
-
-          // Perform top-up transfer from fee wallet to vault
-          const topUpTx = new Transaction().add(
-            SystemProgram.transfer({
-              fromPubkey: executor.publicKey,
-              toPubkey: derivedVaultPda,
-              lamports: topUpNeeded,
-            })
-          );
-          
-          const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-          topUpTx.feePayer = executor.publicKey;
-          topUpTx.recentBlockhash = latestBlockhash.blockhash;
-          topUpTx.sign(executor);
-
-          // Send and confirm top-up transaction
-          const topUpSignature = await this.connection.sendRawTransaction(topUpTx.serialize(), {
-            skipPreflight: false,
-            maxRetries: 3,
-          });
-
-          enhancedLogger.info('📤 Top-up transaction sent, waiting for confirmation', {
-            vaultAddress,
-            proposalId,
-            topUpSignature,
-            topUpAmount: topUpNeeded,
-            topUpAmountSOL: topUpNeeded / LAMPORTS_PER_SOL,
-          });
-
-          // Wait for confirmation with timeout
-          try {
-            const confirmation = await Promise.race([
-              this.connection.confirmTransaction(topUpSignature, 'confirmed'),
-              new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Top-up confirmation timeout')), 30000)
-              ),
-            ]) as any;
-
-            if (confirmation.value?.err) {
-              const errorMsg = `Top-up transaction failed: ${JSON.stringify(confirmation.value.err)}`;
-              enhancedLogger.error('❌ Top-up transaction failed', {
-                vaultAddress,
-                proposalId,
-                topUpSignature,
-                error: confirmation.value.err,
-                logs: confirmation.value.logs,
-              });
-              return {
-                success: false,
-                error: errorMsg,
-                logs: [`Top-up failed: ${JSON.stringify(confirmation.value.err)}`],
-              };
-            }
-
-            enhancedLogger.info('✅ Top-up transaction confirmed, vault balance should now be sufficient', {
-              vaultAddress,
-              proposalId,
-              topUpSignature,
-              topUpAmount: topUpNeeded,
-              slot: confirmation.value?.context?.slot,
-            });
-
-            // Verify vault balance increased
-            const newVaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
-            enhancedLogger.info('🔍 Vault balance after top-up', {
-              vaultAddress,
-              proposalId,
-              vaultPda: derivedVaultPda.toString(),
-              previousBalance: vaultBalance,
-              newBalance: newVaultBalance,
-              topUpAmount: topUpNeeded,
-              balanceIncrease: newVaultBalance - vaultBalance,
-              note: 'If balance did not increase, top-up may have failed or been delayed',
-            });
-          } catch (confirmError: unknown) {
-            enhancedLogger.error('❌ Top-up confirmation failed or timed out', {
-              vaultAddress,
-              proposalId,
-              topUpSignature,
-              error: confirmError instanceof Error ? confirmError.message : String(confirmError),
-              note: 'Will proceed with execution - if balance is still insufficient, simulation will show error',
-            });
-            // Don't block execution - simulation will catch if balance is still insufficient
-          }
-        } else {
-          enhancedLogger.info('✅ Vault balance sufficient, no top-up needed', {
-            vaultAddress,
-            proposalId,
-            vaultBalance,
-            requiredLamports,
-            transferableBalance,
-          });
+          return {
+            success: false,
+            error: 'INSUFFICIENT_VAULT_BALANCE',
+            logs: [errorMessage],
+          };
         }
       } catch (balanceError: unknown) {
-        enhancedLogger.warn('⚠️ Failed to check/fix vault balance before execution', {
+        enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution', {
           vaultAddress,
           proposalId,
-          vaultPda: derivedVaultPda?.toString(),
+          vaultPda: derivedVaultPda.toString(),
           error: balanceError instanceof Error ? balanceError.message : String(balanceError),
-          note: 'Proceeding with execution - simulation will show clear error if balance insufficient',
         });
-        // Don't block execution on balance check failure - simulation will catch it
       }
     }
 
-    // CRITICAL: Increased maxAttempts for 100% payment consistency
-    // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
-    // We'll retry up to 10 times with fresh blockhashes to handle network congestion
-    // Each retry will check block height before attempting to ensure blockhash hasn't expired
-    // The background ExecutionRetryService will continue retrying if all attempts fail here
-    const maxAttempts = 10;
+    const maxAttempts = 2;
     let lastErrorMessage = '';
     let lastLogs: string[] | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       let tx: VersionedTransaction | null = null;
       try {
-        // CRITICAL FIX: Calculate priority fee and build transaction ONCE with fee included
-        // Multiple rebuilds were corrupting the transaction structure
-        // Increased base fee for devnet reliability
-        const basePriorityFee = 50000; // 0.00005 SOL base fee (increased for devnet)
-        const priorityFeeMultiplier = Math.min(1 + (attempt * 0.3), 2.0); // Up to 2x for later attempts
-        const priorityFeeMicroLamports = Math.round(basePriorityFee * priorityFeeMultiplier);
-        
-        // Get fresh blockhash immediately before building
         const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        
-        enhancedLogger.info('🔨 Building execution transaction with priority fee', {
-          vaultAddress,
-          proposalId,
-          attempt: attempt + 1,
-          blockhash: latestBlockhash.blockhash.substring(0, 8) + '...',
-          lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          priorityFeeMicroLamports,
-          priorityFeeSOL: priorityFeeMicroLamports / 1_000_000,
-          note: 'Building transaction ONCE with priority fee included to prevent structure corruption',
-        });
-        
-        // Build base execution transaction
-        const baseTx = await transactions.vaultTransactionExecute({
+        tx = await transactions.vaultTransactionExecute({
           connection: this.connection,
           blockhash: latestBlockhash.blockhash,
           feePayer: executor.publicKey,
@@ -3025,219 +2937,69 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
-        // Add priority fee BEFORE signing to ensure it's part of the transaction structure
-        const message = baseTx.message;
-        const accountKeys = message.getAccountKeys();
-        const totalAccounts = accountKeys.length;
-        const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
-        
-        // Extract existing instructions
-        const existingInstructions = message.compiledInstructions.map((ix: any) => {
-          const programId = accountKeys.get(ix.programIdIndex);
-          const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
-            const pubkey = accountKeys.get(keyIndex);
-            const isSigner = keyIndex < numRequiredSignatures;
-            const isWritable = keyIndex < numRequiredSignatures || 
-                              (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
-                               keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
-            return { pubkey, isSigner, isWritable };
-          });
-          return new TransactionInstruction({
-            programId,
-            keys,
-            data: Buffer.from(ix.data),
-          });
-        });
-        
-        // Add priority fee instruction at the beginning
-        const priorityFeeIx = ComputeBudgetProgram.setComputeUnitPrice({
-          microLamports: priorityFeeMicroLamports,
-        });
-        const instructionsWithPriorityFee = [priorityFeeIx, ...existingInstructions];
-        
-        // Build final transaction message with priority fee
-        const transactionMessage = new TransactionMessage({
-          payerKey: executor.publicKey,
-          recentBlockhash: latestBlockhash.blockhash,
-          instructions: instructionsWithPriorityFee,
-        });
-        
-        const compiledMessage = transactionMessage.compileToV0Message();
-        tx = new VersionedTransaction(compiledMessage);
         tx.sign([executor]);
-        
-        // CRITICAL: Always simulate and capture detailed logs before sending
-        // Expert recommendation: This shows exact failure reasons
+
+        // Simulate transaction before sending to get detailed error information
         try {
           const simulation = await this.connection.simulateTransaction(tx, {
             replaceRecentBlockhash: true,
             sigVerify: false,
           });
           
-          // Log ALL simulation details for debugging
-          enhancedLogger.info('🔬 Transaction simulation result', {
-            vaultAddress,
-            proposalId,
-            attempt: attempt + 1,
-            maxAttempts,
-            err: simulation.value.err ? JSON.stringify(simulation.value.err, null, 2) : null,
-            unitsConsumed: simulation.value.unitsConsumed,
-            logs: simulation.value.logs || [],
-            logCount: simulation.value.logs?.length || 0,
-            note: 'Full simulation logs captured - check logs array for exact failure reason',
-          });
-          
           if (simulation.value.err) {
-            const simError = JSON.stringify(simulation.value.err, null, 2);
-            const errorLogs = simulation.value.logs || [];
-            
-            enhancedLogger.error('❌ Transaction simulation failed - DETAILED ERROR ANALYSIS', {
+            const simError = JSON.stringify(simulation.value.err);
+            enhancedLogger.error('❌ Transaction simulation failed before execution', {
               vaultAddress,
               proposalId,
-              attempt: attempt + 1,
-              maxAttempts,
               error: simError,
-              errorType: typeof simulation.value.err === 'object' && simulation.value.err !== null 
-                ? Object.keys(simulation.value.err)[0] 
-                : 'unknown',
-              logs: errorLogs,
-              logCount: errorLogs.length,
-              unitsConsumed: simulation.value.unitsConsumed,
-              note: 'Simulation failure indicates execution will fail. Check logs array for program errors, missing signers, or account issues.',
+              logs: simulation.value.logs?.slice(-20),
+              proposalIsExecuteReady,
+              vaultTransactionIsExecuteReady,
+              note: 'This indicates the execution will fail. Check logs for details.',
             });
             
-            // Extract specific error messages from logs
-            const programErrors = errorLogs.filter((log: string) => 
-              log.includes('Program failed') || 
-              log.includes('custom program error') ||
-              log.includes('insufficient funds') ||
-              log.includes('signature') ||
-              log.includes('Account') ||
-              log.includes('Instruction') ||
-              log.includes('Error')
-            );
-            
-            if (programErrors.length > 0) {
-              enhancedLogger.error('🔍 Program errors extracted from simulation logs', {
-                vaultAddress,
-                proposalId,
-                programErrors,
-                programErrorCount: programErrors.length,
-                note: 'These are the specific on-chain errors that caused simulation to fail',
-              });
-            }
-            
+            // If simulation fails, we can still try to send it (sometimes simulation is wrong)
+            // But log the error for debugging
             lastErrorMessage = `Simulation error: ${simError}`;
-            if (programErrors.length > 0) {
-              lastErrorMessage += ` | Program errors: ${programErrors.slice(0, 5).join('; ')}`;
-            }
-            lastLogs = errorLogs;
-            
-            // If simulation fails, retry with fresh blockhash
-            if (attempt < maxAttempts - 1) {
-              enhancedLogger.info('🔄 Retrying with fresh blockhash after simulation failure', {
-                vaultAddress,
-                proposalId,
-                attempt: attempt + 1,
-                errorSummary: programErrors.slice(0, 3), // First 3 errors
-              });
-              continue;
-            }
+            lastLogs = simulation.value.logs ?? undefined;
           } else {
             enhancedLogger.info('✅ Transaction simulation succeeded', {
               vaultAddress,
               proposalId,
-              attempt: attempt + 1,
               computeUnitsUsed: simulation.value.unitsConsumed,
-              logCount: simulation.value.logs?.length || 0,
-              note: 'Simulation passed - transaction should execute successfully',
+              logs: simulation.value.logs?.slice(-5),
             });
           }
         } catch (simError: unknown) {
-          enhancedLogger.error('❌ Simulation threw exception (not just failed)', {
+          enhancedLogger.warn('⚠️ Failed to simulate transaction (continuing with execution attempt)', {
             vaultAddress,
             proposalId,
-            attempt: attempt + 1,
             error: simError instanceof Error ? simError.message : String(simError),
-            stack: simError instanceof Error ? simError.stack : undefined,
-            note: 'Simulation exception indicates transaction structure issue - will attempt execution anyway but likely to fail',
           });
-          // Don't continue - let execution attempt proceed to see actual error
         }
 
-        // Serialize and send transaction
-        // CRITICAL FIX: Use preflight validation instead of skipPreflight
-        // Preflight catches errors before submission and provides better error messages
         const rawTx = tx.serialize();
         let signature: string;
         
         try {
-          // Use preflight to validate transaction before sending
-          // This catches errors early and provides better diagnostics
+          // Skip preflight since we already simulated manually
+          // Preflight can fail even when simulation succeeds due to timing/state differences
           signature = await this.connection.sendRawTransaction(rawTx, {
-            skipPreflight: false, // Enable preflight for better error detection
-            preflightCommitment: 'confirmed',
-            maxRetries: 3, // Standard retries since we're using preflight
+            skipPreflight: true,
+            maxRetries: 3,
           });
         } catch (sendError: unknown) {
           // Handle SendTransactionError specifically to extract logs
           if (sendError instanceof SendTransactionError) {
             // Try to get logs from the error - SendTransactionError has logs property
             let errorLogs: string[] = [];
-            let fullErrorDetails: any = null;
-            let simulationResponse: any = null;
             try {
               // SendTransactionError may have logs directly or via getLogs() method
               if (sendError.logs && Array.isArray(sendError.logs)) {
                 errorLogs = sendError.logs;
               } else if (typeof (sendError as any).getLogs === 'function') {
-                try {
-                  errorLogs = (sendError as any).getLogs() || [];
-                } catch (getLogsError) {
-                  enhancedLogger.warn('⚠️ getLogs() method failed', {
-                    vaultAddress,
-                    proposalId,
-                    error: getLogsError instanceof Error ? getLogsError.message : String(getLogsError),
-                  });
-                }
+                errorLogs = (sendError as any).getLogs() || [];
               }
-              
-              // Try to get simulation response - it might be in different places
-              simulationResponse = (sendError as any).simulationResponse 
-                || (sendError as any).simulation 
-                || (sendError as any).response;
-              
-              // Try to get full error details including simulation response
-              fullErrorDetails = {
-                message: sendError.message,
-                name: sendError.name,
-                stack: sendError.stack,
-                simulationResponse,
-                // Check for any other error properties
-                ...Object.keys(sendError).reduce((acc, key) => {
-                  try {
-                    const value = (sendError as any)[key];
-                    // Only include serializable values
-                    if (value !== undefined && value !== null) {
-                      if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
-                        acc[key] = value;
-                      } else if (Array.isArray(value)) {
-                        acc[key] = value;
-                      } else if (typeof value === 'object') {
-                        try {
-                          JSON.stringify(value);
-                          acc[key] = value;
-                        } catch {
-                          acc[key] = '[Object - not serializable]';
-                        }
-                      }
-                    }
-                  } catch {
-                    // Ignore unreadable properties
-                  }
-                  return acc;
-                }, {} as any),
-              };
             } catch (logError: unknown) {
               enhancedLogger.warn('⚠️ Failed to extract logs from SendTransactionError', {
                 vaultAddress,
@@ -3248,29 +3010,23 @@ export class SquadsVaultService {
             
             const errorMessage = sendError.message || String(sendError);
             
-            // Extract simulation error details
+            // Extract simulation response if available
+            const simulationResponse = (sendError as any).simulationResponse;
             const simulationError = simulationResponse?.value?.err 
-              ? JSON.stringify(simulationResponse.value.err, null, 2)
+              ? JSON.stringify(simulationResponse.value.err)
               : null;
-            const simulationLogs = simulationResponse?.value?.logs || errorLogs || [];
-            const simulationUnitsConsumed = simulationResponse?.value?.unitsConsumed;
+            const simulationLogs = simulationResponse?.value?.logs || [];
             
-            // Log full error details for debugging
             enhancedLogger.error('❌ sendRawTransaction failed with SendTransactionError', {
               vaultAddress,
               proposalId,
               error: errorMessage,
-              errorName: sendError.name,
-              logs: simulationLogs.length > 0 ? simulationLogs.slice(-30) : undefined, // Last 30 log lines
+              logs: errorLogs.length > 0 ? errorLogs : simulationLogs,
               simulationError,
-              simulationUnitsConsumed,
-              hasSimulationResponse: !!simulationResponse,
-              fullErrorDetails: JSON.stringify(fullErrorDetails, null, 2),
+              simulationLogs: simulationLogs.length > 0 ? simulationLogs : undefined,
               proposalIsExecuteReady,
               vaultTransactionIsExecuteReady,
-              attempt: attempt + 1,
-              maxAttempts,
-              note: 'This error occurs during preflight check or transaction submission. Check simulationError and logs for on-chain error details.',
+              note: 'This error occurs during preflight check or transaction submission. Check logs for on-chain error details.',
             });
             
             lastErrorMessage = `SendTransactionError: ${errorMessage}`;
@@ -3295,479 +3051,70 @@ export class SquadsVaultService {
             }
             
             break;
-          } else {
-            // Handle non-SendTransactionError from sendRawTransaction
-            const errorMessage = sendError instanceof Error ? sendError.message : String(sendError);
-            enhancedLogger.error('❌ sendRawTransaction failed with non-SendTransactionError', {
-              vaultAddress,
-              proposalId,
-              error: errorMessage,
-              errorType: sendError?.constructor?.name || typeof sendError,
-              errorDetails: sendError,
-              proposalIsExecuteReady,
-              vaultTransactionIsExecuteReady,
-            });
-            
-            lastErrorMessage = `sendRawTransaction error: ${errorMessage}`;
-            // Try to extract logs from the error if available
-            if ((sendError as any)?.logs && Array.isArray((sendError as any).logs)) {
-              lastLogs = (sendError as any).logs;
-            }
-            
-            if (attempt === 0) {
-              enhancedLogger.warn('🔄 Will retry execution with fresh blockhash after sendRawTransaction error', {
-                vaultAddress,
-                proposalId,
-                error: errorMessage,
-              });
-              continue;
-            }
-            break;
           }
+          // Re-throw if it's not a SendTransactionError
+          throw sendError;
         }
 
-        // Use a more reliable confirmation strategy with longer timeout
-        // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
-        // We'll use a custom confirmation strategy that polls getSignatureStatus
-        // This is more reliable than confirmTransaction which can timeout prematurely
-        let confirmation;
-        let transactionConfirmed = false;
-        let confirmationError: any = null;
-        
-        try {
-          // First, try the standard confirmTransaction with a longer timeout
-          // But we'll also implement a fallback polling strategy
-          const confirmationPromise = this.connection.confirmTransaction(
-            {
-              signature,
-              blockhash: latestBlockhash.blockhash,
-              lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-            },
-            'confirmed'
-          );
-          
-          // Set a timeout of 90 seconds (longer than default ~30 seconds)
-          // This gives more time for network congestion scenarios
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Confirmation timeout after 90 seconds')), 90000);
-          });
-          
-          try {
-            confirmation = await Promise.race([confirmationPromise, timeoutPromise]);
-            transactionConfirmed = true;
-          } catch (raceError: any) {
-            // Timeout or other error - we'll fall back to polling strategy
-            confirmationError = raceError;
-            enhancedLogger.warn('⚠️ confirmTransaction timed out or failed, falling back to polling strategy', {
-              vaultAddress,
-              proposalId,
-              signature,
-              error: raceError instanceof Error ? raceError.message : String(raceError),
-            });
-          }
-        } catch (confirmError: unknown) {
-          confirmationError = confirmError;
-        }
-        
-        // If standard confirmation failed, use polling strategy
-        if (!transactionConfirmed) {
-          enhancedLogger.info('🔄 Using polling strategy for transaction confirmation', {
-            vaultAddress,
-            proposalId,
+        const confirmation = await this.connection.confirmTransaction(
+          {
             signature,
+            blockhash: latestBlockhash.blockhash,
             lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-          });
-          
-          // Poll getSignatureStatus until transaction is confirmed or blockhash expires
-          // According to Solana docs, blockhashes expire after ~150 blocks (~60 seconds)
-          // We'll poll every 1 second for up to 90 seconds (with blockheight checking)
-          const maxPollingDuration = 90000; // 90 seconds
-          const pollInterval = 1000; // 1 second
-          const startTime = Date.now();
-          let currentBlockHeight = await this.connection.getBlockHeight('confirmed');
-          
-          while (Date.now() - startTime < maxPollingDuration && currentBlockHeight < latestBlockhash.lastValidBlockHeight) {
-            try {
-              const txStatus = await this.connection.getSignatureStatus(signature, {
-                searchTransactionHistory: true,
-              });
-              
-              if (txStatus?.value) {
-                if (txStatus.value.err) {
-                  // Transaction failed on-chain
-                  confirmationError = new Error(`Transaction failed: ${JSON.stringify(txStatus.value.err)}`);
-                  enhancedLogger.error('❌ Transaction failed on-chain (polling strategy)', {
-                    vaultAddress,
-                    proposalId,
-                    signature,
-                    error: JSON.stringify(txStatus.value.err),
-                    slot: txStatus.value.slot,
-                  });
-                  break;
-                } else if (txStatus.value.confirmationStatus === 'confirmed' || txStatus.value.confirmationStatus === 'finalized') {
-                  // Transaction succeeded!
-                  transactionConfirmed = true;
-                  confirmation = { value: { err: null } }; // Create mock confirmation object
-                  enhancedLogger.info('✅ Transaction confirmed via polling strategy', {
-                    vaultAddress,
-                    proposalId,
-                    signature,
-                    slot: txStatus.value.slot,
-                    confirmationStatus: txStatus.value.confirmationStatus,
-                    elapsedMs: Date.now() - startTime,
-                  });
-                  break;
-                }
-              }
-              
-              // Check current block height to ensure we haven't exceeded lastValidBlockHeight
-              currentBlockHeight = await this.connection.getBlockHeight('confirmed');
-              
-              if (currentBlockHeight >= latestBlockhash.lastValidBlockHeight) {
-                enhancedLogger.warn('⚠️ Blockhash expired during polling', {
-                  vaultAddress,
-                  proposalId,
-                  signature,
-                  currentBlockHeight,
-                  lastValidBlockHeight: latestBlockhash.lastValidBlockHeight,
-                });
-                break;
-              }
-              
-              // Wait before next poll (respect rate limits)
-              await new Promise(resolve => setTimeout(resolve, pollInterval));
-            } catch (pollError: unknown) {
-              enhancedLogger.warn('⚠️ Error during polling (will continue)', {
-                vaultAddress,
-                proposalId,
-                signature,
-                error: pollError instanceof Error ? pollError.message : String(pollError),
-              });
-              // Continue polling despite error
-              await new Promise(resolve => setTimeout(resolve, pollInterval));
-            }
+          },
+          'confirmed'
+        );
+
+        if (confirmation.value.err) {
+          const errorDetails = JSON.stringify(confirmation.value.err);
+          lastErrorMessage = `Transaction failure: ${errorDetails}`;
+          const insights = await this.collectSimulationLogs(tx);
+          lastLogs = insights.logs;
+          if (insights.errorInfo) {
+            lastErrorMessage += ` | Simulation error: ${insights.errorInfo}`;
           }
           
-          if (!transactionConfirmed && !confirmationError) {
-            confirmationError = new Error('Transaction confirmation timeout - transaction may still be processing');
-          }
-        }
-        
-        // If we got a successful confirmation, proceed
-        if (transactionConfirmed && confirmation && !confirmation.value?.err) {
-          // Success - transaction confirmed
-          enhancedLogger.info('✅ Transaction confirmed successfully', {
-            vaultAddress,
-            proposalId,
-            signature,
-            slot: (confirmation as any).value?.slot,
-          });
-          
-          // Get transaction slot for return value
-          let confirmedSlot: number | undefined;
-          try {
-            const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-            confirmedSlot = txStatus?.value?.slot;
-          } catch (slotError: unknown) {
-            enhancedLogger.warn('⚠️ Could not get transaction slot (non-critical)', {
+          // Check if error is related to proposal status or insufficient signatures
+          const errorStr = errorDetails.toLowerCase();
+          if (errorStr.includes('insufficient') || errorStr.includes('signature')) {
+            enhancedLogger.error('❌ Execution failed with signature-related error', {
               vaultAddress,
               proposalId,
-              signature,
-              error: slotError instanceof Error ? slotError.message : String(slotError),
+              error: errorDetails,
+              proposalIsExecuteReady,
+              logs: lastLogs?.slice(-10),
+              note: 'This may indicate the Proposal needs to be in ExecuteReady state, or there is a mismatch between approved signers and what execution requires',
             });
           }
           
-          // Transaction confirmed successfully - verify execution and return
-          // Verify the transaction actually executed the transfers by checking transaction details
-          try {
-            const txDetails = await this.connection.getTransaction(signature, {
-              commitment: 'confirmed',
-              maxSupportedTransactionVersion: 0,
-            });
-            
-            if (txDetails?.meta?.err) {
-              enhancedLogger.error('❌ Transaction execution failed despite confirmation', {
-                vaultAddress,
-                proposalId,
-                signature,
-                error: JSON.stringify(txDetails.meta.err),
-                logs: txDetails.meta.logMessages?.slice(-10),
-              });
-            } else {
-              // Check if transfers were included in the transaction
-              // Handle both legacy and versioned transactions
-              let hasTransfers = false;
-              const message = txDetails?.transaction?.message;
-              if (message) {
-                // For legacy transactions, instructions are directly accessible
-                if ('instructions' in message && Array.isArray(message.instructions)) {
-                  hasTransfers = message.instructions.some((ix: any) => {
-                    const programId = typeof ix.programId === 'string' ? ix.programId : ix.programId?.toString();
-                    return programId === '11111111111111111111111111111111'; // System Program
-                  });
-                } else if ('staticAccountKeys' in message) {
-                  // For versioned transactions, we rely on balance changes
-                  hasTransfers = true; // Assume transfers if balance changes exist
-                }
-              }
-              
-              enhancedLogger.info('✅ Transaction verification complete', {
-                vaultAddress,
-                proposalId,
-                signature,
-                hasTransfers,
-                preBalances: txDetails?.meta?.preBalances?.slice(0, 5),
-                postBalances: txDetails?.meta?.postBalances?.slice(0, 5),
-                balanceChanges: txDetails?.meta?.preBalances && txDetails?.meta?.postBalances
-                  ? txDetails.meta.postBalances.slice(0, 5).map((post: number, i: number) => 
-                      post - (txDetails.meta.preBalances[i] || 0)
-                    )
-                  : undefined,
-                note: 'Positive balance changes indicate funds were received. Negative changes indicate funds were sent.',
-              });
-            }
-          } catch (txCheckError: unknown) {
-            enhancedLogger.warn('⚠️ Could not verify transaction details (non-critical)', {
-              vaultAddress,
-              proposalId,
-              signature,
-              error: txCheckError instanceof Error ? txCheckError.message : String(txCheckError),
-            });
-          }
-
-          const executedAt = new Date();
-          enhancedLogger.info('✅ Proposal executed successfully - funds should be released', {
-            vaultAddress,
-            proposalId,
-            executor: executor.publicKey.toString(),
-            signature,
-            slot: confirmedSlot,
-            note: 'The vaultTransactionExecute instruction executed all transfer instructions in the proposal. Check transaction logs to verify funds were transferred to players/fee wallet.',
-          });
-
-          // Return success immediately - transaction confirmed
-          return {
-            success: true,
-            signature,
-            slot: confirmedSlot,
-            executedAt: executedAt.toISOString(),
-          };
-        } else {
-          // Confirmation failed or timed out - check if it's a retryable error
-          const confirmErrorMessage = confirmationError instanceof Error ? confirmationError.message : String(confirmationError);
-          const isTimeoutError = confirmErrorMessage.includes('expired') || 
-                                 confirmErrorMessage.includes('block height exceeded') ||
-                                 confirmErrorMessage.includes('timeout') ||
-                                 confirmErrorMessage.includes('Confirmation timeout');
-          
-          enhancedLogger.error('❌ Transaction confirmation failed', {
-            vaultAddress,
-            proposalId,
-            signature,
-            error: confirmErrorMessage,
-            isTimeoutError,
-            note: 'Transaction was sent but confirmation failed. Will retry with fresh blockhash if timeout error.',
-          });
-          
-          lastErrorMessage = `confirmTransaction error: ${confirmErrorMessage}`;
-          
-          // If timeout error, we'll retry with fresh blockhash below
-          // Otherwise, check transaction status directly as fallback
-          if (isTimeoutError) {
-            // Try to check transaction status directly - it may have succeeded despite timeout
-            // Retry checking status multiple times with delays, as transaction may still be processing
-            let transactionSucceeded = false;
-            let onChainError: any = null;
-            let txDetails: any = null;
-            
-            // Retry checking transaction status up to 5 times with increasing delays
-            // This handles cases where the transaction is still being processed on-chain
-            const maxStatusCheckRetries = 5;
-            const statusCheckDelays = [500, 1000, 2000, 3000, 5000]; // ms
-            
-            for (let statusRetry = 0; statusRetry < maxStatusCheckRetries && !transactionSucceeded && !onChainError; statusRetry++) {
-              if (statusRetry > 0) {
-                // Wait before retrying (except first attempt)
-                await new Promise(resolve => setTimeout(resolve, statusCheckDelays[statusRetry - 1]));
-              }
-              
-              try {
-                enhancedLogger.info('🔍 Checking transaction status after timeout (retry attempt)', {
-                  vaultAddress,
-                  proposalId,
-                  signature,
-                  attempt: statusRetry + 1,
-                  maxAttempts: maxStatusCheckRetries,
-                });
-                
-                // First try getSignatureStatus with searchTransactionHistory
-                const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-                if (txStatus?.value) {
-                  if (txStatus.value.err) {
-                    // Transaction failed on-chain - capture the error
-                    onChainError = txStatus.value.err;
-                    lastErrorMessage += ` | On-chain error: ${JSON.stringify(txStatus.value.err)}`;
-                    enhancedLogger.error('❌ Transaction failed on-chain (found via getSignatureStatus)', {
-                      vaultAddress,
-                      proposalId,
-                      signature,
-                      error: JSON.stringify(txStatus.value.err),
-                      slot: txStatus.value.slot,
-                      attempt: statusRetry + 1,
-                    });
-                    break; // Stop retrying if we found an error
-                  } else {
-                    // Transaction succeeded!
-                    transactionSucceeded = true;
-                    enhancedLogger.info('✅ Transaction confirmed via direct status check (despite confirmTransaction timeout)', {
-                      vaultAddress,
-                      proposalId,
-                      signature,
-                      slot: txStatus.value.slot,
-                      attempt: statusRetry + 1,
-                      note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
-                    });
-                    break; // Stop retrying if we found success
-                  }
-                } else {
-                  // Transaction not found yet - might still be processing
-                  enhancedLogger.info('⏳ Transaction not found in signature status yet (may still be processing)', {
-                    vaultAddress,
-                    proposalId,
-                    signature,
-                    attempt: statusRetry + 1,
-                    maxAttempts: maxStatusCheckRetries,
-                    note: 'Will retry checking status',
-                  });
-                }
-                
-                // If getSignatureStatus didn't find it, try getTransaction to verify
-                if (!transactionSucceeded && !onChainError) {
-                  try {
-                    txDetails = await this.connection.getTransaction(signature, {
-                      commitment: 'confirmed',
-                      maxSupportedTransactionVersion: 0,
-                    });
-                    
-                    if (txDetails) {
-                      if (txDetails.meta?.err) {
-                        // Transaction failed on-chain
-                        onChainError = txDetails.meta.err;
-                        lastErrorMessage += ` | Transaction error from getTransaction: ${JSON.stringify(txDetails.meta.err)}`;
-                        enhancedLogger.error('❌ Transaction failed on-chain (found via getTransaction)', {
-                          vaultAddress,
-                          proposalId,
-                          signature,
-                          error: JSON.stringify(txDetails.meta.err),
-                          logs: txDetails.meta.logMessages?.slice(-10),
-                          slot: txDetails.slot,
-                          attempt: statusRetry + 1,
-                        });
-                        break; // Stop retrying if we found an error
-                      } else {
-                        // Transaction succeeded!
-                        transactionSucceeded = true;
-                        enhancedLogger.info('✅ Transaction confirmed via getTransaction (despite confirmTransaction timeout)', {
-                          vaultAddress,
-                          proposalId,
-                          signature,
-                          slot: txDetails.slot,
-                          attempt: statusRetry + 1,
-                          note: 'Transaction succeeded on-chain even though confirmTransaction timed out',
-                        });
-                        break; // Stop retrying if we found success
-                      }
-                    }
-                  } catch (txError: unknown) {
-                    enhancedLogger.warn('⚠️ Failed to check transaction via getTransaction', {
-                      vaultAddress,
-                      proposalId,
-                      signature,
-                      attempt: statusRetry + 1,
-                      error: txError instanceof Error ? txError.message : String(txError),
-                      note: 'Will retry if more attempts remain',
-                    });
-                  }
-                }
-              } catch (statusError: unknown) {
-                enhancedLogger.warn('⚠️ Failed to check transaction status (will retry)', {
-                  vaultAddress,
-                  proposalId,
-                  signature,
-                  attempt: statusRetry + 1,
-                  maxAttempts: maxStatusCheckRetries,
-                  error: statusError instanceof Error ? statusError.message : String(statusError),
-                });
-                // Continue to next retry attempt
-              }
-            }
-            
-            if (!transactionSucceeded && !onChainError) {
-              enhancedLogger.warn('⚠️ Transaction status still not found after all retry attempts', {
-                vaultAddress,
-                proposalId,
-                signature,
-                totalRetries: maxStatusCheckRetries,
-                note: 'Transaction may still be processing, or may have failed before being included in a block',
-              });
-            }
-            
-            if (transactionSucceeded) {
-              // Double-check proposal was actually executed by checking on-chain state
-              try {
-                const proposalStatusAfter = await this.checkProposalStatus(vaultAddress, proposalId);
-                if (proposalStatusAfter.executed) {
-                  enhancedLogger.info('✅ Verified proposal execution on-chain after timeout recovery', {
-                    vaultAddress,
-                    proposalId,
-                    signature,
-                  });
-                } else {
-                  enhancedLogger.warn('⚠️ Transaction succeeded but proposal not marked as executed on-chain', {
-                    vaultAddress,
-                    proposalId,
-                    signature,
-                    proposalStatus: proposalStatusAfter,
-                  });
-                }
-              } catch (verifyError: unknown) {
-                enhancedLogger.warn('⚠️ Could not verify proposal execution state (non-critical)', {
-                  vaultAddress,
-                  proposalId,
-                  signature,
-                  error: verifyError instanceof Error ? verifyError.message : String(verifyError),
-                });
-              }
-              
-              // Return success - transaction was found on-chain
-              const txStatus = await this.connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-              return {
-                success: true,
-                signature,
-                slot: txStatus?.value?.slot || undefined,
-                executedAt: new Date().toISOString(),
-              };
-            }
-          }
-          
-          // If we get here, confirmation failed and we couldn't verify success
-          // Throw error to trigger retry with fresh blockhash
-          throw confirmationError || new Error('Transaction confirmation failed');
+          break;
         }
+
+        const executedAt = new Date();
+        enhancedLogger.info('✅ Proposal executed successfully', {
+          vaultAddress,
+          proposalId,
+          executor: executor.publicKey.toString(),
+          signature,
+          slot: confirmation.context.slot,
+        });
+
+        return {
+          success: true,
+          signature,
+          slot: confirmation.context.slot,
+          executedAt: executedAt.toISOString(),
+        };
       } catch (rawError: unknown) {
-        // This catch block handles errors from the entire try block (transaction building, sending, confirmation)
         const { message, logs } = await this.buildExecutionErrorDetails(tx, rawError);
         lastErrorMessage = message;
         lastLogs = logs;
 
-        // Check if we should retry with fresh blockhash
-        if (attempt < maxAttempts - 1 && this.shouldRetryWithFreshBlockhash(rawError)) {
+        if (attempt === 0 && this.shouldRetryWithFreshBlockhash(rawError)) {
           enhancedLogger.warn('🔄 Retrying Squads proposal execution with a fresh blockhash', {
             vaultAddress,
             proposalId,
             reason: lastErrorMessage,
-            attempt: attempt + 1,
-            maxAttempts,
           });
           continue;
         }
@@ -3776,23 +3123,17 @@ export class SquadsVaultService {
       }
     }
 
-    // Ensure we have a meaningful error message
-    const finalErrorMessage = lastErrorMessage || 'Unknown execution error - no error details captured';
-    
     enhancedLogger.error('❌ Failed to execute proposal', {
       vaultAddress,
       proposalId,
       executor: executor.publicKey.toString(),
-      error: finalErrorMessage,
-      errorString: String(finalErrorMessage),
+      error: lastErrorMessage,
       logs: lastLogs?.slice(-5),
-      hasLogs: !!lastLogs && lastLogs.length > 0,
-      note: 'If error is empty, check simulation logs and transaction confirmation status above',
     });
 
     return {
       success: false,
-      error: finalErrorMessage,
+      error: lastErrorMessage || 'Unknown execution error',
       logs: lastLogs,
     };
   }
