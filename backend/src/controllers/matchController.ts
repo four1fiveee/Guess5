@@ -9589,6 +9589,14 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
   } catch (error: unknown) {
     console.error('❌ Error building approval transaction:', error);
+    // Ensure CORS headers are set even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('❌ Error details:', {
