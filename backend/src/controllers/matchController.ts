@@ -3224,6 +3224,13 @@ const submitResultHandler = async (req: any, res: any) => {
 
   } catch (error: unknown) {
     console.error('❌ Error submitting result:', error);
+    // Ensure CORS headers are set even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
     res.status(500).json({ error: 'Internal server error' });
   }
 };
