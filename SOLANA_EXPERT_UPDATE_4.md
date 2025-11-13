@@ -181,33 +181,177 @@
    - Check if `proposalStatus` is `EXECUTING` in database (would indicate execution was triggered)
    - Check if `proposalTransactionId` is null (would indicate execution didn't complete)
 
+## Expert Triage Path - CRITICAL ROOT CAUSE IDENTIFIED
+
+### 🚨 CRITICAL ROOT CAUSE
+**Frontend says "✅ Proposal signed successfully" but backend logs show NO POST /sign-proposal at all.**
+
+**This means:**
+- Frontend → NOT reaching → Backend → NOT writing DB → NOT triggering approve → NOT triggering execute
+- Everything else (top-ups, Squads execution, signer counts, on-chain checks) becomes irrelevant because the backend never receives the sign request
+
+**This explains why:**
+- No "pre-exec check" logs
+- No "fee wallet approve sig" logs
+- No "execution enqueued" logs
+- No "execution" logs
+- No proposalTransactionId
+- No top-up
+- No changes to vault balance
+- No vault transaction on chain
+- Frontend thinks signing happened but backend never acted
+
+### 🧨 Important: Frontend Success Message is UI-Only
+**Current frontend logs show "✅ Proposal signed successfully"** - This means:
+- Only the Phantom signature → success
+- NOT "backend approved it"
+- NOT "backend stored it"
+- NOT "backend executed it"
+
+The frontend prints "success" once the wallet signs the local approval transaction, not when the backend receives or processes it.
+
+## Implemented Fixes (Per Expert Triage)
+
+### ✅ Priority 1: Added Express Middleware Logging
+**Added route-level logging to detect incoming POSTs:**
+```typescript
+app.use((req: any, res: any, next: any) => {
+  if (req.method === 'POST' && req.url.includes('sign-proposal')) {
+    console.log('🔥 POST /sign-proposal received at middleware', {
+      url: req.url,
+      method: req.method,
+      origin: req.headers.origin,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      timestamp: new Date().toISOString(),
+    });
+  }
+  next();
+});
+```
+
+**This will show:**
+- If request reaches Express at all
+- Request details (origin, content-length, etc.)
+- If request is blocked before hitting Express
+
+### ✅ Priority 2: Fixed Frontend Optimistic Success Logging
+**Changed from:**
+- Logging "signed successfully" after wallet signs (before backend response)
+
+**Changed to:**
+- Only logging "✅ Proposal signed & backend confirmed" AFTER backend responds successfully
+- Added detailed error logging if backend request fails:
+  - Status code
+  - Status text
+  - Response headers
+  - Error details
+
+**This will reveal:**
+- Real backend failures
+- CORS errors
+- Payload size issues
+- Network errors
+
 ## Expert Recommendations Needed
 
-### Priority 1: Why sign-proposal request isn't reaching backend
-**Critical Issue:** Frontend shows "✅ Proposal signed successfully" but backend has no record of POST request.
+### Priority 1: Verify POST Request in Browser Network Tab
+**Action Required:**
+1. Open browser DevTools → Network tab → Filter: `sign-proposal`
+2. Check if POST request appears
+3. Inspect:
+   - Request URL
+   - Status code
+   - Response headers
+   - Any CORS errors from console
+   - Request payload size
 
-**Questions:**
-1. How can we verify if the request actually reached the backend?
-2. Could this be a CORS issue preventing the request from being logged?
-3. Should we add more logging at the route level to catch requests before they're processed?
-4. Is there a way to verify the request was sent from frontend (network tab shows it, but backend doesn't)?
+**What to look for:**
+- **YES POST appears?** → Inspect status + payload
+- **NO POST?** → Frontend isn't sending it → fix frontend
+- **200 status?** → Why backend didn't log?
+- **4xx (CORS/preflight)?** → Fix CORS
+- **502?** → Render timeout or edge issue
+- **413 Payload Too Large?** → Signed tx is too large (common!)
 
-### Priority 2: Why execution isn't triggering
-**If request did reach backend but execution didn't trigger:**
-1. What should we check first - database state or on-chain state?
-2. Could the atomic enqueue be failing silently?
-3. Should execution trigger based on database state even if on-chain check times out?
-4. How can we verify if execution was attempted but failed?
+### Priority 2: Check Preflight (OPTIONS /sign-proposal)
+**If OPTIONS fails, POST never follows.**
 
-### Priority 3: Diagnostic tools
-1. How can we fix the diagnostic script to output results?
-2. What's the best way to query the database directly to verify match state?
-3. How can we verify on-chain proposal state without the diagnostic script?
+**Need to verify:**
+- OPTIONS request succeeds
+- CORS headers are correct
+- Preflight response allows POST
 
-### Priority 4: Frontend polling fix
-1. Is the fix sufficient, or do we need additional changes?
-2. Should we add a manual "Refresh" button as fallback?
-3. Is there a better way to detect proposal creation for both players?
+### Priority 3: Why execution isn't triggering
+**ONLY AFTER POST is fixed:**
+- If request did reach backend but execution didn't trigger:
+  1. Check backend logs for "Fee wallet approve sig"
+  2. Check backend logs for "Fee wallet approve confirmed"
+  3. Check backend logs for "Pre-exec check"
+  4. Check backend logs for "Execution enqueued atomically"
+  5. Check backend logs for "Executing Squads proposal"
+  6. Check simulation logs
+
+**Execution depends on:**
+- POST /sign-proposal → DB insert → fee wallet approve → DB update → enqueue execute → execute
+- Without the first POST, nothing downstream can happen
+
+### Priority 4: Diagnostic tools
+**DO NOT debug script until POST route works** - it's irrelevant until signing reaches backend.
+
+**After POST works:**
+1. Fix diagnostic script to output results
+2. Query database directly to verify match state
+3. Verify on-chain proposal state
+
+### Priority 5: Frontend polling fix
+**This will be resolved once POST works:**
+- Frontend local state ≠ Backend DB state ≠ On-chain state happens because POST /sign-proposal never updated DB
+- Fix POST first, and this problem disappears
+
+## Next Steps (In Exact Order)
+
+### Step 1: Check Browser Network Tab
+**Action:** Open DevTools → Network tab → Filter: `sign-proposal`
+
+**Paste results:**
+- Request URL
+- Status code
+- Response headers
+- Any CORS console errors
+- Request payload size
+
+### Step 2: Check Express Middleware Log
+**Action:** Check backend logs for "🔥 POST /sign-proposal received at middleware"
+
+**If this doesn't print:**
+- Request never arrived
+- OR was blocked before hitting Express
+- OR OPTIONS preflight failed
+
+### Step 3: Check Frontend Console Logs
+**Action:** Check frontend logs immediately before/after sending POST
+
+**Look for:**
+- "📤 Submitting signed proposal to backend"
+- "✅ Proposal signed & backend confirmed" (only if backend responds)
+- "❌ Backend sign-proposal failed" (if backend fails)
+
+## What to Send Next
+
+**Please paste:**
+1. **Browser Network tab details** for POST /sign-proposal:
+   - Request URL
+   - Status code
+   - Response headers
+   - Any CORS console errors
+   - Request payload size
+
+2. **Output of Express middleware log:** "🔥 POST /sign-proposal received at middleware"
+
+3. **Frontend console logs** immediately before/after sending POST
+
+**Once you send those 3 data points, I will tell you exactly where the failure is in your request pipeline (CORS, preflight, payload size, wrong URL, or frontend logic).**
 
 Thank you for your continued guidance!
 

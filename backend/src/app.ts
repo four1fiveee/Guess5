@@ -93,6 +93,22 @@ app.options('*', (req: any, res: any) => {
   res.status(200).end();
 });
 
+// CRITICAL: Log POST /sign-proposal requests at Express level (expert recommendation)
+// This catches requests before they enter handler logic, helping diagnose CORS/preflight issues
+app.use((req: any, res: any, next: any) => {
+  if (req.method === 'POST' && req.url.includes('sign-proposal')) {
+    console.log('🔥 POST /sign-proposal received at middleware', {
+      url: req.url,
+      method: req.method,
+      origin: req.headers.origin,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      timestamp: new Date().toISOString(),
+    });
+  }
+  next();
+});
+
 // Apply correlation ID and logging middleware
 app.use(correlationIdMiddleware);
 app.use(requestLoggingMiddleware);

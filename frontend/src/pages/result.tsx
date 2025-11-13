@@ -641,11 +641,14 @@ const Result: React.FC = () => {
         proposalId: payoutData.proposalId,
         serializedLength: serialized.length,
       });
+      // CRITICAL: Only log success AFTER backend confirms (expert recommendation)
+      // Previous code logged success after wallet signing, not backend confirmation
       const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
+        credentials: 'include', // Include credentials for CORS
         body: JSON.stringify({
           matchId,
           wallet: publicKey.toString(),
@@ -653,17 +656,36 @@ const Result: React.FC = () => {
         }),
       });
       
+      // CRITICAL: Log detailed error information if request fails (expert recommendation)
       if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.error || 'Failed to sign proposal');
+        const errorText = await response.text();
+        let errorData;
+        try {
+          errorData = JSON.parse(errorText);
+        } catch {
+          errorData = { error: errorText || 'Unknown error' };
+        }
+        
+        console.error('❌ Backend sign-proposal failed', {
+          matchId,
+          wallet: publicKey.toString(),
+          status: response.status,
+          statusText: response.statusText,
+          error: errorData.error || errorData,
+          responseHeaders: Object.fromEntries(response.headers.entries()),
+        });
+        
+        throw new Error(errorData.error || `Failed to sign proposal: ${response.status} ${response.statusText}`);
       }
       
       const result = await response.json();
-      console.log('✅ Proposal signed successfully', {
+      // CRITICAL: Only log success after backend confirms (expert recommendation)
+      console.log('✅ Proposal signed & backend confirmed', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
         response: result,
+        backendStatus: response.status,
       });
       
       // Refresh payout data (non-critical - if this fails, signing was still successful)
