@@ -4222,14 +4222,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             (match as any).squadsVaultPda ?? undefined
           );
           
-          // Set a timeout of 20 seconds for execution (reduced from 30s to prevent Render timeout)
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Execution timeout after 20 seconds')), 20000);
-          });
-          
-          const executeResult = await Promise.race([executePromise, timeoutPromise]) as any;
-        
-          if (executeResult.success) {
+          // Execute in background - don't await, return response immediately
+          // This prevents 502 Bad Gateway errors from Render's timeout
+          (async () => {
+            try {
+              const executeResult = await executePromise;
+              
+              if (executeResult.success) {
             const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
             const isTieRefund =
               !!(match as any).tieRefundProposalId &&
