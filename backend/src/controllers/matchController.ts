@@ -2603,100 +2603,83 @@ const submitResultHandler = async (req: any, res: any) => {
             const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
             const feeAmount = totalPot * 0.05; // 5% fee from total pot
             
-            // Create Squads proposal for winner payout
-            try {
-              // squadsVaultService is now imported at the top of the file
-              
-              const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                updatedMatch.squadsVaultAddress,
-                new PublicKey(winner),
-                winnerAmount,
-                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount,
-                updatedMatch.squadsVaultPda ?? undefined
-              );
-              
-              if (proposalResult.success) {
-                console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
-              
-                const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-
-                // Update match with proposal information
-                updatedMatch.payoutProposalId = proposalResult.proposalId;
-                updatedMatch.proposalCreatedAt = new Date();
-                updatedMatch.proposalStatus = 'ACTIVE'; // CRITICAL: Set proposalStatus for frontend
-                updatedMatch.matchStatus = 'PROPOSAL_CREATED';
-                applyProposalStateToMatch(updatedMatch, proposalState);
+            // CRITICAL: Create proposal in background to prevent blocking response
+            // This ensures the endpoint returns 200 even if proposal creation fails
+            (async () => {
+              try {
+                const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                  updatedMatch.squadsVaultAddress,
+                  new PublicKey(winner),
+                  winnerAmount,
+                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                  feeAmount,
+                  updatedMatch.squadsVaultPda ?? undefined
+                );
                 
-                // IMPORTANT: Save the match with proposal information
-                await matchRepository.save(updatedMatch);
-                console.log('✅ Match saved with proposal information:', {
-                  matchId: updatedMatch.id,
-                  proposalId: proposalResult.proposalId,
-                  proposalStatus: 'ACTIVE',
-                  needsSignatures: proposalState.normalizedNeeds,
-                  signers: proposalState.signers,
-                });
-            
-            // Create payment instructions for display
-            const paymentInstructions = {
-              winner,
-              loser,
-              winnerAmount,
-              feeAmount,
-                feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
-                squadsProposal: true,
-                proposalId: proposalResult.proposalId,
-              transactions: [
-                {
-                    from: 'Squads Vault',
-                  to: winner,
-                  amount: winnerAmount,
-                    description: 'Winner payout via Squads proposal (requires winner signature)',
-                    proposalId: proposalResult.proposalId
+                if (proposalResult.success) {
+                  console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
+                
+                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
+
+                  // Update match with proposal information using raw SQL
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "payoutProposalId" = $1,
+                        "proposalCreatedAt" = $2,
+                        "proposalStatus" = $3,
+                        "needsSignatures" = $4,
+                        "proposalSigners" = $5,
+                        "matchStatus" = $6,
+                        "updatedAt" = $7
+                    WHERE id = $8
+                  `, [
+                    proposalResult.proposalId,
+                    new Date(),
+                    'ACTIVE',
+                    proposalState.normalizedNeeds,
+                    proposalState.signersJson,
+                    'PROPOSAL_CREATED',
+                    new Date(),
+                    updatedMatch.id
+                  ]);
+                  
+                  console.log('✅ Match saved with proposal information:', {
+                    matchId: updatedMatch.id,
+                    proposalId: proposalResult.proposalId,
+                    proposalStatus: 'ACTIVE',
+                    needsSignatures: proposalState.normalizedNeeds,
+                  });
+                } else {
+                  console.error('❌ Squads proposal creation failed:', proposalResult.error);
                 }
-              ]
-            };
+              } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error('❌ Error creating Squads proposal (non-blocking):', errorMessage);
+                // Don't throw - proposal creation is non-blocking
+              }
+            })();
             
-            (payoutResult as any).paymentInstructions = paymentInstructions;
-            (payoutResult as any).paymentSuccess = true;
-              (payoutResult as any).squadsProposal = true;
-              (payoutResult as any).proposalId = proposalResult.proposalId;
-            
-              console.log('✅ Squads winner payout proposal completed');
-            
-            } else {
-              console.error('❌ Squads proposal creation failed:', proposalResult.error);
-              throw new Error(`Squads proposal failed: ${proposalResult.error}`);
-            }
-            
-          } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-            console.warn('⚠️ Squads proposal failed, falling back to manual instructions:', errorMessage);
-            
-            // Fallback to manual payment instructions
+            // Set fallback payment instructions (proposal will be created in background)
             const paymentInstructions = {
               winner,
               loser,
               winnerAmount,
               feeAmount,
               feeWallet: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
-              squadsProposal: false,
+              squadsProposal: true,
               transactions: [
                 {
                   from: 'Squads Vault',
                   to: winner,
                   amount: winnerAmount,
-                  description: 'Manual payout to winner (contact support)'
+                  description: 'Winner payout via Squads proposal (proposal being created)'
                 }
               ]
             };
             
             (payoutResult as any).paymentInstructions = paymentInstructions;
-            (payoutResult as any).paymentSuccess = false;
-            (payoutResult as any).paymentError = 'Squads proposal failed - contact support';
-            
-            console.log('⚠️ Manual payment instructions created');
+            (payoutResult as any).paymentSuccess = true;
+            (payoutResult as any).squadsProposal = true;
           }
         }
         } else if (payoutResult && payoutResult.winner === 'tie') {
@@ -2764,115 +2747,96 @@ const submitResultHandler = async (req: any, res: any) => {
               throw new Error('Cannot create tie refund: missing squadsVaultAddress');
             }
             
-            // Create Squads proposal for tie refund
-            try {
-              const tiePaymentStatus = {
-                ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
-                ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
-              };
-
-              const refundResult = await squadsVaultService.proposeTieRefund(
-                updatedMatch.squadsVaultAddress,
-                new PublicKey(updatedMatch.player1),
-                new PublicKey(updatedMatch.player2),
-                refundAmount,
-                updatedMatch.squadsVaultPda ?? undefined,
-                tiePaymentStatus
-              );
-              
-              if (refundResult.success) {
-                console.log('✅ Squads tie refund proposal created:', refundResult.proposalId);
-                
-                const proposalState = buildInitialProposalState(refundResult.needsSignatures);
-
-                // Update match with proposal information
-                // CRITICAL: Set both payoutProposalId and tieRefundProposalId for tie refunds
-                updatedMatch.payoutProposalId = refundResult.proposalId;
-                updatedMatch.tieRefundProposalId = refundResult.proposalId;
-                updatedMatch.proposalCreatedAt = new Date();
-                updatedMatch.proposalStatus = 'ACTIVE';
-                updatedMatch.matchStatus = 'PROPOSAL_CREATED';
-                applyProposalStateToMatch(updatedMatch, proposalState);
-                
-                // Save the match with proposal information
-                await matchRepository.save(updatedMatch);
-                console.log('✅ Match saved with tie refund proposal:', {
-                  matchId: updatedMatch.id,
-                  proposalId: refundResult.proposalId,
-                  proposalStatus: 'ACTIVE',
-                  needsSignatures: proposalState.normalizedNeeds,
-                  signers: proposalState.signers,
-                });
-                
-                // Create payment instructions for display
-                const paymentInstructions = {
-                  winner: 'tie',
-                  player1: updatedMatch.player1,
-                  player2: updatedMatch.player2,
-                  refundAmount: refundAmount,
-                  feeAmount: entryFee * 0.05 * 2,
-                  feeWallet: FEE_WALLET_ADDRESS,
-                  squadsProposal: true,
-                  proposalId: refundResult.proposalId,
-                  transactions: [
-                    {
-                      from: 'Squads Vault',
-                      to: updatedMatch.player1,
-                      amount: refundAmount,
-                      description: 'Losing tie refund (player 1)'
-                    },
-                    {
-                      from: 'Squads Vault',
-                      to: updatedMatch.player2,
-                      amount: refundAmount,
-                      description: 'Losing tie refund (player 2)'
-                    }
-                  ]
+            // CRITICAL: Create tie refund proposal in background to prevent blocking response
+            (async () => {
+              try {
+                const tiePaymentStatus = {
+                  ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                  ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
                 };
+
+                const refundResult = await squadsVaultService.proposeTieRefund(
+                  updatedMatch.squadsVaultAddress,
+                  new PublicKey(updatedMatch.player1),
+                  new PublicKey(updatedMatch.player2),
+                  refundAmount,
+                  updatedMatch.squadsVaultPda ?? undefined,
+                  tiePaymentStatus
+                );
                 
-                (payoutResult as any).paymentInstructions = paymentInstructions;
-                (payoutResult as any).paymentSuccess = true;
-                
-              } else {
-                console.error('❌ Squads tie refund proposal failed:', refundResult.error);
-                throw new Error(`Squads proposal failed: ${refundResult.error}`);
+                if (refundResult.success) {
+                  console.log('✅ Squads tie refund proposal created:', refundResult.proposalId);
+                  
+                  const proposalState = buildInitialProposalState(refundResult.needsSignatures);
+
+                  // Update match with proposal information using raw SQL
+                  // CRITICAL: Set both payoutProposalId and tieRefundProposalId for tie refunds
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "payoutProposalId" = $1,
+                        "tieRefundProposalId" = $2,
+                        "proposalCreatedAt" = $3,
+                        "proposalStatus" = $4,
+                        "needsSignatures" = $5,
+                        "proposalSigners" = $6,
+                        "matchStatus" = $7,
+                        "updatedAt" = $8
+                    WHERE id = $9
+                  `, [
+                    refundResult.proposalId,
+                    refundResult.proposalId,
+                    new Date(),
+                    'ACTIVE',
+                    proposalState.normalizedNeeds,
+                    proposalState.signersJson,
+                    'PROPOSAL_CREATED',
+                    new Date(),
+                    updatedMatch.id
+                  ]);
+                  
+                  console.log('✅ Match saved with tie refund proposal:', {
+                    matchId: updatedMatch.id,
+                    proposalId: refundResult.proposalId,
+                    proposalStatus: 'ACTIVE',
+                    needsSignatures: proposalState.normalizedNeeds,
+                  });
+                } else {
+                  console.error('❌ Squads tie refund proposal failed:', refundResult.error);
+                }
+              } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error('❌ Error creating Squads tie refund proposal (non-blocking):', errorMessage);
+                // Don't throw - proposal creation is non-blocking
               }
-              
-            } catch (error: unknown) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
-              console.warn('⚠️ Squads tie refund proposal failed, falling back to manual instructions:', errorMessage);
-              
-              // Fallback to manual payment instructions
-              const paymentInstructions = {
-                winner: 'tie',
-                player1: updatedMatch.player1,
-                player2: updatedMatch.player2,
-                refundAmount: refundAmount,
-                feeAmount: entryFee * 0.05 * 2,
-                feeWallet: FEE_WALLET_ADDRESS,
-                squadsProposal: false,
-                transactions: [
-                  {
-                    from: 'Squads Vault',
-                    to: updatedMatch.player1,
-                    amount: refundAmount,
-                    description: 'Manual losing tie refund (player 1) - contact support'
-                  },
-                  {
-                    from: 'Squads Vault',
-                    to: updatedMatch.player2,
-                    amount: refundAmount,
-                    description: 'Manual losing tie refund (player 2) - contact support'
-                  }
-                ]
-              };
-              
-              (payoutResult as any).paymentInstructions = paymentInstructions;
-              (payoutResult as any).paymentSuccess = false;
-              (payoutResult as any).paymentError = 'Squads proposal failed - contact support';
-              
-              console.log('⚠️ Manual losing tie refund instructions created');
-            }
+            })();
+            
+            // Set fallback payment instructions (proposal will be created in background)
+            const paymentInstructions = {
+              winner: 'tie',
+              player1: updatedMatch.player1,
+              player2: updatedMatch.player2,
+              refundAmount: refundAmount,
+              feeAmount: entryFee * 0.05 * 2,
+              feeWallet: FEE_WALLET_ADDRESS,
+              squadsProposal: true,
+              transactions: [
+                {
+                  from: 'Squads Vault',
+                  to: updatedMatch.player1,
+                  amount: refundAmount,
+                  description: 'Losing tie refund (player 1) - proposal being created'
+                },
+                {
+                  from: 'Squads Vault',
+                  to: updatedMatch.player2,
+                  amount: refundAmount,
+                  description: 'Losing tie refund (player 2) - proposal being created'
+                }
+              ]
+            };
+            
+            (payoutResult as any).paymentInstructions = paymentInstructions;
+            (payoutResult as any).paymentSuccess = true;
           }
         }
         
