@@ -27,6 +27,16 @@ interface BackendError {
 
 // Enhanced error handler middleware
 const errorHandler = (err: any, req: any, res: any, next: any) => {
+  // CRITICAL: Set CORS headers before any response to prevent CORS errors
+  const { resolveCorsOrigin } = require('../config/corsOrigins');
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  if (corsOrigin) {
+    res.header('Access-Control-Allow-Origin', corsOrigin);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  
   const correlationId = req.headers['x-correlation-id'] as string || `req-${Date.now()}`;
   
   // Log the error with correlation ID for tracking

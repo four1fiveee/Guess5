@@ -3228,6 +3228,15 @@ const submitResultHandler = async (req: any, res: any) => {
   }
 };
 const getMatchStatusHandler = async (req: any, res: any) => {
+  // Set CORS headers explicitly to ensure they're always present
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  if (corsOrigin) {
+    res.header('Access-Control-Allow-Origin', corsOrigin);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  
   try {
     const { matchId } = req.params;
     
@@ -9576,6 +9585,15 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
   }
 };
 const signProposalHandler = async (req: any, res: any) => {
+  // Set CORS headers explicitly to ensure they're always present
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  if (corsOrigin) {
+    res.header('Access-Control-Allow-Origin', corsOrigin);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+  }
+  
   try {
     const { matchId, wallet, signedTransaction } = req.body;
     
