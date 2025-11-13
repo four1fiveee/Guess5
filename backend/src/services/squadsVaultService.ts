@@ -2651,81 +2651,24 @@ export class SquadsVaultService {
           };
         }
 
-        // If Proposal is Approved but not ExecuteReady, wait for state transition
-        // According to Squads Protocol docs, transactions must be in ExecuteReady state before execution
-        // The state transition happens automatically when threshold is met, but may take a moment
+        // According to Squads Protocol and SDK behavior:
+        // 1. vaultTransactionExecute CAN execute from "Approved" state directly (simulation confirms this)
+        // 2. The ExecuteReady transition may happen DURING execution, not before
+        // 3. If threshold is met, we can proceed with execution immediately
         if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
           if (approvedCount >= this.config.threshold) {
-            enhancedLogger.info('⏳ Proposal is Approved but not ExecuteReady - waiting for state transition', {
+            enhancedLogger.info('✅ Proposal is Approved with threshold met - executing directly', {
               vaultAddress,
               proposalId,
               statusKind: proposalStatusKind,
               approvedCount,
               threshold: this.config.threshold,
               approvedSigners: (proposal as any).approved,
-              note: 'According to Squads Protocol, transactions must be in ExecuteReady state before execution. Polling for state transition...',
+              vaultTransactionStatus: vaultTransactionIsExecuteReady ? 'ExecuteReady' : 'Active',
+              note: 'vaultTransactionExecute can execute from Approved state. ExecuteReady transition may occur during execution.',
             });
-            
-            // Poll for ExecuteReady state transition (max 10 seconds, 500ms intervals)
-            const maxPollAttempts = 20;
-            const pollIntervalMs = 500;
-            let transitionedToExecuteReady = false;
-            
-            for (let pollAttempt = 0; pollAttempt < maxPollAttempts; pollAttempt++) {
-              await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
-              
-              try {
-                // Re-check VaultTransaction status
-                const recheckTransaction = await accounts.VaultTransaction.fromAccountAddress(
-                  this.connection,
-                  transactionPda,
-                  'confirmed'
-                );
-                const recheckVaultTxStatus = (recheckTransaction as any).status;
-                
-                // Re-check Proposal status
-                const recheckProposal = await accounts.Proposal.fromAccountAddress(
-                  this.connection,
-                  proposalPda,
-                  'confirmed'
-                );
-                const recheckProposalStatusKind = (recheckProposal as any).status?.__kind;
-                
-                if (recheckVaultTxStatus === 1 || recheckProposalStatusKind === 'ExecuteReady') {
-                  transitionedToExecuteReady = true;
-                  vaultTransactionIsExecuteReady = recheckVaultTxStatus === 1;
-                  proposalIsExecuteReady = recheckProposalStatusKind === 'ExecuteReady';
-                  enhancedLogger.info('✅ Proposal transitioned to ExecuteReady state', {
-                    vaultAddress,
-                    proposalId,
-                    pollAttempt: pollAttempt + 1,
-                    vaultTxStatus: recheckVaultTxStatus,
-                    proposalStatusKind: recheckProposalStatusKind,
-                    elapsedMs: (pollAttempt + 1) * pollIntervalMs,
-                  });
-                  break;
-                }
-              } catch (recheckError: unknown) {
-                enhancedLogger.warn('⚠️ Failed to recheck proposal status during polling', {
-                  vaultAddress,
-                  proposalId,
-                  pollAttempt: pollAttempt + 1,
-                  error: recheckError instanceof Error ? recheckError.message : String(recheckError),
-                });
-                // Continue polling despite error
-              }
-            }
-            
-            if (!transitionedToExecuteReady) {
-              enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady within polling window - attempting execution anyway', {
-                vaultAddress,
-                proposalId,
-                maxPollAttempts,
-                pollIntervalMs,
-                totalWaitMs: maxPollAttempts * pollIntervalMs,
-                note: 'The execution instruction may still accept Approved state or trigger the transition',
-              });
-            }
+            // Proceed with execution - no need to wait for ExecuteReady transition
+            // The execution instruction will handle the state transition
           } else {
             enhancedLogger.warn('⚠️ Proposal is Approved but does not have enough signatures yet', {
               vaultAddress,
@@ -2735,6 +2678,11 @@ export class SquadsVaultService {
               threshold: this.config.threshold,
               note: 'Waiting for more signatures before attempting execution',
             });
+            return {
+              success: false,
+              error: 'INSUFFICIENT_SIGNATURES',
+              logs: [`Proposal needs ${this.config.threshold - approvedCount} more signature(s)`],
+            };
           }
         }
       } catch (proposalCheckError: unknown) {
