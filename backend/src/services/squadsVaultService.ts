@@ -2978,6 +2978,7 @@ export class SquadsVaultService {
           if (sendError instanceof SendTransactionError) {
             // Try to get logs from the error - SendTransactionError has logs property
             let errorLogs: string[] = [];
+            let fullErrorDetails: any = null;
             try {
               // SendTransactionError may have logs directly or via getLogs() method
               if (sendError.logs && Array.isArray(sendError.logs)) {
@@ -2985,6 +2986,24 @@ export class SquadsVaultService {
               } else if (typeof (sendError as any).getLogs === 'function') {
                 errorLogs = (sendError as any).getLogs() || [];
               }
+              
+              // Try to get full error details including simulation response
+              fullErrorDetails = {
+                message: sendError.message,
+                name: sendError.name,
+                stack: sendError.stack,
+                // Check for simulationResponse property
+                simulationResponse: (sendError as any).simulationResponse,
+                // Check for any other error properties
+                ...Object.keys(sendError).reduce((acc, key) => {
+                  try {
+                    acc[key] = (sendError as any)[key];
+                  } catch {
+                    // Ignore unreadable properties
+                  }
+                  return acc;
+                }, {} as any),
+              };
             } catch (logError: unknown) {
               enhancedLogger.warn('⚠️ Failed to extract logs from SendTransactionError', {
                 vaultAddress,
@@ -2996,21 +3015,26 @@ export class SquadsVaultService {
             const errorMessage = sendError.message || String(sendError);
             
             // Extract simulation response if available
-            const simulationResponse = (sendError as any).simulationResponse;
+            const simulationResponse = (sendError as any).simulationResponse || fullErrorDetails?.simulationResponse;
             const simulationError = simulationResponse?.value?.err 
-              ? JSON.stringify(simulationResponse.value.err)
+              ? JSON.stringify(simulationResponse.value.err, null, 2)
               : null;
             const simulationLogs = simulationResponse?.value?.logs || [];
             
+            // Log full error details for debugging
             enhancedLogger.error('❌ sendRawTransaction failed with SendTransactionError', {
               vaultAddress,
               proposalId,
               error: errorMessage,
+              errorName: sendError.name,
               logs: errorLogs.length > 0 ? errorLogs : simulationLogs,
               simulationError,
               simulationLogs: simulationLogs.length > 0 ? simulationLogs : undefined,
+              fullErrorDetails: JSON.stringify(fullErrorDetails, null, 2),
               proposalIsExecuteReady,
               vaultTransactionIsExecuteReady,
+              attempt: attempt + 1,
+              maxAttempts,
               note: 'This error occurs during preflight check or transaction submission. Check logs for on-chain error details.',
             });
             
