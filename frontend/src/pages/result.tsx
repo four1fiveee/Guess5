@@ -354,9 +354,14 @@ const Result: React.FC = () => {
     setLoading(false);
     // CRITICAL: If we have a matchId but no proposalId, we MUST continue polling
     // This ensures both players see the signing button as soon as proposal is created
+    // Expert recommendation: Always poll if we have matchId, even if initial fetch fails
     if (matchId) {
       // Start polling to wait for proposal creation
       setIsPolling(true);
+      console.log('🔄 Starting polling for proposal creation (matchId present but no proposalId yet)', {
+        matchId,
+        hasStoredData: !!storedPayoutData,
+      });
     } else {
       setIsPolling(false);
       stopRefreshLoops();
@@ -1034,7 +1039,7 @@ const Result: React.FC = () => {
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
                 
-                {payoutData.proposalId ? (
+                {payoutData && payoutData.proposalId ? (
                   <div className={`
                     ${payoutData.won && payoutData.proposalStatus === 'EXECUTED' 
                       ? 'bg-gradient-to-br from-accent/20 to-yellow-500/20 border-2 border-accent shadow-lg shadow-accent/50' 
