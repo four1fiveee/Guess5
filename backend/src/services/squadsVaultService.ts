@@ -2958,14 +2958,21 @@ export class SquadsVaultService {
           // Rebuild transaction with priority fee instruction added
           // Extract existing instructions and add priority fee at the beginning
           const accountKeys = message.getAccountKeys();
+          const totalAccounts = accountKeys.length;
+          const { numRequiredSignatures, numReadonlySignedAccounts, numReadonlyUnsignedAccounts } = message.header;
+          
           const existingInstructions = message.compiledInstructions.map((ix: any) => {
             const programId = accountKeys.get(ix.programIdIndex);
             const keys = ix.accountKeyIndexes.map((keyIndex: number) => {
               const pubkey = accountKeys.get(keyIndex);
               // Determine if account is a signer (first numRequiredSignatures accounts)
-              const isSigner = keyIndex < message.header.numRequiredSignatures;
-              // Determine if account is writable (first numRequiredSignatures + numReadonlyWritableAccounts accounts)
-              const isWritable = keyIndex < (message.header.numRequiredSignatures + message.header.numReadonlyWritableAccounts);
+              const isSigner = keyIndex < numRequiredSignatures;
+              // Determine if account is writable:
+              // - Writable signers: keyIndex < numRequiredSignatures
+              // - Writable non-signers: keyIndex >= numRequiredSignatures + numReadonlySignedAccounts AND keyIndex < (totalAccounts - numReadonlyUnsignedAccounts)
+              const isWritable = keyIndex < numRequiredSignatures || 
+                                (keyIndex >= numRequiredSignatures + numReadonlySignedAccounts && 
+                                 keyIndex < totalAccounts - numReadonlyUnsignedAccounts);
               return {
                 pubkey,
                 isSigner,
