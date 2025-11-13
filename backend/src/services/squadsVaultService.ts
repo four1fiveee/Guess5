@@ -2514,7 +2514,7 @@ export class SquadsVaultService {
       // CRITICAL: Confirm the transaction to verify it was submitted (expert recommendation)
       try {
         await this.connection.confirmTransaction(signature, 'confirmed');
-        enhancedLogger.info('✅ Proposal approval transaction confirmed on-chain', {
+        enhancedLogger.info('✅ Fee wallet approve confirmed (expert recommendation)', {
           vaultAddress,
           proposalId,
           signer: signer.publicKey.toString(),
