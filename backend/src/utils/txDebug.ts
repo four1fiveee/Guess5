@@ -61,7 +61,36 @@ export async function sendAndLogRawTransaction({
 
     // _rpcRequest returns {result, error}
     if (res?.error) {
-      console.error(`[TX SEND][${correlationId}] RPC returned error (${elapsed}ms):`, JSON.stringify(res.error, null, 2));
+      // Try to stringify the error, handling circular references
+      let errorStr = '{}';
+      try {
+        errorStr = JSON.stringify(res.error, null, 2);
+      } catch (stringifyErr) {
+        // If JSON.stringify fails, try to extract key properties
+        errorStr = JSON.stringify({
+          code: res.error?.code,
+          message: res.error?.message,
+          data: res.error?.data,
+          name: res.error?.name,
+          toString: String(res.error),
+        }, null, 2);
+      }
+      
+      // Also log the full response to see what we're getting
+      let responseStr = '{}';
+      try {
+        responseStr = JSON.stringify(res, (key, value) => {
+          // Skip circular references
+          if (key === 'parent' || key === 'circular') return '[Circular]';
+          return value;
+        }, 2);
+      } catch (responseErr) {
+        responseStr = String(res);
+      }
+      
+      console.error(`[TX SEND][${correlationId}] RPC returned error (${elapsed}ms):`, errorStr);
+      console.error(`[TX SEND][${correlationId}] Full RPC response:`, responseStr);
+      
       return {
         signature: null,
         correlationId,

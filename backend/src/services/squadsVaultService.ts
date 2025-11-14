@@ -3170,12 +3170,43 @@ export class SquadsVaultService {
           
           if (!signature) {
             // No signature returned - RPC rejected the transaction
+            // Try to extract detailed error information
+            let errorDetails = 'No error details';
+            let errorCode: number | undefined;
+            let errorMessage: string | undefined;
+            
+            if (rpcError) {
+              try {
+                // Try to extract error code and message from various possible structures
+                errorCode = rpcError.code || rpcError.err?.code || (rpcError as any)?.Code;
+                errorMessage = rpcError.message || rpcError.err?.message || rpcError.data?.err || String(rpcError);
+                
+                // Try to stringify the full error
+                try {
+                  errorDetails = JSON.stringify(rpcError, (key, value) => {
+                    if (key === 'parent' || key === 'circular') return '[Circular]';
+                    return value;
+                  }, 2);
+                } catch (stringifyErr) {
+                  errorDetails = `Code: ${errorCode}, Message: ${errorMessage}, Raw: ${String(rpcError)}`;
+                }
+              } catch (extractErr) {
+                errorDetails = String(rpcError);
+              }
+            }
+            
             enhancedLogger.error('❌ No signature returned from RPC - transaction rejected', {
               vaultAddress,
               proposalId,
               correlationId,
-              rpcError: rpcError ? JSON.stringify(rpcError, null, 2) : null,
-              rpcResponse: rpcResponse ? JSON.stringify(rpcResponse, null, 2) : null,
+              errorCode,
+              errorMessage,
+              errorDetails,
+              rpcError: errorDetails,
+              rpcResponse: rpcResponse ? JSON.stringify(rpcResponse, (key, value) => {
+                if (key === 'parent' || key === 'circular') return '[Circular]';
+                return value;
+              }, 2) : null,
             });
             
             // Remove program log listener
@@ -3185,8 +3216,8 @@ export class SquadsVaultService {
               // Ignore
             }
             
-            lastErrorMessage = `RPC rejected transaction: ${rpcError ? JSON.stringify(rpcError) : 'No error details'}`;
-            lastLogs = rpcError?.logs || [];
+            lastErrorMessage = `RPC rejected transaction: ${errorMessage || errorDetails}`;
+            lastLogs = rpcError?.logs || rpcError?.data?.logs || [];
             break;
           }
           
