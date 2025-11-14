@@ -822,9 +822,31 @@ const Matchmaking: React.FC = () => {
                 clearInterval(pollInterval);
                 setIsMatchmakingInProgress(false);
                 
-                // Set the match data
-                setMatchData(data);
-                matchDataRef.current = data; // Update ref to avoid closure issues
+                // Ensure matchData is fully populated before setting status
+                // This prevents the button from being disabled due to missing matchData
+                const fullMatchData = {
+                  ...data,
+                  matchId: data.matchId,
+                  player1: data.player1,
+                  player2: data.player2,
+                  entryFee: data.entryFee || entryFee,
+                  status: 'payment_required',
+                  player1Paid: data.player1Paid || false,
+                  player2Paid: data.player2Paid || false,
+                  squadsVaultAddress: data.squadsVaultAddress || data.vaultAddress || null,
+                  vaultAddress: data.vaultAddress || data.squadsVaultAddress || null,
+                  squadsVaultPda: data.squadsVaultPda || data.vaultPda || null,
+                  vaultPda: data.vaultPda || data.squadsVaultPda || null,
+                };
+                
+                // Set matchData FIRST
+                setMatchData(fullMatchData);
+                matchDataRef.current = fullMatchData; // Update ref to avoid closure issues
+                
+                // Reset payment state in case it was stuck
+                setIsPaymentInProgress(false);
+                
+                // Then set status (React batches updates, but this ensures order)
                 setStatus('payment_required');
                 
                 // Start new polling for status updates
