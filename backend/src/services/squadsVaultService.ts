@@ -2671,61 +2671,46 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // Use rpc.vaultTransactionApprove if available, otherwise use instruction builder
-      let signature: string;
+      // Use instruction builder approach (rpc.vaultTransactionApprove doesn't exist in Squads SDK)
+      const { instructions } = require('@sqds/multisig');
+      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
       
-      // Try rpc method first (preferred)
-      if (rpc && typeof (rpc as any).vaultTransactionApprove === 'function') {
-        signature = await (rpc as any).vaultTransactionApprove({
-          connection: this.connection,
-          feePayer: signer,
+      // Build the approval instruction
+      let approveIx: TransactionInstruction;
+      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
+        approveIx = instructions.vaultTransactionApprove({
           multisigPda: multisigAddress,
           transactionIndex,
-          member: signer,
+          member: signer.publicKey,
+          programId: this.programId,
+        });
+      } else if (instructions && typeof instructions.txApprove === 'function') {
+        approveIx = instructions.txApprove({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: signer.publicKey,
           programId: this.programId,
         });
       } else {
-        // Fallback to instruction builder approach
-        const { instructions } = require('@sqds/multisig');
-        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        
-        // Build the approval instruction
-        let approveIx: TransactionInstruction;
-        if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
-          approveIx = instructions.vaultTransactionApprove({
-            multisigPda: multisigAddress,
-            transactionIndex,
-            member: signer.publicKey,
-            programId: this.programId,
-          });
-        } else if (instructions && typeof instructions.txApprove === 'function') {
-          approveIx = instructions.txApprove({
-            multisigPda: multisigAddress,
-            transactionIndex,
-            member: signer.publicKey,
-            programId: this.programId,
-          });
-        } else {
-          throw new Error('Vault transaction approve method not available in Squads SDK. Please check SDK version.');
-        }
-        
-        // Build and send transaction
-        const message = new TransactionMessage({
-          payerKey: signer.publicKey,
-          recentBlockhash: latestBlockhash.blockhash,
-          instructions: [approveIx],
-        });
-        
-        const compiledMessage = message.compileToV0Message();
-        const tx = new VersionedTransaction(compiledMessage);
-        tx.sign([signer]);
-        
-        const serialized = tx.serialize();
-        signature = await this.connection.sendRawTransaction(serialized, {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
+        throw new Error('Vault transaction approve method not available in Squads SDK. Please check SDK version.');
       }
+      
+      // Build and send transaction
+      const message = new TransactionMessage({
+        payerKey: signer.publicKey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions: [approveIx],
+      });
+      
+      const compiledMessage = message.compileToV0Message();
+      const tx = new VersionedTransaction(compiledMessage);
+      tx.sign([signer]);
+      
+      const serialized = tx.serialize();
+      const signature = await this.connection.sendRawTransaction(serialized, {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
 
       enhancedLogger.info('✅ Vault transaction approved', {
         vaultAddress,
