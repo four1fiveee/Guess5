@@ -9673,8 +9673,9 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         // Approach 1: Check for transactionApprove in generated instructions
         if (sqdsGenerated) {
           // List all available methods for debugging
-          const availableMethods = Object.keys(sqdsGenerated).filter(k => k.includes('Approve') || k.includes('approve'));
-          console.log('🔍 Available approval methods in generated.instructions:', availableMethods);
+          const availableMethods = Object.keys(sqdsGenerated).filter(k => k.includes('Approve') || k.includes('approve') || k.includes('Transaction'));
+          console.log('🔍 Available methods in generated.instructions (filtered):', availableMethods);
+          console.log('🔍 All methods in generated.instructions:', Object.keys(sqdsGenerated).slice(0, 20));
           
           if (typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
             vaultTxApproveIx = sqdsGenerated.createTransactionApproveInstruction(
@@ -9699,9 +9700,11 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
             );
             console.log('✅ Vault transaction approval instruction created via createVaultTransactionApproveInstruction');
           } else {
-            // Approach 2: Use proposalApprove instruction but we need the correct accounts
-            // Actually, this won't work - the instruction discriminator is different
+            // CRITICAL FALLBACK: Since SDK doesn't provide vault transaction approval,
+            // we'll skip building it for frontend and rely on backend to approve it
+            // The backend's approveVaultTransaction method will be called when player signs proposal
             console.warn('⚠️ No transaction approval instruction builder found. Available methods:', availableMethods);
+            console.warn('⚠️ Will skip vault transaction approval for frontend - backend will handle it automatically');
             vaultTxApproveIx = null;
           }
         } else {
@@ -10345,6 +10348,37 @@ const signProposalHandler = async (req: any, res: any) => {
 
           if (approveResult.success) {
             feeWalletAutoApproved = true;
+            
+            // CRITICAL: Also approve vault transaction with fee wallet (expert recommendation)
+            // Fee wallet must sign BOTH proposal AND vault transaction
+            try {
+              const vaultTxApproveResult = await squadsVaultService.approveVaultTransaction(
+                matchRow.squadsVaultAddress,
+                proposalIdString,
+                cachedFeeWalletKeypair
+              );
+              
+              if (vaultTxApproveResult.success) {
+                console.log('✅ Fee wallet approved both proposal AND vault transaction', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  proposalSig: approveResult.signature,
+                  vaultTxSig: vaultTxApproveResult.signature,
+                });
+              } else {
+                console.warn('⚠️ Fee wallet approved proposal but vault transaction approval failed', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  error: vaultTxApproveResult.error,
+                });
+              }
+            } catch (vaultTxError: any) {
+              console.error('❌ Failed to approve vault transaction with fee wallet', {
+                matchId,
+                proposalId: proposalIdString,
+                error: vaultTxError?.message || String(vaultTxError),
+              });
+            }
             signers.push(feeWalletAddress);
             console.log('✅ Fee wallet auto-approved proposal', {
               matchId,
@@ -10396,6 +10430,31 @@ const signProposalHandler = async (req: any, res: any) => {
         if (hadFeeWalletSignature) {
           // Fee wallet already signed previously - mark as approved
           feeWalletAutoApproved = true;
+          
+          // CRITICAL: Also check if fee wallet approved vault transaction (expert recommendation)
+          // If fee wallet already signed, it should have signed both proposal AND vault transaction
+          try {
+            const vaultTxApproveResult = await squadsVaultService.approveVaultTransaction(
+              matchRow.squadsVaultAddress,
+              proposalIdString,
+              cachedFeeWalletKeypair || getFeeWalletKeypair()
+            );
+            
+            if (vaultTxApproveResult.success) {
+              console.log('✅ Fee wallet also approved vault transaction (was already a signer)', {
+                matchId,
+                proposalId: proposalIdString,
+                vaultTxSig: vaultTxApproveResult.signature,
+              });
+            }
+          } catch (vaultTxError: any) {
+            // Non-critical - fee wallet may have already approved vault transaction
+            console.warn('⚠️ Could not approve vault transaction with fee wallet (may already be approved)', {
+              matchId,
+              proposalId: proposalIdString,
+              error: vaultTxError?.message || String(vaultTxError),
+            });
+          }
         } else if (proposalAlreadyReady || approvalSkippedDueToReady) {
           // Proposal is already ready to execute on-chain, so fee wallet must have signed
           // Verify on-chain before adding to signers
