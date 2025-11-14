@@ -1084,8 +1084,30 @@ const Matchmaking: React.FC = () => {
             startPolling();
           }
         } else if (data.status === 'matched') {
-          setMatchData(data);
-          matchDataRef.current = data;
+          // Ensure matchData is fully populated before setting status
+          const fullMatchData = {
+            ...data,
+            matchId: data.matchId,
+            player1: data.player1,
+            player2: data.player2,
+            entryFee: data.entryFee || currentEntryFee,
+            status: 'payment_required',
+            player1Paid: data.player1Paid || false,
+            player2Paid: data.player2Paid || false,
+            squadsVaultAddress: data.squadsVaultAddress || data.vaultAddress || null,
+            vaultAddress: data.vaultAddress || data.squadsVaultAddress || null,
+            squadsVaultPda: data.squadsVaultPda || data.vaultPda || null,
+            vaultPda: data.vaultPda || data.squadsVaultPda || null,
+          };
+          
+          // Set matchData FIRST
+          setMatchData(fullMatchData);
+          matchDataRef.current = fullMatchData;
+          
+          // Reset payment state in case it was stuck
+          setIsPaymentInProgress(false);
+          
+          // Then set status
           setStatus('payment_required');
           clearInterval(pollInterval);
           setIsPolling(false);
@@ -1098,13 +1120,21 @@ const Matchmaking: React.FC = () => {
             player2: data.player2,
             entryFee: currentEntryFee,
             status: 'payment_required', // target state once vault appears
-            squadsVaultAddress: null,
-            vaultAddress: null,
             player1Paid: false,
             player2Paid: false,
+            squadsVaultAddress: null,
+            vaultAddress: null,
+            squadsVaultPda: null,
+            vaultPda: null,
           } as any;
+          
+          // Set matchData FIRST
           setMatchData(pending);
           matchDataRef.current = pending;
+          
+          // Reset payment state in case it was stuck
+          setIsPaymentInProgress(false);
+          
           // Ensure polling is running to pick up vault + payments
           if (!isPolling) {
             setIsPolling(true);
