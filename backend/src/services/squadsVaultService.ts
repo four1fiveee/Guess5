@@ -19,6 +19,7 @@ import { MatchAttestation } from '../models/MatchAttestation';
 import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
 import { setGameState } from '../utils/redisGameState';
+import { sendAndLogRawTransaction, pollTxAndLog, subscribeToProgramLogs, logExecutionStep } from '../utils/txDebug';
 // import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
 // import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
 
@@ -2611,19 +2612,26 @@ export class SquadsVaultService {
     proposalId: string,
     executor: Keypair,
     overrideVaultPda?: string
-  ): Promise<{ success: boolean; signature?: string; slot?: number; executedAt?: string; logs?: string[]; error?: string }> {
+  ): Promise<{ success: boolean; signature?: string; slot?: number; executedAt?: string; logs?: string[]; error?: string; correlationId?: string }> {
     const multisigAddress = new PublicKey(vaultAddress);
     const transactionIndex = BigInt(proposalId);
+    const correlationId = `exec-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const execStartTime = Date.now();
+    
     enhancedLogger.info('🚀 Executing Squads proposal', {
       vaultAddress,
       proposalId,
       transactionIndex: transactionIndex.toString(),
       executor: executor.publicKey.toString(),
+      correlationId,
     });
 
     // Verify proposal status before executing and wait for ExecuteReady transition if needed
     let proposalIsExecuteReady = false;
     let vaultTransactionIsExecuteReady = false;
+    
+    const statusCheckStartTime = Date.now();
+    logExecutionStep(correlationId, 'enqueue', execStartTime);
     
     try {
       const multisigAddress = new PublicKey(vaultAddress);
@@ -2637,6 +2645,11 @@ export class SquadsVaultService {
         multisigPda: multisigAddress,
         index: transactionIndex,
         programId: this.programId,
+      });
+      
+      logExecutionStep(correlationId, 'derive-pdas', statusCheckStartTime, {
+        proposalPda: proposalPda.toString(),
+        transactionPda: transactionPda.toString(),
       });
 
       // Check both Proposal and VaultTransaction accounts
@@ -2908,6 +2921,13 @@ export class SquadsVaultService {
           const topUpAmountSOL = 0.1; // Top up with 0.1 SOL to ensure sufficient balance
           const topUpAmountLamports = Math.ceil(topUpAmountSOL * LAMPORTS_PER_SOL);
           
+          const topUpStartTime = Date.now();
+          logExecutionStep(correlationId, 'maybe-topup-start', execStartTime, {
+            currentBalance: vaultBalanceSOL,
+            minimumRequired: minimumRequiredBalance,
+            topUpAmount: topUpAmountSOL,
+          });
+          
           enhancedLogger.info('💰 Pre-execution top-up needed', {
             vaultAddress,
             proposalId,
@@ -2917,6 +2937,7 @@ export class SquadsVaultService {
             topUpAmountSOL,
             topUpAmountLamports,
             feeWallet: executor.publicKey.toString(),
+            correlationId,
           });
 
           try {
@@ -2934,54 +2955,98 @@ export class SquadsVaultService {
             topUpTx.feePayer = executor.publicKey;
             topUpTx.sign(executor);
 
-            const topUpSignature = await this.connection.sendRawTransaction(topUpTx.serialize(), {
-              skipPreflight: false,
-              maxRetries: 3,
+            const topUpResult = await sendAndLogRawTransaction({
+              connection: this.connection,
+              rawTx: topUpTx.serialize(),
+              options: {
+                skipPreflight: false,
+                maxRetries: 3,
+                commitment: 'confirmed',
+              },
             });
 
-            enhancedLogger.info('📤 Top-up transaction sent', {
-              vaultAddress,
-              proposalId,
-              topUpSignature,
-              topUpAmountSOL,
-            });
-
-            // Wait for top-up confirmation (30 second timeout)
-            try {
-              await Promise.race([
-                this.connection.confirmTransaction(topUpSignature, 'confirmed'),
-                new Promise((_, reject) => 
-                  setTimeout(() => reject(new Error('Top-up confirmation timeout')), 30000)
-                ),
-              ]);
-
-              const newVaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
-              enhancedLogger.info('✅ Top-up transaction confirmed', {
+            if (topUpResult.signature) {
+              logExecutionStep(correlationId, 'maybe-topup-sent', topUpStartTime, {
+                topUpSig: topUpResult.signature,
+              });
+              
+              enhancedLogger.info('📤 Top-up transaction sent', {
                 vaultAddress,
                 proposalId,
-                topUpSignature,
-                newBalanceSOL: newVaultBalance / LAMPORTS_PER_SOL,
+                topUpSignature: topUpResult.signature,
                 topUpAmountSOL,
+                correlationId,
               });
-            } catch (topUpConfirmError: unknown) {
-              enhancedLogger.warn('⚠️ Top-up transaction confirmation failed (proceeding anyway)', {
+
+              // Wait for top-up confirmation with SHORT timeout (2 seconds) - don't block
+              try {
+                await Promise.race([
+                  this.connection.confirmTransaction(topUpResult.signature, 'confirmed'),
+                  new Promise((_, reject) => 
+                    setTimeout(() => reject(new Error('Top-up confirmation timeout')), 2000)
+                  ),
+                ]);
+
+                const newVaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
+                logExecutionStep(correlationId, 'maybe-topup-confirmed', topUpStartTime, {
+                  newBalance: newVaultBalance / LAMPORTS_PER_SOL,
+                });
+                
+                enhancedLogger.info('✅ Top-up transaction confirmed', {
+                  vaultAddress,
+                  proposalId,
+                  topUpSignature: topUpResult.signature,
+                  newBalanceSOL: newVaultBalance / LAMPORTS_PER_SOL,
+                  topUpAmountSOL,
+                  correlationId,
+                });
+              } catch (topUpConfirmError: unknown) {
+                logExecutionStep(correlationId, 'maybe-topup-timeout', topUpStartTime, {
+                  error: topUpConfirmError instanceof Error ? topUpConfirmError.message : String(topUpConfirmError),
+                });
+                
+                enhancedLogger.warn('⚠️ Top-up transaction confirmation timed out (proceeding anyway)', {
+                  vaultAddress,
+                  proposalId,
+                  topUpSignature: topUpResult.signature,
+                  error: topUpConfirmError instanceof Error ? topUpConfirmError.message : String(topUpConfirmError),
+                  note: 'Execution will proceed - top-up may still succeed on-chain',
+                  correlationId,
+                });
+                // Continue with execution even if top-up confirmation times out
+              }
+            } else {
+              logExecutionStep(correlationId, 'maybe-topup-failed', topUpStartTime, {
+                rpcError: topUpResult.rpcError ? JSON.stringify(topUpResult.rpcError) : null,
+              });
+              
+              enhancedLogger.warn('⚠️ Top-up transaction send failed (proceeding anyway)', {
                 vaultAddress,
                 proposalId,
-                topUpSignature,
-                error: topUpConfirmError instanceof Error ? topUpConfirmError.message : String(topUpConfirmError),
-                note: 'Execution will proceed - top-up may still succeed on-chain',
+                rpcError: topUpResult.rpcError,
+                note: 'Execution will proceed - vault may have sufficient balance',
+                correlationId,
               });
-              // Continue with execution even if top-up confirmation times out
             }
           } catch (topUpError: unknown) {
+            logExecutionStep(correlationId, 'maybe-topup-error', topUpStartTime, {
+              error: topUpError instanceof Error ? topUpError.message : String(topUpError),
+            });
+            
             enhancedLogger.error('❌ Failed to send top-up transaction', {
               vaultAddress,
               proposalId,
               error: topUpError instanceof Error ? topUpError.message : String(topUpError),
               note: 'Execution will proceed - vault may have sufficient balance or top-up may be unnecessary',
+              correlationId,
             });
             // Continue with execution attempt - the simulation will catch any remaining balance issues
           }
+        } else {
+          logExecutionStep(correlationId, 'maybe-topup-skipped', balanceCheckStartTime, {
+            balance: vaultBalanceSOL,
+            minimumRequired: minimumRequiredBalance,
+          });
         }
       } catch (balanceError: unknown) {
         enhancedLogger.warn('⚠️ Failed to fetch vault balance before execution', {
@@ -3054,16 +3119,112 @@ export class SquadsVaultService {
         }
 
         const rawTx = tx.serialize();
-        let signature: string;
+        const sendStartTime = Date.now();
+        logExecutionStep(correlationId, 'serialize', execStartTime, { txSize: rawTx.length });
+        
+        // Subscribe to program logs during execution attempt
+        const programLogListenerId = subscribeToProgramLogs({
+          connection: this.connection,
+          programId: this.programId,
+          correlationId,
+          durationMs: 30000, // 30 seconds
+        });
+        
+        let signature: string | null = null;
+        let rpcError: any = null;
+        let rpcResponse: any = null;
         
         try {
-          // Skip preflight since we already simulated manually
-          // Preflight can fail even when simulation succeeds due to timing/state differences
-          signature = await this.connection.sendRawTransaction(rawTx, {
-            skipPreflight: true,
-            maxRetries: 3,
+          // Use diagnostic send function to capture full RPC response
+          const sendResult = await sendAndLogRawTransaction({
+            connection: this.connection,
+            rawTx,
+            options: {
+              skipPreflight: true,
+              maxRetries: 3,
+              commitment: 'confirmed',
+            },
           });
+          
+          signature = sendResult.signature;
+          rpcError = sendResult.rpcError;
+          rpcResponse = sendResult.rpcResponse;
+          
+          logExecutionStep(correlationId, 'send', sendStartTime, {
+            signature: signature || 'null',
+            hasRpcError: !!rpcError,
+            hasRpcResponse: !!rpcResponse,
+          });
+          
+          if (!signature) {
+            // No signature returned - RPC rejected the transaction
+            enhancedLogger.error('❌ No signature returned from RPC - transaction rejected', {
+              vaultAddress,
+              proposalId,
+              correlationId,
+              rpcError: rpcError ? JSON.stringify(rpcError, null, 2) : null,
+              rpcResponse: rpcResponse ? JSON.stringify(rpcResponse, null, 2) : null,
+            });
+            
+            // Remove program log listener
+            try {
+              this.connection.removeOnLogsListener(programLogListenerId);
+            } catch (e) {
+              // Ignore
+            }
+            
+            lastErrorMessage = `RPC rejected transaction: ${rpcError ? JSON.stringify(rpcError) : 'No error details'}`;
+            lastLogs = rpcError?.logs || [];
+            break;
+          }
+          
+          // Poll transaction status in background (non-blocking)
+          // This will help us see if the transaction was actually processed
+          pollTxAndLog({
+            connection: this.connection,
+            signature,
+            correlationId,
+            maxAttempts: 10,
+            pollIntervalMs: 1500,
+          }).then((pollResult) => {
+            if (pollResult) {
+              enhancedLogger.info('✅ Transaction poll completed', {
+                vaultAddress,
+                proposalId,
+                correlationId,
+                signature,
+                txFound: !!pollResult.tx,
+                sigStatus: pollResult.sigStatus,
+              });
+            } else {
+              enhancedLogger.warn('⚠️ Transaction poll did not find transaction', {
+                vaultAddress,
+                proposalId,
+                correlationId,
+                signature,
+              });
+            }
+          }).catch((pollError) => {
+            enhancedLogger.error('❌ Transaction poll error', {
+              vaultAddress,
+              proposalId,
+              correlationId,
+              signature,
+              error: pollError instanceof Error ? pollError.message : String(pollError),
+            });
+          });
+          
         } catch (sendError: unknown) {
+          // Remove program log listener
+          try {
+            this.connection.removeOnLogsListener(programLogListenerId);
+          } catch (e) {
+            // Ignore
+          }
+          
+          logExecutionStep(correlationId, 'send-error', sendStartTime, {
+            error: sendError instanceof Error ? sendError.message : String(sendError),
+          });
           // Handle SendTransactionError specifically to extract logs
           if (sendError instanceof SendTransactionError) {
             // Try to get logs from the error - SendTransactionError has logs property
@@ -3166,19 +3327,33 @@ export class SquadsVaultService {
         }
 
         const executedAt = new Date();
+        logExecutionStep(correlationId, 'result', execStartTime, { 
+          success: true, 
+          totalTime: Date.now() - execStartTime 
+        });
+        
         enhancedLogger.info('✅ Proposal executed successfully', {
           vaultAddress,
           proposalId,
           executor: executor.publicKey.toString(),
           signature,
           slot: confirmation.context.slot,
+          correlationId,
         });
+        
+        // Remove program log listener
+        try {
+          this.connection.removeOnLogsListener(programLogListenerId);
+        } catch (e) {
+          // Ignore
+        }
 
         return {
           success: true,
           signature,
           slot: confirmation.context.slot,
           executedAt: executedAt.toISOString(),
+          correlationId,
         };
       } catch (rawError: unknown) {
         const { message, logs } = await this.buildExecutionErrorDetails(tx, rawError);
