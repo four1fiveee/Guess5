@@ -663,47 +663,9 @@ const Result: React.FC = () => {
           throw new Error('Failed to sign vault transaction. Both proposal and vault transaction must be signed.');
         }
       } else {
-        console.warn('⚠️ Backend did not provide vault transaction - may need to build separately');
-        // Try to build vault transaction using Squads SDK in frontend
-        try {
-          const { instructions, getTransactionPda } = await import('@sqds/multisig');
-          const { TransactionMessage, PublicKey } = await import('@solana/web3.js');
-          const { Connection } = await import('@solana/web3.js');
-          
-          const connection = new Connection(
-            process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
-          );
-          
-          const multisigAddress = new PublicKey(txData.vaultAddress);
-          const transactionIndex = BigInt(payoutData.proposalId);
-          const programId = new PublicKey('SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf');
-          
-          if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
-            const vaultTxApproveIx = instructions.vaultTransactionApprove({
-              multisigPda: multisigAddress,
-              transactionIndex,
-              member: publicKey,
-              programId,
-            });
-            
-            const { blockhash } = await connection.getLatestBlockhash('confirmed');
-            const vaultTxMessage = new TransactionMessage({
-              payerKey: publicKey,
-              recentBlockhash: blockhash,
-              instructions: [vaultTxApproveIx],
-            }).compileToV0Message();
-            
-            const vaultTxTransaction = new VersionedTransaction(vaultTxMessage);
-            const signedVaultTx = await signTransaction(vaultTxTransaction);
-            const vaultSerialized = signedVaultTx.serialize();
-            base64VaultTx = Buffer.from(vaultSerialized).toString('base64');
-            
-            console.log('✅ Vault transaction built and signed in frontend');
-          }
-        } catch (buildError) {
-          console.error('❌ Failed to build vault transaction in frontend:', buildError);
-          throw new Error('Vault transaction approval is required but could not be built. Please contact support.');
-        }
+        // Backend should always provide vault transaction - if missing, it's an error
+        console.error('❌ Backend did not provide vault transaction - this is required for ExecuteReady');
+        throw new Error('Vault transaction approval is required but was not provided by backend. Please refresh and try again, or contact support if the issue persists.');
       }
       
       // Step 3: Send BOTH signed transactions to backend
