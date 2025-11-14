@@ -25,18 +25,20 @@ export interface PollTxResult {
  */
 export async function sendAndLogRawTransaction({
   connection,
-  rawTx, // Buffer from transaction.serialize()
+  rawTx, // Buffer or Uint8Array from transaction.serialize()
   options = {}
 }: {
   connection: Connection;
-  rawTx: Buffer;
+  rawTx: Buffer | Uint8Array;
   options?: { maxRetries?: number; commitment?: any; skipPreflight?: boolean };
 }): Promise<SendAndLogResult> {
   const correlationId = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const startTime = Date.now();
   
   try {
-    const rawBase64 = rawTx.toString('base64');
+    // Convert to Buffer if it's a Uint8Array
+    const rawTxBuffer = Buffer.isBuffer(rawTx) ? rawTx : Buffer.from(rawTx);
+    const rawBase64 = rawTxBuffer.toString('base64');
     console.info(`[TX SEND][${correlationId}] rawTxBase64 (len=${rawBase64.length})`);
 
     // IMPORTANT: use connection._rpcRequest for full response visibility

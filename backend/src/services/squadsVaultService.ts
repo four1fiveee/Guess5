@@ -2899,11 +2899,19 @@ export class SquadsVaultService {
     }
 
     // Pre-execution top-up logic (expert recommendation)
+    const balanceCheckStartTime = Date.now();
+    logExecutionStep(correlationId, 'check-vault-balance-start', execStartTime);
+    
     if (derivedVaultPda) {
       try {
         const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
         const vaultBalanceSOL = vaultBalance / LAMPORTS_PER_SOL;
         const rentExemptReserve = 0.00249864; // Approximate rent reserve for vault PDA
+        
+        logExecutionStep(correlationId, 'check-vault-balance', balanceCheckStartTime, {
+          balanceSOL: vaultBalanceSOL,
+          rentExemptReserve,
+        });
         
         enhancedLogger.info('🔎 Vault balance before execution attempt', {
           vaultAddress,
@@ -2912,6 +2920,7 @@ export class SquadsVaultService {
           balanceLamports: vaultBalance,
           balanceSOL: vaultBalanceSOL,
           rentExemptReserve,
+          correlationId,
         });
 
         // If vault balance is very low (less than rent reserve + 0.01 SOL buffer), top it up
@@ -3135,10 +3144,13 @@ export class SquadsVaultService {
         let rpcResponse: any = null;
         
         try {
+          // Convert Uint8Array to Buffer for sendAndLogRawTransaction
+          const rawTxBuffer = Buffer.from(rawTx);
+          
           // Use diagnostic send function to capture full RPC response
           const sendResult = await sendAndLogRawTransaction({
             connection: this.connection,
-            rawTx,
+            rawTx: rawTxBuffer,
             options: {
               skipPreflight: true,
               maxRetries: 3,
