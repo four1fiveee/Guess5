@@ -244,7 +244,7 @@ export async function buildVaultTransactionApproveInstruction({
       const { Keypair } = require('@solana/web3.js');
       const dummyKeypair = Keypair.generate();
       const provider = new AnchorProvider(connection, { publicKey: dummyKeypair.publicKey, signTransaction: async (tx) => tx, signAllTransactions: async (txs) => txs } as any, {});
-      cachedProgram = new Program(idl, programId, provider);
+      cachedProgram = new Program(idl, programId, provider) as Program<Idl>;
     }
     const program = cachedProgram;
 
