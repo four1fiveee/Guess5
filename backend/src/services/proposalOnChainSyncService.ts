@@ -248,3 +248,6 @@ export class ProposalOnChainSyncService {
 
 export const proposalOnChainSyncService = new ProposalOnChainSyncService();
 
+
+
+

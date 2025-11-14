@@ -1621,3 +1621,80 @@ If you have the vault address and proposal ID:
    - Should see vault transaction with 2/2 signatures on-chain
    - Should see proposal reach ExecuteReady state
    - Should see execution succeed and funds released
+
+---
+
+## ✅ EXPERT VERIFICATION — Match `ddf4f32a-a079-46d0-a683-0b8fc2586d7a`
+
+**Status:** ❌ Funds NOT Released | ❌ Proposal NOT ExecuteReady | ❌ VaultTransaction NOT Approved (0/2 signatures)
+
+### 🚨 Root Cause (Same as Previous Matches)
+
+**VaultTransaction account has ZERO approvals.** Squads v4 requires BOTH:
+- Proposal must have threshold approvals ✅ (2/2 in this case)
+- VaultTransaction must also have threshold approvals ❌ (0/2 in this case)
+
+Only then Squads transitions proposal → ExecuteReady.
+
+**Current State:**
+- **Proposal:** 2/2 ✔️ Approved but NOT ExecuteReady
+- **VaultTransaction:** 0/2 ❌ Active (0) – NOT ExecuteReady
+- **Execution:** ❌ Cannot start (Squads rejects during validation)
+
+### 🔍 On-Chain Verification
+
+- **Vault PDA:** `GKLmimEygndMFHtivF4S6Db4b6dsznFVcCDEp8kEJGAz`
+- **Vault Balance:** 0.280200 SOL (unchanged - should be ~0.0025 SOL if executed)
+- **Transaction PDA Status:** `status=0 (Active)`, `approvalCount=0`, `threshold=2`, `isExecuteReady=false`
+- **Proposal PDA Status:** `status=Approved`, `approvalCount=2`, `threshold=2`, `isExecuteReady=false`
+
+**Conclusion:** Proposal signed correctly ✅, VaultTransaction NOT signed ❌, therefore Proposal never enters ExecuteReady, execution fails, funds never leave vault.
+
+### 🧠 Why This Happens
+
+Squads v4 rule: You cannot execute unless BOTH Proposal AND VaultTransaction are fully approved. Squads does NOT auto-sign VaultTransaction when Proposal is signed.
+
+**Expected Fix Flow:**
+```
+approveProposal()
+   -> signs proposal
+   -> approveVaultTransaction()   <-- THIS PART IS NOT RUNNING
+```
+
+**Proof from Logs:** No vault transaction approval found. Logs show `VaultTransaction: approvalCount=0, threshold=2` but no approval attempts.
+
+### 🟩 What Must Be Fixed
+
+1. **Backend MUST sign BOTH:**
+   - ✔️ Proposal
+   - ❌ VaultTransaction (missing)
+
+2. **Player Frontend MUST sign BOTH:**
+   - ✔️ Proposal
+   - ❌ VaultTransaction (missing)
+
+**These are two SEPARATE signatures in Squads v4.** Currently only Proposal is signed.
+
+### 🟦 Next Steps
+
+1. **Confirm deployment includes commit `aa9d379`** (contains `approveVaultTransaction()`)
+2. **Ensure code path runs:** `await this.approveVaultTransaction({ vaultPda, transactionIndex, signer })`
+3. **Add vault transaction signing to FRONTEND:** Player must sign both `proposalApprove()` AND `vaultTransactionApprove()`
+
+### 🟧 Recommended Fixes
+
+1. **Prevent infinite execution attempts** when ExecuteReady = false
+2. **Detect and log vault approval state BEFORE execution:**
+   ```typescript
+   if (vaultTx.approvalCount < threshold) {
+     log("VaultTransaction NOT approved — execution aborted");
+     return;
+   }
+   ```
+
+### 🟩 Final Verdict
+
+❌ Execution never had any chance of succeeding  
+❌ Funds remain locked in vault  
+❌ Root cause: VaultTransaction has 0 approvals  
+✔️ Fix is known: both Proposal + VaultTransaction must be signed

@@ -2671,56 +2671,61 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // Build vault transaction approval transaction manually
-      // Squads SDK may not have a direct rpc method for this, so we build it using instructions
-      const { instructions } = require('@sqds/multisig');
-      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+      // Use rpc.vaultTransactionApprove if available, otherwise use instruction builder
+      let signature: string;
       
-      // Get transaction PDA
-      const [transactionPda] = getTransactionPda({
-        multisigPda: multisigAddress,
-        index: transactionIndex,
-        programId: this.programId,
-      });
-      
-      // Build the approval instruction
-      // Try different possible instruction names
-      let approveIx: TransactionInstruction;
-      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
-        approveIx = instructions.vaultTransactionApprove({
+      // Try rpc method first (preferred)
+      if (rpc && typeof (rpc as any).vaultTransactionApprove === 'function') {
+        signature = await (rpc as any).vaultTransactionApprove({
+          connection: this.connection,
+          feePayer: signer,
           multisigPda: multisigAddress,
           transactionIndex,
-          member: signer.publicKey,
-          programId: this.programId,
-        });
-      } else if (instructions && typeof instructions.txApprove === 'function') {
-        approveIx = instructions.txApprove({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          member: signer.publicKey,
+          member: signer,
           programId: this.programId,
         });
       } else {
-        // Fallback: build instruction manually using the transaction PDA
-        throw new Error('Vault transaction approve instruction builder not available in Squads SDK. Please check SDK version.');
+        // Fallback to instruction builder approach
+        const { instructions } = require('@sqds/multisig');
+        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        
+        // Build the approval instruction
+        let approveIx: TransactionInstruction;
+        if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
+          approveIx = instructions.vaultTransactionApprove({
+            multisigPda: multisigAddress,
+            transactionIndex,
+            member: signer.publicKey,
+            programId: this.programId,
+          });
+        } else if (instructions && typeof instructions.txApprove === 'function') {
+          approveIx = instructions.txApprove({
+            multisigPda: multisigAddress,
+            transactionIndex,
+            member: signer.publicKey,
+            programId: this.programId,
+          });
+        } else {
+          throw new Error('Vault transaction approve method not available in Squads SDK. Please check SDK version.');
+        }
+        
+        // Build and send transaction
+        const message = new TransactionMessage({
+          payerKey: signer.publicKey,
+          recentBlockhash: latestBlockhash.blockhash,
+          instructions: [approveIx],
+        });
+        
+        const compiledMessage = message.compileToV0Message();
+        const tx = new VersionedTransaction(compiledMessage);
+        tx.sign([signer]);
+        
+        const serialized = tx.serialize();
+        signature = await this.connection.sendRawTransaction(serialized, {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
       }
-      
-      // Build and send transaction
-      const message = new TransactionMessage({
-        payerKey: signer.publicKey,
-        recentBlockhash: latestBlockhash.blockhash,
-        instructions: [approveIx],
-      });
-      
-      const compiledMessage = message.compileToV0Message();
-      const tx = new VersionedTransaction(compiledMessage);
-      tx.sign([signer]);
-      
-      const serialized = tx.serialize();
-      const signature = await this.connection.sendRawTransaction(serialized, {
-        skipPreflight: false,
-        maxRetries: 3,
-      });
 
       enhancedLogger.info('✅ Vault transaction approved', {
         vaultAddress,
@@ -3027,6 +3032,51 @@ export class SquadsVaultService {
               note: 'This may be a Squads SDK bug. Attempting execution anyway - the execution instruction might accept Approved state or trigger the transition',
             });
           }
+        }
+        
+        // CRITICAL: Check VaultTransaction approval count BEFORE execution (expert recommendation)
+        // Abort execution if VaultTransaction is not approved
+        try {
+          const [transactionPda] = getTransactionPda({
+            multisigPda: multisigAddress,
+            index: transactionIndex,
+            programId: this.programId,
+          });
+          
+          const vaultTx = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda,
+            'confirmed'
+          );
+          
+          const vaultTxApprovals = (vaultTx as any).approvals || [];
+          const vaultTxApprovalCount = vaultTxApprovals.length;
+          const vaultTxThreshold = (vaultTx as any).threshold?.toNumber() || this.config.threshold;
+          
+          if (vaultTxApprovalCount < vaultTxThreshold) {
+            enhancedLogger.error('❌ VaultTransaction NOT approved — execution aborted', {
+              vaultAddress,
+              proposalId,
+              vaultTxApprovalCount,
+              vaultTxThreshold,
+              approvals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
+              note: 'Both Proposal AND VaultTransaction must be approved for ExecuteReady. Execution cannot proceed.',
+            });
+            
+            return {
+              success: false,
+              error: 'VAULT_TRANSACTION_NOT_APPROVED',
+              logs: [`VaultTransaction has ${vaultTxApprovalCount}/${vaultTxThreshold} approvals. Both Proposal and VaultTransaction must be approved.`],
+              correlationId,
+            };
+          }
+        } catch (vaultTxCheckError: unknown) {
+          enhancedLogger.warn('⚠️ Could not verify VaultTransaction approval count (continuing with execution)', {
+            vaultAddress,
+            proposalId,
+            error: vaultTxCheckError instanceof Error ? vaultTxCheckError.message : String(vaultTxCheckError),
+            note: 'Execution will proceed but may fail if VaultTransaction is not approved',
+          });
         }
       } catch (proposalCheckError: unknown) {
         enhancedLogger.warn('⚠️ Failed to check Proposal account directly (using checkProposalStatus fallback)', {

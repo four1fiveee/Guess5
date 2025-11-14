@@ -626,38 +626,106 @@ const Result: React.FC = () => {
       
       const txData = await getTxResponse.json();
       
-      // Step 2: Deserialize and sign the transaction
+      // CRITICAL: Sign BOTH proposal AND vault transaction (expert recommendation)
+      // Squads v4 requires both to be signed for ExecuteReady
       const { VersionedTransaction } = await import('@solana/web3.js');
+      
+      // Step 2a: Sign proposal approval transaction
       const txBuffer = Buffer.from(txData.transaction, 'base64');
       const approveTx = VersionedTransaction.deserialize(txBuffer);
+      const signedProposalTx = await signTransaction(approveTx);
+      const proposalSerialized = signedProposalTx.serialize();
+      const base64ProposalTx = Buffer.from(proposalSerialized).toString('base64');
       
-      // Step 3: Sign the transaction with the wallet
-      const signedTx = await signTransaction(approveTx);
-      
-      // Step 4: Serialize the signed transaction
-      const serialized = signedTx.serialize();
-      // Convert Uint8Array to base64 string (browser-compatible)
-      const base64Tx = Buffer.from(serialized).toString('base64');
-      
-      // Step 5: Send to backend to submit
-      console.log('📤 Submitting signed proposal to backend', {
+      console.log('✅ Proposal transaction signed', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
-        serializedLength: serialized.length,
       });
-      // CRITICAL: Only log success AFTER backend confirms (expert recommendation)
-      // Previous code logged success after wallet signing, not backend confirmation
+      
+      // Step 2b: Sign vault transaction approval transaction (if provided)
+      let base64VaultTx: string | null = null;
+      if (txData.vaultTransaction) {
+        try {
+          const vaultTxBuffer = Buffer.from(txData.vaultTransaction, 'base64');
+          const vaultApproveTx = VersionedTransaction.deserialize(vaultTxBuffer);
+          const signedVaultTx = await signTransaction(vaultApproveTx);
+          const vaultSerialized = signedVaultTx.serialize();
+          base64VaultTx = Buffer.from(vaultSerialized).toString('base64');
+          
+          console.log('✅ Vault transaction signed', {
+            matchId,
+            wallet: publicKey.toString(),
+            proposalId: payoutData.proposalId,
+          });
+        } catch (vaultTxError) {
+          console.error('❌ Failed to sign vault transaction:', vaultTxError);
+          throw new Error('Failed to sign vault transaction. Both proposal and vault transaction must be signed.');
+        }
+      } else {
+        console.warn('⚠️ Backend did not provide vault transaction - may need to build separately');
+        // Try to build vault transaction using Squads SDK in frontend
+        try {
+          const { instructions, getTransactionPda } = await import('@sqds/multisig');
+          const { TransactionMessage, PublicKey } = await import('@solana/web3.js');
+          const { Connection } = await import('@solana/web3.js');
+          
+          const connection = new Connection(
+            process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com'
+          );
+          
+          const multisigAddress = new PublicKey(txData.vaultAddress);
+          const transactionIndex = BigInt(payoutData.proposalId);
+          const programId = new PublicKey('SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf');
+          
+          if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
+            const vaultTxApproveIx = instructions.vaultTransactionApprove({
+              multisigPda: multisigAddress,
+              transactionIndex,
+              member: publicKey,
+              programId,
+            });
+            
+            const { blockhash } = await connection.getLatestBlockhash('confirmed');
+            const vaultTxMessage = new TransactionMessage({
+              payerKey: publicKey,
+              recentBlockhash: blockhash,
+              instructions: [vaultTxApproveIx],
+            }).compileToV0Message();
+            
+            const vaultTxTransaction = new VersionedTransaction(vaultTxMessage);
+            const signedVaultTx = await signTransaction(vaultTxTransaction);
+            const vaultSerialized = signedVaultTx.serialize();
+            base64VaultTx = Buffer.from(vaultSerialized).toString('base64');
+            
+            console.log('✅ Vault transaction built and signed in frontend');
+          }
+        } catch (buildError) {
+          console.error('❌ Failed to build vault transaction in frontend:', buildError);
+          throw new Error('Vault transaction approval is required but could not be built. Please contact support.');
+        }
+      }
+      
+      // Step 3: Send BOTH signed transactions to backend
+      console.log('📤 Submitting signed proposal AND vault transaction to backend', {
+        matchId,
+        wallet: publicKey.toString(),
+        proposalId: payoutData.proposalId,
+        hasProposalTx: !!base64ProposalTx,
+        hasVaultTx: !!base64VaultTx,
+      });
+      
       const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
-        credentials: 'include', // Include credentials for CORS
+        credentials: 'include',
         body: JSON.stringify({
           matchId,
           wallet: publicKey.toString(),
-          signedTransaction: base64Tx,
+          signedTransaction: base64ProposalTx, // Proposal approval
+          signedVaultTransaction: base64VaultTx, // Vault transaction approval (NEW)
         }),
       });
       

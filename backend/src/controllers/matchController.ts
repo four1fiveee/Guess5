@@ -9649,8 +9649,60 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to serialize transaction: ${serializeError?.message || String(serializeError)}`);
     }
 
+    // CRITICAL: Also build vault transaction approval transaction (expert recommendation)
+    // Frontend must sign BOTH proposal AND vault transaction
+    let vaultTxApproveIx;
+    let vaultTxBase64: string | null = null;
+    
+    try {
+      const { getTransactionPda } = sqdsModule;
+      
+      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
+        console.log('✅ Using SDK instructions.vaultTransactionApprove');
+        vaultTxApproveIx = instructions.vaultTransactionApprove({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: memberPublicKey,
+          programId,
+        });
+        console.log('✅ Vault transaction approval instruction created via SDK');
+      } else if (instructions && typeof instructions.txApprove === 'function') {
+        console.log('✅ Using SDK instructions.txApprove (fallback)');
+        vaultTxApproveIx = instructions.txApprove({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: memberPublicKey,
+          programId,
+        });
+        console.log('✅ Vault transaction approval instruction created via txApprove');
+      } else {
+        console.warn('⚠️ Vault transaction approve instruction builder not available - frontend will need to build separately');
+        vaultTxApproveIx = null;
+      }
+      
+      if (vaultTxApproveIx) {
+        const vaultTxMessageV0 = new TransactionMessage({
+          payerKey: memberPublicKey,
+          recentBlockhash: blockhash,
+          instructions: [vaultTxApproveIx],
+        }).compileToV0Message();
+        
+        const vaultTxTransaction = new VersionedTransaction(vaultTxMessageV0);
+        const vaultTxSerialized = vaultTxTransaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+        vaultTxBase64 = Buffer.from(vaultTxSerialized).toString('base64');
+        console.log('✅ Vault transaction approval transaction created, length:', vaultTxBase64.length);
+      }
+    } catch (vaultTxError: any) {
+      console.warn('⚠️ Failed to build vault transaction approval transaction (non-critical):', {
+        error: vaultTxError?.message,
+        note: 'Frontend may need to build this separately or use Squads SDK directly',
+      });
+      // Don't fail - proposal approval is still returned
+    }
+
     sendResponse(200, {
-      transaction: base64Tx,
+      transaction: base64Tx, // Proposal approval transaction
+      vaultTransaction: vaultTxBase64, // Vault transaction approval transaction (NEW)
       matchId,
       proposalId: proposalId,
       vaultAddress: matchRow.squadsVaultAddress,
@@ -9691,10 +9743,19 @@ const signProposalHandler = async (req: any, res: any) => {
   }
   
   try {
-    const { matchId, wallet, signedTransaction } = req.body;
+    const { matchId, wallet, signedTransaction, signedVaultTransaction } = req.body;
     
     if (!matchId || !wallet || !signedTransaction) {
       return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
+    }
+    
+    // CRITICAL: Vault transaction approval is required for ExecuteReady (expert recommendation)
+    if (!signedVaultTransaction) {
+      console.warn('⚠️ Vault transaction signature not provided - proposal may not reach ExecuteReady', {
+        matchId,
+        wallet,
+        note: 'Both proposal AND vault transaction must be signed for ExecuteReady',
+      });
     }
 
     const { AppDataSource } = require('../db/index');
@@ -9960,11 +10021,13 @@ const signProposalHandler = async (req: any, res: any) => {
       throw new Error(`Failed to deserialize transaction: ${deserializeError?.message || String(deserializeError)}`);
     }
     
-    // Send and confirm the transaction
+    // CRITICAL: Send BOTH proposal AND vault transaction approvals (expert recommendation)
     let signature;
+    let vaultTxSignature: string | null = null;
+    
     try {
       const serializedTx = transaction.serialize();
-      console.log('📤 Sending signed transaction to network...');
+      console.log('📤 Sending signed proposal transaction to network...');
       
       // First try with preflight (simulation)
       try {
@@ -9972,7 +10035,7 @@ const signProposalHandler = async (req: any, res: any) => {
       skipPreflight: false,
       maxRetries: 3,
     });
-        console.log('✅ Transaction sent, signature:', signature);
+        console.log('✅ Proposal transaction sent, signature:', signature);
       } catch (preflightError: any) {
         // If preflight fails, try to get simulation logs
         console.warn('⚠️ Preflight simulation failed, attempting to get simulation logs...');
@@ -10018,12 +10081,41 @@ const signProposalHandler = async (req: any, res: any) => {
       
       throw new Error(`Failed to send transaction: ${errorMessage}`);
     }
+    
+    // CRITICAL: Also submit vault transaction approval if provided (expert recommendation)
+    if (signedVaultTransaction) {
+      try {
+        const vaultTxBuffer = Buffer.from(signedVaultTransaction, 'base64');
+        const vaultTransaction = VersionedTransaction.deserialize(vaultTxBuffer);
+        const vaultSerializedTx = vaultTransaction.serialize();
+        
+        console.log('📤 Sending signed vault transaction to network...');
+        vaultTxSignature = await connection.sendRawTransaction(vaultSerializedTx, {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
+        console.log('✅ Vault transaction sent, signature:', vaultTxSignature);
+        
+        // Wait for vault transaction confirmation (non-blocking)
+        connection.confirmTransaction(vaultTxSignature, 'confirmed').then(() => {
+          console.log('✅ Vault transaction confirmed:', vaultTxSignature);
+        }).catch((vaultConfirmError: any) => {
+          console.warn('⚠️ Vault transaction confirmation failed (may still succeed):', vaultConfirmError?.message);
+        });
+      } catch (vaultTxError: any) {
+        console.error('❌ Failed to send vault transaction:', {
+          error: vaultTxError?.message,
+          note: 'Proposal transaction was sent successfully, but vault transaction failed',
+        });
+        // Don't fail the entire request - proposal approval is still valid
+      }
+    }
 
     // Wait for confirmation with timeout
     let confirmation;
     let approvalSkippedDueToReady = false;
     try {
-      console.log('⏳ Waiting for transaction confirmation...');
+      console.log('⏳ Waiting for proposal transaction confirmation...');
       
       // Add timeout to prevent hanging
       const confirmationPromise = connection.confirmTransaction(signature, 'confirmed');

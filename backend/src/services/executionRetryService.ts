@@ -149,6 +149,71 @@ export class ExecutionRetryService {
       return;
     }
 
+    // CRITICAL: Check on-chain ExecuteReady state BEFORE attempting execution (expert recommendation)
+    // Prevents infinite execution attempts when vault transaction is not approved
+    try {
+      const { squadsVaultService } = require('./squadsVaultService');
+      const { Connection, PublicKey } = require('@solana/web3.js');
+      const { getTransactionPda, accounts } = require('@sqds/multisig');
+      
+      const connection = new Connection(
+        process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+        'confirmed'
+      );
+      
+      const multisigAddress = new PublicKey(match.squadsVaultAddress);
+      const transactionIndex = BigInt(proposalId);
+      const programId = process.env.SQUADS_PROGRAM_ID 
+        ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+        : require('@sqds/multisig').PROGRAM_ID;
+      
+      // Check VaultTransaction approval count
+      const [transactionPda] = getTransactionPda({
+        multisigPda: multisigAddress,
+        index: transactionIndex,
+        programId,
+      });
+      
+      const vaultTx = await accounts.VaultTransaction.fromAccountAddress(
+        connection,
+        transactionPda,
+        'confirmed'
+      );
+      
+      const vaultTxApprovals = (vaultTx as any).approvals || [];
+      const vaultTxApprovalCount = vaultTxApprovals.length;
+      const vaultTxThreshold = (vaultTx as any).threshold?.toNumber() || 2;
+      const vaultTxStatus = (vaultTx as any).status; // 0 = Active, 1 = ExecuteReady, 2 = Executed
+      
+      if (vaultTxStatus !== 1 && vaultTxApprovalCount < vaultTxThreshold) {
+        enhancedLogger.warn('⚠️ VaultTransaction NOT ExecuteReady - skipping execution retry', {
+          matchId,
+          proposalId,
+          vaultTxStatus,
+          vaultTxApprovalCount,
+          vaultTxThreshold,
+          note: 'Both Proposal AND VaultTransaction must be approved for ExecuteReady. Will retry later.',
+        });
+        return; // Don't attempt execution - it will fail
+      }
+      
+      enhancedLogger.info('✅ VaultTransaction is ExecuteReady - proceeding with execution retry', {
+        matchId,
+        proposalId,
+        vaultTxStatus,
+        vaultTxApprovalCount,
+        vaultTxThreshold,
+      });
+    } catch (onChainCheckError: any) {
+      enhancedLogger.warn('⚠️ Could not verify on-chain ExecuteReady state (proceeding with retry)', {
+        matchId,
+        proposalId,
+        error: onChainCheckError?.message || String(onChainCheckError),
+        note: 'Execution will proceed but may fail if not ExecuteReady',
+      });
+      // Continue with execution attempt - executeProposal will also check
+    }
+
     // Get fee wallet keypair for execution
     let feeWalletKeypair: any = null;
     try {
@@ -236,4 +301,7 @@ export class ExecutionRetryService {
 
 // Export singleton instance
 export const executionRetryService = new ExecutionRetryService();
+
+
+
 
