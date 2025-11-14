@@ -7,6 +7,61 @@
 
 import { Connection, PublicKey } from '@solana/web3.js';
 
+/**
+ * Extract raw RPC error body from wrapped web3.js errors
+ * This is CRITICAL - web3.js wraps RPC errors in multiple layers, and the
+ * actual error message is only accessible via response.text()
+ */
+async function extractRpcError(e: any): Promise<any> {
+  const info: any = {
+    message: e?.message,
+    toString: e?.toString?.(),
+    stack: e?.stack,
+    name: e?.name,
+  };
+
+  // web3.js wrapped RPC response
+  const resp = e?.response || e?.cause?.response;
+  if (resp) {
+    try {
+      info.status = resp.status;
+      info.statusText = resp.statusText;
+
+      // raw body text (MOST IMPORTANT)
+      if (resp.text && typeof resp.text === 'function') {
+        info.bodyText = await resp.text();
+      } else if (resp.body) {
+        // If body is already a string or buffer
+        if (typeof resp.body === 'string') {
+          info.bodyText = resp.body;
+        } else if (Buffer.isBuffer(resp.body)) {
+          info.bodyText = resp.body.toString('utf-8');
+        } else {
+          info.bodyText = String(resp.body);
+        }
+      }
+
+      // attempt parse JSON
+      if (info.bodyText) {
+        try {
+          info.bodyJson = JSON.parse(info.bodyText);
+        } catch (_) {
+          // Not JSON, that's okay
+        }
+      }
+    } catch (innerErr) {
+      info.bodyError = innerErr?.toString?.();
+    }
+  }
+
+  // sendTransactionError fields
+  if (e?.logs) info.logs = e.logs;
+  if (e?.data) info.data = e.data;
+  if (e?.simulationResponse) info.simulationResponse = e.simulationResponse;
+
+  return info;
+}
+
 export interface SendAndLogResult {
   signature: string | null;
   correlationId: string;
@@ -61,40 +116,34 @@ export async function sendAndLogRawTransaction({
 
     // _rpcRequest returns {result, error}
     if (res?.error) {
-      // Try to stringify the error, handling circular references
-      let errorStr = '{}';
-      try {
-        errorStr = JSON.stringify(res.error, null, 2);
-      } catch (stringifyErr) {
-        // If JSON.stringify fails, try to extract key properties
-        errorStr = JSON.stringify({
-          code: res.error?.code,
-          message: res.error?.message,
-          data: res.error?.data,
-          name: res.error?.name,
-          toString: String(res.error),
-        }, null, 2);
+      // CRITICAL: Try to extract raw error body if error has a response object
+      // Sometimes _rpcRequest wraps the error but the raw body is still accessible
+      let rpcErr: any = res.error;
+      
+      // If error has a response property, try to extract raw body
+      if (res.error?.response || res.error?.cause?.response) {
+        try {
+          rpcErr = await extractRpcError(res.error);
+        } catch (extractErr) {
+          // If extraction fails, use the error as-is
+          console.warn(`[TX SEND][${correlationId}] Failed to extract RPC error body:`, extractErr);
+        }
       }
       
-      // Also log the full response to see what we're getting
-      let responseStr = '{}';
-      try {
-        responseStr = JSON.stringify(res, (key, value) => {
-          // Skip circular references
-          if (key === 'parent' || key === 'circular') return '[Circular]';
-          return value;
-        }, 2);
-      } catch (responseErr) {
-        responseStr = String(res);
-      }
+      console.error(`[TX SEND][${correlationId}] RPC returned error (${elapsed}ms):`, JSON.stringify(rpcErr, null, 2));
       
-      console.error(`[TX SEND][${correlationId}] RPC returned error (${elapsed}ms):`, errorStr);
-      console.error(`[TX SEND][${correlationId}] Full RPC response:`, responseStr);
+      // Also log the raw bodyText separately for visibility
+      if (rpcErr.bodyText) {
+        console.error(`[TX SEND][${correlationId}] RAW RPC ERROR BODY:`, rpcErr.bodyText);
+      }
+      if (rpcErr.bodyJson) {
+        console.error(`[TX SEND][${correlationId}] PARSED RPC ERROR JSON:`, JSON.stringify(rpcErr.bodyJson, null, 2));
+      }
       
       return {
         signature: null,
         correlationId,
-        rpcError: res.error,
+        rpcError: rpcErr,
         rpcResponse: res,
       };
     }
@@ -109,35 +158,24 @@ export async function sendAndLogRawTransaction({
     };
   } catch (err: any) {
     const elapsed = Date.now() - startTime;
-    console.error(`[TX SEND][${correlationId}] send failed error (${elapsed}ms):`, err?.message ?? err);
     
-    // Some RPC clients embed a response in err; try to print everything
-    if (err?.response) {
-      try {
-        const text = await err.response.text();
-        console.error(`[TX SEND][${correlationId}] err.response.text: ${text}`);
-      } catch (inner) {
-        console.error(`[TX SEND][${correlationId}] failed to text() err.response`, inner);
-      }
+    // CRITICAL: Extract raw RPC error body using expert's helper
+    const rpcErr = await extractRpcError(err);
+    
+    console.error(`[TX SEND][${correlationId}] RPC ERROR (${elapsed}ms):`, JSON.stringify(rpcErr, null, 2));
+    
+    // Also log the raw bodyText separately for visibility
+    if (rpcErr.bodyText) {
+      console.error(`[TX SEND][${correlationId}] RAW RPC ERROR BODY:`, rpcErr.bodyText);
     }
-
-    // Try to extract RPC error details
-    let rpcError = null;
-    if (err?.logs) {
-      rpcError = { logs: err.logs, message: err.message };
-    } else if (err?.simulationResponse) {
-      rpcError = {
-        simulationResponse: err.simulationResponse,
-        message: err.message,
-      };
-    } else {
-      rpcError = { message: err?.message || String(err), stack: err?.stack };
+    if (rpcErr.bodyJson) {
+      console.error(`[TX SEND][${correlationId}] PARSED RPC ERROR JSON:`, JSON.stringify(rpcErr.bodyJson, null, 2));
     }
 
     return {
       signature: null,
       correlationId,
-      rpcError,
+      rpcError: rpcErr,
     };
   }
 }

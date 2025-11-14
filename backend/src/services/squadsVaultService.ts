@@ -3195,6 +3195,7 @@ export class SquadsVaultService {
               }
             }
             
+            // Log the full RPC error with raw body text
             enhancedLogger.error('❌ No signature returned from RPC - transaction rejected', {
               vaultAddress,
               proposalId,
@@ -3202,7 +3203,13 @@ export class SquadsVaultService {
               errorCode,
               errorMessage,
               errorDetails,
-              rpcError: errorDetails,
+              rpcError: rpcError ? JSON.stringify(rpcError, (key, value) => {
+                if (key === 'parent' || key === 'circular') return '[Circular]';
+                return value;
+              }, 2) : null,
+              // CRITICAL: Include raw body text if available
+              rawRpcErrorBody: (rpcError as any)?.bodyText || null,
+              parsedRpcErrorJson: (rpcError as any)?.bodyJson || null,
               rpcResponse: rpcResponse ? JSON.stringify(rpcResponse, (key, value) => {
                 if (key === 'parent' || key === 'circular') return '[Circular]';
                 return value;

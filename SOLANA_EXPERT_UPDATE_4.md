@@ -624,4 +624,143 @@ With those concrete artifacts, we can pinpoint whether the transaction was:
 
 ---
 
-Thank you for your continued guidance! We've implemented all the expert's diagnostic recommendations and are ready to test. The next execution attempt will provide comprehensive diagnostics to identify the root cause.
+## Latest Test Results (Match ID: `1fb10781-2fd8-4d68-b727-0947372971dd`)
+
+**Test Date:** November 14, 2025  
+**Test Type:** End-to-end tie scenario (timeout)
+
+### Frontend Behavior ✅
+- ✅ Both players successfully matched and paid deposits
+- ✅ Game timed out (2-minute timer)
+- ✅ Both players submitted timeout results
+- ✅ One player successfully signed proposal: `✅ Proposal signed & backend confirmed`
+- ✅ Frontend shows `needsSignatures: 0` after signing
+- ✅ Frontend shows `proposalSigners: Array(2)` (player + fee wallet)
+- ❌ Balance unchanged: `0.433660028 SOL` (before and after signing)
+- ❌ No execution transaction signature received
+
+### Backend Logs Analysis 🔍
+
+**Key Findings:**
+
+1. **Execution was triggered multiple times:**
+   - Multiple execution attempts with correlation IDs:
+     - `exec-1763091066406-175639`
+     - `exec-1763091073647-369170`
+     - `exec-1763091080846-803785`
+     - `exec-1763091073657-769898`
+
+2. **Proposal status confirmed:**
+   - Proposal is in "Approved" state
+   - 2 signatures confirmed: Fee wallet (`2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt`) + Player (`F4WKQYkUDBiFxCEMH49NpjjipCeHyG5a45isY8o7wpZ8`)
+   - Threshold: 2, Current signatures: 2, `needsSignatures: 0`
+   - Proposal NOT transitioning to "ExecuteReady" (but Squads docs indicate execution from "Approved" should work)
+
+3. **Vault balance check:**
+   - Vault balance: `0.2766 SOL` (sufficient for execution)
+   - Rent exempt reserve: `0.00249864 SOL`
+   - Top-up skipped (balance above minimum)
+
+4. **Transaction simulation:**
+   - ✅ Simulation succeeded
+   - Compute units used: `25759`
+   - Program logs show success: `Program SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf success`
+
+5. **RPC transaction send:**
+   - ❌ **CRITICAL ISSUE:** RPC is rejecting transactions
+   - Logs show: `[TX SEND][1763091074545-12319] RPC returned error (161ms): {}`
+   - Logs show: `[TX SEND][1763091080728-982321] RPC returned error (22ms): {}`
+   - Logs show: `[TX SEND][1763091081712-106583] RPC returned error (161ms): {}`
+   - **Problem:** Error object is empty `{}` - we're not seeing the actual RPC error details
+
+6. **Execution attempts:**
+   - Multiple execution attempts all failing with "No signature returned from RPC"
+   - Proposal status reset to `READY_TO_EXECUTE` after each failed attempt
+   - Background retry service should continue retrying
+
+### Critical Issue Identified 🚨
+
+**RPC Error Details Not Captured:**
+- The RPC is rejecting execution transactions
+- However, the error object returned is empty `{}`
+- We cannot see the actual error code, message, or data
+- This prevents us from diagnosing why the RPC is rejecting the transactions
+
+**Possible RPC Rejection Reasons (we need to see the actual error to confirm):**
+1. Proposal not in correct state (but simulation succeeds)
+2. Blockhash expired (but we optimize blockhash timing)
+3. Transaction validation error (but simulation succeeds)
+4. Squads protocol requirement not met
+5. Network-level rejection
+
+### Fix Implemented ✅
+
+**Enhanced RPC Error Logging (Commit: `e0cb285`):**
+
+1. **Improved error extraction:**
+   - Extracts error code from multiple possible structures: `rpcError.code`, `rpcError.err?.code`, `rpcError.Code`
+   - Extracts error message from multiple sources: `rpcError.message`, `rpcError.err?.message`, `rpcError.data?.err`
+   - Handles circular references in error objects
+
+2. **Full RPC response logging:**
+   - Logs both the error object and the full RPC response
+   - Uses safe JSON stringification with circular reference handling
+   - Logs: `[TX SEND][correlationId] RPC returned error: <detailed error>`
+   - Logs: `[TX SEND][correlationId] Full RPC response: <full response>`
+
+3. **Enhanced error logging in execution flow:**
+   - Extracts `errorCode`, `errorMessage`, and `errorDetails` separately
+   - Logs structured error information in `enhancedLogger.error()`
+   - Provides fallback error extraction if JSON stringification fails
+
+**Expected Outcome:**
+- Next test should show the actual RPC error code and message
+- This will allow us to diagnose why the RPC is rejecting execution transactions
+- We'll be able to see if it's a state issue, validation error, or something else
+
+### What We Need to See in Next Test
+
+1. **Actual RPC Error Details:**
+   - Error code (e.g., `-32002`, `6008`, etc.)
+   - Error message (e.g., "Invalid proposal status", "Block height exceeded", etc.)
+   - Error data (if available)
+
+2. **Full RPC Response:**
+   - Complete RPC response structure
+   - Any additional context in the response
+
+3. **Execution Transaction Signatures:**
+   - If any execution transaction signatures are returned (even if they fail later)
+   - This will confirm if transactions are being sent to the network
+
+### Match Details for Expert Review
+
+**Match ID:** `1fb10781-2fd8-4d68-b727-0947372971dd`  
+**Vault Address:** `F8CB4AhJNr3kdf1pSc4Zr1Fowp8edX4VZRtPn69E8CSy`  
+**Vault PDA:** `G8dBvXaQiiDqC3vWALeCVapdtHy6RMVhDhgapknYJgoM`  
+**Vault Balance:** `0.2766 SOL` (should be ~0.0025 SOL if executed)  
+**Entry Fee:** `0.1383 SOL` per player  
+**Match Type:** Tie (both players timed out)  
+**Proposal ID:** `1`  
+**Proposal Status:** `READY_TO_EXECUTE` (reset after failed execution attempts)
+
+**Signers:**
+- Fee Wallet: `2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt` ✅
+- Player 1: `F4WKQYkUDBiFxCEMH49NpjjipCeHyG5a45isY8o7wpZ8` ✅
+- Threshold: 2, Current: 2 ✅
+
+**On-Chain Status:**
+- Proposal Status: `Approved` (not `ExecuteReady`)
+- Approved Signers: 2 (fee wallet + player)
+- Transaction Index: `1`
+- Executed: `false`
+
+**Backend Execution Attempts:**
+- Multiple execution attempts with correlation IDs
+- All attempts failed with "No signature returned from RPC"
+- Simulation succeeded for all attempts
+- RPC error details were empty (now fixed with enhanced logging)
+
+---
+
+Thank you for your continued guidance! We've implemented all the expert's diagnostic recommendations and enhanced error logging. The next execution attempt will provide the actual RPC error details to identify why transactions are being rejected.
