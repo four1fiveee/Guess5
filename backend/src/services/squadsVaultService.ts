@@ -2054,6 +2054,61 @@ export class SquadsVaultService {
           transactionIndex,
           'tie refund'
         );
+        
+        // CRITICAL: Verify proposal has linked transaction (expert requirement)
+        try {
+          const [proposalPda] = getProposalPda({
+            multisigPda: multisigAddress,
+            transactionIndex: transactionIndex,
+            programId: this.programId,
+          });
+          
+          // Wait a bit for account to be available
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+          if (proposalAccount) {
+            try {
+              const proposal = await accounts.Proposal.fromAccountAddress(
+                this.connection,
+                proposalPda
+              );
+              const transactions = (proposal as any).transactions || [];
+              const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
+              
+              if (transactionCount === 0) {
+                enhancedLogger.error('❌ CRITICAL: Proposal created but has ZERO linked transactions!', {
+                  vaultAddress,
+                  proposalId,
+                  transactionIndex: transactionIndex.toString(),
+                  proposalPda: proposalPda.toString(),
+                  note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation.',
+                });
+              } else {
+                enhancedLogger.info('✅ Proposal verified: has linked transactions', {
+                  vaultAddress,
+                  proposalId,
+                  transactionIndex: transactionIndex.toString(),
+                  proposalPda: proposalPda.toString(),
+                  transactionCount,
+                });
+              }
+            } catch (decodeError: any) {
+              enhancedLogger.warn('⚠️ Could not decode proposal account to verify transactions (non-critical)', {
+                vaultAddress,
+                proposalId,
+                proposalPda: proposalPda.toString(),
+                error: decodeError?.message || String(decodeError),
+              });
+            }
+          }
+        } catch (verifyError: any) {
+          enhancedLogger.warn('⚠️ Could not verify proposal transaction linking (non-critical)', {
+            vaultAddress,
+            proposalId,
+            error: verifyError?.message || String(verifyError),
+          });
+        }
       }
 
       try {
@@ -2585,52 +2640,16 @@ export class SquadsVaultService {
         signature,
       });
 
-      // CRITICAL: After approving the proposal, also approve the vault transaction
-      // Squads v4 requires BOTH proposal AND vault transaction to be signed for ExecuteReady
-      enhancedLogger.info('📝 Now approving vault transaction (required for ExecuteReady)', {
+      // NOTE: Vault transactions do NOT require approval in Squads v4
+      // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+      // when the linked Proposal reaches ExecuteReady.
+      enhancedLogger.info('✅ Proposal approved (vault transaction does not require separate approval)', {
         vaultAddress,
         proposalId,
         signer: signer.publicKey.toString(),
+        proposalSignature: signature,
+        note: 'VaultTransaction will automatically become ExecuteReady when Proposal is ExecuteReady',
       });
-
-      try {
-        const vaultTxApproveResult = await this.approveVaultTransaction(
-          vaultAddress,
-          proposalId,
-          signer
-        );
-
-        if (vaultTxApproveResult.success) {
-          enhancedLogger.info('✅ Both proposal and vault transaction approved', {
-            vaultAddress,
-            proposalId,
-            signer: signer.publicKey.toString(),
-            proposalSignature: signature,
-            vaultTxSignature: vaultTxApproveResult.signature,
-          });
-        } else {
-          enhancedLogger.warn('⚠️ Proposal approved but vault transaction approval failed', {
-            vaultAddress,
-            proposalId,
-            signer: signer.publicKey.toString(),
-            proposalSignature: signature,
-            vaultTxError: vaultTxApproveResult.error,
-            note: 'Proposal is approved but vault transaction may not be ExecuteReady',
-          });
-          // Don't fail the entire approval - proposal is still approved
-        }
-      } catch (vaultTxError: unknown) {
-        const vaultTxErrorMessage = vaultTxError instanceof Error ? vaultTxError.message : String(vaultTxError);
-        enhancedLogger.error('❌ Failed to approve vault transaction after proposal approval', {
-          vaultAddress,
-          proposalId,
-          signer: signer.publicKey.toString(),
-          proposalSignature: signature,
-          error: vaultTxErrorMessage,
-          note: 'Proposal is approved but vault transaction approval failed - this may prevent ExecuteReady',
-        });
-        // Don't fail the entire approval - proposal is still approved
-      }
 
       return { success: true, signature };
 
@@ -2655,159 +2674,10 @@ export class SquadsVaultService {
    * CRITICAL: Squads v4 requires BOTH proposal AND vault transaction to be signed
    * This method signs the vault transaction itself
    */
-  async approveVaultTransaction(
-    vaultAddress: string,
-    proposalId: string,
-    signer: Keypair
-  ): Promise<{ success: boolean; signature?: string; error?: string }> {
-    try {
-      const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = BigInt(proposalId);
-
-      enhancedLogger.info('📝 Approving Squads vault transaction', {
-        vaultAddress,
-        proposalId,
-        transactionIndex: transactionIndex.toString(),
-        signer: signer.publicKey.toString(),
-      });
-
-      // CRITICAL: Build instruction from IDL since SDK doesn't provide helper
-      const { getTransactionPda } = require('@sqds/multisig');
-      const [transactionPda] = getTransactionPda({
-        multisigPda: multisigAddress,
-        index: transactionIndex,
-        programId: this.programId,
-      });
-
-      // Use IDL-based instruction builder (expert recommendation)
-      const { buildVaultTransactionApproveInstruction } = require('./vaultTransactionApproveBuilder');
-      const { ix: approveIx, instructionName, debug } = await buildVaultTransactionApproveInstruction({
-        connection: this.connection,
-        programId: this.programId,
-        multisigPubkey: multisigAddress,
-        transactionPda: transactionPda,
-        signerPubkey: signer.publicKey,
-      });
-
-      enhancedLogger.info('✅ Built vault transaction approval instruction from IDL', {
-        instructionName,
-        transactionPda: transactionPda.toString(),
-        debug,
-      });
-
-      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-      
-      // Build and send transaction
-      const message = new TransactionMessage({
-        payerKey: signer.publicKey,
-        recentBlockhash: latestBlockhash.blockhash,
-        instructions: [approveIx],
-      });
-      
-      const compiledMessage = message.compileToV0Message();
-      const tx = new VersionedTransaction(compiledMessage);
-      tx.sign([signer]);
-      
-      const serialized = tx.serialize();
-      const signature = await this.connection.sendRawTransaction(serialized, {
-        skipPreflight: false,
-        maxRetries: 3,
-      });
-
-      enhancedLogger.info('✅ Vault transaction approved', {
-        vaultAddress,
-        proposalId,
-        transactionIndex: transactionIndex.toString(),
-        signer: signer.publicKey.toString(),
-        signature,
-      });
-
-      // Confirm the transaction to verify it was submitted
-      try {
-        await this.connection.confirmTransaction(signature, 'confirmed');
-        enhancedLogger.info('✅ Vault transaction approval confirmed', {
-          vaultAddress,
-          proposalId,
-          signer: signer.publicKey.toString(),
-          signature,
-        });
-      } catch (confirmError: any) {
-        enhancedLogger.warn('⚠️ Vault transaction approval confirmation failed (may still succeed)', {
-          vaultAddress,
-          proposalId,
-          signer: signer.publicKey.toString(),
-          signature,
-          error: confirmError?.message || String(confirmError),
-        });
-        // Don't fail the approval - transaction may still succeed
-      }
-
-      // Verify signer is in vault transaction approvals array
-      try {
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: transactionIndex,
-          programId: this.programId,
-        });
-        
-        const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
-        if (transactionAccount) {
-          const vt = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda
-          );
-          const approvals = (vt as any).approvals || [];
-          const signerPubkeyStr = signer.publicKey.toString();
-          const isInApprovals = approvals.some((a: any) => 
-            a?.toString?.() === signerPubkeyStr || String(a) === signerPubkeyStr
-          );
-          
-          if (isInApprovals) {
-            enhancedLogger.info('✅ Signer confirmed in vault transaction approvals array', {
-              vaultAddress,
-              proposalId,
-              signer: signerPubkeyStr,
-              approvals: approvals.map((a: any) => a?.toString?.() || String(a)),
-              approvalCount: approvals.length,
-              threshold: this.config.threshold,
-            });
-          } else {
-            enhancedLogger.warn('⚠️ Signer not found in vault transaction approvals array (may need to wait for confirmation)', {
-              vaultAddress,
-              proposalId,
-              signer: signerPubkeyStr,
-              approvals: approvals.map((a: any) => a?.toString?.() || String(a)),
-              approvalCount: approvals.length,
-            });
-          }
-        }
-      } catch (verifyError: any) {
-        enhancedLogger.warn('⚠️ Could not verify signer in vault transaction approvals array (non-critical)', {
-          vaultAddress,
-          proposalId,
-          signer: signer.publicKey.toString(),
-          error: verifyError?.message || String(verifyError),
-        });
-        // Non-critical - transaction may still be processing
-      }
-
-      return { success: true, signature };
-
-    } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      enhancedLogger.error('❌ Failed to approve vault transaction', {
-        vaultAddress,
-        proposalId,
-        signer: signer.publicKey.toString(),
-        error: errorMessage,
-      });
-
-      return {
-        success: false,
-        error: errorMessage,
-      };
-    }
-  }
+  // REMOVED: approveVaultTransaction() method
+  // Vault transactions do NOT require approval in Squads v4
+  // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+  // when the linked Proposal reaches ExecuteReady.
 
   /**
    * Execute a Squads proposal after it has enough signatures

@@ -643,38 +643,16 @@ const Result: React.FC = () => {
         proposalId: payoutData.proposalId,
       });
       
-      // Step 2b: Sign vault transaction approval transaction (if provided)
-      let base64VaultTx: string | null = null;
-      if (txData.vaultTransaction) {
-        try {
-          const vaultTxBuffer = Buffer.from(txData.vaultTransaction, 'base64');
-          const vaultApproveTx = VersionedTransaction.deserialize(vaultTxBuffer);
-          const signedVaultTx = await signTransaction(vaultApproveTx);
-          const vaultSerialized = signedVaultTx.serialize();
-          base64VaultTx = Buffer.from(vaultSerialized).toString('base64');
-          
-          console.log('✅ Vault transaction signed', {
-            matchId,
-            wallet: publicKey.toString(),
-            proposalId: payoutData.proposalId,
-          });
-        } catch (vaultTxError) {
-          console.error('❌ Failed to sign vault transaction:', vaultTxError);
-          throw new Error('Failed to sign vault transaction. Both proposal and vault transaction must be signed.');
-        }
-      } else {
-        // Backend should always provide vault transaction - if missing, it's an error
-        console.error('❌ Backend did not provide vault transaction - this is required for ExecuteReady');
-        throw new Error('Vault transaction approval is required but was not provided by backend. Please refresh and try again, or contact support if the issue persists.');
-      }
+      // NOTE: Vault transactions do NOT require approval in Squads v4
+      // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+      // when the linked Proposal reaches ExecuteReady.
       
-      // Step 3: Send BOTH signed transactions to backend
-      console.log('📤 Submitting signed proposal AND vault transaction to backend', {
+      // Step 3: Send signed proposal transaction to backend
+      console.log('📤 Submitting signed proposal transaction to backend', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
         hasProposalTx: !!base64ProposalTx,
-        hasVaultTx: !!base64VaultTx,
       });
       
       const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
@@ -686,8 +664,7 @@ const Result: React.FC = () => {
         body: JSON.stringify({
           matchId,
           wallet: publicKey.toString(),
-          signedTransaction: base64ProposalTx, // Proposal approval
-          signedVaultTransaction: base64VaultTx, // Vault transaction approval (NEW)
+          signedTransaction: base64ProposalTx, // Proposal approval only
         }),
       });
       

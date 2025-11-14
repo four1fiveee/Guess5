@@ -9649,71 +9649,13 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to serialize transaction: ${serializeError?.message || String(serializeError)}`);
     }
 
-    // CRITICAL: Also build vault transaction approval transaction (expert recommendation)
-    // Frontend must sign BOTH proposal AND vault transaction
-    let vaultTxApproveIx;
-    let vaultTxBase64: string | null = null;
-    
-    try {
-      const { getTransactionPda } = sqdsModule;
-      
-      // CRITICAL: Build vault transaction approval instruction from IDL (expert recommendation)
-      // SDK doesn't provide helper, so we build it manually using Anchor's coder
-      try {
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: transactionIndex,
-          programId,
-        });
-        
-        // Use IDL-based instruction builder
-        const { buildVaultTransactionApproveInstruction } = require('../services/vaultTransactionApproveBuilder');
-        const { ix, instructionName, debug } = await buildVaultTransactionApproveInstruction({
-          connection,
-          programId,
-          multisigPubkey: multisigAddress,
-          transactionPda: transactionPda,
-          signerPubkey: memberPublicKey,
-        });
-        
-        vaultTxApproveIx = ix;
-        console.log('✅ Vault transaction approval instruction built from IDL', {
-          instructionName,
-          transactionPda: transactionPda.toString(),
-          debug,
-        });
-      } catch (buildError: any) {
-        console.error('❌ Failed to build vault transaction approval instruction from IDL:', {
-          error: buildError?.message,
-          stack: buildError?.stack,
-          note: 'Frontend will not be able to sign vault transaction - backend will handle it',
-        });
-        vaultTxApproveIx = null;
-      }
-      
-      if (vaultTxApproveIx) {
-        const vaultTxMessageV0 = new TransactionMessage({
-          payerKey: memberPublicKey,
-          recentBlockhash: blockhash,
-          instructions: [vaultTxApproveIx],
-        }).compileToV0Message();
-        
-        const vaultTxTransaction = new VersionedTransaction(vaultTxMessageV0);
-        const vaultTxSerialized = vaultTxTransaction.serialize({ requireAllSignatures: false, verifySignatures: false });
-        vaultTxBase64 = Buffer.from(vaultTxSerialized).toString('base64');
-        console.log('✅ Vault transaction approval transaction created, length:', vaultTxBase64.length);
-      }
-    } catch (vaultTxError: any) {
-      console.warn('⚠️ Failed to build vault transaction approval transaction (non-critical):', {
-        error: vaultTxError?.message,
-        note: 'Frontend may need to build this separately or use Squads SDK directly',
-      });
-      // Don't fail - proposal approval is still returned
-    }
+    // NOTE: Vault transactions do NOT require approval in Squads v4
+    // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+    // when the linked Proposal reaches ExecuteReady.
+    console.log('✅ Proposal approval transaction built (vault transaction does not require separate approval)');
 
     sendResponse(200, {
       transaction: base64Tx, // Proposal approval transaction
-      vaultTransaction: vaultTxBase64, // Vault transaction approval transaction (NEW)
       matchId,
       proposalId: proposalId,
       vaultAddress: matchRow.squadsVaultAddress,
@@ -9754,20 +9696,15 @@ const signProposalHandler = async (req: any, res: any) => {
   }
   
   try {
-    const { matchId, wallet, signedTransaction, signedVaultTransaction } = req.body;
+    const { matchId, wallet, signedTransaction } = req.body;
     
     if (!matchId || !wallet || !signedTransaction) {
       return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
     }
     
-    // CRITICAL: Vault transaction approval is required for ExecuteReady (expert recommendation)
-    if (!signedVaultTransaction) {
-      console.warn('⚠️ Vault transaction signature not provided - proposal may not reach ExecuteReady', {
-        matchId,
-        wallet,
-        note: 'Both proposal AND vault transaction must be signed for ExecuteReady',
-      });
-    }
+    // NOTE: Vault transactions do NOT require approval in Squads v4
+    // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+    // when the linked Proposal reaches ExecuteReady.
 
     const { AppDataSource } = require('../db/index');
     const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
@@ -10034,7 +9971,6 @@ const signProposalHandler = async (req: any, res: any) => {
     
     // CRITICAL: Send BOTH proposal AND vault transaction approvals (expert recommendation)
     let signature;
-    let vaultTxSignature: string | null = null;
     
     try {
       const serializedTx = transaction.serialize();
@@ -10093,34 +10029,9 @@ const signProposalHandler = async (req: any, res: any) => {
       throw new Error(`Failed to send transaction: ${errorMessage}`);
     }
     
-    // CRITICAL: Also submit vault transaction approval if provided (expert recommendation)
-    if (signedVaultTransaction) {
-      try {
-        const vaultTxBuffer = Buffer.from(signedVaultTransaction, 'base64');
-        const vaultTransaction = VersionedTransaction.deserialize(vaultTxBuffer);
-        const vaultSerializedTx = vaultTransaction.serialize();
-        
-        console.log('📤 Sending signed vault transaction to network...');
-        vaultTxSignature = await connection.sendRawTransaction(vaultSerializedTx, {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
-        console.log('✅ Vault transaction sent, signature:', vaultTxSignature);
-        
-        // Wait for vault transaction confirmation (non-blocking)
-        connection.confirmTransaction(vaultTxSignature, 'confirmed').then(() => {
-          console.log('✅ Vault transaction confirmed:', vaultTxSignature);
-        }).catch((vaultConfirmError: any) => {
-          console.warn('⚠️ Vault transaction confirmation failed (may still succeed):', vaultConfirmError?.message);
-        });
-      } catch (vaultTxError: any) {
-        console.error('❌ Failed to send vault transaction:', {
-          error: vaultTxError?.message,
-          note: 'Proposal transaction was sent successfully, but vault transaction failed',
-        });
-        // Don't fail the entire request - proposal approval is still valid
-      }
-    }
+    // NOTE: Vault transactions do NOT require approval in Squads v4
+    // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+    // when the linked Proposal reaches ExecuteReady.
 
     // Wait for confirmation with timeout
     let confirmation;
@@ -10320,37 +10231,9 @@ const signProposalHandler = async (req: any, res: any) => {
 
           if (approveResult.success) {
             feeWalletAutoApproved = true;
-            
-            // CRITICAL: Also approve vault transaction with fee wallet (expert recommendation)
-            // Fee wallet must sign BOTH proposal AND vault transaction
-            try {
-              const vaultTxApproveResult = await squadsVaultService.approveVaultTransaction(
-                matchRow.squadsVaultAddress,
-                proposalIdString,
-                cachedFeeWalletKeypair
-              );
-              
-              if (vaultTxApproveResult.success) {
-                console.log('✅ Fee wallet approved both proposal AND vault transaction', {
-                  matchId,
-                  proposalId: proposalIdString,
-                  proposalSig: approveResult.signature,
-                  vaultTxSig: vaultTxApproveResult.signature,
-                });
-              } else {
-                console.warn('⚠️ Fee wallet approved proposal but vault transaction approval failed', {
-                  matchId,
-                  proposalId: proposalIdString,
-                  error: vaultTxApproveResult.error,
-                });
-              }
-            } catch (vaultTxError: any) {
-              console.error('❌ Failed to approve vault transaction with fee wallet', {
-                matchId,
-                proposalId: proposalIdString,
-                error: vaultTxError?.message || String(vaultTxError),
-              });
-            }
+            // NOTE: Vault transactions do NOT require approval in Squads v4
+            // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+            // when the linked Proposal reaches ExecuteReady.
             signers.push(feeWalletAddress);
             console.log('✅ Fee wallet auto-approved proposal', {
               matchId,
@@ -10402,31 +10285,9 @@ const signProposalHandler = async (req: any, res: any) => {
         if (hadFeeWalletSignature) {
           // Fee wallet already signed previously - mark as approved
           feeWalletAutoApproved = true;
-          
-          // CRITICAL: Also check if fee wallet approved vault transaction (expert recommendation)
-          // If fee wallet already signed, it should have signed both proposal AND vault transaction
-          try {
-            const vaultTxApproveResult = await squadsVaultService.approveVaultTransaction(
-              matchRow.squadsVaultAddress,
-              proposalIdString,
-              cachedFeeWalletKeypair || getFeeWalletKeypair()
-            );
-            
-            if (vaultTxApproveResult.success) {
-              console.log('✅ Fee wallet also approved vault transaction (was already a signer)', {
-                matchId,
-                proposalId: proposalIdString,
-                vaultTxSig: vaultTxApproveResult.signature,
-              });
-            }
-          } catch (vaultTxError: any) {
-            // Non-critical - fee wallet may have already approved vault transaction
-            console.warn('⚠️ Could not approve vault transaction with fee wallet (may already be approved)', {
-              matchId,
-              proposalId: proposalIdString,
-              error: vaultTxError?.message || String(vaultTxError),
-            });
-          }
+          // NOTE: Vault transactions do NOT require approval in Squads v4
+          // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
+          // when the linked Proposal reaches ExecuteReady.
         } else if (proposalAlreadyReady || approvalSkippedDueToReady) {
           // Proposal is already ready to execute on-chain, so fee wallet must have signed
           // Verify on-chain before adding to signers

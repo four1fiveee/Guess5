@@ -607,3 +607,402 @@ The error `Cannot read properties of undefined (reading '_bn')` occurs when Anch
 ---
 
 **Status:** ✅ Expert fixes implemented - ready for testing
+
+---
+
+## ❌ Critical Issue - Match `1c39df74-031a-42e1-b0cd-6e0ad879e91b`
+
+**Test Date:** 2025-11-14  
+**Deployment:** Commit `b8d48aa` (Expert's transactionApprove implementation)
+
+### Frontend Error
+- ❌ **Error:** "Vault transaction approval is required but was not provided by backend"
+- Same error as previous test - backend still not providing `vaultTransaction` field
+
+### Backend Logs Analysis
+
+**Critical Finding:**
+
+1. **IDL Does NOT Contain `transactionApprove` Instruction:**
+   - Error: `❌ transactionApprove instruction not found in IDL`
+   - The IDL loaded from `@sqds/multisig` package does NOT have `transactionApprove`
+   - **Available instructions in IDL:**
+     ```
+     programConfigInit, programConfigSetAuthority, programConfigSetMultisigCreationFee, 
+     programConfigSetTreasury, multisigCreate, multisigCreateV2, multisigAddMember, 
+     multisigRemoveMember, multisigSetTimeLock, multisigChangeThreshold, 
+     multisigSetConfigAuthority, multisigSetRentCollector, multisigAddSpendingLimit, 
+     multisigRemoveSpendingLimit, configTransactionCreate, configTransactionExecute, 
+     vaultTransactionCreate, transactionBufferCreate, transactionBufferClose, 
+     transactionBufferExtend, vaultTransactionCreateFromBuffer, vaultTransactionExecute, 
+     batchCreate, batchAddTransaction, batchExecuteTransaction, proposalCreate, 
+     proposalActivate, proposalApprove, proposalReject, proposalCancel, proposalCancelV2, 
+     spendingLimitUse, configTransactionAccountsClose, vaultTransactionAccountsClose, 
+     vaultBatchTransactionAccountClose, batchAccountsClose
+     ```
+   - **NOTICE:** `transactionApprove` is NOT in this list
+
+2. **Expert Guidance vs. Reality:**
+   - Expert stated: `transactionApprove` exists in Squads v4 IDL
+   - Reality: The IDL loaded from `@sqds/multisig` v2.1.4 does NOT contain `transactionApprove`
+   - This suggests either:
+     - The IDL version in the package is outdated
+     - The instruction name is different
+     - The IDL needs to be fetched from a different source
+
+3. **Fee Wallet Approval Attempt:**
+   - Log: `"📝 Now approving vault transaction (required for ExecuteReady)"`
+   - Log: `"❌ transactionApprove instruction not found in IDL"`
+   - Log: `"❌ Failed to build vault transaction approval instruction"`
+   - Log: `"⚠️ Proposal approved but vault transaction approval failed"`
+   - **Result:** Proposal approved (2/2 signatures) but vault transaction NOT approved (0/2 signatures)
+
+4. **Frontend Request:**
+   - Log: `GET /api/match/get-proposal-approval-transaction?matchId=1c39df74-031a-42e1-b0cd-6e0ad879e91b&wallet=F4WKQYkUDBiFxCEMH49NpjjipCeHyG5a45isY8o7wpZ8`
+   - Log: `"❌ transactionApprove instruction not found in IDL"`
+   - Response: Status 200, Content-Length 502 (missing `vaultTransaction` field)
+
+### On-Chain Verification
+
+**Match Details:**
+- **Match ID:** `1c39df74-031a-42e1-b0cd-6e0ad879e91b`
+- **Vault Address:** `7EUk8xFksG3nwCRMFu4ByXWra1q7L1Q52EN28BFkYvpq`
+- **Vault PDA:** `4m8TLsZ3pmFetZs5i965fAJUNH4cT51YCD6bgnBsZgdG`
+- **Proposal ID:** `1`
+- **Transaction PDA:** `2usBDmRB1dC4xkGnu6KwBF3My5Zu25PzHUUgizPqmvi5`
+- **Proposal PDA:** `n9GoMp8sqENaTE9pwFm9dQwuAuoX1fKPGYinDQDwSRi`
+
+**On-Chain State:**
+- **Vault Balance:** `0.284600 SOL` (should be ~0.0025 SOL if executed)
+- **Transaction Account:** EXISTS (not closed - execution did not occur)
+- **Transaction Status:** `undefined` (0=Active, 1=ExecuteReady, 2=Executed)
+- **Executed:** `undefined`
+
+**Conclusion:** ❌ Funds NOT released - execution did not occur
+
+### Root Cause Analysis
+
+**Primary Issue: IDL Version Mismatch**
+
+The expert stated that `transactionApprove` exists in Squads v4 IDL, but the actual IDL loaded from `@sqds/multisig` v2.1.4 does NOT contain this instruction.
+
+**Possible Explanations:**
+
+1. **IDL Version Mismatch:**
+   - The `@sqds/multisig` package may contain an outdated IDL
+   - The expert may have been referring to a newer version of the IDL
+   - The on-chain IDL may differ from the package IDL
+
+2. **Instruction Name Difference:**
+   - The instruction might be named differently in the actual IDL
+   - Could be `vaultTransactionApprove`, `txApprove`, or something else
+   - Need to inspect the actual IDL to find the correct name
+
+3. **IDL Source Issue:**
+   - The IDL might need to be fetched on-chain instead of from the package
+   - The package IDL might be incomplete or outdated
+
+### Questions for Expert
+
+1. **IDL Version:**
+   - What version of the Squads IDL contains `transactionApprove`?
+   - Is the IDL in `@sqds/multisig` v2.1.4 outdated?
+   - Should we fetch the IDL on-chain instead of using the package IDL?
+
+2. **Instruction Name:**
+   - If `transactionApprove` doesn't exist, what is the correct instruction name?
+   - Could it be `vaultTransactionApprove` or something else?
+   - How do we approve a vault transaction if `transactionApprove` doesn't exist?
+
+3. **Alternative Approach:**
+   - Should we use `proposalApprove` with different accounts for vault transaction approval?
+   - Is there a different instruction that serves this purpose?
+   - How do other projects approve vault transactions in Squads v4?
+
+4. **IDL Source:**
+   - Should we fetch the IDL on-chain using `Program.fetchIdl()`?
+   - Is the on-chain IDL different from the package IDL?
+   - What is the correct source for the Squads v4 IDL?
+
+### Next Steps Required
+
+1. **Verify IDL Source:**
+   - Try fetching IDL on-chain using `Program.fetchIdl()`
+   - Compare on-chain IDL with package IDL
+   - Check if on-chain IDL contains `transactionApprove`
+
+2. **Inspect Actual IDL:**
+   - Log the full IDL structure at server startup
+   - Search for any instruction containing "approve" and "transaction"
+   - Identify the correct instruction name for vault transaction approval
+
+3. **Check SDK Version:**
+   - Verify `@sqds/multisig` version matches expert's expectations
+   - Check if a newer version contains the instruction
+   - Consider upgrading SDK if needed
+
+4. **Alternative Implementation:**
+   - If `transactionApprove` doesn't exist, find the correct instruction
+   - May need to use a different approach entirely
+   - Consider using SDK methods if they exist in a newer version
+
+---
+
+**Status:** ❌ `transactionApprove` instruction NOT found in actual IDL - expert guidance may be for different IDL version
+
+---
+
+## ✅ FINAL ROOT CAUSE IDENTIFIED - Match `1c39df74-031a-42e1-b0cd-6e0ad879e91b`
+
+**Date:** 2025-11-14  
+**Expert Final Answer:** Vault Transactions DO NOT require approval in Squads v4
+
+### 🚨 Critical Discovery
+
+**THERE IS NO VAULT TRANSACTION APPROVAL IN SQUADS V4**
+
+- Vault Transactions DO NOT require member approval
+- Only Proposals require signatures
+- `transactionApprove` does NOT exist because it's not needed
+- VaultTransaction accounts do NOT track signatures
+
+### How Squads v4 Actually Works
+
+**✅ Proposals:**
+- Require member signatures via `proposalApprove`
+- Threshold logic applies
+- Execute only when `proposal.status = ExecuteReady`
+
+**✅ VaultTransactions:**
+- DO NOT require signatures
+- No "approve" stage exists
+- Automatically become `ExecuteReady` when their linked Proposal reaches `ExecuteReady`
+
+**✅ Execution Rules:**
+- Requires BOTH:
+  - `Proposal.status = ExecuteReady` (meets signature threshold)
+  - `VaultTransaction.status = Active` (automatically transitions to ExecuteReady when Proposal is ready)
+
+### 🚨 The REAL Root Problem
+
+**Proposal and VaultTransaction are NOT linked!**
+
+**Current Broken Flow:**
+1. Create VaultTransaction 1
+2. Create Proposal 1 (separately, without linking the transaction)
+3. Approve Proposal 1 → ExecuteReady
+4. **BUT:** Proposal has zero transactions inside it
+5. VaultTransaction 1 is NOT part of the Proposal
+6. Squads refuses to execute (no executable items)
+
+**Why Execution Fails:**
+- Proposal reaches ExecuteReady
+- But `proposal.transactions.length = 0`
+- VaultTransaction is not linked to the Proposal
+- Squads cannot execute because there are no transactions to execute
+
+### ✅ The Actual Fix
+
+**Correct Squads v4 Flow:**
+
+1. **Create vault transaction:**
+   ```
+   vaultTransactionCreate
+   ```
+
+2. **Create proposal WITH the vault transaction index linked:**
+   ```
+   proposalCreate {
+     transactionIndex: <vault transaction index>
+     // OR
+     transactions: [vaultTransactionPda]
+   }
+   ```
+
+3. **Approve proposal:**
+   ```
+   proposalApprove
+   ```
+
+4. **Execute proposal (Squads executes linked transaction):**
+   ```
+   proposalExecute
+   ```
+
+### ❌ What Must Be Removed
+
+**Remove ALL code related to:**
+- `transactionApprove`
+- `vaultTransactionApprove`
+- `vaultTransactionExecReady`
+- Any notion of signing vault transactions
+- Frontend requirement to sign a vault transaction
+- `vaultTransactionApproveBuilder.ts` (entire file)
+- Backend logic that tries to build vault transaction approval
+- Frontend logic that expects `vaultTransaction` field
+
+### ✅ What Must Be Fixed
+
+**Backend must guarantee:**
+1. VaultTransaction is created BEFORE proposal creation
+2. Proposal includes the vault transaction in its transaction list:
+   ```typescript
+   proposalCreate({
+     multisigPda,
+     proposer: wallet.publicKey,
+     transactions: [vaultTransactionPda],  // MUST LINK HERE
+   })
+   ```
+
+**Verification:**
+- Query proposal: `proposal.transactions.length` should be > 0
+- Currently it's 0 (the smoking gun)
+
+### Implementation Changes Required
+
+1. **Remove `vaultTransactionApproveBuilder.ts`** - entire file
+2. **Remove vault transaction approval logic** from:
+   - `squadsVaultService.ts` - `approveVaultTransaction()` method
+   - `matchController.ts` - vault transaction building in `getProposalApprovalTransactionHandler`
+3. **Fix proposal creation** to link vault transaction:
+   - In `proposeTieRefund()` or similar methods
+   - Ensure `proposalCreate` includes `transactions: [vaultTransactionPda]`
+4. **Remove frontend vault transaction signing**:
+   - Remove `vaultTransaction` field requirement
+   - Remove vault transaction signing logic from `result.tsx`
+
+### Expected Behavior After Fix
+
+1. **Proposal Creation:**
+   - VaultTransaction created first
+   - Proposal created with vault transaction linked
+   - `proposal.transactions.length = 1` ✅
+
+2. **Approval:**
+   - Player signs proposal → 1/2
+   - Fee wallet signs proposal → 2/2 → ExecuteReady ✅
+   - VaultTransaction automatically becomes ExecuteReady ✅
+
+3. **Execution:**
+   - Retry service sees both ExecuteReady
+   - Calls `proposalExecute`
+   - Squads executes the linked vault transaction
+   - Funds released ✅
+
+---
+
+**Status:** ✅ Root cause identified - Vault transaction must be linked to proposal during creation, not approved separately
+
+---
+
+## 📋 Implementation Checklist
+
+### ❌ Code to Remove
+
+1. **Delete `backend/src/services/vaultTransactionApproveBuilder.ts`** - entire file
+2. **Remove from `backend/src/services/squadsVaultService.ts`:**
+   - `approveVaultTransaction()` method
+   - All calls to `approveVaultTransaction()`
+   - Import of `vaultTransactionApproveBuilder`
+3. **Remove from `backend/src/controllers/matchController.ts`:**
+   - Vault transaction building logic in `getProposalApprovalTransactionHandler`
+   - `vaultTransaction` field from response
+4. **Remove from `backend/src/server.ts`:**
+   - IDL initialization call for vault transaction approval
+5. **Remove from frontend:**
+   - `vaultTransaction` field requirement
+   - Vault transaction signing logic
+
+### ✅ Code to Fix
+
+1. **Verify proposal creation links transaction:**
+   - Check that `proposalCreate` is called AFTER `vaultTransactionCreate`
+   - Verify `transactionIndex` matches the created vault transaction
+   - Consider passing `transactions: [transactionPda]` if SDK supports it
+   - Remove `isDraft: true` if it prevents linking (or verify draft proposals can link)
+
+2. **Add verification:**
+   - After proposal creation, query `proposal.transactions.length`
+   - Log warning if `transactions.length === 0`
+   - This confirms the transaction is linked
+
+3. **Update execution logic:**
+   - Remove any checks for vault transaction approval
+   - Only check `proposal.status === ExecuteReady`
+   - VaultTransaction automatically becomes ExecuteReady when Proposal is ready
+
+---
+
+**Status:** 📋 Ready for implementation - Remove vault transaction approval, verify proposal links transaction
+
+---
+
+## ✅ FINAL IMPLEMENTATION PLAN - Expert's Actionable Fix
+
+**Date:** 2025-11-14  
+**Expert Final Implementation:** Complete code and checklist provided
+
+### One-Line Root Fix
+
+**Create the VaultTransaction first, then create the Proposal with that transaction linked (by index or by the exact transactions argument the IDL expects). Do not attempt to "approve" or sign VaultTransaction — Squads v4 doesn't require member signatures on vault transactions.**
+
+### Implementation Steps
+
+1. **Backend: Remove all vault transaction approval code**
+2. **Backend: Verify proposal creation links transaction correctly**
+3. **Frontend: Remove vault transaction signing requirement**
+4. **Add verification queries to confirm linking**
+5. **Clean up obsolete files**
+
+### Expert's Code Pattern
+
+The expert provided a helper function pattern that:
+- Creates vault transaction first
+- Reads the transaction index from on-chain account
+- Creates proposal with transaction linked (adapts to IDL shape)
+- Verifies `proposal.transactions.length > 0`
+
+**Key Insight:** The existing code already creates vault transaction first and passes `transactionIndex` to `proposalCreate`, but the proposal may not be linking correctly. Need to:
+- Verify the `transactionIndex` matches the created transaction
+- Check if `isDraft: true` prevents linking
+- Consider passing transaction PDA directly if SDK supports it
+- Add verification logging to confirm linking
+
+### Files to Remove
+
+1. `backend/src/services/vaultTransactionApproveBuilder.ts` - DELETE
+2. Remove `approveVaultTransaction()` from `squadsVaultService.ts`
+3. Remove vault transaction building from `matchController.ts`
+4. Remove frontend vault transaction signing logic
+
+### Files to Fix
+
+1. `backend/src/services/squadsVaultService.ts`:
+   - Remove `approveVaultTransaction()` method
+   - Remove calls to `approveVaultTransaction()`
+   - Verify `proposalCreate` links transaction correctly
+   - Add verification: query `proposal.transactions.length` after creation
+
+2. `backend/src/controllers/matchController.ts`:
+   - Remove vault transaction building in `getProposalApprovalTransactionHandler`
+   - Remove `vaultTransaction` field from response
+
+3. `backend/src/server.ts`:
+   - Remove IDL initialization for vault transaction approval
+
+4. Frontend (`result.tsx` or similar):
+   - Remove `vaultTransaction` field requirement
+   - Remove vault transaction signing logic
+   - Only sign proposal approval transaction
+
+### Verification Queries
+
+After deploy, verify:
+- `proposal.transactions.length > 0` (should be 1)
+- Proposal reaches ExecuteReady after 2/2 signatures
+- VaultTransaction automatically becomes ExecuteReady
+- Execution succeeds and funds are released
+
+---
+
+**Status:** ✅ Implementation plan received - Ready to implement fixes
