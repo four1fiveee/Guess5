@@ -9657,9 +9657,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     try {
       const { getTransactionPda } = sqdsModule;
       
-      // CRITICAL: Build vault transaction approval instruction
-      // In Squads v4, we need to approve the VaultTransaction account separately from the Proposal
-      // The SDK may not have a direct helper, so we need to check all available methods
+      // CRITICAL: Build vault transaction approval instruction from IDL (expert recommendation)
+      // SDK doesn't provide helper, so we build it manually using Anchor's coder
       try {
         const [transactionPda] = getTransactionPda({
           multisigPda: multisigAddress,
@@ -9667,54 +9666,27 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
           programId,
         });
         
-        // Try multiple approaches to build the instruction
-        const sqdsGenerated = generated?.instructions;
+        // Use IDL-based instruction builder
+        const { buildVaultTransactionApproveInstruction } = require('../services/vaultTransactionApproveBuilder');
+        const { ix, instructionName, debug } = await buildVaultTransactionApproveInstruction({
+          connection,
+          programId,
+          multisigPubkey: multisigAddress,
+          transactionPda: transactionPda,
+          signerPubkey: memberPublicKey,
+        });
         
-        // Approach 1: Check for transactionApprove in generated instructions
-        if (sqdsGenerated) {
-          // List all available methods for debugging
-          const availableMethods = Object.keys(sqdsGenerated).filter(k => k.includes('Approve') || k.includes('approve') || k.includes('Transaction'));
-          console.log('🔍 Available methods in generated.instructions (filtered):', availableMethods);
-          console.log('🔍 All methods in generated.instructions:', Object.keys(sqdsGenerated).slice(0, 20));
-          
-          if (typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
-            vaultTxApproveIx = sqdsGenerated.createTransactionApproveInstruction(
-              {
-                multisig: multisigAddress,
-                transaction: transactionPda,
-                member: memberPublicKey,
-              },
-              { args: { memo: null } },
-              programId,
-            );
-            console.log('✅ Vault transaction approval instruction created via createTransactionApproveInstruction');
-          } else if (typeof sqdsGenerated.createVaultTransactionApproveInstruction === 'function') {
-            vaultTxApproveIx = sqdsGenerated.createVaultTransactionApproveInstruction(
-              {
-                multisig: multisigAddress,
-                transaction: transactionPda,
-                member: memberPublicKey,
-              },
-              { args: { memo: null } },
-              programId,
-            );
-            console.log('✅ Vault transaction approval instruction created via createVaultTransactionApproveInstruction');
-          } else {
-            // CRITICAL FALLBACK: Since SDK doesn't provide vault transaction approval,
-            // we'll skip building it for frontend and rely on backend to approve it
-            // The backend's approveVaultTransaction method will be called when player signs proposal
-            console.warn('⚠️ No transaction approval instruction builder found. Available methods:', availableMethods);
-            console.warn('⚠️ Will skip vault transaction approval for frontend - backend will handle it automatically');
-            vaultTxApproveIx = null;
-          }
-        } else {
-          console.warn('⚠️ generated.instructions not available');
-          vaultTxApproveIx = null;
-        }
+        vaultTxApproveIx = ix;
+        console.log('✅ Vault transaction approval instruction built from IDL', {
+          instructionName,
+          transactionPda: transactionPda.toString(),
+          debug,
+        });
       } catch (buildError: any) {
-        console.error('❌ Failed to build vault transaction approval instruction:', {
+        console.error('❌ Failed to build vault transaction approval instruction from IDL:', {
           error: buildError?.message,
           stack: buildError?.stack,
+          note: 'Frontend will not be able to sign vault transaction - backend will handle it',
         });
         vaultTxApproveIx = null;
       }

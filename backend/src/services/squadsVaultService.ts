@@ -2671,43 +2671,31 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // Use instruction builder approach (rpc.vaultTransactionApprove doesn't exist in Squads SDK)
-      const { instructions } = require('@sqds/multisig');
+      // CRITICAL: Build instruction from IDL since SDK doesn't provide helper
+      const { getTransactionPda } = require('@sqds/multisig');
+      const [transactionPda] = getTransactionPda({
+        multisigPda: multisigAddress,
+        index: transactionIndex,
+        programId: this.programId,
+      });
+
+      // Use IDL-based instruction builder (expert recommendation)
+      const { buildVaultTransactionApproveInstruction } = require('./vaultTransactionApproveBuilder');
+      const { ix: approveIx, instructionName, debug } = await buildVaultTransactionApproveInstruction({
+        connection: this.connection,
+        programId: this.programId,
+        multisigPubkey: multisigAddress,
+        transactionPda: transactionPda,
+        signerPubkey: signer.publicKey,
+      });
+
+      enhancedLogger.info('✅ Built vault transaction approval instruction from IDL', {
+        instructionName,
+        transactionPda: transactionPda.toString(),
+        debug,
+      });
+
       const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-      
-      // Build the approval instruction - use transactionApprove (similar to proposalApprove)
-      let approveIx: TransactionInstruction;
-      if (instructions && typeof instructions.transactionApprove === 'function') {
-        approveIx = instructions.transactionApprove({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          member: signer.publicKey,
-          programId: this.programId,
-        });
-      } else {
-        // Try generated helper approach
-        const { generated, getTransactionPda } = require('@sqds/multisig');
-        const sqdsGenerated = generated?.instructions;
-        if (sqdsGenerated && typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
-          const [transactionPda] = getTransactionPda({
-            multisigPda: multisigAddress,
-            index: transactionIndex,
-            programId: this.programId,
-          });
-          
-          approveIx = sqdsGenerated.createTransactionApproveInstruction(
-            {
-              multisig: multisigAddress,
-              transaction: transactionPda,
-              member: signer.publicKey,
-            },
-            { args: { memo: null } },
-            this.programId,
-          );
-        } else {
-          throw new Error('Vault transaction approve method not available in Squads SDK. Please check SDK version.');
-        }
-      }
       
       // Build and send transaction
       const message = new TransactionMessage({

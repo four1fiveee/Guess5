@@ -23,6 +23,27 @@ async function startServer() {
     validateSolanaConfig();
     enhancedLogger.info('✅ Solana configuration validated');
 
+    // Initialize Squads IDL for vault transaction approval (expert recommendation)
+    enhancedLogger.info('🔍 Initializing Squads IDL...');
+    try {
+      const { Connection, PublicKey } = require('@solana/web3.js');
+      const { PROGRAM_ID } = require('@sqds/multisig');
+      const { initializeIdl } = require('./services/vaultTransactionApproveBuilder');
+      const connection = new Connection(
+        process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+        'confirmed'
+      );
+      const programId = process.env.SQUADS_PROGRAM_ID 
+        ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+        : PROGRAM_ID;
+      await initializeIdl(connection, programId);
+      enhancedLogger.info('✅ Squads IDL initialized');
+    } catch (idlError: any) {
+      enhancedLogger.warn('⚠️ Failed to initialize Squads IDL (will retry on first use)', {
+        error: idlError?.message || String(idlError),
+      });
+    }
+
     enhancedLogger.info('🔌 Initializing database connection...');
     await initializeDatabase();
     enhancedLogger.info('✅ Database connected successfully');
