@@ -1376,3 +1376,76 @@ Check Solana Explorer for:
 2. ✅ The proposal reaches ExecuteReady state (both proposal AND vault transaction have 2/2 signatures)
 3. ✅ Execution succeeds and funds are released
 4. ⚠️ Frontend may need update to also sign vault transaction for player signatures
+
+---
+
+## Implementation Summary
+
+### ✅ What Was Fixed
+
+1. **Root Cause Identified:**
+   - Squads v4 requires BOTH proposal AND vault transaction to be signed
+   - Previously only proposal was being signed
+   - This prevented ExecuteReady state transition
+
+2. **Backend Fix Implemented:**
+   - Added `approveVaultTransaction()` method
+   - Updated `approveProposal()` to automatically sign vault transaction after proposal approval
+   - Enhanced logging to show vault transaction signers
+
+3. **Code Changes:**
+   - `backend/src/services/squadsVaultService.ts`:
+     - New method: `approveVaultTransaction()` (lines ~2658-2778)
+     - Updated: `approveProposal()` to call vault transaction approval (lines ~2588-2633)
+     - Enhanced: Execution logging to show vault transaction signers (lines ~2884-2860)
+
+### 🔍 What Needs Verification
+
+**For Match `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`:**
+
+1. **Backend Logs (Render):**
+   - Search for match ID in Render logs
+   - Verify "✅ Both proposal and vault transaction approved" appears
+   - Check vault transaction approval count in execution logs
+   - Verify execution transaction was sent and confirmed
+
+2. **On-Chain State:**
+   - Get vault address and proposal ID from database
+   - Check vault transaction account: Should have 2/2 approvals, status = 1 (ExecuteReady)
+   - Check proposal account: Should be ExecuteReady (not just Approved)
+   - Check if transaction account is closed (executed) or still exists (not executed)
+   - Check vault balance: Should be ~0.0025 SOL if executed
+
+3. **Transaction Signatures:**
+   - Proposal approval signatures (player + fee wallet) - should exist
+   - **Vault transaction approval signatures (player + fee wallet)** - should exist if fix worked
+   - Execution signature - should exist if execution succeeded
+
+### 📝 Verification Scripts Created
+
+1. `backend/scripts/check-match-execution.ts` - Full verification with database
+2. `backend/scripts/check-onchain-simple.js` - Direct on-chain check (no database)
+3. `backend/scripts/check-match-simple.ts` - Simple match details check
+
+### 🎯 Expected Outcome
+
+**If fix worked correctly:**
+- ✅ Fee wallet signs both proposal AND vault transaction automatically
+- ✅ Vault transaction has 2/2 signatures (if player also signed vault transaction)
+- ✅ Proposal reaches ExecuteReady state
+- ✅ Execution succeeds
+- ✅ Funds are released to players and fee wallet
+
+**If fix needs frontend update:**
+- ✅ Fee wallet signs both (backend handles this)
+- ⚠️ Player only signs proposal (frontend needs to also sign vault transaction)
+- ⚠️ Vault transaction may have only 1/2 signatures (fee wallet only)
+- ⚠️ Proposal may not reach ExecuteReady (needs player to also sign vault transaction)
+
+### 🚨 Critical Next Step
+
+**Check Render backend logs for match `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5` to verify:**
+1. Did vault transaction signing occur? (Look for "✅ Vault transaction approved")
+2. How many vault transaction approvals are there? (Should be 2 if both signed)
+3. Did execution succeed? (Look for execution transaction signature)
+4. What was the final vault transaction status? (Should be ExecuteReady = 1)
