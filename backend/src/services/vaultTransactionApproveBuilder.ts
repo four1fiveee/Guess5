@@ -244,9 +244,8 @@ export async function buildVaultTransactionApproveInstruction({
       const { Keypair } = require('@solana/web3.js');
       const dummyKeypair = Keypair.generate();
       const provider = new AnchorProvider(connection, { publicKey: dummyKeypair.publicKey, signTransaction: async (tx) => tx, signAllTransactions: async (txs) => txs } as any, {});
-      // Program constructor: (idl, programId, provider)
-      // TypeScript may have issues with overloads, so we use explicit typing
-      cachedProgram = new Program<Idl>(idl as Idl, programId as PublicKey, provider as AnchorProvider) as Program<Idl>;
+      // Program constructor in Anchor 0.30.0+: (idl, provider) - programId is inferred from IDL
+      cachedProgram = new Program<Idl>(idl as Idl, provider as AnchorProvider) as Program<Idl>;
     }
     const program = cachedProgram;
 
