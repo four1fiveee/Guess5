@@ -208,7 +208,7 @@ const Result: React.FC = () => {
               isTie: matchData.winner === 'tie',
               winner: matchData.winner,
               numGuesses: playerResult?.numGuesses || 0,
-              entryFee: matchData.entryFee || 0.1104,
+              entryFee: matchData.entryFee || 0,
               timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
               opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
               opponentGuesses: opponentResult?.numGuesses || 0,
@@ -1414,7 +1414,7 @@ const Result: React.FC = () => {
                                 }`}>
                                   {Math.abs(payoutData.entryFee * 0.95 - payoutData.refundAmount) < 0.0001
                                     ? `✅ 95% refund verified (${(payoutData.entryFee * 0.95).toFixed(4)} SOL expected)`
-                                    : `⚠️ Refund differs from expected 95% (${(payoutData.entryFee * 0.95).toFixed(4)} SOL) by ${Math.abs((payoutData.entryFee * 0.95) - payoutData.refundAmount).toFixed(4)} SOL`}
+                                    : `⚠️ Refund differs from expected 95% (${(payoutData.entryFee * 0.95).toFixed(4)} SOL) by ${Math.abs((payoutData.entryFee * 0.95) - payoutData.refundAmount).toFixed(4)} SOL. Entry fee: ${payoutData.entryFee.toFixed(4)} SOL, Refund: ${payoutData.refundAmount.toFixed(4)} SOL`}
                                 </div>
                               )}
                               {payoutData.proposalStatus === 'EXECUTED' ? (

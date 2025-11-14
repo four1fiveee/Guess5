@@ -1007,8 +1007,52 @@ const Matchmaking: React.FC = () => {
                 ? data.player2Paid 
                 : false;
               
+              // Check if both players have paid (either via paid flags or deposit confirmations)
+              const bothPaid = (data.player1Paid && data.player2Paid) || 
+                               ((data.depositAConfirmations >= 1 && data.depositBConfirmations >= 1));
+              
+              // CRITICAL FIX: If both players have paid, redirect to game immediately
+              // This prevents getting stuck in "waiting_for_payment" state
+              if (bothPaid && normalizedStatus === 'active') {
+                setStatus('active');
+                localStorage.setItem('matchId', currentMatchData.matchId);
+                if (data.word) {
+                  localStorage.setItem('word', data.word);
+                }
+                if (data.entryFee) {
+                  localStorage.setItem('entryFee', data.entryFee.toString());
+                }
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setTimeout(() => {
+                  router.push(`/game?matchId=${currentMatchData.matchId}`);
+                }, 500);
+                return;
+              }
+              
               if (normalizedStatus === 'waiting_for_payment' && currentPlayerPaid) {
-                setStatus('waiting_for_payment');
+                // If current player paid but status is still waiting_for_payment, check if both paid
+                if (bothPaid) {
+                  // Both paid but status hasn't updated yet - wait a moment then redirect
+                  console.log('✅ Both players paid, waiting for status to update...');
+                  setStatus('waiting_for_game');
+                  // Give backend 2 seconds to update status, then redirect
+                  setTimeout(() => {
+                    if (statusRef.current === 'waiting_for_game' || statusRef.current === 'waiting_for_payment') {
+                      console.log('⏰ Status not updated, redirecting to game anyway...');
+                      localStorage.setItem('matchId', currentMatchData.matchId);
+                      if (data.word) {
+                        localStorage.setItem('word', data.word);
+                      }
+                      if (data.entryFee) {
+                        localStorage.setItem('entryFee', data.entryFee.toString());
+                      }
+                      router.push(`/game?matchId=${currentMatchData.matchId}`);
+                    }
+                  }, 2000);
+                } else {
+                  setStatus('waiting_for_payment');
+                }
               } else if (normalizedStatus === 'payment_required' && !currentPlayerPaid) {
                 setStatus('payment_required');
               } else if (normalizedStatus === 'completed') {
@@ -1019,15 +1063,12 @@ const Matchmaking: React.FC = () => {
                 return;
               }
               
-              // Check if both players have paid (either via paid flags or deposit confirmations)
-              const bothPaid = (data.player1Paid && data.player2Paid) || 
-                               ((data.depositAConfirmations >= 1 && data.depositBConfirmations >= 1));
-              
               if (
                 bothPaid &&
                 data.status !== 'active' &&
                 normalizedStatus !== 'refund_pending' &&
-                normalizedStatus !== 'cancelled'
+                normalizedStatus !== 'cancelled' &&
+                normalizedStatus !== 'waiting_for_payment'
               ) {
                 // Both players paid but game not yet active - show waiting state
                 setStatus('waiting_for_game');

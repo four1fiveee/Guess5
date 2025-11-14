@@ -3708,6 +3708,52 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       payoutResult.player2RefundSignature = match.player2RefundSignature;
     }
   }
+  
+  // CRITICAL FIX: Ensure refund amount is calculated correctly using actual entryFee
+  // This prevents mismatches where payoutResult.refundAmount was calculated with a different entryFee
+  if (payoutResult && match.winner === 'tie' && payoutResult.refundAmount) {
+    const player1Result = match.getPlayer1Result();
+    const player2Result = match.getPlayer2Result();
+    const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+    
+    if (isLosingTie) {
+      // Recalculate refund amount using actual entryFee to ensure consistency
+      const correctRefundAmount = match.entryFee * 0.95;
+      const currentRefundAmount = payoutResult.refundAmount;
+      
+      // Only update if there's a significant difference (> 0.0001 SOL)
+      if (Math.abs(correctRefundAmount - currentRefundAmount) > 0.0001) {
+        console.log('⚠️ Refund amount mismatch detected, correcting...', {
+          matchId: match.id,
+          storedRefundAmount: currentRefundAmount,
+          correctRefundAmount,
+          entryFee: match.entryFee,
+          difference: Math.abs(correctRefundAmount - currentRefundAmount),
+        });
+        payoutResult.refundAmount = correctRefundAmount;
+        // Also update transactions array if present
+        if (payoutResult.transactions && Array.isArray(payoutResult.transactions)) {
+          payoutResult.transactions.forEach((tx: any) => {
+            if (tx.description && tx.description.includes('refund')) {
+              tx.amount = correctRefundAmount;
+            }
+          });
+        }
+      }
+    } else if (!isLosingTie && payoutResult.refundAmount) {
+      // Winning tie: full refund
+      const correctRefundAmount = match.entryFee;
+      if (Math.abs(correctRefundAmount - payoutResult.refundAmount) > 0.0001) {
+        console.log('⚠️ Winning tie refund amount mismatch, correcting...', {
+          matchId: match.id,
+          storedRefundAmount: payoutResult.refundAmount,
+          correctRefundAmount,
+          entryFee: match.entryFee,
+        });
+        payoutResult.refundAmount = correctRefundAmount;
+      }
+    }
+  }
 
   // FINAL FALLBACK: If proposal is still missing and match is completed, create it now
   // This ensures proposals are created even if the earlier code paths didn't execute

@@ -76,7 +76,7 @@ async function main() {
     console.log('✅ Database connected');
     
     // Check the specific match
-    const matchId = 'efb88c06-d5ac-4199-867b-d54b22203580';
+    const matchId = process.argv[2] || 'efb88c06-d5ac-4199-867b-d54b22203580';
     const matchRepository = AppDataSource.getRepository(Match);
     
     const match = await matchRepository.findOne({ where: { id: matchId } });
