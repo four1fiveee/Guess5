@@ -109,21 +109,20 @@ export async function sendAndLogRawTransaction({
     // CRITICAL: Use sendRawTransaction directly (not _rpcRequest) to capture raw error body
     // _rpcRequest returns {result, error} which doesn't expose the HTTP response body
     // sendRawTransaction throws exceptions with response.text() accessible
-    try {
-      const signature = await connection.sendRawTransaction(rawTxBuffer, {
-        skipPreflight: rpcOptions.skipPreflight,
-        preflightCommitment: rpcOptions.preflightCommitment,
-        maxRetries: rpcOptions.maxRetries,
-      });
+    const signature = await connection.sendRawTransaction(rawTxBuffer, {
+      skipPreflight: rpcOptions.skipPreflight,
+      preflightCommitment: rpcOptions.preflightCommitment,
+      maxRetries: rpcOptions.maxRetries,
+    });
 
-      const elapsed = Date.now() - startTime;
-      console.info(`[TX SEND][${correlationId}] signature returned (${elapsed}ms): ${signature}`);
+    const elapsed = Date.now() - startTime;
+    console.info(`[TX SEND][${correlationId}] signature returned (${elapsed}ms): ${signature}`);
 
-      return {
-        signature,
-        correlationId,
-        rpcResponse: { result: signature },
-      };
+    return {
+      signature,
+      correlationId,
+      rpcResponse: { result: signature },
+    };
   } catch (err: any) {
     const elapsed = Date.now() - startTime;
     
