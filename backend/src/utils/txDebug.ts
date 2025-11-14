@@ -106,56 +106,24 @@ export async function sendAndLogRawTransaction({
 
     console.info(`[TX SEND][${correlationId}] RPC options:`, JSON.stringify(rpcOptions));
 
-    // Use _rpcRequest to get full response visibility
-    const res = await (connection as any)._rpcRequest('sendTransaction', [
-      rawBase64,
-      rpcOptions
-    ]);
+    // CRITICAL: Use sendRawTransaction directly (not _rpcRequest) to capture raw error body
+    // _rpcRequest returns {result, error} which doesn't expose the HTTP response body
+    // sendRawTransaction throws exceptions with response.text() accessible
+    try {
+      const signature = await connection.sendRawTransaction(rawTxBuffer, {
+        skipPreflight: rpcOptions.skipPreflight,
+        preflightCommitment: rpcOptions.preflightCommitment,
+        maxRetries: rpcOptions.maxRetries,
+      });
 
-    const elapsed = Date.now() - startTime;
+      const elapsed = Date.now() - startTime;
+      console.info(`[TX SEND][${correlationId}] signature returned (${elapsed}ms): ${signature}`);
 
-    // _rpcRequest returns {result, error}
-    if (res?.error) {
-      // CRITICAL: Try to extract raw error body if error has a response object
-      // Sometimes _rpcRequest wraps the error but the raw body is still accessible
-      let rpcErr: any = res.error;
-      
-      // If error has a response property, try to extract raw body
-      if (res.error?.response || res.error?.cause?.response) {
-        try {
-          rpcErr = await extractRpcError(res.error);
-        } catch (extractErr) {
-          // If extraction fails, use the error as-is
-          console.warn(`[TX SEND][${correlationId}] Failed to extract RPC error body:`, extractErr);
-        }
-      }
-      
-      console.error(`[TX SEND][${correlationId}] RPC returned error (${elapsed}ms):`, JSON.stringify(rpcErr, null, 2));
-      
-      // Also log the raw bodyText separately for visibility
-      if (rpcErr.bodyText) {
-        console.error(`[TX SEND][${correlationId}] RAW RPC ERROR BODY:`, rpcErr.bodyText);
-      }
-      if (rpcErr.bodyJson) {
-        console.error(`[TX SEND][${correlationId}] PARSED RPC ERROR JSON:`, JSON.stringify(rpcErr.bodyJson, null, 2));
-      }
-      
       return {
-        signature: null,
+        signature,
         correlationId,
-        rpcError: rpcErr,
-        rpcResponse: res,
+        rpcResponse: { result: signature },
       };
-    }
-
-    const signature = res?.result;
-    console.info(`[TX SEND][${correlationId}] signature returned (${elapsed}ms): ${signature}`);
-
-    return {
-      signature,
-      correlationId,
-      rpcResponse: res,
-    };
   } catch (err: any) {
     const elapsed = Date.now() - startTime;
     
