@@ -9657,28 +9657,26 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     try {
       const { getTransactionPda } = sqdsModule;
       
-      // Try transactionApprove (for vault transactions) - similar to proposalApprove
-      if (instructions && typeof instructions.transactionApprove === 'function') {
-        console.log('✅ Using SDK instructions.transactionApprove');
-        vaultTxApproveIx = instructions.transactionApprove({
+      // CRITICAL: Build vault transaction approval instruction
+      // In Squads v4, we need to approve the VaultTransaction account separately from the Proposal
+      // The SDK may not have a direct helper, so we need to check all available methods
+      try {
+        const [transactionPda] = getTransactionPda({
           multisigPda: multisigAddress,
-          transactionIndex,
-          member: memberPublicKey,
+          index: transactionIndex,
           programId,
         });
-        console.log('✅ Vault transaction approval instruction created via SDK');
-      } else {
-        console.warn('⚠️ Vault transaction approve instruction builder not available - trying generated helper');
-        // Try generated helper approach (similar to proposal approval fallback)
-        try {
-          const sqdsGenerated = generated?.instructions;
-          if (sqdsGenerated && typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
-            const [transactionPda] = getTransactionPda({
-              multisigPda: multisigAddress,
-              index: transactionIndex,
-              programId,
-            });
-            
+        
+        // Try multiple approaches to build the instruction
+        const sqdsGenerated = generated?.instructions;
+        
+        // Approach 1: Check for transactionApprove in generated instructions
+        if (sqdsGenerated) {
+          // List all available methods for debugging
+          const availableMethods = Object.keys(sqdsGenerated).filter(k => k.includes('Approve') || k.includes('approve'));
+          console.log('🔍 Available approval methods in generated.instructions:', availableMethods);
+          
+          if (typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
             vaultTxApproveIx = sqdsGenerated.createTransactionApproveInstruction(
               {
                 multisig: multisigAddress,
@@ -9688,15 +9686,34 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
               { args: { memo: null } },
               programId,
             );
-            console.log('✅ Vault transaction approval instruction created via generated helper');
+            console.log('✅ Vault transaction approval instruction created via createTransactionApproveInstruction');
+          } else if (typeof sqdsGenerated.createVaultTransactionApproveInstruction === 'function') {
+            vaultTxApproveIx = sqdsGenerated.createVaultTransactionApproveInstruction(
+              {
+                multisig: multisigAddress,
+                transaction: transactionPda,
+                member: memberPublicKey,
+              },
+              { args: { memo: null } },
+              programId,
+            );
+            console.log('✅ Vault transaction approval instruction created via createVaultTransactionApproveInstruction');
           } else {
-            console.warn('⚠️ Vault transaction approve instruction builder not available - frontend will need to build separately');
+            // Approach 2: Use proposalApprove instruction but we need the correct accounts
+            // Actually, this won't work - the instruction discriminator is different
+            console.warn('⚠️ No transaction approval instruction builder found. Available methods:', availableMethods);
             vaultTxApproveIx = null;
           }
-        } catch (genError: any) {
-          console.warn('⚠️ Failed to build vault transaction approval via generated helper:', genError?.message);
+        } else {
+          console.warn('⚠️ generated.instructions not available');
           vaultTxApproveIx = null;
         }
+      } catch (buildError: any) {
+        console.error('❌ Failed to build vault transaction approval instruction:', {
+          error: buildError?.message,
+          stack: buildError?.stack,
+        });
+        vaultTxApproveIx = null;
       }
       
       if (vaultTxApproveIx) {
