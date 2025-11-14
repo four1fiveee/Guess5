@@ -2675,24 +2675,38 @@ export class SquadsVaultService {
       const { instructions } = require('@sqds/multisig');
       const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
       
-      // Build the approval instruction
+      // Build the approval instruction - use transactionApprove (similar to proposalApprove)
       let approveIx: TransactionInstruction;
-      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
-        approveIx = instructions.vaultTransactionApprove({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          member: signer.publicKey,
-          programId: this.programId,
-        });
-      } else if (instructions && typeof instructions.txApprove === 'function') {
-        approveIx = instructions.txApprove({
+      if (instructions && typeof instructions.transactionApprove === 'function') {
+        approveIx = instructions.transactionApprove({
           multisigPda: multisigAddress,
           transactionIndex,
           member: signer.publicKey,
           programId: this.programId,
         });
       } else {
-        throw new Error('Vault transaction approve method not available in Squads SDK. Please check SDK version.');
+        // Try generated helper approach
+        const { generated, getTransactionPda } = require('@sqds/multisig');
+        const sqdsGenerated = generated?.instructions;
+        if (sqdsGenerated && typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
+          const [transactionPda] = getTransactionPda({
+            multisigPda: multisigAddress,
+            index: transactionIndex,
+            programId: this.programId,
+          });
+          
+          approveIx = sqdsGenerated.createTransactionApproveInstruction(
+            {
+              multisig: multisigAddress,
+              transaction: transactionPda,
+              member: signer.publicKey,
+            },
+            { args: { memo: null } },
+            this.programId,
+          );
+        } else {
+          throw new Error('Vault transaction approve method not available in Squads SDK. Please check SDK version.');
+        }
       }
       
       // Build and send transaction

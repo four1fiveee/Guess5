@@ -9657,27 +9657,46 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     try {
       const { getTransactionPda } = sqdsModule;
       
-      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
-        console.log('✅ Using SDK instructions.vaultTransactionApprove');
-        vaultTxApproveIx = instructions.vaultTransactionApprove({
+      // Try transactionApprove (for vault transactions) - similar to proposalApprove
+      if (instructions && typeof instructions.transactionApprove === 'function') {
+        console.log('✅ Using SDK instructions.transactionApprove');
+        vaultTxApproveIx = instructions.transactionApprove({
           multisigPda: multisigAddress,
           transactionIndex,
           member: memberPublicKey,
           programId,
         });
         console.log('✅ Vault transaction approval instruction created via SDK');
-      } else if (instructions && typeof instructions.txApprove === 'function') {
-        console.log('✅ Using SDK instructions.txApprove (fallback)');
-        vaultTxApproveIx = instructions.txApprove({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          member: memberPublicKey,
-          programId,
-        });
-        console.log('✅ Vault transaction approval instruction created via txApprove');
       } else {
-        console.warn('⚠️ Vault transaction approve instruction builder not available - frontend will need to build separately');
-        vaultTxApproveIx = null;
+        console.warn('⚠️ Vault transaction approve instruction builder not available - trying generated helper');
+        // Try generated helper approach (similar to proposal approval fallback)
+        try {
+          const sqdsGenerated = generated?.instructions;
+          if (sqdsGenerated && typeof sqdsGenerated.createTransactionApproveInstruction === 'function') {
+            const [transactionPda] = getTransactionPda({
+              multisigPda: multisigAddress,
+              index: transactionIndex,
+              programId,
+            });
+            
+            vaultTxApproveIx = sqdsGenerated.createTransactionApproveInstruction(
+              {
+                multisig: multisigAddress,
+                transaction: transactionPda,
+                member: memberPublicKey,
+              },
+              { args: { memo: null } },
+              programId,
+            );
+            console.log('✅ Vault transaction approval instruction created via generated helper');
+          } else {
+            console.warn('⚠️ Vault transaction approve instruction builder not available - frontend will need to build separately');
+            vaultTxApproveIx = null;
+          }
+        } catch (genError: any) {
+          console.warn('⚠️ Failed to build vault transaction approval via generated helper:', genError?.message);
+          vaultTxApproveIx = null;
+        }
       }
       
       if (vaultTxApproveIx) {
