@@ -272,15 +272,51 @@ const Matchmaking: React.FC = () => {
   };
 
   const handlePayment = async () => {
+    // Use matchDataRef as fallback to avoid stale closure issues
+    const currentMatchData = matchData || matchDataRef.current;
+    
     console.log('🖱️ Deposit button clicked', {
       isPaymentInProgress,
       hasMatchData: !!matchData,
+      hasMatchDataRef: !!matchDataRef.current,
       hasPublicKey: !!publicKey,
-      matchId: matchData?.matchId,
+      matchId: currentMatchData?.matchId,
+      status,
     });
     
+    // Safety check: reset if isPaymentInProgress is stuck (shouldn't happen, but just in case)
+    // This handles edge cases where the state might be stuck
     if (isPaymentInProgress) {
       console.log('⚠️ Payment already in progress - ignoring click');
+      // Check if it's been stuck for more than 2 minutes (shouldn't happen)
+      const lastPaymentAttempt = (window as any).__lastPaymentAttempt || 0;
+      const now = Date.now();
+      if (now - lastPaymentAttempt > 120000) {
+        console.warn('⚠️ isPaymentInProgress has been stuck for >2 minutes - resetting');
+        setIsPaymentInProgress(false);
+        // Wait a moment before allowing retry
+        await new Promise(resolve => setTimeout(resolve, 500));
+      } else {
+        return;
+      }
+    }
+    
+    // Track payment attempt time
+    (window as any).__lastPaymentAttempt = Date.now();
+
+    if (!publicKey) {
+      console.error('❌ No publicKey available');
+      alert('Wallet not connected. Please connect your wallet and try again.');
+      return;
+    }
+
+    if (!currentMatchData || !currentMatchData.matchId) {
+      console.error('❌ No match data available', {
+        hasMatchData: !!matchData,
+        hasMatchDataRef: !!matchDataRef.current,
+        matchId: currentMatchData?.matchId,
+      });
+      alert('Match data not available. Please refresh the page and try again.');
       return;
     }
 
@@ -294,22 +330,31 @@ const Matchmaking: React.FC = () => {
     }, 120000); // 2 minutes
     
     try {
-      if (!publicKey || !matchData) {
-        console.error('❌ Missing publicKey or matchData', {
-          hasPublicKey: !!publicKey,
-          hasMatchData: !!matchData,
-          publicKey: publicKey?.toString(),
-          matchDataKeys: matchData ? Object.keys(matchData) : [],
+      // Use currentMatchData from closure-safe source
+      const matchDataToUse = matchData || matchDataRef.current;
+      
+      if (!matchDataToUse || !matchDataToUse.matchId) {
+        console.error('❌ Match data lost during payment', {
+          hadMatchData: !!matchData,
+          hadMatchDataRef: !!matchDataRef.current,
         });
         clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
+        alert('Match data lost. Please refresh the page and try again.');
         return;
       }
       
+      // Update matchData state if it was null but matchDataRef has data
+      if (!matchData && matchDataRef.current) {
+        setMatchData(matchDataRef.current);
+      }
+      
       console.log('✅ Validation passed, proceeding with payment...', {
-        matchId: matchData.matchId,
+        matchId: matchDataToUse.matchId,
         playerWallet: publicKey.toString(),
         entryFee,
+        hasVaultAddress: !!(matchDataToUse.squadsVaultAddress || matchDataToUse.vaultAddress),
+        hasDepositAddress: !!(matchDataToUse.squadsVaultPda || matchDataToUse.vaultPda),
       });
 
       const hasSendTransaction = typeof sendTransaction === 'function';
@@ -326,8 +371,8 @@ const Matchmaking: React.FC = () => {
       }
 
       // Check if current player already paid
-      const isPlayer1 = publicKey.toString() === matchData.player1;
-      const currentPlayerPaid = isPlayer1 ? matchData.player1Paid : matchData.player2Paid;
+      const isPlayer1 = publicKey.toString() === matchDataToUse.player1;
+      const currentPlayerPaid = isPlayer1 ? matchDataToUse.player1Paid : matchDataToUse.player2Paid;
       
       if (currentPlayerPaid) {
         console.log('⚠️ Current player already paid');
@@ -338,22 +383,43 @@ const Matchmaking: React.FC = () => {
 
       console.log('💰 Starting payment to multisig vault deposit...');
 
-      if (matchData.status && matchData.status !== 'payment_required') {
+      if (matchDataToUse.status && matchDataToUse.status !== 'payment_required' && matchDataToUse.status !== 'vault_pending') {
         clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
-        if (matchData.status === 'cancelled') {
+        if (matchDataToUse.status === 'cancelled') {
           setStatus('opponent_left');
-        } else if (matchData.status === 'refund_pending') {
+        } else if (matchDataToUse.status === 'refund_pending') {
           setStatus('refund_pending');
         }
         return;
       }
 
+      // Always fetch latest status to ensure we have vault addresses
       let latestStatus: any;
       try {
-        latestStatus = await getMatchStatus(matchData.matchId);
+        latestStatus = await getMatchStatus(matchDataToUse.matchId);
+        console.log('✅ Fetched latest match status', {
+          hasVaultAddress: !!(latestStatus?.squadsVaultAddress || latestStatus?.vaultAddress),
+          hasDepositAddress: !!(latestStatus?.squadsVaultPda || latestStatus?.vaultPda),
+          status: latestStatus?.status,
+        });
+        
+        // Update matchData with latest status (especially vault addresses)
+        if (latestStatus) {
+          const updatedMatchData = {
+            ...matchDataToUse,
+            ...latestStatus,
+            squadsVaultAddress: latestStatus.squadsVaultAddress || matchDataToUse.squadsVaultAddress || matchDataToUse.vaultAddress,
+            vaultAddress: latestStatus.vaultAddress || latestStatus.squadsVaultAddress || matchDataToUse.vaultAddress || matchDataToUse.squadsVaultAddress,
+            squadsVaultPda: latestStatus.squadsVaultPda || matchDataToUse.squadsVaultPda || matchDataToUse.vaultPda,
+            vaultPda: latestStatus.vaultPda || latestStatus.squadsVaultPda || matchDataToUse.vaultPda || matchDataToUse.squadsVaultPda,
+          };
+          setMatchData(updatedMatchData);
+          matchDataRef.current = updatedMatchData;
+        }
       } catch (statusCheckError) {
         console.warn('⚠️ Unable to fetch latest match status before payment', statusCheckError);
+        // Continue anyway - we'll try to fetch vault addresses in resolveVaultAddresses
       }
 
       const allowedPaymentStatuses = ['payment_required', 'waiting_for_payment'];
@@ -447,26 +513,69 @@ const Matchmaking: React.FC = () => {
         throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
       }
       
-      const resolveVaultAddresses = async () => {
-        let multisigAddress: string | null = matchData.squadsVaultAddress || matchData.vaultAddress || null;
-        let depositAddress: string | null = matchData.squadsVaultPda || matchData.vaultPda || null;
+      const resolveVaultAddresses = async (maxRetries = 3): Promise<{ multisigAddress: string | null; depositAddress: string | null }> => {
+        // Use latest status if available, otherwise use matchDataToUse
+        const sourceData = latestStatus || matchDataToUse || matchDataRef.current;
+        let multisigAddress: string | null = sourceData?.squadsVaultAddress || sourceData?.vaultAddress || null;
+        let depositAddress: string | null = sourceData?.squadsVaultPda || sourceData?.vaultPda || null;
 
-        if (!depositAddress || !multisigAddress) {
+        console.log('🔍 Resolving vault addresses', {
+          matchId: matchDataToUse.matchId,
+          hasMultisigAddress: !!multisigAddress,
+          hasDepositAddress: !!depositAddress,
+          attempt: 1,
+        });
+
+        // If we have both addresses, return immediately
+        if (depositAddress && multisigAddress) {
+          console.log('✅ Vault addresses found in match data');
+          return { multisigAddress, depositAddress };
+        }
+
+        // Try to fetch from backend (with retries)
+        for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
-            const latest = await getMatchStatus(matchData.matchId) as any;
+            console.log(`🔄 Fetching vault addresses from backend (attempt ${attempt}/${maxRetries})...`);
+            const latest = await getMatchStatus(matchDataToUse.matchId) as any;
+            
             multisigAddress = latest?.squadsVaultAddress || latest?.vaultAddress || multisigAddress;
             depositAddress = latest?.squadsVaultPda || latest?.vaultPda || depositAddress;
+            
+            console.log('✅ Fetched vault addresses from backend', {
+              hasMultisigAddress: !!multisigAddress,
+              hasDepositAddress: !!depositAddress,
+              attempt,
+            });
+            
+            // Update matchData with fetched addresses
             if (multisigAddress || depositAddress) {
-              setMatchData((prev: any) => ({
-                ...prev,
-                squadsVaultAddress: multisigAddress ?? prev?.squadsVaultAddress ?? null,
-                vaultAddress: multisigAddress ?? prev?.vaultAddress ?? null,
-                squadsVaultPda: depositAddress ?? prev?.squadsVaultPda ?? null,
-                vaultPda: depositAddress ?? prev?.vaultPda ?? null,
-              }));
+              const updatedMatchData = {
+                ...(matchDataToUse || matchDataRef.current || {}),
+                ...latest,
+                squadsVaultAddress: multisigAddress ?? matchDataToUse?.squadsVaultAddress ?? matchDataToUse?.vaultAddress,
+                vaultAddress: multisigAddress ?? matchDataToUse?.vaultAddress ?? matchDataToUse?.squadsVaultAddress,
+                squadsVaultPda: depositAddress ?? matchDataToUse?.squadsVaultPda ?? matchDataToUse?.vaultPda,
+                vaultPda: depositAddress ?? matchDataToUse?.vaultPda ?? matchDataToUse?.squadsVaultPda,
+              };
+              setMatchData(updatedMatchData);
+              matchDataRef.current = updatedMatchData;
+              
+              // If we have both addresses now, return
+              if (depositAddress && multisigAddress) {
+                return { multisigAddress, depositAddress };
+              }
+            }
+            
+            // If we still don't have addresses, wait before retrying
+            if (!depositAddress && attempt < maxRetries) {
+              console.log(`⏳ Waiting before retry (attempt ${attempt}/${maxRetries})...`);
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
             }
           } catch (refreshError) {
-            console.warn('⚠️ Failed to refresh match status while resolving vault addresses', refreshError);
+            console.warn(`⚠️ Failed to fetch vault addresses (attempt ${attempt}/${maxRetries}):`, refreshError);
+            if (attempt < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
+            }
           }
         }
 
@@ -475,37 +584,19 @@ const Matchmaking: React.FC = () => {
 
       const { multisigAddress, depositAddress } = await resolveVaultAddresses();
 
-      let depositAddressToUse: string;
-      let multisigAddressToUse: string | null;
-
+      // Validate we have deposit address (required for payment)
       if (!depositAddress) {
-        // Retry resolving vault addresses one more time with a short delay
-        console.log('⚠️ Vault deposit address not found, retrying after short delay...');
-        await new Promise(resolve => setTimeout(resolve, 1000));
-        const retryResult = await resolveVaultAddresses();
-        if (!retryResult.depositAddress) {
-          throw new Error('Vault deposit address not found. Please wait a moment and try again.');
-        }
-        // Update matchData with retried addresses
-        setMatchData((prev: any) => ({
-          ...prev,
-          squadsVaultAddress: retryResult.multisigAddress ?? prev?.squadsVaultAddress ?? null,
-          vaultAddress: retryResult.multisigAddress ?? prev?.vaultAddress ?? null,
-          squadsVaultPda: retryResult.depositAddress ?? prev?.squadsVaultPda ?? null,
-          vaultPda: retryResult.depositAddress ?? prev?.vaultPda ?? null,
-        }));
-        // Use retried addresses
-        depositAddressToUse = retryResult.depositAddress;
-        multisigAddressToUse = retryResult.multisigAddress;
-        
-        if (!depositAddressToUse) {
-          throw new Error('Vault deposit address still not found after retry. Please refresh the page.');
-        }
-      } else {
-        // Use the addresses we found initially
-        depositAddressToUse = depositAddress;
-        multisigAddressToUse = multisigAddress;
+        throw new Error('Vault deposit address not found. Please wait a moment and try again, or refresh the page.');
       }
+      
+      // Use the addresses we found
+      const depositAddressToUse = depositAddress;
+      const multisigAddressToUse = multisigAddress;
+      
+      console.log('✅ Using vault addresses for payment', {
+        depositAddress: depositAddressToUse.slice(0, 8) + '...' + depositAddressToUse.slice(-8),
+        hasMultisigAddress: !!multisigAddressToUse,
+      });
       
       // Create transaction with addresses (works for both initial and retry cases)
       const transaction = new Transaction().add(
@@ -583,7 +674,7 @@ const Matchmaking: React.FC = () => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          matchId: matchData.matchId,
+          matchId: matchDataToUse.matchId,
           playerWallet: publicKey.toString(),
           amount: entryFee,
           depositTxSignature: signature,
@@ -591,14 +682,23 @@ const Matchmaking: React.FC = () => {
       });
 
       if (!depositResponse.ok) {
-        throw new Error('Failed to notify backend of deposit');
+        const errorText = await depositResponse.text();
+        console.error('❌ Failed to notify backend of deposit', {
+          status: depositResponse.status,
+          statusText: depositResponse.statusText,
+          error: errorText,
+        });
+        throw new Error(`Failed to notify backend of deposit: ${depositResponse.status} ${depositResponse.statusText}`);
       }
 
       const depositData = await depositResponse.json();
       console.log('✅ Deposit confirmed by backend:', depositData);
 
       // Fetch updated match status using the main match status endpoint
-      const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchData.matchId}`);
+      const statusResponse = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/match/status/${matchDataToUse.matchId}`);
+      if (!statusResponse.ok) {
+        throw new Error(`Failed to fetch match status: ${statusResponse.status} ${statusResponse.statusText}`);
+      }
       const confirmData = await statusResponse.json();
 
       // Update match data with payment status
@@ -615,7 +715,7 @@ const Matchmaking: React.FC = () => {
         setStatus('active');
         
         // Store match data and redirect to game
-        localStorage.setItem('matchId', matchData.matchId);
+        localStorage.setItem('matchId', matchDataToUse.matchId);
         if (confirmData.word) {
           localStorage.setItem('word', confirmData.word);
         }
@@ -626,7 +726,7 @@ const Matchmaking: React.FC = () => {
         clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
         setTimeout(() => {
-          router.push(`/game?matchId=${matchData.matchId}`);
+          router.push(`/game?matchId=${matchDataToUse.matchId}`);
         }, 500);
         return;
       }
@@ -1012,10 +1112,23 @@ const Matchmaking: React.FC = () => {
         player1: router.query.player1 as string,
         player2: router.query.player2 as string,
         entryFee: entryFeeAmount,
-        status: 'payment_required'
+        status: 'payment_required',
+        player1Paid: false,
+        player2Paid: false,
+        squadsVaultAddress: null,
+        vaultAddress: null,
+        squadsVaultPda: null,
+        vaultPda: null,
       };
+      
+      // Set matchData FIRST
       setMatchData(initialMatchData);
       matchDataRef.current = initialMatchData;
+      
+      // Reset payment state in case it was stuck
+      setIsPaymentInProgress(false);
+      
+      // Then set status and entry fee
       setStatus('payment_required');
       setEntryFee(entryFeeAmount);
       localStorage.setItem('entryFeeSOL', entryFeeAmount.toString());
@@ -1166,7 +1279,7 @@ const Matchmaking: React.FC = () => {
             </div>
           )}
 
-          {status === 'payment_required' && matchData && (
+          {status === 'payment_required' && (matchData?.matchId || matchDataRef.current?.matchId) && (
             <div className="animate-fade-in">
               <h2 className="text-2xl font-bold text-accent mb-2">Payment Required</h2>
               <p className="text-white/70 text-sm mb-6">Send your entry fee to the secure multisig vault</p>
@@ -1202,9 +1315,9 @@ const Matchmaking: React.FC = () => {
 
               <button
                 onClick={handlePayment}
-                disabled={isPaymentInProgress || !matchData || !publicKey}
+                disabled={isPaymentInProgress || !(matchData?.matchId || matchDataRef.current?.matchId) || !publicKey}
                 className={`w-full font-bold py-3.5 px-6 rounded-lg transition-all duration-200 min-h-[52px] flex items-center justify-center ${
-                  isPaymentInProgress || !matchData || !publicKey
+                  isPaymentInProgress || !(matchData?.matchId || matchDataRef.current?.matchId) || !publicKey
                     ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
                     : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'
                 }`}
@@ -1214,10 +1327,10 @@ const Matchmaking: React.FC = () => {
                     <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
                     Processing Payment...
                   </span>
-                ) : matchData && publicKey ? (
+                ) : (matchData?.matchId || matchDataRef.current?.matchId) && publicKey ? (
                   `Pay ${entryFee} SOL Entry Fee`
                 ) : (
-                  'Waiting for Vault...'
+                  'Waiting for Match...'
                 )}
               </button>
               
