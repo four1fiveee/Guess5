@@ -384,3 +384,226 @@ After deployment, check logs for:
 5. On-chain verification: VaultTransaction should have 2/2 signatures
 
 **Status:** ✅ Implementation complete - ready for testing
+
+---
+
+## 🚨 Critical Issue Found - Match `bc5389b8-f13b-4d0d-a8e1-3b3a76216a86`
+
+**Test Date:** 2025-11-14  
+**Deployment:** Commit `9824779` (IDL-based vault transaction approval)
+
+### Frontend Error
+- ❌ **Error:** "Vault transaction approval is required but was not provided by backend"
+- Frontend correctly identifies that backend did not provide `vaultTransaction` field
+
+### Backend Logs Analysis
+
+**Key Findings:**
+
+1. **IDL Instruction Discovery Issue:**
+   - Log: `"✅ Found vault transaction approve instruction:"` with `"instructionName":"proposalApprove"`
+   - **Problem:** The instruction finder is incorrectly selecting `proposalApprove` instead of a vault transaction approval instruction
+   - This suggests the IDL doesn't have a separate vault transaction approval instruction, OR the search pattern is too broad
+
+2. **Program Constructor Failure:**
+   - Error: `TypeError: Cannot read properties of undefined (reading '_bn')`
+   - Stack trace shows error at:
+     ```
+     at isPublicKeyData (/opt/render/project/src/backend/node_modules/@solana/web3.js/lib/index.cjs.js:147:16)
+     at new PublicKey (/opt/render/project/src/backend/node_modules/@solana/web3.js/lib/index.cjs.js:165:9)
+     at translateAddress (/opt/render/project/src/backend/node_modules/@coral-xyz/anchor/dist/cjs/program/common.js:47:63)
+     at new Program (/opt/render/project/src/backend/node_modules/@coral-xyz/anchor/dist/cjs/program/index.js:108:60)
+     ```
+   - **Root Cause:** The IDL's `metadata.address` (program ID) is likely `undefined` or not a valid PublicKey
+   - Anchor's `translateAddress` tries to convert the program ID from IDL, but it's undefined
+
+3. **Fee Wallet Approval Attempt:**
+   - Log: `"📝 Now approving vault transaction (required for ExecuteReady)"`
+   - Log: `"📝 Approving Squads vault transaction"`
+   - Log: `"❌ Failed to build vault transaction approval instruction"`
+   - Log: `"⚠️ Proposal approved but vault transaction approval failed"`
+   - **Result:** Proposal is approved (2/2 signatures) but vault transaction is NOT approved (0/2 signatures)
+
+4. **Frontend Request:**
+   - Log: `GET /api/match/get-proposal-approval-transaction?matchId=bc5389b8-f13b-4d0d-a8e1-3b3a76216a86&wallet=F4WKQYkUDBiFxCEMH49NpjjipCeHyG5a45isY8o7wpZ8`
+   - Log: `"❌ Failed to build vault transaction approval instruction from IDL"`
+   - Response: Status 200, Content-Length 502 (likely missing `vaultTransaction` field)
+
+### On-Chain Verification
+
+**Match Details:**
+- **Match ID:** `bc5389b8-f13b-4d0d-a8e1-3b3a76216a86`
+- **Vault Address:** `9TuygV5YHxMMxrgqLLBBWzmoqis45TxmubUa4qFzpVLp`
+- **Vault PDA:** `zLsFZ1MS8XoQLoUKCpo9WHey4MDJB9nW7R3a39mzmFR`
+- **Proposal ID:** `1`
+- **Transaction PDA:** `8V99AYAMUThWRrytpifLnJURQh5MgbbPWZBj6Q5ngkGz`
+- **Proposal PDA:** `DUhfe1FNe9hTkxPy7ENzioqVRS1QjjMvg5S85WPsSbxn`
+
+**On-Chain State:**
+- **Vault Balance:** `0.285200 SOL` (should be ~0.0025 SOL if executed)
+- **Transaction Account:** EXISTS (not closed - execution did not occur)
+- **Transaction Status:** `undefined` (0=Active, 1=ExecuteReady, 2=Executed)
+- **Executed:** `undefined`
+
+**Conclusion:** ❌ Funds NOT released - execution did not occur
+
+### Root Cause Analysis
+
+**Primary Issue: IDL Program ID Missing or Invalid**
+
+The error `Cannot read properties of undefined (reading '_bn')` occurs when Anchor tries to translate the program ID from the IDL. This suggests:
+
+1. **IDL Structure Issue:**
+   - The IDL loaded from `@sqds/multisig` may not have `metadata.address` set
+   - Or the IDL structure doesn't match Anchor's expected format
+   - The program ID needs to be explicitly set when creating the Program instance
+
+2. **Instruction Discovery Issue:**
+   - The search pattern `/(approve|transaction|vault|tx)/i` is matching `proposalApprove`
+   - This is incorrect - we need a different instruction for vault transaction approval
+   - The IDL may not have a separate vault transaction approval instruction
+
+3. **Possible Solutions:**
+   - **Option A:** Explicitly set program ID when creating Program instance (don't rely on IDL metadata)
+   - **Option B:** Check if IDL has `metadata.address` and use it, otherwise use explicit program ID
+   - **Option C:** The vault transaction approval might use the same `proposalApprove` instruction but with different accounts (transaction PDA instead of proposal PDA)
+
+### Questions for Expert
+
+1. **IDL Program ID:**
+   - Should we explicitly pass the program ID to the Program constructor even though Anchor 0.30+ infers it from IDL?
+   - How do we handle IDLs that don't have `metadata.address` set?
+
+2. **Instruction Discovery:**
+   - The finder is selecting `proposalApprove` - is this correct, or should we look for a different instruction name?
+   - Does Squads v4 use `proposalApprove` for both proposal AND vault transaction approval, just with different account PDAs?
+
+3. **Account Mapping:**
+   - If we use `proposalApprove` for vault transaction, do we pass the transaction PDA where the proposal PDA would normally go?
+   - What are the exact account names and order for vault transaction approval?
+
+4. **IDL Loading:**
+   - Should we verify the IDL has `metadata.address` before using it?
+   - Should we fall back to explicit program ID if IDL metadata is missing?
+
+### Next Steps Required
+
+1. **Fix Program Constructor:**
+   - Explicitly set program ID when creating Program instance
+   - Don't rely on IDL metadata if it's missing
+
+2. **Fix Instruction Discovery:**
+   - Verify if `proposalApprove` is correct for vault transaction approval
+   - If not, find the correct instruction name in the IDL
+   - Log all available instructions to identify the correct one
+
+3. **Verify Account Mapping:**
+   - Ensure transaction PDA is passed correctly
+   - Verify account order matches IDL expectations
+
+4. **Add IDL Validation:**
+   - Check IDL structure before using it
+   - Validate that `metadata.address` exists or use explicit program ID
+
+---
+
+**Status:** ❌ Implementation has runtime error - IDL program ID issue preventing instruction building
+
+---
+
+## ✅ Expert Fix Implementation - Match `bc5389b8-f13b-4d0d-a8e1-3b3a76216a86`
+
+**Date:** 2025-11-14  
+**Expert Guidance:** Solana SDK Expert provided precise fixes
+
+### Expert Findings
+
+1. **Correct Instruction Name:**
+   - ✅ **Correct:** `transactionApprove` (NOT `proposalApprove`)
+   - ❌ **Wrong:** `proposalApprove` (only approves Proposal, NOT vault transaction)
+   - The instruction exists in IDL but NOT exported by SDK v2.1.4
+
+2. **IDL Program ID Issue:**
+   - Squads IDL does NOT have `metadata.address`
+   - Anchor 0.30+ infers programId from IDL metadata
+   - Solution: Set `metadata.address` in IDL before creating Program
+
+3. **Account Mapping (transactionApprove):**
+   - `multisig` → multisig PDA (isMut=false, isSigner=false)
+   - `transaction` → vault transaction PDA (isMut=true, isSigner=false)
+   - `member` → signer public key (isMut=false, isSigner=true)
+   - `systemProgram` → SystemProgram.programId (isMut=false, isSigner=false)
+
+### Implementation Changes
+
+**File:** `backend/src/services/vaultTransactionApproveBuilder.ts`
+
+1. **Fixed Instruction Discovery:**
+   ```typescript
+   // Now looks specifically for "transactionApprove"
+   const transactionApprove = idl.instructions?.find((i: any) => i.name === 'transactionApprove');
+   ```
+
+2. **Fixed Program Constructor:**
+   ```typescript
+   // Set programId in IDL metadata before creating Program
+   const idlWithProgramId = {
+     ...idl,
+     metadata: {
+       ...(idl as any).metadata,
+       address: programId.toString(),
+     },
+   };
+   cachedProgram = new Program<Idl>(idlWithProgramId as Idl, provider);
+   ```
+
+3. **Fixed Account Mapping:**
+   ```typescript
+   // Exact mapping per expert specification
+   if (name === 'multisig') accountsMap[name] = multisigPubkey;
+   else if (name === 'transaction') accountsMap[name] = transactionPda;
+   else if (name === 'member') accountsMap[name] = signerPubkey;
+   else if (name === 'systemProgram') accountsMap[name] = SystemProgram.programId;
+   ```
+
+4. **Fixed Account Flags:**
+   ```typescript
+   // Use IDL account flags directly
+   const isWritable = acc.isMut === true;  // Only if explicitly marked
+   const isSigner = acc.isSigner === true; // Only if explicitly marked
+   ```
+
+### Expected Behavior After Fix
+
+1. **Server Startup:**
+   - ✅ IDL loads successfully
+   - ✅ `transactionApprove` instruction found
+   - ✅ Program created with programId in metadata
+
+2. **Fee Wallet Approval:**
+   - ✅ `transactionApprove` instruction built successfully
+   - ✅ Fee wallet signs vault transaction
+   - ✅ Signature submitted on-chain
+
+3. **Frontend Request:**
+   - ✅ Backend returns both `transaction` and `vaultTransaction` fields
+   - ✅ Frontend can sign vault transaction
+   - ✅ Both signatures submitted
+
+4. **On-Chain State:**
+   - ✅ Proposal: 2/2 signatures → ExecuteReady
+   - ✅ VaultTransaction: 2/2 signatures → ExecuteReady
+   - ✅ Retry service executes → Funds released
+
+### Next Test
+
+**Test Match:** Create new match and verify:
+- ✅ Backend logs show `transactionApprove` instruction built
+- ✅ Fee wallet vault transaction approval signature logged
+- ✅ Frontend receives `vaultTransaction` field
+- ✅ On-chain: VaultTransaction has 2/2 signatures
+- ✅ Execution succeeds and funds are released
+
+---
+
+**Status:** ✅ Expert fixes implemented - ready for testing

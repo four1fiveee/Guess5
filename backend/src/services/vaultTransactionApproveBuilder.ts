@@ -121,36 +121,33 @@ async function loadIdlOrThrow(connection: Connection, programId: PublicKey): Pro
 }
 
 /**
- * Finds the most likely instruction name to approve a transaction in IDL
+ * Finds the transactionApprove instruction in IDL (expert recommendation)
+ * The correct instruction name in Squads v4 is "transactionApprove"
  */
 function findVaultTransactionApproveInstructionName(idl: Idl): string | null {
-  // First, look for instructions containing both 'approve' and 'transaction'/'vault'/'tx'
+  // CRITICAL: Look specifically for "transactionApprove" (expert recommendation)
+  // This is the correct instruction name in Squads v4
+  const transactionApprove = idl.instructions
+    ?.find((i: any) => i.name === 'transactionApprove');
+
+  if (transactionApprove) {
+    enhancedLogger.info('✅ Found transactionApprove instruction in IDL');
+    return 'transactionApprove';
+  }
+
+  // Fallback: Look for instructions containing both 'approve' and 'transaction'
   const candidates = idl.instructions
     ?.map((i: any) => i.name)
     .filter((name: string) => 
-      /approve/i.test(name) && /(transaction|vault|tx)/i.test(name)
+      /approve/i.test(name) && /transaction/i.test(name) && name !== 'proposalApprove'
     ) || [];
 
   if (candidates.length > 0) {
-    enhancedLogger.info('🔍 Found vault transaction approve instruction candidates:', candidates);
+    enhancedLogger.info('🔍 Found transaction approve instruction candidates:', candidates);
     return candidates[0];
   }
 
-  // Broaden search: any instruction with 'approve' that might accept a transaction PDA
-  const broader = idl.instructions
-    ?.map((i: any) => i.name)
-    .filter((n: string) => /approve/i.test(n)) || [];
-
-  if (broader.length > 0) {
-    enhancedLogger.info('🔍 Found broader approve instruction candidates:', broader);
-    // Prefer ones that might be transaction-related
-    const txRelated = broader.filter((n: string) => /tx|transaction/i.test(n));
-    if (txRelated.length > 0) {
-      return txRelated[0];
-    }
-    return broader[0];
-  }
-
+  enhancedLogger.error('❌ transactionApprove instruction not found in IDL');
   return null;
 }
 
@@ -239,13 +236,28 @@ export async function buildVaultTransactionApproveInstruction({
     enhancedLogger.info('✅ Found vault transaction approve instruction:', { instructionName });
 
     // Create Program wrapper to use coder
+    // CRITICAL: Squads IDL does NOT have metadata.address, so we MUST set it before creating Program (expert recommendation)
     if (!cachedProgram || cachedIdl !== idl) {
       // Use a dummy keypair for provider (Anchor requires it but we won't use it for encoding)
       const { Keypair } = require('@solana/web3.js');
       const dummyKeypair = Keypair.generate();
       const provider = new AnchorProvider(connection, { publicKey: dummyKeypair.publicKey, signTransaction: async (tx) => tx, signAllTransactions: async (txs) => txs } as any, {});
-      // Program constructor in Anchor 0.30.0+: (idl, provider) - programId is inferred from IDL
-      cachedProgram = new Program<Idl>(idl as Idl, provider as AnchorProvider) as Program<Idl>;
+      
+      // CRITICAL FIX: Set programId in IDL metadata since Squads IDL doesn't have metadata.address
+      // Anchor 0.30+ infers programId from IDL metadata, so we need to set it explicitly
+      const idlWithProgramId = {
+        ...idl,
+        metadata: {
+          ...(idl as any).metadata,
+          address: programId.toString(),
+        },
+      };
+      
+      // Anchor 0.30+ signature: new Program(idl, provider) - programId is inferred from IDL metadata
+      cachedProgram = new Program<Idl>(idlWithProgramId as Idl, provider as AnchorProvider) as Program<Idl>;
+      enhancedLogger.info('✅ Created Anchor Program with program ID set in IDL metadata', {
+        programId: programId.toString(),
+      });
     }
     const program = cachedProgram;
 
@@ -263,33 +275,41 @@ export async function buildVaultTransactionApproveInstruction({
     });
 
     // Build account map based on IDL account names
-    // Common patterns in Squads: multisig, transaction/vaultTransaction, member/signer, etc.
+    // CRITICAL: transactionApprove uses exact account names: multisig, transaction, member, systemProgram (expert specification)
     const accountsMap: Record<string, PublicKey> = {};
     
     for (const acc of idlInst.accounts || []) {
       const name = acc.name;
       
-      if (name === 'multisig' || name === 'multisigAccount' || name === 'squad' || name === 'multisigPda') {
+      // Exact mapping per expert specification for transactionApprove:
+      // - multisig → multisig PDA
+      // - transaction → vault transaction PDA (NOT proposal PDA)
+      // - member → signer public key
+      // - systemProgram → SystemProgram.programId
+      if (name === 'multisig') {
         accountsMap[name] = multisigPubkey;
-      } else if (
-        /transaction/i.test(name) || 
-        /vaultTransaction/i.test(name) || 
-        /tx/i.test(name) ||
-        name === 'transaction' ||
-        name === 'vaultTransaction'
-      ) {
+      } else if (name === 'transaction') {
         accountsMap[name] = transactionPda;
-      } else if (/signer|authority|member/i.test(name) || name === 'member' || name === 'signer') {
+      } else if (name === 'member') {
         accountsMap[name] = signerPubkey;
-      } else if (/sysvarClock|clock/i.test(name) || name === 'clock') {
-        accountsMap[name] = SYSVAR_CLOCK_PUBKEY;
-      } else if (/systemProgram|system_program/i.test(name) || name === 'systemProgram') {
+      } else if (name === 'systemProgram') {
         accountsMap[name] = SystemProgram.programId;
       } else {
-        enhancedLogger.warn(`⚠️ Account ${name} not auto-filled - may need manual mapping`, {
-          instructionName,
-          accountName: name,
-        });
+        // Fallback for other account names (shouldn't happen for transactionApprove)
+        if (name === 'multisigAccount' || name === 'squad' || name === 'multisigPda') {
+          accountsMap[name] = multisigPubkey;
+        } else if (/transaction/i.test(name) || name === 'vaultTransaction') {
+          accountsMap[name] = transactionPda;
+        } else if (/signer|authority|member/i.test(name)) {
+          accountsMap[name] = signerPubkey;
+        } else if (/systemProgram|system_program/i.test(name)) {
+          accountsMap[name] = SystemProgram.programId;
+        } else {
+          enhancedLogger.warn(`⚠️ Account ${name} not auto-filled - may need manual mapping`, {
+            instructionName,
+            accountName: name,
+          });
+        }
       }
     }
 
@@ -325,6 +345,11 @@ export async function buildVaultTransactionApproveInstruction({
     }
 
     // Construct account metas in the same order as IDL
+    // CRITICAL: transactionApprove account structure per expert specification:
+    // - multisig: isMut=false, isSigner=false
+    // - transaction: isMut=true, isSigner=false
+    // - member: isMut=false, isSigner=true
+    // - systemProgram: isMut=false, isSigner=false
     const keys = (idlInst.accounts || []).map((acc: any) => {
       const pubkey = accountsMap[acc.name];
       if (!pubkey) {
@@ -337,8 +362,9 @@ export async function buildVaultTransactionApproveInstruction({
 
       // Determine isSigner and isWritable from IDL account structure
       // IDL accounts have isMut (writable) and isSigner flags
-      const isWritable = acc.isMut !== false; // Default to writable if not specified
-      const isSigner = acc.isSigner === true; // Only true if explicitly marked
+      // For transactionApprove: transaction is writable, member is signer
+      const isWritable = acc.isMut === true; // Only true if explicitly marked as isMut
+      const isSigner = acc.isSigner === true; // Only true if explicitly marked as isSigner
 
       return {
         pubkey,
