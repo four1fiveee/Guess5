@@ -2585,11 +2585,185 @@ export class SquadsVaultService {
         signature,
       });
 
+      // CRITICAL: After approving the proposal, also approve the vault transaction
+      // Squads v4 requires BOTH proposal AND vault transaction to be signed for ExecuteReady
+      enhancedLogger.info('📝 Now approving vault transaction (required for ExecuteReady)', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+      });
+
+      try {
+        const vaultTxApproveResult = await this.approveVaultTransaction(
+          vaultAddress,
+          proposalId,
+          signer
+        );
+
+        if (vaultTxApproveResult.success) {
+          enhancedLogger.info('✅ Both proposal and vault transaction approved', {
+            vaultAddress,
+            proposalId,
+            signer: signer.publicKey.toString(),
+            proposalSignature: signature,
+            vaultTxSignature: vaultTxApproveResult.signature,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ Proposal approved but vault transaction approval failed', {
+            vaultAddress,
+            proposalId,
+            signer: signer.publicKey.toString(),
+            proposalSignature: signature,
+            vaultTxError: vaultTxApproveResult.error,
+            note: 'Proposal is approved but vault transaction may not be ExecuteReady',
+          });
+          // Don't fail the entire approval - proposal is still approved
+        }
+      } catch (vaultTxError: unknown) {
+        const vaultTxErrorMessage = vaultTxError instanceof Error ? vaultTxError.message : String(vaultTxError);
+        enhancedLogger.error('❌ Failed to approve vault transaction after proposal approval', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          proposalSignature: signature,
+          error: vaultTxErrorMessage,
+          note: 'Proposal is approved but vault transaction approval failed - this may prevent ExecuteReady',
+        });
+        // Don't fail the entire approval - proposal is still approved
+      }
+
       return { success: true, signature };
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       enhancedLogger.error('❌ Failed to approve proposal', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        error: errorMessage,
+      });
+
+      return {
+        success: false,
+        error: errorMessage,
+      };
+    }
+  }
+
+  /**
+   * Approve a Squads vault transaction (separate from proposal approval)
+   * CRITICAL: Squads v4 requires BOTH proposal AND vault transaction to be signed
+   * This method signs the vault transaction itself
+   */
+  async approveVaultTransaction(
+    vaultAddress: string,
+    proposalId: string,
+    signer: Keypair
+  ): Promise<{ success: boolean; signature?: string; error?: string }> {
+    try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const transactionIndex = BigInt(proposalId);
+
+      enhancedLogger.info('📝 Approving Squads vault transaction', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        signer: signer.publicKey.toString(),
+      });
+
+      // Use rpc.vaultTransactionApprove to approve the vault transaction
+      // This is separate from proposal approval - both are required for ExecuteReady
+      const signature = await rpc.vaultTransactionApprove({
+        connection: this.connection,
+        feePayer: signer,
+        multisigPda: multisigAddress,
+        transactionIndex,
+        member: signer,
+        programId: this.programId,
+      });
+
+      enhancedLogger.info('✅ Vault transaction approved', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        signer: signer.publicKey.toString(),
+        signature,
+      });
+
+      // Confirm the transaction to verify it was submitted
+      try {
+        await this.connection.confirmTransaction(signature, 'confirmed');
+        enhancedLogger.info('✅ Vault transaction approval confirmed', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          signature,
+        });
+      } catch (confirmError: any) {
+        enhancedLogger.warn('⚠️ Vault transaction approval confirmation failed (may still succeed)', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          signature,
+          error: confirmError?.message || String(confirmError),
+        });
+        // Don't fail the approval - transaction may still succeed
+      }
+
+      // Verify signer is in vault transaction approvals array
+      try {
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId: this.programId,
+        });
+        
+        const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+        if (transactionAccount) {
+          const vt = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda
+          );
+          const approvals = (vt as any).approvals || [];
+          const signerPubkeyStr = signer.publicKey.toString();
+          const isInApprovals = approvals.some((a: any) => 
+            a?.toString?.() === signerPubkeyStr || String(a) === signerPubkeyStr
+          );
+          
+          if (isInApprovals) {
+            enhancedLogger.info('✅ Signer confirmed in vault transaction approvals array', {
+              vaultAddress,
+              proposalId,
+              signer: signerPubkeyStr,
+              approvals: approvals.map((a: any) => a?.toString?.() || String(a)),
+              approvalCount: approvals.length,
+              threshold: this.config.threshold,
+            });
+          } else {
+            enhancedLogger.warn('⚠️ Signer not found in vault transaction approvals array (may need to wait for confirmation)', {
+              vaultAddress,
+              proposalId,
+              signer: signerPubkeyStr,
+              approvals: approvals.map((a: any) => a?.toString?.() || String(a)),
+              approvalCount: approvals.length,
+            });
+          }
+        }
+      } catch (verifyError: any) {
+        enhancedLogger.warn('⚠️ Could not verify signer in vault transaction approvals array (non-critical)', {
+          vaultAddress,
+          proposalId,
+          signer: signer.publicKey.toString(),
+          error: verifyError?.message || String(verifyError),
+        });
+        // Non-critical - transaction may still be processing
+      }
+
+      return { success: true, signature };
+
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      enhancedLogger.error('❌ Failed to approve vault transaction', {
         vaultAddress,
         proposalId,
         signer: signer.publicKey.toString(),
@@ -2667,13 +2841,22 @@ export class SquadsVaultService {
           // Status values: 0 = Active, 1 = ExecuteReady, 2 = Executed
           vaultTransactionIsExecuteReady = vaultTxStatus === 1; // ExecuteReady
           
+          // CRITICAL: Log vault transaction signers to verify both proposal and vault transaction are signed
+          const vaultTxApprovals = (transaction as any).approvals || [];
+          const vaultTxApprovalCount = vaultTxApprovals.length;
+          const vaultTxThreshold = (transaction as any).threshold?.toNumber() || this.config.threshold;
+          
           enhancedLogger.info('🔍 VaultTransaction account status check before execution', {
             vaultAddress,
             proposalId,
             transactionPda: transactionPda.toString(),
             status: vaultTxStatus,
             isExecuteReady: vaultTransactionIsExecuteReady,
-            note: 'VaultTransaction status: 0=Active, 1=ExecuteReady, 2=Executed',
+            approvalCount: vaultTxApprovalCount,
+            threshold: vaultTxThreshold,
+            approvals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
+            hasEnoughSignatures: vaultTxApprovalCount >= vaultTxThreshold,
+            note: 'VaultTransaction status: 0=Active, 1=ExecuteReady, 2=Executed. Both Proposal AND VaultTransaction must be signed for ExecuteReady.',
           });
         } catch (vaultTxError: unknown) {
           enhancedLogger.warn('⚠️ Failed to check VaultTransaction account status', {
