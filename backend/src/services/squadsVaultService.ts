@@ -2671,15 +2671,55 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // Use rpc.vaultTransactionApprove to approve the vault transaction
-      // This is separate from proposal approval - both are required for ExecuteReady
-      const signature = await rpc.vaultTransactionApprove({
-        connection: this.connection,
-        feePayer: signer,
+      // Build vault transaction approval transaction manually
+      // Squads SDK may not have a direct rpc method for this, so we build it using instructions
+      const { instructions } = require('@sqds/multisig');
+      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+      
+      // Get transaction PDA
+      const [transactionPda] = getTransactionPda({
         multisigPda: multisigAddress,
-        transactionIndex,
-        member: signer,
+        index: transactionIndex,
         programId: this.programId,
+      });
+      
+      // Build the approval instruction
+      // Try different possible instruction names
+      let approveIx: TransactionInstruction;
+      if (instructions && typeof instructions.vaultTransactionApprove === 'function') {
+        approveIx = instructions.vaultTransactionApprove({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: signer.publicKey,
+          programId: this.programId,
+        });
+      } else if (instructions && typeof instructions.txApprove === 'function') {
+        approveIx = instructions.txApprove({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: signer.publicKey,
+          programId: this.programId,
+        });
+      } else {
+        // Fallback: build instruction manually using the transaction PDA
+        throw new Error('Vault transaction approve instruction builder not available in Squads SDK. Please check SDK version.');
+      }
+      
+      // Build and send transaction
+      const message = new TransactionMessage({
+        payerKey: signer.publicKey,
+        recentBlockhash: latestBlockhash.blockhash,
+        instructions: [approveIx],
+      });
+      
+      const compiledMessage = message.compileToV0Message();
+      const tx = new VersionedTransaction(compiledMessage);
+      tx.sign([signer]);
+      
+      const serialized = tx.serialize();
+      const signature = await this.connection.sendRawTransaction(serialized, {
+        skipPreflight: false,
+        maxRetries: 3,
       });
 
       enhancedLogger.info('✅ Vault transaction approved', {
