@@ -1449,3 +1449,60 @@ Check Solana Explorer for:
 2. How many vault transaction approvals are there? (Should be 2 if both signed)
 3. Did execution succeed? (Look for execution transaction signature)
 4. What was the final vault transaction status? (Should be ExecuteReady = 1)
+
+---
+
+## Verification Attempt Results
+
+**Date:** 2025-01-14  
+**Match ID:** `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`
+
+### Attempted Verification Steps
+
+1. ✅ **Created verification scripts:**
+   - `backend/scripts/verify-match-09ac263a.js` - Full database + on-chain check
+   - `backend/scripts/check-match-api.js` - API + on-chain check
+
+2. ❌ **Database access issues:**
+   - TypeScript compilation errors prevent direct database access
+   - Binary file issue with `proposalAutoCreateService.ts` blocks ts-node execution
+
+3. ❌ **API endpoint:**
+   - API endpoint `/api/match/09ac263a-db41-4a43-bd0b-4f7c6cea8bc5/status` returned 404
+   - Match may not exist in database or endpoint path is different
+
+### What Is Needed to Complete Verification
+
+**From Render Backend Logs:**
+1. Search for match ID: `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`
+2. Extract:
+   - Vault address (`squadsVaultAddress`)
+   - Vault PDA (`squadsVaultPda`)
+   - Proposal ID (`tieRefundProposalId` or `payoutProposalId`)
+3. Look for logs:
+   - "✅ Both proposal and vault transaction approved"
+   - "✅ Vault transaction approved"
+   - Vault transaction approval count in execution logs
+   - Execution transaction signature (if any)
+
+**Once you have vault address and proposal ID, run:**
+```bash
+node backend/scripts/check-onchain-simple.js <vaultAddress> <proposalId> [vaultPda]
+```
+
+This will check:
+- ✅ Vault transaction status (should be 1 = ExecuteReady)
+- ✅ Vault transaction approval count (should be 2/2)
+- ✅ Proposal status (should be ExecuteReady)
+- ✅ Transaction account status (closed if executed)
+- ✅ Vault balance (should be ~0.0025 SOL if executed)
+
+### Alternative: Use Solana Explorer
+
+If you have the vault address and proposal ID:
+1. Derive transaction PDA and proposal PDA using Squads SDK
+2. Search for these addresses on Solana Explorer (devnet)
+3. Check:
+   - Transaction account exists (not executed) or closed (executed)
+   - Proposal account status
+   - Vault transaction account status and approvals
