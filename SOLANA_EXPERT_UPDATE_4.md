@@ -854,3 +854,102 @@ With those concrete artifacts, we can pinpoint whether the transaction was:
 ---
 
 Thank you for your continued guidance! We've implemented the raw RPC error body extraction, but since all transaction sends are succeeding, we need to investigate why the proposal isn't transitioning to ExecuteReady and whether the execution transactions are being confirmed on-chain.
+
+---
+
+## Latest Test Results (Match ID: `402ea0ab-900e-4332-9428-860b512262c7`)
+
+**Test Date:** 2025-11-14 (Recent)  
+**Deployment:** Latest (with raw RPC error body extraction)
+
+### Frontend Observations
+
+1. **Player Signing:** ✅ SUCCESSFUL
+   - Player signed proposal successfully
+   - Signature: `3kbMAZXnREzEkVYaa5bW79SnN4Zbp7ULZnXdTzC4atKnMxukJPuG5AeXHaLWvSfFqxjAPLJ7mXXzXEn3csha2McS`
+   - Backend confirmed: `✅ Proposal signed & backend confirmed`
+   - Response: `{success: true, message: 'Proposal signed successfully', signature: '3kbMAZXnREzEkVYaa5bW79SnN4Zbp7ULZnXdTzC4atKnMxukJPuG5AeXHaLWvSfFqxjAPLJ7mXXzXEn3csha2McS', proposalId: '1', needsSignatures: 0}`
+
+2. **Proposal Signer State:** ✅ THRESHOLD MET
+   - `needsSignatures: 0` after signing
+   - `proposalSigners: {raw: Array(2), normalized: Array(2), playerOnly: Array(1), feeWallet: '2q9wzbjgssyuna1t5wlhl4swdcinaqctm5fbwtgqtvjt', needsSignatures: 0}`
+   - Both fee wallet and player have signed
+
+3. **UI Issues:**
+   - Only one player sees the button to sign the proposal
+   - Player had to refresh browser, click play, and was redirected
+   - Button to sign proposal appeared on results page instead of showing as spinning
+   - Signing took a while (unknown if this is an issue)
+
+4. **Status Endpoint Issues:** ❌ BLOCKING
+   - Multiple CORS errors: `Access to fetch at 'https://guess5.onrender.com/api/match/status/402ea0ab-900e-4332-9428-860b512262c7?wallet=...' from origin 'https://guess5.io' has been blocked by CORS policy`
+   - Multiple 502 Bad Gateway errors: `GET https://guess5.onrender.com/api/match/status/... net::ERR_FAILED 502 (Bad Gateway)`
+   - Frontend falling back to localStorage after fetch failures
+   - SSE connection errors: `❌ SSE connection error`, `❌ EventSource readyState: 0`
+
+5. **Balance Updates:** ✅ RECEIVED
+   - Balance updates received: `💰 Balance update received: 0.015340028 SOL`
+   - Multiple balance updates received during polling
+
+### Key Questions
+
+1. **Was the execution transaction sent and confirmed?**
+   - Need to verify if signature `3kbMAZXnREzEkVYaa5bW79SnN4Zbp7ULZnXdTzC4atKnMxukJPuG5AeXHaLWvSfFqxjAPLJ7mXXzXEn3csha2McS` was confirmed on-chain
+   - This signature is from the **proposal signing**, not the execution transaction
+   - Need to check backend logs for execution transaction signatures
+
+2. **Were funds released?**
+   - Need to verify:
+     - Vault balance decreased (should be ~0.0025 SOL if executed)
+     - Player wallet balance increased (should receive refund amount)
+     - Fee wallet balance increased (should receive platform fee)
+   - Balance updates in frontend show `0.015340028 SOL` but we need to verify if this is the refund or just the wallet's existing balance
+
+3. **Why is the status endpoint returning 502?**
+   - Status endpoint is blocking/timing out
+   - This is preventing frontend from getting updated match status
+   - May be related to on-chain checks taking too long
+
+4. **Why only one player sees the sign button?**
+   - This is a frontend polling/state management issue
+   - May be related to the status endpoint failures
+
+### What We Need to Verify
+
+1. **On-Chain Transaction Status:**
+   - Check if execution transaction signatures exist on-chain
+   - Verify if proposal was executed (transaction account should be closed)
+   - Check vault balance to confirm funds were released
+
+2. **Backend Logs:**
+   - Check for execution attempt logs
+   - Look for `[TX SEND]` logs with execution transaction signatures
+   - Check for `[TX POLL]` logs showing transaction confirmation
+   - Look for any RPC errors with raw body text
+
+3. **Database State:**
+   - Check `proposalExecutedAt` timestamp
+   - Check `proposalTransactionId` for execution transaction signature
+   - Check `proposalStatus` (should be `EXECUTED` if successful)
+   - Check `player1Paid` and `player2Paid` flags
+
+### Next Steps
+
+1. **Check Backend Logs on Render:**
+   - Look for execution attempt logs around the time of signing
+   - Search for correlation IDs and transaction signatures
+   - Check for any RPC errors with detailed error bodies
+
+2. **Verify On-Chain State:**
+   - Check if proposal transaction account exists (should be closed if executed)
+   - Check vault balance on-chain
+   - Check player and fee wallet balances for transfers
+
+3. **Fix Status Endpoint Blocking:**
+   - The 502 errors suggest the status endpoint is timing out
+   - May need to add timeouts to on-chain checks
+   - May need to make status endpoint fully non-blocking
+
+---
+
+**Note:** The frontend logs show successful signing and threshold met, but we need to verify if execution actually occurred and if funds were released. The status endpoint blocking is preventing us from seeing the final state.
