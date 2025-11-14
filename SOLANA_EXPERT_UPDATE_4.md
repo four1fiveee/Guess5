@@ -1506,3 +1506,118 @@ If you have the vault address and proposal ID:
    - Transaction account exists (not executed) or closed (executed)
    - Proposal account status
    - Vault transaction account status and approvals
+
+---
+
+## ✅ VERIFICATION COMPLETE - Match `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`
+
+**Verification Date:** 2025-11-14  
+**Vault Address:** `G1TTNJPdfkTC4dXHGSdGuGSARRVdYWoaZtvTpF24j4FX`  
+**Vault PDA:** `BsZb2GfUHgDYzH5Muk6UipLmJrWCLvHit9ASpmk9AGXV`  
+**Proposal ID:** `1`  
+**Transaction PDA:** `7fUUFYKvLSDyk5tFe2U4D2R5K75fCcW2iEHhDnLLa8Mf`  
+**Proposal PDA:** `2PQt9qK2VpQJ67sN8qc4m2DMMMxfjW8KtfowpB6bjYe2`
+
+### 🔍 On-Chain Verification Results
+
+**Vault Transaction Account:**
+- ❌ **Status:** Active (0) - NOT ExecuteReady
+- ❌ **Approvals:** `[]` (EMPTY - 0 signatures)
+- ❌ **Approval Count:** 0/2
+- ❌ **Threshold:** 2
+- ❌ **Has Enough Signatures:** false
+- ❌ **Is ExecuteReady:** false
+
+**Proposal Account:**
+- ⚠️ **Status:** `Approved` (NOT ExecuteReady)
+- ✅ **Approved Signers:** 2
+  - Fee Wallet: `2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt`
+  - Player: `F4WKQYkUDBiFxCEMH49NpjjipCeHyG5a45isY8o7wpZ8`
+- ✅ **Approved Count:** 2/2
+- ❌ **Is ExecuteReady:** false
+
+**Vault Balance:**
+- Current: `0.281 SOL` (281,000,000 lamports)
+- Expected if executed: `~0.0025 SOL` (rent-exempt reserve only)
+- ❌ **Funds NOT released** - execution did not succeed
+
+**Transaction Account:**
+- ✅ **Status:** EXISTS (not closed)
+- ❌ **Execution:** Did NOT occur (account still exists)
+
+### 📋 Backend Logs Analysis
+
+**Execution Attempts Found:**
+- Multiple execution attempts with correlation IDs:
+  - `exec-1763149098767-462764`
+  - `exec-1763149099787-628102`
+  - `exec-1763149100803-533787`
+  - `exec-1763149102843-828567`
+
+**Execution Transaction Signatures:**
+- ✅ Multiple execution transactions were sent:
+  - `i1LcF9iJBxctdTdooJW13NWNhkRLXjFn3HCHMq9hdUB4syH45GCpKAvDAcJ13E2iTFVGvyLcVuhqsJwqEe5ncGK`
+  - `QkqM5akRK3enxij7SWiRpEA9scLBUBb1izAahLk2quvxv7wwkEWnbH8GUiepKFmnoLE1ebXQQZteBBJv1UD5pWN`
+  - `2RoWzsofs7WHpoeS8YfnbmgabHqQeGEL99ugPTsoANY1MX7NaLCq6VQ4fFy8vcQUb94iFnVdUNUsQRBTyECoJ5fs`
+  - `4gCjEr7QcT7gHPUhsxXrYaMJuvK911G766fxVkgn317xiTHYWKm8pMxAirPK9XnoeHtD5QXHS8vhrUYGvJY9TWUm`
+
+**RPC Rate Limiting:**
+- ⚠️ Multiple `429 Too Many Requests` errors during transaction polling
+- This prevented confirmation of execution transaction status
+
+**Vault Transaction Signing:**
+- ❌ **NO logs found** for:
+  - "✅ Both proposal and vault transaction approved"
+  - "📝 Approving Squads vault transaction"
+  - "✅ Vault transaction approved"
+- ❌ **Conclusion:** The vault transaction signing fix was NOT executed
+
+### 🚨 ROOT CAUSE CONFIRMED
+
+**The Problem:**
+1. ✅ Proposal has 2/2 signatures (fee wallet + player)
+2. ❌ **Vault transaction has 0/2 signatures** (NEITHER signed it)
+3. ❌ Proposal cannot reach ExecuteReady without vault transaction signatures
+4. ❌ Execution fails because Squads rejects unsigned vault transactions
+
+**Why the Fix Didn't Work:**
+- The vault transaction signing code was deployed (commit `aa9d379`)
+- **But it was never executed** - no logs show vault transaction approval attempts
+- This suggests:
+  1. The code path for fee wallet auto-approval may not be calling the new `approveVaultTransaction` method
+  2. Or there's an error preventing the vault transaction approval from running
+  3. Or the deployment didn't include the fix (needs verification)
+
+### 📊 Summary
+
+| Check | Status | Details |
+|-------|--------|---------|
+| Proposal Signatures | ✅ 2/2 | Fee wallet + Player |
+| Vault Transaction Signatures | ❌ 0/2 | **NONE** |
+| Proposal Status | ⚠️ Approved | NOT ExecuteReady |
+| Vault Transaction Status | ❌ Active (0) | NOT ExecuteReady |
+| Execution Attempts | ✅ Multiple | Transactions sent |
+| Execution Success | ❌ Failed | No confirmation, account still exists |
+| Funds Released | ❌ No | Vault balance still 0.281 SOL |
+| Vault Transaction Signing Fix | ❌ Not Executed | No logs found |
+
+### 🔧 Next Steps Required
+
+1. **Verify Deployment:**
+   - Check if commit `aa9d379` was actually deployed to Render
+   - Verify the `approveVaultTransaction` method exists in the deployed code
+
+2. **Check Code Path:**
+   - Verify that `approveProposal()` is actually calling `approveVaultTransaction()`
+   - Check if there are any errors preventing the vault transaction approval from running
+
+3. **Frontend Update:**
+   - The frontend also needs to sign the vault transaction when the player signs the proposal
+   - Currently only the proposal is being signed by the player
+
+4. **Re-test:**
+   - After verifying the fix is deployed and working, test again
+   - Should see vault transaction approval logs
+   - Should see vault transaction with 2/2 signatures on-chain
+   - Should see proposal reach ExecuteReady state
+   - Should see execution succeed and funds released
