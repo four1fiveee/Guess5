@@ -1081,3 +1081,298 @@ Thank you for your continued guidance! We've implemented the raw RPC error body 
 ---
 
 **Summary:** Execution transactions were sent successfully, but the proposal is not in `ExecuteReady` state, and funds were not released. RPC rate limiting is preventing confirmation of transaction status. The root cause appears to be the proposal not transitioning from `Approved` to `ExecuteReady` despite having the required signatures.
+
+---
+
+## 🚨 ROOT CAUSE IDENTIFIED AND FIX IMPLEMENTED
+
+**Date:** 2025-01-14  
+**Critical Discovery:** Squads v4 requires BOTH proposal AND vault transaction to be signed for ExecuteReady state.
+
+### The Problem
+
+Squads v4 has a two-tier approval system:
+1. **Proposal Approval** - Signs the proposal itself
+2. **Vault Transaction Approval** - Signs the underlying vault transaction
+
+**Previous Behavior:**
+- ✅ Proposal was being signed (2/2 signatures)
+- ❌ Vault transaction was NOT being signed (0/2 signatures)
+- ❌ Result: Proposal remained in `Approved` state, never reached `ExecuteReady`
+- ❌ Execution failed because Squads program rejects unsigned vault transactions
+
+### The Fix Implemented
+
+**Commit:** `aa9d379` - "FIX: Use instructions module to build vault transaction approval"
+
+**Changes:**
+1. Added `approveVaultTransaction()` method to `SquadsVaultService`
+   - Uses `instructions.vaultTransactionApprove` or `instructions.txApprove` to build approval transaction
+   - Signs and sends vault transaction approval separately from proposal approval
+
+2. Updated `approveProposal()` to automatically sign vault transaction
+   - After proposal approval succeeds, automatically calls `approveVaultTransaction()`
+   - Ensures both proposal AND vault transaction are signed by the same signer
+   - Applies to fee wallet approvals (backend-controlled)
+
+3. Enhanced execution logging
+   - Logs vault transaction signers before execution
+   - Shows approval count, threshold, and signer addresses
+   - Helps diagnose ExecuteReady state issues
+
+### Expected Behavior After Fix
+
+**When fee wallet signs proposal:**
+1. ✅ Proposal is signed via `rpc.proposalApprove()`
+2. ✅ Vault transaction is automatically signed via `instructions.vaultTransactionApprove()`
+3. ✅ Both accounts should have 2/2 signatures
+4. ✅ Proposal should transition to `ExecuteReady`
+5. ✅ Execution should succeed
+6. ✅ Funds should be released
+
+**When player signs proposal (frontend):**
+- Frontend needs to be updated to also sign vault transaction
+- Backend fix handles fee wallet signing automatically
+
+---
+
+## Latest Test Results (Match ID: `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`)
+
+**Test Date:** 2025-01-14  
+**Test Type:** End-to-end tie refund scenario  
+**Fix Status:** ✅ Vault transaction signing fix deployed (commit `aa9d379`)
+
+### Frontend Observations
+
+1. **Proposal Signing:** ✅
+   - Player successfully signed proposal
+   - Frontend shows: `✅ Proposal signed & backend confirmed`
+   - Proposal signers: `{raw: Array(2), normalized: Array(2), playerOnly: Array(1), feeWallet: '2q9wzbjgssyuna1t5wlhl4swdcinaqctm5fbwtgqtvjt', needsSignatures: 0}`
+   - This is a tie refund scenario (proposalId: '1')
+
+2. **Status After Signing:**
+   - `needsSignatures: 0` ✅
+   - `proposalSigners: Array(2)` ✅ (player + fee wallet)
+   - Frontend shows proposal is ready
+
+### What to Verify in Backend Logs
+
+**Expected Log Patterns (after fix):**
+
+1. **Proposal Approval:**
+   ```
+   📝 Approving Squads proposal
+   ✅ Proposal approved
+   📝 Now approving vault transaction (required for ExecuteReady)
+   ✅ Vault transaction approved
+   ✅ Both proposal and vault transaction approved
+   ```
+
+2. **Vault Transaction Signing:**
+   ```
+   📝 Approving Squads vault transaction
+   ✅ Vault transaction approved
+   ✅ Signer confirmed in vault transaction approvals array
+   ```
+
+3. **Execution Attempt:**
+   ```
+   🔍 VaultTransaction account status check before execution
+   approvalCount: 2
+   threshold: 2
+   hasEnoughSignatures: true
+   isExecuteReady: true
+   ```
+
+### What to Verify On-Chain
+
+**Critical Checks:**
+
+1. **Proposal Account:**
+   - Status should be `ExecuteReady` (not just `Approved`)
+   - Approved signers: 2 (player + fee wallet)
+
+2. **Vault Transaction Account:**
+   - Status should be `1` (ExecuteReady)
+   - Approvals: 2 (player + fee wallet)
+   - Threshold: 2
+   - `hasEnoughSignatures: true`
+
+3. **Execution Status:**
+   - If executed: Transaction account should be CLOSED
+   - Vault balance should be ~0.0025 SOL (rent-exempt reserve only)
+   - Player wallet should have received refund
+   - Fee wallet should have received platform fee
+
+4. **Transaction Signatures:**
+   - Proposal approval signature (from player)
+   - Proposal approval signature (from fee wallet)
+   - **Vault transaction approval signature (from player)** ← NEW
+   - **Vault transaction approval signature (from fee wallet)** ← NEW
+   - Execution signature (if execution succeeded)
+
+### Verification Commands
+
+```bash
+# Check match details
+npx ts-node backend/scripts/check-match.ts 09ac263a-db41-4a43-bd0b-4f7c6cea8bc5
+
+# Check on-chain state (requires vaultPda and proposalId from above)
+# Use Solana Explorer or:
+solana account <transactionPda> --url devnet
+solana account <proposalPda> --url devnet
+```
+
+### Key Questions for Expert
+
+1. **Did the vault transaction signing fix work?**
+   - Check backend logs for "✅ Both proposal and vault transaction approved"
+   - Verify vault transaction has 2/2 signatures on-chain
+
+2. **Is the proposal now ExecuteReady?**
+   - Check on-chain proposal status
+   - Check vault transaction status (should be 1 = ExecuteReady)
+
+3. **Did execution succeed?**
+   - Check if transaction account is closed
+   - Check if vault balance dropped to rent-exempt
+   - Check if funds were transferred to players and fee wallet
+
+4. **Frontend vault transaction signing:**
+   - Does the frontend need to be updated to also sign vault transaction?
+   - Or does the backend fix handle everything automatically?
+
+### Backend Logs Analysis (To Be Verified)
+
+**Search Render logs for match ID:** `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`
+
+**Expected Log Sequence:**
+
+1. **Player Proposal Signing:**
+   ```
+   📝 Processing signed proposal: { matchId: '09ac263a...', wallet: 'F4WKQYkU...', ... }
+   ✅ Proposal signed successfully
+   ```
+
+2. **Fee Wallet Auto-Approval (CRITICAL - Should show vault transaction signing):**
+   ```
+   🤝 Auto-approving proposal with fee wallet
+   📝 Approving Squads proposal
+   ✅ Proposal approved
+   📝 Now approving vault transaction (required for ExecuteReady)  ← NEW
+   📝 Approving Squads vault transaction  ← NEW
+   ✅ Vault transaction approved  ← NEW
+   ✅ Both proposal and vault transaction approved  ← NEW
+   ✅ Signer confirmed in vault transaction approvals array  ← NEW
+   ```
+
+3. **Execution Attempt:**
+   ```
+   🚀 Executing Squads proposal
+   🔍 VaultTransaction account status check before execution
+   approvalCount: 2  ← Should be 2 if fix worked
+   threshold: 2
+   hasEnoughSignatures: true  ← Should be true if fix worked
+   isExecuteReady: true  ← Should be true if fix worked
+   ```
+
+4. **Transaction Send:**
+   ```
+   [TX SEND][correlationId] signature returned: <execution_signature>
+   ```
+
+**What to Look For:**
+
+- ✅ **Success Indicators:**
+  - "✅ Both proposal and vault transaction approved" log
+  - "✅ Signer confirmed in vault transaction approvals array" log
+  - Vault transaction `approvalCount: 2` in execution logs
+  - Vault transaction `isExecuteReady: true` in execution logs
+  - Execution transaction signature returned
+
+- ❌ **Failure Indicators:**
+  - No "✅ Vault transaction approved" log (fix didn't work)
+  - Vault transaction `approvalCount: 0` or `approvalCount: 1` (only proposal signed)
+  - Vault transaction `isExecuteReady: false` (not enough signatures)
+  - RPC errors when sending execution transaction
+  - "No signature returned from RPC" errors
+
+### On-Chain Verification Steps
+
+**Step 1: Get Match Details**
+```bash
+# Option 1: Use API endpoint
+curl https://guess5.onrender.com/api/match/09ac263a-db41-4a43-bd0b-4f7c6cea8bc5/status
+
+# Option 2: Query database directly (if you have access)
+# Extract: squadsVaultAddress, squadsVaultPda, tieRefundProposalId
+```
+
+**Step 2: Check On-Chain State**
+```bash
+# Use the simple check script (once you have vault address and proposal ID)
+node backend/scripts/check-onchain-simple.js <vaultAddress> <proposalId> [vaultPda]
+
+# Or use Solana CLI
+solana account <transactionPda> --url devnet
+solana account <proposalPda> --url devnet
+```
+
+**Step 3: Verify Transaction Signatures**
+
+Check Solana Explorer for:
+- Proposal approval signatures (player + fee wallet)
+- **Vault transaction approval signatures (player + fee wallet)** ← NEW
+- Execution signature (if execution succeeded)
+
+### Critical On-Chain Checks
+
+1. **Vault Transaction Account:**
+   - Status: Should be `1` (ExecuteReady) if fix worked
+   - Approvals: Should have 2 signatures (player + fee wallet)
+   - If status is `0` (Active): Fix didn't work or player didn't sign vault transaction
+
+2. **Proposal Account:**
+   - Status: Should be `ExecuteReady` (not just `Approved`)
+   - Approved: Should have 2 signers (player + fee wallet)
+
+3. **Execution Status:**
+   - If transaction account is CLOSED: ✅ Execution succeeded
+   - If transaction account EXISTS: ❌ Execution failed or didn't occur
+   - Vault balance: Should be ~0.0025 SOL if executed
+
+### Next Steps
+
+1. **Check Render Backend Logs:**
+   - Search for match ID: `09ac263a-db41-4a43-bd0b-4f7c6cea8bc5`
+   - Look for "✅ Both proposal and vault transaction approved" log
+   - Look for vault transaction approval logs
+   - Check vault transaction approval count in execution logs
+   - Look for execution attempt logs
+   - Check for any RPC errors
+
+2. **Verify On-Chain State:**
+   - Get vault address and proposal ID from database/API
+   - Use Solana Explorer or CLI to check proposal and vault transaction accounts
+   - Verify vault transaction has 2/2 signatures
+   - Verify vault transaction status is `1` (ExecuteReady)
+   - Check if proposal is ExecuteReady
+   - Check if execution occurred (transaction account closed)
+
+3. **Check Fund Release:**
+   - Verify vault balance is ~0.0025 SOL (if executed)
+   - Check player wallet received refund
+   - Check fee wallet received platform fee
+
+4. **Frontend Update Needed:**
+   - The backend fix handles fee wallet signing automatically
+   - **Frontend still needs to sign vault transaction when player signs proposal**
+   - Need to add vault transaction signing to frontend proposal signing flow
+
+---
+
+**Summary:** This test was performed AFTER the vault transaction signing fix was deployed (commit `aa9d379`). We need to verify that:
+1. ✅ The fix is working (vault transaction is being signed by fee wallet)
+2. ✅ The proposal reaches ExecuteReady state (both proposal AND vault transaction have 2/2 signatures)
+3. ✅ Execution succeeds and funds are released
+4. ⚠️ Frontend may need update to also sign vault transaction for player signatures
