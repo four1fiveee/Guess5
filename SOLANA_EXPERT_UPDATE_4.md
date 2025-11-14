@@ -763,4 +763,94 @@ With those concrete artifacts, we can pinpoint whether the transaction was:
 
 ---
 
-Thank you for your continued guidance! We've implemented all the expert's diagnostic recommendations and enhanced error logging. The next execution attempt will provide the actual RPC error details to identify why transactions are being rejected.
+## Latest Test Results (Match ID: `32ecb31d-0f01-4cfd-8bd8-779d9eefcae5`)
+
+**Test Date:** 2025-11-14 04:04:00 UTC  
+**Deployment:** Commit `f3176f8` (Fixed: Use sendRawTransaction directly to capture raw RPC error body)
+
+### What Happened
+
+1. **POST `/sign-proposal` Received:** ✅
+   - Timestamp: `04:04:00`
+   - Player signed successfully
+   - Execution enqueued atomically at `04:04:03`
+
+2. **Transaction Sends:** ✅ ALL SUCCEEDED
+   - Multiple execution transaction signatures returned:
+     - `jFrLbY4uQkaNLzFsArkepCGBLh9nSKJU4VtHhaPB4FB5989zqEubyF3DbeLoJzrKpzj9Wa55aZi26cpwWxrTwWS`
+     - `4NMgYkqVPqHLMU9xN6mKVCLMUFuRs8Nx4fxfceMTU5uKkp8rPXnmxXVYHaKU4qcxS6aRGL8qw2GPxXi5eWn414RM`
+     - `67BVG4uL8HvGtqeHmkpLswkixpL1vq8mRhxJKXWo9eGckaBNRMkHpr7dfrsqsG1hdQcAEmsfRNB87catui2YVKUn`
+     - `2q3YQCqsnBgW6VtabnkkXVxhH69xLfDf14MwzwN8PK7jCPfKEbxeUcjkg7qeeHBCJda7F5x3fgEg8vpJoGqs9QMf`
+     - `44hHbiyZgRNyA7RCHwQWMDC67wEnw5T2h1WT8hUR4u852ooyjdj9WBbiQ9XtDUKNBkQD1VYZSXYcWFLJUZ5GsTtQ`
+     - `3axECHtaAo9PTddAfEVv1RVFShH7rdccqZzqrPsZyyHEvwWG6Vdej8rXXeRHFW5rzesea2zCF6iqmo7GQHSXSUi5`
+     - `3JGWrekGFU3cPfoUbvrmPQi7RpdKL2dS287dSHzLsUEbPSBjaeumG6Kko8aLyHJfBncqCxZBkVvioifw1nYMqmeR`
+   - **CRITICAL:** All transaction sends returned signatures (no RPC rejections at send time)
+   - No "RPC ERROR" logs with raw body text (because sends succeeded)
+
+3. **Execution Failed:** ❌
+   - Proposal reset to `READY_TO_EXECUTE` at `04:05:11`
+   - Log: `🔄 Reset proposal status to READY_TO_EXECUTE after failed execution`
+
+4. **Proposal State:** ❌ NOT ExecuteReady
+   - On-chain check at `04:06:43`:
+     - Status: `Approved` (not `ExecuteReady`)
+     - `isExecuteReady: false`
+     - `vaultTransactionIsExecuteReady: false`
+     - Approved Signers: 2 (fee wallet + player)
+     - Threshold: 2 ✅
+
+### Key Findings
+
+1. **Transactions Are Being Accepted by RPC:**
+   - All execution transaction sends returned signatures
+   - This means the RPC is accepting the transactions at send time
+   - The issue is NOT at the send stage
+
+2. **Proposal Not Transitioning to ExecuteReady:**
+   - Proposal has 2/2 signatures (threshold met)
+   - But status remains `Approved`, not `ExecuteReady`
+   - This is preventing execution
+
+3. **No RPC Error Logs:**
+   - The new error logging only captures send-time errors
+   - Since sends succeed, we're not seeing the actual failure reason
+   - Need to check if transactions were confirmed on-chain or failed during confirmation
+
+### Questions for Expert
+
+1. **Why isn't the proposal transitioning to ExecuteReady?**
+   - Proposal has 2/2 signatures (fee wallet + player)
+   - Threshold is met
+   - But status remains `Approved`
+   - Is there a time-lock or other requirement we're missing?
+
+2. **Are the execution transactions being confirmed?**
+   - Multiple signatures were returned
+   - Need to verify if they were confirmed on-chain or failed during confirmation
+   - If they failed, what was the error?
+
+3. **Should we check transaction confirmation status?**
+   - The new error logging only captures send-time errors
+   - Should we also log confirmation-time errors?
+   - How do we check if a transaction signature was confirmed vs. failed?
+
+### Next Steps
+
+1. **Verify Transaction Signatures On-Chain:**
+   - Check if the returned signatures were confirmed
+   - If not confirmed, check why they failed
+   - Use `getSignatureStatuses` with `searchTransactionHistory: true`
+
+2. **Investigate ExecuteReady Transition:**
+   - Research Squads docs on ExecuteReady state transition
+   - Check if there's a time-lock or other requirement
+   - Verify if we need to wait or call a specific instruction
+
+3. **Add Confirmation Error Logging:**
+   - Currently only logging send-time errors
+   - Need to also log confirmation-time errors
+   - This will reveal why transactions are failing after being accepted
+
+---
+
+Thank you for your continued guidance! We've implemented the raw RPC error body extraction, but since all transaction sends are succeeding, we need to investigate why the proposal isn't transitioning to ExecuteReady and whether the execution transactions are being confirmed on-chain.
