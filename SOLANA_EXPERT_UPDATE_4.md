@@ -1232,3 +1232,52 @@ Run end-to-end test to confirm:
 ---
 
 **Status:** ✅ Fix implemented - Removed `isDraft: true`, added verification
+
+---
+
+## Latest Test Results (2025-11-15)
+
+### Match: `c21ebe4d-d0be-4aeb-af35-cce8adeb676c` (Tie - Both players timed out)
+
+**Issue Identified:**
+- Proposal creation succeeded (created as "Active" status)
+- Vault transaction created successfully with `transactionIndex: 1`
+- **Root Cause:** `confirmProposalCreation()` was waiting for "Draft" status, but proposals are now created as "Active" (after removing `isDraft: true`)
+- This caused an infinite wait loop, preventing the proposal from being saved to the database
+- Frontend showed "Processing Payout" indefinitely because `proposalId` was `null`
+
+**Backend Logs:**
+```
+✅ Proposal account created (transactionIndex: 1)
+⏳ Waiting for proposal status update
+  expectedStatus: "Draft"
+  currentStatus: "Active"
+  (repeated indefinitely - timeout after 15 seconds)
+```
+
+**Fix Applied:**
+- Updated `confirmProposalCreation()` to wait for "Active" status instead of "Draft"
+- This aligns with the change to remove `isDraft: true` from `proposalCreate` calls
+
+**Code Change:**
+```typescript
+// BEFORE:
+await this.waitForProposalStatus(
+  proposalPda,
+  multisigAddress,
+  transactionIndex,
+  'Draft',  // ❌ Wrong - proposals are now created as Active
+  contextLabel
+);
+
+// AFTER:
+await this.waitForProposalStatus(
+  proposalPda,
+  multisigAddress,
+  transactionIndex,
+  'Active',  // ✅ Correct - proposals are created as Active when isDraft is removed
+  contextLabel
+);
+```
+
+**Status:** ✅ Fix implemented - Updated status check from "Draft" to "Active"

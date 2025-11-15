@@ -4072,11 +4072,13 @@ export class SquadsVaultService {
         `${contextLabel} proposal`,
         multisigAddress.toString()
       );
+      // NOTE: After removing isDraft: true, proposals are created as Active (not Draft)
+      // So we wait for Active status instead of Draft
       await this.waitForProposalStatus(
         proposalPda,
         multisigAddress,
         transactionIndex,
-        'Draft',
+        'Active',
         contextLabel
       );
     } catch (error) {
