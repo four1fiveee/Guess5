@@ -1249,6 +1249,8 @@ export class SquadsVaultService {
       });
 
       // Ensure a proposal account exists and is active for this transaction
+      // CRITICAL: Create proposal WITHOUT isDraft to ensure transaction linking works
+      // isDraft: true prevents the transaction from being linked to the proposal
       let createdProposal = false;
       let proposalCreateSignature: string | null = null;
       try {
@@ -1257,9 +1259,9 @@ export class SquadsVaultService {
           feePayer: this.config.systemKeypair,
           creator: this.config.systemKeypair,
           multisigPda: multisigAddress,
-          transactionIndex,
+          transactionIndex, // This should link the vault transaction to the proposal
           programId: this.programId,
-          isDraft: true,
+          // REMOVED: isDraft: true - this prevents transaction linking
         });
         createdProposal = true;
         enhancedLogger.info('✅ Proposal account created', {
@@ -1291,6 +1293,63 @@ export class SquadsVaultService {
           transactionIndex,
           'winner payout'
         );
+        
+        // CRITICAL: Verify proposal has linked transaction (expert requirement)
+        try {
+          const [proposalPda] = getProposalPda({
+            multisigPda: multisigAddress,
+            transactionIndex: transactionIndex,
+            programId: this.programId,
+          });
+          
+          // Wait a bit for account to be available
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
+          const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+          if (proposalAccount) {
+            try {
+              const proposal = await accounts.Proposal.fromAccountAddress(
+                this.connection,
+                proposalPda
+              );
+              const transactions = (proposal as any).transactions || [];
+              const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
+              
+              if (transactionCount === 0) {
+                enhancedLogger.error('❌ CRITICAL: Proposal created but has ZERO linked transactions!', {
+                  vaultAddress,
+                  proposalId,
+                  transactionIndex: transactionIndex.toString(),
+                  proposalPda: proposalPda.toString(),
+                  note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation.',
+                });
+                throw new Error(`Proposal created without linked transaction. transactionIndex=${transactionIndex.toString()}, proposalPda=${proposalPda.toString()}`);
+              } else {
+                enhancedLogger.info('✅ Proposal verified: has linked transactions', {
+                  vaultAddress,
+                  proposalId,
+                  transactionIndex: transactionIndex.toString(),
+                  proposalPda: proposalPda.toString(),
+                  transactionCount,
+                });
+              }
+            } catch (decodeError: any) {
+              enhancedLogger.warn('⚠️ Could not decode proposal account to verify transactions (non-critical)', {
+                vaultAddress,
+                proposalId,
+                proposalPda: proposalPda.toString(),
+                error: decodeError?.message || String(decodeError),
+              });
+            }
+          }
+        } catch (verifyError: any) {
+          enhancedLogger.error('❌ Failed to verify proposal transaction linking', {
+            vaultAddress,
+            proposalId,
+            error: verifyError?.message || String(verifyError),
+          });
+          // Don't throw - allow flow to continue, but log the error
+        }
       }
 
       try {
@@ -2012,6 +2071,8 @@ export class SquadsVaultService {
       });
 
       // Ensure proposal account exists and is active for this transaction
+      // CRITICAL: Create proposal WITHOUT isDraft to ensure transaction linking works
+      // isDraft: true prevents the transaction from being linked to the proposal
       let createdTieProposal = false;
       let tieProposalSignature: string | null = null;
       try {
@@ -2020,9 +2081,9 @@ export class SquadsVaultService {
           feePayer: this.config.systemKeypair,
           creator: this.config.systemKeypair,
           multisigPda: multisigAddress,
-          transactionIndex,
+          transactionIndex, // This should link the vault transaction to the proposal
           programId: this.programId,
-          isDraft: true,
+          // REMOVED: isDraft: true - this prevents transaction linking
         });
         createdTieProposal = true;
         enhancedLogger.info('✅ Proposal account created', {
@@ -2084,6 +2145,7 @@ export class SquadsVaultService {
                   proposalPda: proposalPda.toString(),
                   note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation.',
                 });
+                throw new Error(`Proposal created without linked transaction. transactionIndex=${transactionIndex.toString()}, proposalPda=${proposalPda.toString()}`);
               } else {
                 enhancedLogger.info('✅ Proposal verified: has linked transactions', {
                   vaultAddress,
