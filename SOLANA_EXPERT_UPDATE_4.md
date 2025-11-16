@@ -1332,3 +1332,60 @@ await this.waitForProposalStatus(
 4. Consider alternative approaches if `transactionIndex` doesn't work as expected
 
 **Status:** ⚠️ PARTIAL FIX - Removed proposal activation, but transaction linking still failing
+
+---
+
+## Expert Guidance Implementation (2025-11-16)
+
+**Expert Recommendations:**
+1. Stop trying to "approve" vault transactions - that's not the issue
+2. Ensure vaultTransaction creation is fully confirmed and index is readable before calling proposalCreate
+3. Call proposalCreate using exact argument shape the IDL expects
+4. Verify proposal.transactions.length > 0 immediately after creation
+5. Remove proposalActivate() and isDraft: true use (already done)
+
+**Fixes Applied:**
+
+1. **Added `verifyVaultTransactionIndex()` method:**
+   - Verifies vault transaction account exists and has readable index field
+   - Prevents race conditions where account exists but isn't fully indexed
+   - Uses exponential backoff (500ms → 3s max) with 10 retries
+   - Fails loudly if index cannot be verified after all retries
+   - Called before `proposalCreate` in both winner payout and tie refund flows
+
+2. **Improved proposal verification:**
+   - Changed from warnings to errors - now fails loudly if:
+     - Proposal has zero linked transactions
+     - Proposal account cannot be decoded
+     - Proposal account doesn't exist after creation
+   - Removed "non-critical" warnings - verification is now required
+
+3. **Enhanced error messages:**
+   - All verification failures now throw errors with detailed context
+   - Includes transactionPda, transactionIndex, proposalPda in error messages
+   - Clear indication that transaction linking is required for execution
+
+**Code Changes:**
+
+```typescript
+// NEW: Verify vault transaction index before proposalCreate
+await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'winner payout');
+
+// IMPROVED: Fail loudly if verification fails
+if (transactionCount === 0) {
+  throw new Error(`Proposal created without linked transaction...`);
+}
+```
+
+**Expected Behavior:**
+- Vault transaction index is verified before proposal creation
+- Proposals are verified to have linked transactions immediately after creation
+- Any verification failure throws an error (no silent failures)
+- Race conditions are prevented by verifying index is readable
+
+**Next Steps:**
+- Test end-to-end to confirm transaction linking works
+- Monitor logs for any verification failures
+- If linking still fails, investigate IDL argument format for proposalCreate
+
+**Status:** ✅ IMPLEMENTED - Added race condition prevention and strict verification

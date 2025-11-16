@@ -1209,11 +1209,17 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
+        // CRITICAL: Wait for account AND verify transaction index is readable
+        // This ensures the vault transaction is fully indexed on-chain before proposalCreate
         await this.waitForAccountAvailability(
           transactionPda,
           'vault transaction',
           vaultAddress
         );
+        
+        // Verify the transaction account can be decoded and has an index field
+        // This prevents race conditions where account exists but isn't fully indexed
+        await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'winner payout');
       } catch (confirmationError: any) {
         enhancedLogger.error(
           '❌ Failed to confirm vault transaction for proposal creation',
@@ -1334,21 +1340,38 @@ export class SquadsVaultService {
                 });
               }
             } catch (decodeError: any) {
-              enhancedLogger.warn('⚠️ Could not decode proposal account to verify transactions (non-critical)', {
+              // CRITICAL: If we can't decode, we can't verify - this is a problem
+              const errorMsg = `Failed to decode proposal account to verify transactions. proposalPda=${proposalPda.toString()}, error=${decodeError?.message || String(decodeError)}`;
+              enhancedLogger.error('❌ CRITICAL: Could not decode proposal account to verify transactions', {
                 vaultAddress,
                 proposalId,
                 proposalPda: proposalPda.toString(),
                 error: decodeError?.message || String(decodeError),
+                note: 'Cannot verify transaction linking without decoding proposal account.',
               });
+              throw new Error(errorMsg);
             }
+          } else {
+            // CRITICAL: Proposal account doesn't exist - this is a problem
+            const errorMsg = `Proposal account not found after creation. proposalPda=${proposalPda.toString()}`;
+            enhancedLogger.error('❌ CRITICAL: Proposal account not found after creation', {
+              vaultAddress,
+              proposalId,
+              proposalPda: proposalPda.toString(),
+              note: 'Proposal account should exist after creation.',
+            });
+            throw new Error(errorMsg);
           }
         } catch (verifyError: any) {
-          enhancedLogger.error('❌ Failed to verify proposal transaction linking', {
+          // CRITICAL: Verification failure - fail loudly
+          const errorMsg = `Failed to verify proposal transaction linking. error=${verifyError?.message || String(verifyError)}`;
+          enhancedLogger.error('❌ CRITICAL: Could not verify proposal transaction linking', {
             vaultAddress,
             proposalId,
             error: verifyError?.message || String(verifyError),
+            note: 'Transaction linking verification is required to ensure proposals can be executed.',
           });
-          // Don't throw - allow flow to continue, but log the error
+          throw verifyError; // Re-throw to fail loudly
         }
       }
 
@@ -2005,11 +2028,17 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
+        // CRITICAL: Wait for account AND verify transaction index is readable
+        // This ensures the vault transaction is fully indexed on-chain before proposalCreate
         await this.waitForAccountAvailability(
           transactionPda,
           'tie refund vault transaction',
           vaultAddress
         );
+        
+        // Verify the transaction account can be decoded and has an index field
+        // This prevents race conditions where account exists but isn't fully indexed
+        await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'tie refund');
       } catch (confirmationError: any) {
         enhancedLogger.error(
           '❌ Failed to confirm tie refund vault transaction',
@@ -2124,20 +2153,38 @@ export class SquadsVaultService {
                 });
               }
             } catch (decodeError: any) {
-              enhancedLogger.warn('⚠️ Could not decode proposal account to verify transactions (non-critical)', {
+              // CRITICAL: If we can't decode, we can't verify - this is a problem
+              const errorMsg = `Failed to decode proposal account to verify transactions. proposalPda=${proposalPda.toString()}, error=${decodeError?.message || String(decodeError)}`;
+              enhancedLogger.error('❌ CRITICAL: Could not decode proposal account to verify transactions', {
                 vaultAddress,
                 proposalId,
                 proposalPda: proposalPda.toString(),
                 error: decodeError?.message || String(decodeError),
+                note: 'Cannot verify transaction linking without decoding proposal account.',
               });
+              throw new Error(errorMsg);
             }
+          } else {
+            // CRITICAL: Proposal account doesn't exist - this is a problem
+            const errorMsg = `Proposal account not found after creation. proposalPda=${proposalPda.toString()}`;
+            enhancedLogger.error('❌ CRITICAL: Proposal account not found after creation', {
+              vaultAddress,
+              proposalId,
+              proposalPda: proposalPda.toString(),
+              note: 'Proposal account should exist after creation.',
+            });
+            throw new Error(errorMsg);
           }
         } catch (verifyError: any) {
-          enhancedLogger.warn('⚠️ Could not verify proposal transaction linking (non-critical)', {
+          // CRITICAL: Verification failure - fail loudly
+          const errorMsg = `Failed to verify proposal transaction linking. error=${verifyError?.message || String(verifyError)}`;
+          enhancedLogger.error('❌ CRITICAL: Could not verify proposal transaction linking', {
             vaultAddress,
             proposalId,
             error: verifyError?.message || String(verifyError),
+            note: 'Transaction linking verification is required to ensure proposals can be executed.',
           });
+          throw verifyError; // Re-throw to fail loudly
         }
       }
 
@@ -3973,6 +4020,99 @@ export class SquadsVaultService {
         retries,
         delayMs,
       }
+    );
+  }
+
+  /**
+   * Verify that the vault transaction account exists and has a readable index field.
+   * This prevents race conditions where the account exists but isn't fully indexed on-chain.
+   * CRITICAL: This must pass before calling proposalCreate, otherwise transactions won't link.
+   */
+  private async verifyVaultTransactionIndex(
+    transactionPda: PublicKey,
+    expectedIndex: bigint,
+    contextLabel: string,
+    retries: number = 10,
+    initialDelayMs: number = 500
+  ): Promise<void> {
+    const { accounts } = require('@sqds/multisig/lib/codegen/accounts');
+    
+    for (let attempt = 0; attempt < retries; attempt++) {
+      try {
+        // Try to decode the vault transaction account
+        const txAccount = await accounts.VaultTransaction.fromAccountAddress(
+          this.connection,
+          transactionPda
+        );
+        
+        // Check if index field exists and matches expected value
+        const actualIndex = (txAccount as any).index ?? (txAccount as any).transactionIndex;
+        
+        if (actualIndex !== undefined && actualIndex !== null) {
+          const actualIndexBigInt = typeof actualIndex === 'bigint' ? actualIndex : BigInt(actualIndex);
+          
+          if (actualIndexBigInt === expectedIndex) {
+            enhancedLogger.info('✅ Vault transaction index verified', {
+              contextLabel,
+              transactionPda: transactionPda.toString(),
+              expectedIndex: expectedIndex.toString(),
+              actualIndex: actualIndexBigInt.toString(),
+              attempts: attempt + 1,
+            });
+            return; // Success - index is readable and matches
+          } else {
+            enhancedLogger.warn('⚠️ Vault transaction index mismatch', {
+              contextLabel,
+              transactionPda: transactionPda.toString(),
+              expectedIndex: expectedIndex.toString(),
+              actualIndex: actualIndexBigInt.toString(),
+              attempt: attempt + 1,
+            });
+            // Continue retrying - might be a different transaction
+          }
+        } else {
+          enhancedLogger.warn('⚠️ Vault transaction account decoded but index field not found', {
+            contextLabel,
+            transactionPda: transactionPda.toString(),
+            attempt: attempt + 1,
+            accountKeys: Object.keys(txAccount),
+          });
+        }
+      } catch (decodeError: any) {
+        const errorMsg = decodeError?.message || String(decodeError);
+        if (attempt < retries - 1) {
+          enhancedLogger.debug('⏳ Vault transaction account not yet decodable, retrying...', {
+            contextLabel,
+            transactionPda: transactionPda.toString(),
+            attempt: attempt + 1,
+            error: errorMsg,
+          });
+        } else {
+          // Last attempt - log as warning but don't throw yet
+          enhancedLogger.warn('⚠️ Could not decode vault transaction account on final attempt', {
+            contextLabel,
+            transactionPda: transactionPda.toString(),
+            error: errorMsg,
+          });
+        }
+      }
+      
+      // Exponential backoff: 500ms, 750ms, 1125ms, etc. (max 3 seconds)
+      const delay = Math.min(initialDelayMs * Math.pow(1.5, attempt), 3000);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+    
+    // If we get here, all retries failed
+    enhancedLogger.error('❌ CRITICAL: Could not verify vault transaction index after all retries', {
+      contextLabel,
+      transactionPda: transactionPda.toString(),
+      expectedIndex: expectedIndex.toString(),
+      retries,
+    });
+    throw new Error(
+      `Failed to verify vault transaction index after ${retries} retries. ` +
+      `Transaction may not be fully indexed on-chain. ` +
+      `transactionPda=${transactionPda.toString()}, expectedIndex=${expectedIndex.toString()}`
     );
   }
 
