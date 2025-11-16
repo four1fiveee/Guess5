@@ -2193,6 +2193,30 @@ const submitResultHandler = async (req: any, res: any) => {
           throw new Error('Match not found after transaction');
         }
         
+        // CRITICAL: Add helper methods to raw SQL result object
+        // updatedMatch is a raw SQL result, not a Match entity instance
+        (updatedMatch as any).getPlayer1Result = () => {
+          try {
+            if (!updatedMatch.player1Result) return null;
+            return typeof updatedMatch.player1Result === 'string' 
+              ? JSON.parse(updatedMatch.player1Result) 
+              : updatedMatch.player1Result;
+          } catch (error) {
+            return null;
+          }
+        };
+        
+        (updatedMatch as any).getPlayer2Result = () => {
+          try {
+            if (!updatedMatch.player2Result) return null;
+            return typeof updatedMatch.player2Result === 'string' 
+              ? JSON.parse(updatedMatch.player2Result) 
+              : updatedMatch.player2Result;
+          } catch (error) {
+            return null;
+          }
+        };
+        
         // DELAYED CLEANUP: Only delete Redis state after both players have submitted
         // Don't delete immediately - wait a bit to allow the other player to submit
         setTimeout(async () => {
