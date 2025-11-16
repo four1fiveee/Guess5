@@ -1281,3 +1281,54 @@ await this.waitForProposalStatus(
 ```
 
 **Status:** ✅ Fix implemented - Updated status check from "Draft" to "Active"
+
+---
+
+## Latest Test Results (2025-11-16)
+
+### Match: `80aadd82-6d68-4d35-a93f-61611458131b` (Tie - Both players timed out)
+
+**Issues Identified:**
+
+1. **"❌ CRITICAL: Proposal created but has ZERO linked transactions!"**
+   - Proposals are still being created without linked transactions
+   - This occurs despite removing `isDraft: true` and passing `transactionIndex`
+   - The `transactionIndex` parameter in `proposalCreate` may not be linking transactions as expected
+   - Multiple retry attempts from `getMatchStatusHandler` all fail with the same error
+
+2. **"❌ Failed to activate proposal" with "InvalidProposalStatus: Invalid proposal status"**
+   - After removing `isDraft: true`, proposals are created as "Active" (not "Draft")
+   - Code was still calling `proposalActivate()` on proposals that are already "Active"
+   - This caused "InvalidProposalStatus" errors, preventing proposal creation from completing
+   - The error handling for "AlreadyActive" didn't catch "Invalid proposal status" errors
+
+**Backend Logs:**
+```
+2025-11-16T22:07:56.912Z - ❌ CRITICAL: Proposal created but has ZERO linked transactions!
+2025-11-16T22:07:56.959Z - ❌ Failed to activate proposal
+2025-11-16T22:07:56.960Z - ❌ Failed to propose tie refund
+  error: 'InvalidProposalStatus: Invalid proposal status'
+  at Object.proposalActivate3 (/opt/render/project/src/backend/node_modules/@sqds/multisig/lib/index.js:8106:5)
+```
+
+**Root Causes:**
+1. **Proposal activation on already-Active proposals:** After removing `isDraft: true`, proposals are created as "Active", but the code still tried to activate them, causing "InvalidProposalStatus" errors.
+2. **Proposals not linking transactions:** Despite passing `transactionIndex` to `proposalCreate`, proposals are still created with `transactions.length = 0`. This suggests the `transactionIndex` parameter may not work as expected, or the vault transaction needs to be created/linked differently.
+
+**Fixes Applied:**
+1. **Removed `proposalActivate` calls:** Since proposals are now created as "Active", removed all `proposalActivate()` calls from both `proposeWinnerPayout` and `proposeTieRefund` methods.
+2. **Added logging:** Added clear logging to indicate proposals are already Active and don't need activation.
+
+**Remaining Issue:**
+- **Proposals still have zero linked transactions:** The `transactionIndex` parameter in `proposalCreate` is not linking the vault transaction to the proposal. This requires further investigation:
+  - Verify the vault transaction is created before the proposal
+  - Confirm the `transactionIndex` matches the actual vault transaction index
+  - Check if `proposalCreate` requires a different parameter format or additional steps to link transactions
+
+**Next Steps:**
+1. Investigate why `transactionIndex` parameter isn't linking transactions
+2. Verify vault transaction creation happens before proposal creation
+3. Check Squads SDK documentation for correct parameter format for linking transactions
+4. Consider alternative approaches if `transactionIndex` doesn't work as expected
+
+**Status:** ⚠️ PARTIAL FIX - Removed proposal activation, but transaction linking still failing

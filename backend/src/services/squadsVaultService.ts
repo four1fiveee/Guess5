@@ -1352,45 +1352,13 @@ export class SquadsVaultService {
         }
       }
 
-      try {
-        const activateSignature = await rpc.proposalActivate({
-          connection: this.connection,
-          feePayer: this.config.systemKeypair,
-          member: this.config.systemKeypair,
-          multisigPda: multisigAddress,
-          transactionIndex,
-          programId: this.programId,
-        });
-        enhancedLogger.info('✅ Proposal activated', {
-          vaultAddress,
-          proposalId,
-          activateSignature,
-        });
-        await this.confirmProposalActivation(
-          activateSignature,
-          multisigAddress,
-          transactionIndex,
-          'winner payout'
-        );
-      } catch (activateError: any) {
-        const msg =
-          activateError?.message ||
-          (activateError?.logs ? activateError.logs.join('\n') : String(activateError));
-        if (msg.includes('AlreadyActive') || msg.includes('already active')) {
-          enhancedLogger.info('ℹ️ Proposal already active', {
-            vaultAddress,
-            proposalId,
-          });
-        } else {
-          enhancedLogger.error('❌ Failed to activate proposal', {
-            vaultAddress,
-            proposalId,
-            error: msg,
-            rawError: activateError,
-          });
-          throw activateError;
-        }
-      }
+      // NOTE: After removing isDraft: true, proposals are created as Active (not Draft)
+      // So we don't need to call proposalActivate - the proposal is already active
+      enhancedLogger.info('✅ Proposal is already Active (no activation needed)', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+      });
 
       enhancedLogger.info('✅ Winner payout proposal ready for approvals', {
         vaultAddress,
@@ -2173,45 +2141,13 @@ export class SquadsVaultService {
         }
       }
 
-      try {
-        const activateSignature = await rpc.proposalActivate({
-          connection: this.connection,
-          feePayer: this.config.systemKeypair,
-          member: this.config.systemKeypair,
-          multisigPda: multisigAddress,
-          transactionIndex,
-          programId: this.programId,
-        });
-        enhancedLogger.info('✅ Proposal activated', {
-          vaultAddress,
-          proposalId,
-          activateSignature,
-        });
-        await this.confirmProposalActivation(
-          activateSignature,
-          multisigAddress,
-          transactionIndex,
-          'tie refund'
-        );
-      } catch (activateError: any) {
-        const msg =
-          activateError?.message ||
-          (activateError?.logs ? activateError.logs.join('\n') : String(activateError));
-        if (msg.includes('AlreadyActive') || msg.includes('already active')) {
-          enhancedLogger.info('ℹ️ Proposal already active', {
-            vaultAddress,
-            proposalId,
-          });
-        } else {
-          enhancedLogger.error('❌ Failed to activate proposal', {
-            vaultAddress,
-            proposalId,
-            error: msg,
-            rawError: activateError,
-          });
-          throw activateError;
-        }
-      }
+      // NOTE: After removing isDraft: true, proposals are created as Active (not Draft)
+      // So we don't need to call proposalActivate - the proposal is already active
+      enhancedLogger.info('✅ Proposal is already Active (no activation needed)', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+      });
 
       enhancedLogger.info('✅ Tie refund proposal ready for approvals', {
         vaultAddress,
