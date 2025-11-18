@@ -17,6 +17,16 @@ try {
   csv = null;
 }
 
+// Type for CSV record - supports both snake_case and camelCase
+interface CSVRecord {
+  referred_wallet?: string;
+  referrer_wallet?: string;
+  created_at?: string;
+  referredWallet?: string;
+  referrerWallet?: string;
+  createdAt?: string;
+}
+
 /**
  * Admin endpoint to delete stuck matches
  * POST /api/admin/delete-match/:matchId
@@ -72,7 +82,7 @@ export const adminBackfillReferrals = async (req: Request, res: Response) => {
 
     const { csvData, filePath } = req.body;
 
-    let records: Array<{ referredWallet: string; referrerWallet: string; createdAt?: Date }> = [];
+    let records: CSVRecord[] = [];
 
     if (filePath && fs.existsSync(filePath)) {
       const fileContent = fs.readFileSync(filePath, 'utf-8');
@@ -133,7 +143,7 @@ export const adminBackfillReferrals = async (req: Request, res: Response) => {
         await referralRepository.save(referral);
         imported++;
       } catch (error: any) {
-        const wallet = record.referred_wallet || record.referredWallet || 'unknown';
+        const wallet = (record as CSVRecord).referred_wallet || (record as CSVRecord).referredWallet || 'unknown';
         errors.push(`Error importing ${wallet}: ${error?.message || error}`);
       }
     }
