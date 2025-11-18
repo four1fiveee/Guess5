@@ -1,6 +1,6 @@
 import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, Index } from 'typeorm';
 
-@Entity()
+@Entity('user') // Explicitly set table name to 'user'
 @Index(['walletAddress'], { unique: true })
 export class User {
   @PrimaryGeneratedColumn('uuid')

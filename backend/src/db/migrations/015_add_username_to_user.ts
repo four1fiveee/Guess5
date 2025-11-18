@@ -2,21 +2,64 @@ import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
 export class AddUsernameToUser015 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
-    // Add username column to user table
-    await queryRunner.addColumn(
-      'user',
-      new TableColumn({
-        name: 'username',
-        type: 'text',
-        isUnique: true,
-        isNullable: true,
-      })
-    );
-
-    // Create index for faster username lookups
-    await queryRunner.query(`
-      CREATE UNIQUE INDEX IF NOT EXISTS "IDX_user_username" ON "user" ("username") WHERE "username" IS NOT NULL;
+    // Ensure user table exists first (in case migration 014 hasn't run)
+    const tableExists = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'user'
+      );
     `);
+
+    if (!tableExists[0]?.exists) {
+      // Create user table if it doesn't exist (from migration 014)
+      await queryRunner.query(`
+        CREATE TABLE IF NOT EXISTS "user" (
+          "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "walletAddress" text UNIQUE NOT NULL,
+          "totalEntryFees" numeric(12,2) DEFAULT 0 NOT NULL,
+          "totalEntryFeesSOL" numeric(12,6) DEFAULT 0 NOT NULL,
+          "createdAt" timestamp DEFAULT now() NOT NULL,
+          "updatedAt" timestamp DEFAULT now() NOT NULL
+        )
+      `);
+
+      await queryRunner.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_user_walletAddress" ON "user" ("walletAddress")
+      `);
+    }
+
+    // Check if username column already exists
+    const columnExists = await queryRunner.query(`
+      SELECT EXISTS (
+        SELECT FROM information_schema.columns 
+        WHERE table_schema = 'public' 
+        AND table_name = 'user' 
+        AND column_name = 'username'
+      );
+    `);
+
+    if (!columnExists[0]?.exists) {
+      console.log('⚠️ Username column does not exist, adding it...');
+      // Add username column to user table (use quoted table name for PostgreSQL)
+      await queryRunner.addColumn(
+        'user',
+        new TableColumn({
+          name: 'username',
+          type: 'text',
+          isUnique: true,
+          isNullable: true,
+        })
+      );
+
+      // Create index for faster username lookups
+      await queryRunner.query(`
+        CREATE UNIQUE INDEX IF NOT EXISTS "IDX_user_username" ON "user" ("username") WHERE "username" IS NOT NULL;
+      `);
+      console.log('✅ Username column added');
+    } else {
+      console.log('✅ Username column already exists');
+    }
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
