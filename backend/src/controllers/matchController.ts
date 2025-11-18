@@ -8801,7 +8801,7 @@ const generateReportHandler = async (req: any, res: any) => {
         match.depositBTx ? `https://explorer.solana.com/tx/${match.depositBTx}?cluster=${network}` : '',
             match.proposalTransactionId ? `https://explorer.solana.com/tx/${match.proposalTransactionId}?cluster=${network}` : ''
       ];
-    });
+        }));
     
     const csvContent = [csvHeaders, ...csvRows]
       .map((row: any) => row.map((field: any) => `"${field || ''}"`).join(','))
