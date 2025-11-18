@@ -132,8 +132,9 @@ export const adminBackfillReferrals = async (req: Request, res: Response) => {
 
         await referralRepository.save(referral);
         imported++;
-      } catch (error) {
-        errors.push(`Error importing ${record.referred_wallet}: ${error}`);
+      } catch (error: any) {
+        const wallet = record.referred_wallet || record.referredWallet || 'unknown';
+        errors.push(`Error importing ${wallet}: ${error?.message || error}`);
       }
     }
 
@@ -206,7 +207,7 @@ export const adminGetOwedReferrals = async (req: Request, res: Response) => {
 export const adminPreparePayoutBatch = async (req: Request, res: Response) => {
   try {
     const { scheduledSendAt, minPayoutUSD } = req.body;
-    const createdByAdmin = req.headers['x-admin-user'] as string || 'system';
+    const createdByAdmin = (req.headers['x-admin-user'] as string) || 'system';
 
     const sendAt = scheduledSendAt ? new Date(scheduledSendAt) : getNextSunday1300EST();
     const minPayout = minPayoutUSD || 20;
