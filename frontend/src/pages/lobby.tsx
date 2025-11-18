@@ -66,34 +66,62 @@ const UsernameInput: React.FC<{ wallet: string; onUsernameSet: (username: string
   };
 
   return (
-    <div className="w-full">
-      <div className="mb-3">
+    <div className="w-full space-y-4">
+      <div className="relative">
+        <div className="absolute left-4 top-1/2 -translate-y-1/2 text-accent/60 text-lg font-bold">@</div>
         <input
           type="text"
           value={newUsername}
           onChange={(e) => handleUsernameChange(e.target.value)}
-          placeholder="Enter username (3-20 characters)"
-          className="w-full px-4 py-3 rounded-xl bg-white/10 border border-accent/40 text-white placeholder-white/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all text-center text-lg font-semibold"
+          placeholder="username"
+          className="w-full pl-10 pr-4 py-4 rounded-xl bg-white/10 border-2 border-purple-400/50 text-white placeholder-white/40 focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/20 transition-all duration-200 text-lg font-bold tracking-wide"
           maxLength={20}
           disabled={savingUsername}
         />
-        {usernameError && (
-          <div className="text-red-400 text-xs mt-2 text-center">{usernameError}</div>
-        )}
         {checkingAvailability && (
-          <div className="text-accent text-xs mt-2 text-center">Checking availability...</div>
+          <div className="absolute right-4 top-1/2 -translate-y-1/2">
+            <div className="animate-spin rounded-full h-5 w-5 border-2 border-purple-400/30 border-t-purple-300"></div>
+          </div>
         )}
       </div>
+      
+      {usernameError && (
+        <div className="px-4 py-3 text-red-300 text-sm font-medium bg-red-500/15 border border-red-500/40 rounded-xl animate-pulse flex items-center gap-2">
+          <svg className="w-5 h-5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          {usernameError}
+        </div>
+      )}
+      
       <button
         onClick={handleSaveUsername}
         disabled={savingUsername || !!usernameError || !newUsername.trim()}
-        className="w-full px-6 py-3 bg-gradient-to-r from-accent to-yellow-400 text-primary font-bold rounded-xl hover:from-yellow-300 hover:to-accent transition-all duration-300 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg border-2 border-accent/30 hover:border-accent/60"
+        className="w-full px-6 py-4 bg-gradient-to-r from-accent via-yellow-400 to-accent text-primary font-black rounded-xl hover:from-yellow-300 hover:via-accent hover:to-yellow-300 transition-all duration-300 transform hover:scale-[1.02] active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed shadow-2xl hover:shadow-accent/40 border-2 border-accent/50 hover:border-accent text-lg tracking-wide flex items-center justify-center gap-2"
       >
-        {savingUsername ? 'Saving...' : 'Save Username'}
+        {savingUsername ? (
+          <>
+            <span className="animate-spin rounded-full h-5 w-5 border-2 border-primary/30 border-t-primary"></span>
+            <span>Saving...</span>
+          </>
+        ) : (
+          <>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span>Save Username</span>
+          </>
+        )}
       </button>
-      <p className="text-xs text-white/60 mt-3 text-center">
-        Your username will be shown to opponents during matchmaking
-      </p>
+      
+      <div className="flex items-start gap-2 px-2">
+        <svg className="w-4 h-4 text-white/50 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        <p className="text-xs text-white/50 leading-relaxed">
+          Your username will be displayed to opponents during matchmaking. Choose something memorable!
+        </p>
+      </div>
     </div>
   );
 };
@@ -558,27 +586,52 @@ export default function Lobby() {
 
         {/* Username Input Section */}
         {publicKey && (
-          <div className="mb-6 bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-xl max-w-md w-full">
-            <h3 className="text-lg font-bold text-accent mb-4 text-center">Set Your Username</h3>
-            {!username ? (
-              <UsernameInput 
-                wallet={publicKey.toString()}
-                onUsernameSet={(newUsername) => setUsername(newUsername)}
-              />
-            ) : (
-              <div className="text-center">
-                <div className="bg-white/5 rounded-lg px-4 py-3 mb-3 border border-white/10">
-                  <div className="text-sm text-white/70 mb-1">Your Username</div>
-                  <div className="text-xl font-bold text-accent">@{username}</div>
+          <div className="mb-8 max-w-lg w-full">
+            <div className={`bg-gradient-to-br ${username ? 'from-accent/15 via-yellow-400/10 to-accent/15' : 'from-purple-500/20 via-pink-500/15 to-purple-500/20'} backdrop-blur-xl rounded-2xl p-6 sm:p-8 border-2 ${username ? 'border-accent/40' : 'border-purple-400/40'} shadow-2xl transition-all duration-300 hover:shadow-3xl`}>
+              <div className="flex items-center gap-3 mb-6">
+                <div className={`w-12 h-12 rounded-xl ${username ? 'bg-gradient-to-br from-accent/30 to-yellow-400/30' : 'bg-gradient-to-br from-purple-500/30 to-pink-500/30'} flex items-center justify-center border-2 ${username ? 'border-accent/50' : 'border-purple-400/50'} shadow-lg`}>
+                  {username ? (
+                    <span className="text-2xl">✓</span>
+                  ) : (
+                    <svg className="w-6 h-6 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                  )}
                 </div>
-                <button
-                  onClick={() => setUsername(null)}
-                  className="text-xs text-white/60 hover:text-white/80 underline"
-                >
-                  Change Username
-                </button>
+                <div>
+                  <h3 className={`text-xl font-bold ${username ? 'text-accent' : 'text-purple-200'} mb-1`}>
+                    {username ? 'Your Username' : 'Set Your Username'}
+                  </h3>
+                  <p className="text-xs text-white/60">
+                    {username ? 'Your identity in matches' : 'Required before entering queue'}
+                  </p>
+                </div>
               </div>
-            )}
+              
+              {!username ? (
+                <UsernameInput 
+                  wallet={publicKey.toString()}
+                  onUsernameSet={(newUsername) => setUsername(newUsername)}
+                />
+              ) : (
+                <div className="space-y-4">
+                  <div className="bg-white/10 rounded-xl px-6 py-4 border border-white/20 backdrop-blur-sm">
+                    <div className="flex items-center justify-center gap-3">
+                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-accent/40 to-yellow-400/40 flex items-center justify-center border border-accent/50">
+                        <span className="text-accent text-lg font-bold">@</span>
+                      </div>
+                      <div className="text-2xl font-black text-accent tracking-wide">{username}</div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setUsername(null)}
+                    className="w-full px-4 py-2.5 text-sm font-semibold bg-white/10 text-white/80 rounded-xl hover:bg-white/20 hover:text-white transition-all duration-200 border border-white/20 hover:border-white/30"
+                  >
+                    Change Username
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         )}
 

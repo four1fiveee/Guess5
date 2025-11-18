@@ -230,89 +230,133 @@ export const TopRightWallet: React.FC = () => {
 
   return (
     <>
-      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-white/20 shadow-xl min-w-[180px] sm:min-w-[220px]">
-        <div className="flex flex-col gap-3">
-          {/* Username Display/Edit */}
-          {editingUsername ? (
-            <div className="w-full">
-              <input
-                type="text"
-                value={newUsername}
-                onChange={(e) => handleUsernameChange(e.target.value)}
-                placeholder="Enter username"
-                className="w-full px-3 py-2 text-sm rounded-lg bg-white/10 border border-accent/40 text-white placeholder-white/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all"
-                maxLength={20}
-                disabled={savingUsername}
-              />
-              {usernameError && (
-                <div className="text-red-400 text-xs mt-1.5 px-1">{usernameError}</div>
-              )}
-              <div className="flex gap-2 mt-2">
-                <button
-                  onClick={handleSaveUsername}
-                  disabled={savingUsername || !!usernameError || !newUsername.trim()}
-                  className="flex-1 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-accent to-yellow-400 text-primary rounded-lg hover:from-yellow-300 hover:to-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-105 active:scale-95"
-                >
-                  {savingUsername ? 'Saving...' : 'Save'}
-                </button>
-                <button
-                  onClick={() => {
-                    setEditingUsername(false);
-                    setNewUsername('');
-                    setUsernameError(null);
-                  }}
-                  className="px-3 py-1.5 text-xs font-bold bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all"
-                >
-                  Cancel
-                </button>
+      <div className="absolute top-4 right-4 sm:top-5 sm:right-5 z-50">
+        <div className="bg-gradient-to-br from-white/[0.12] via-white/[0.08] to-white/[0.12] backdrop-blur-xl rounded-2xl p-4 sm:p-5 border border-white/20 shadow-2xl min-w-[200px] sm:min-w-[240px] transition-all duration-300 hover:shadow-accent/20 hover:border-white/30">
+          <div className="flex flex-col gap-4">
+            {/* Username Display/Edit */}
+            {editingUsername ? (
+              <div className="w-full space-y-3">
+                <div className="relative">
+                  <input
+                    type="text"
+                    value={newUsername}
+                    onChange={(e) => handleUsernameChange(e.target.value)}
+                    placeholder="Enter username"
+                    className="w-full px-4 py-3 text-sm rounded-xl bg-white/10 border-2 border-accent/50 text-white placeholder-white/40 focus:outline-none focus:border-accent focus:ring-4 focus:ring-accent/20 transition-all duration-200 font-medium"
+                    maxLength={20}
+                    disabled={savingUsername}
+                  />
+                  {checkingAvailability && (
+                    <div className="absolute right-3 top-1/2 -translate-y-1/2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-accent/30 border-t-accent"></div>
+                    </div>
+                  )}
+                </div>
+                {usernameError && (
+                  <div className="px-3 py-2 text-red-400 text-xs font-medium bg-red-500/10 border border-red-500/30 rounded-lg animate-pulse">
+                    {usernameError}
+                  </div>
+                )}
+                <div className="flex gap-2.5">
+                  <button
+                    onClick={handleSaveUsername}
+                    disabled={savingUsername || !!usernameError || !newUsername.trim()}
+                    className="flex-1 px-4 py-2.5 text-sm font-bold bg-gradient-to-r from-accent via-yellow-400 to-accent text-primary rounded-xl hover:from-yellow-300 hover:via-accent hover:to-yellow-300 disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-accent/30"
+                  >
+                    {savingUsername ? (
+                      <span className="flex items-center justify-center gap-2">
+                        <span className="animate-spin rounded-full h-3 w-3 border-2 border-primary/30 border-t-primary"></span>
+                        Saving...
+                      </span>
+                    ) : (
+                      'Save'
+                    )}
+                  </button>
+                  <button
+                    onClick={() => {
+                      setEditingUsername(false);
+                      setNewUsername('');
+                      setUsernameError(null);
+                    }}
+                    className="px-4 py-2.5 text-sm font-semibold bg-white/10 text-white rounded-xl hover:bg-white/20 transition-all duration-200 border border-white/20 hover:border-white/30"
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
-            </div>
-          ) : (
-            <div className="w-full">
-              {username ? (
-                <div className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 border border-white/10">
-                  <div className="text-sm font-bold text-accent">@{username}</div>
+            ) : (
+              <div className="w-full">
+                {username ? (
+                  <div className="group flex items-center justify-between bg-gradient-to-r from-accent/15 via-accent/10 to-accent/15 rounded-xl px-4 py-3 border border-accent/30 hover:border-accent/50 transition-all duration-200">
+                    <div className="flex items-center gap-2.5">
+                      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-accent/30 to-yellow-400/30 flex items-center justify-center border border-accent/40">
+                        <span className="text-accent text-sm font-bold">@</span>
+                      </div>
+                      <div className="text-sm font-bold text-accent tracking-wide">{username}</div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditingUsername(true);
+                        setNewUsername(username);
+                        setUsernameError(null);
+                      }}
+                      className="opacity-60 group-hover:opacity-100 transition-opacity duration-200 p-1.5 hover:bg-white/10 rounded-lg"
+                      title="Edit username"
+                    >
+                      <svg className="w-4 h-4 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                      </svg>
+                    </button>
+                  </div>
+                ) : (
                   <button
                     onClick={() => {
                       setEditingUsername(true);
-                      setNewUsername(username);
+                      setNewUsername('');
                       setUsernameError(null);
                     }}
-                    className="text-xs text-white/60 hover:text-white/80 transition-colors"
+                    className="w-full px-4 py-3 text-sm font-semibold bg-gradient-to-r from-purple-500/25 via-pink-500/20 to-purple-500/25 border border-purple-400/40 text-purple-200 rounded-xl hover:from-purple-500/35 hover:via-pink-500/30 hover:to-purple-500/35 hover:border-purple-400/60 transition-all duration-200 transform hover:scale-[1.02] active:scale-[0.98] shadow-lg hover:shadow-purple-500/20 flex items-center justify-center gap-2"
                   >
-                    ✏️
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+                    </svg>
+                    Set Username
                   </button>
+                )}
+              </div>
+            )}
+
+            {/* Balance */}
+            <div className="relative overflow-hidden bg-gradient-to-br from-accent/25 via-yellow-400/20 to-accent/25 border-2 border-accent/40 rounded-xl px-4 py-4 text-center shadow-lg hover:shadow-accent/30 transition-all duration-200 group">
+              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/5 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>
+              <div className="relative">
+                <div className="text-[10px] uppercase tracking-wider text-white/60 font-semibold mb-1.5">Wallet Balance</div>
+                <div className="text-xl sm:text-2xl font-black text-accent tracking-tight">
+                  {walletBalance !== null ? (
+                    <span className="inline-flex items-baseline gap-1">
+                      <span>{walletBalance.toFixed(4)}</span>
+                      <span className="text-sm font-bold text-accent/80">SOL</span>
+                    </span>
+                  ) : (
+                    <span className="text-white/40">Loading...</span>
+                  )}
                 </div>
-              ) : (
-                <button
-                  onClick={() => {
-                    setEditingUsername(true);
-                    setNewUsername('');
-                    setUsernameError(null);
-                  }}
-                  className="w-full px-3 py-2 text-xs font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 text-purple-300 rounded-lg hover:from-purple-500/30 hover:to-pink-500/30 hover:border-purple-500/50 transition-all transform hover:scale-105 active:scale-95"
-                >
-                  ✏️ Set Username
-                </button>
-              )}
+              </div>
             </div>
-          )}
 
-          {/* Balance */}
-          <div className="bg-gradient-to-r from-accent/20 to-yellow-400/20 border border-accent/30 rounded-lg px-3 py-2.5 text-center">
-            <div className="text-xs text-white/70 mb-0.5">Balance</div>
-            <div className="text-base sm:text-lg font-black text-accent">
-              {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
-            </div>
+            {/* Disconnect Button */}
+            <button
+              className="px-4 py-3 text-sm font-bold bg-gradient-to-r from-red-600/90 via-red-600 to-red-700/90 text-white rounded-xl hover:from-red-500 hover:via-red-600 hover:to-red-500 transition-all duration-200 min-h-[44px] flex items-center justify-center w-full shadow-lg hover:shadow-red-500/40 transform hover:scale-[1.02] active:scale-[0.98] border border-red-500/40 hover:border-red-400/60 group"
+              onClick={disconnect}
+            >
+              <span className="flex items-center gap-2">
+                <svg className="w-4 h-4 group-hover:rotate-90 transition-transform duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Disconnect
+              </span>
+            </button>
           </div>
-
-          {/* Disconnect Button */}
-          <button
-            className="px-4 py-2 text-xs sm:text-sm font-bold bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-all min-h-[36px] flex items-center justify-center w-full shadow-lg hover:shadow-red-500/30 transform hover:scale-105 active:scale-95 border border-red-500/30"
-            onClick={disconnect}
-          >
-            Disconnect
-          </button>
         </div>
       </div>
 
