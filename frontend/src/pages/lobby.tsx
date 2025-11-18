@@ -554,8 +554,9 @@ export default function Lobby() {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 py-8 relative">
+      <TopRightWallet />
       <div className="flex flex-col items-center w-full max-w-6xl">
-        {/* Logo and Header */}
+        {/* Logo and Back Button */}
         <div className="flex flex-col items-center mb-6 sm:mb-8">
           <div className="logo-shell mb-4 sm:mb-6">
             <Image 
@@ -572,17 +573,14 @@ export default function Lobby() {
           >
             ← Back to Home
           </button>
-          <Link href="/referrals">
-            <button className="mb-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white px-5 py-2.5 rounded-lg transition-all duration-200 text-sm border border-purple-400/40 hover:border-purple-300/60 backdrop-blur-sm">
-              💰 Referrals
-            </button>
-          </Link>
         </div>
 
         {/* Wallet Connection */}
-        <div className="mb-6">
-          <WalletConnectButton />
-        </div>
+        {!publicKey && (
+          <div className="mb-6">
+            <WalletConnectButton />
+          </div>
+        )}
 
         {/* Username Input Section */}
         {publicKey && (
