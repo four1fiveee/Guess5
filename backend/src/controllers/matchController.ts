@@ -8063,7 +8063,9 @@ const generateReportHandler = async (req: any, res: any) => {
       // Core Match Info
       'Match ID',
       'Player 1 Wallet',
-      'Player 2 Wallet', 
+      'Player 1 Username',
+      'Player 2 Wallet',
+      'Player 2 Username',
       'Entry Fee (SOL)',
       // 'Entry Fee (USD)', // Removed per user request
       'Total Pot (SOL)',
@@ -8098,6 +8100,22 @@ const generateReportHandler = async (req: any, res: any) => {
       'Player 2 Guesses',
       'Player 2 Time (sec)',
       'Player 2 Result Reason',
+      
+      // Player 1 Referral Info
+      'Player 1 L1 Referrer Wallet',
+      'Player 1 L1 Referrer Fee (USD)',
+      'Player 1 L2 Referrer Wallet',
+      'Player 1 L2 Referrer Fee (USD)',
+      'Player 1 L3 Referrer Wallet',
+      'Player 1 L3 Referrer Fee (USD)',
+      
+      // Player 2 Referral Info
+      'Player 2 L1 Referrer Wallet',
+      'Player 2 L1 Referrer Fee (USD)',
+      'Player 2 L2 Referrer Wallet',
+      'Player 2 L2 Referrer Fee (USD)',
+      'Player 2 L3 Referrer Wallet',
+      'Player 2 L3 Referrer Fee (USD)',
       
       // Timestamps
       'Match Created (EST)',
@@ -8331,6 +8349,11 @@ const generateReportHandler = async (req: any, res: any) => {
       return match;
     };
     
+    // Import services for referral and user data
+    const { ReferralEarning } = require('../models/ReferralEarning');
+    const { UserService } = require('../services/userService');
+    const referralEarningRepository = AppDataSource.getRepository(ReferralEarning);
+    
     // Generate CSV rows with available data
     // For CSV generation, only backfill a limited number of matches to avoid timeout
     // Process matches in batches and skip backfill for most matches (use cached data)
@@ -8401,11 +8424,40 @@ const generateReportHandler = async (req: any, res: any) => {
           ? matchWithSignature.proposalTransactionId 
           : '';
       
+      // Fetch usernames for both players
+      const player1Username = matchWithSignature.player1 ? await UserService.getUsername(matchWithSignature.player1).catch(() => null) : null;
+      const player2Username = matchWithSignature.player2 ? await UserService.getUsername(matchWithSignature.player2).catch(() => null) : null;
+      
+      // Fetch referral earnings for this match
+      const referralEarnings = await referralEarningRepository.find({
+        where: { matchId: matchWithSignature.id }
+      });
+      
+      // Organize referral earnings by player and level
+      const player1Referrals: { [level: number]: { wallet: string; amountUSD: number } } = {};
+      const player2Referrals: { [level: number]: { wallet: string; amountUSD: number } } = {};
+      
+      for (const earning of referralEarnings) {
+        const level = earning.level;
+        const referralData = {
+          wallet: earning.uplineWallet,
+          amountUSD: Number(earning.amountUSD)
+        };
+        
+        if (earning.referredWallet === matchWithSignature.player1) {
+          player1Referrals[level] = referralData;
+        } else if (earning.referredWallet === matchWithSignature.player2) {
+          player2Referrals[level] = referralData;
+        }
+      }
+      
       return [
         // Core Match Info
         sanitizeCsvValue(matchWithSignature.id),
         sanitizeCsvValue(matchWithSignature.player1),
+        sanitizeCsvValue(player1Username || ''),
         sanitizeCsvValue(matchWithSignature.player2),
+        sanitizeCsvValue(player2Username || ''),
         sanitizeCsvValue(matchWithSignature.entryFee),
         // Entry Fee (USD) removed per user request
         sanitizeCsvValue(totalPot),
@@ -8440,6 +8492,22 @@ const generateReportHandler = async (req: any, res: any) => {
         sanitizeCsvValue(player2Result && player2Result.numGuesses ? player2Result.numGuesses : ''),
         sanitizeCsvValue(player2Result && player2Result.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
         sanitizeCsvValue(player2Result && player2Result.reason ? player2Result.reason : ''),
+        
+        // Player 1 Referral Info
+        sanitizeCsvValue(player1Referrals[1]?.wallet || ''),
+        sanitizeCsvValue(player1Referrals[1]?.amountUSD || ''),
+        sanitizeCsvValue(player1Referrals[2]?.wallet || ''),
+        sanitizeCsvValue(player1Referrals[2]?.amountUSD || ''),
+        sanitizeCsvValue(player1Referrals[3]?.wallet || ''),
+        sanitizeCsvValue(player1Referrals[3]?.amountUSD || ''),
+        
+        // Player 2 Referral Info
+        sanitizeCsvValue(player2Referrals[1]?.wallet || ''),
+        sanitizeCsvValue(player2Referrals[1]?.amountUSD || ''),
+        sanitizeCsvValue(player2Referrals[2]?.wallet || ''),
+        sanitizeCsvValue(player2Referrals[2]?.amountUSD || ''),
+        sanitizeCsvValue(player2Referrals[3]?.wallet || ''),
+        sanitizeCsvValue(player2Referrals[3]?.amountUSD || ''),
         
         // Timestamps
         convertToEST(matchWithSignature.createdAt),
@@ -8562,17 +8630,30 @@ const generateReportHandler = async (req: any, res: any) => {
         const { FEE_WALLET_ADDRESS } = require('../config/wallet');
         const feeWalletAddress = FEE_WALLET_ADDRESS;
         
+        // Import services for referral and user data (fallback)
+        const { ReferralEarning } = require('../models/ReferralEarning');
+        const { UserService } = require('../services/userService');
+        const referralEarningRepository = AppDataSource.getRepository(ReferralEarning);
+        
         // Generate CSV with fallback data (missing new columns will be empty)
         const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 'mainnet-beta';
         const csvHeaders = [
           // Core Match Info
-          'Match ID', 'Player 1 Wallet', 'Player 2 Wallet', 'Entry Fee (SOL)', 'Total Pot (SOL)',
+          'Match ID', 'Player 1 Wallet', 'Player 1 Username', 'Player 2 Wallet', 'Player 2 Username', 'Entry Fee (SOL)', 'Total Pot (SOL)',
           'Match Status', 'Winner', 'Winner Amount (SOL)', 'Fee Wallet Address', 'Game Completed',
           // Vault & Deposits
           'Squads Vault Address', 'Player 1 Deposit TX', 'Player 2 Deposit TX',
           // Game Results
           'Player 1 Solved', 'Player 1 Guesses', 'Player 1 Time (sec)', 'Player 1 Result Reason',
           'Player 2 Solved', 'Player 2 Guesses', 'Player 2 Time (sec)', 'Player 2 Result Reason',
+          // Player 1 Referral Info
+          'Player 1 L1 Referrer Wallet', 'Player 1 L1 Referrer Fee (USD)',
+          'Player 1 L2 Referrer Wallet', 'Player 1 L2 Referrer Fee (USD)',
+          'Player 1 L3 Referrer Wallet', 'Player 1 L3 Referrer Fee (USD)',
+          // Player 2 Referral Info
+          'Player 2 L1 Referrer Wallet', 'Player 2 L1 Referrer Fee (USD)',
+          'Player 2 L2 Referrer Wallet', 'Player 2 L2 Referrer Fee (USD)',
+          'Player 2 L3 Referrer Wallet', 'Player 2 L3 Referrer Fee (USD)',
           // Timestamps
           'Match Created (EST)', 'Game Started (EST)',
           // Proposal Info
