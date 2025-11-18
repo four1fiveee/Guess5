@@ -391,6 +391,9 @@ export default function ReferralsPage() {
               <p className="text-white/80 mt-3 leading-relaxed text-xs italic">
                 Note: Charlie (the player) doesn't earn referral fees. The $1.00 flows up to his referrers based on the referral chain.
               </p>
+              <p className="text-white/80 mt-2 leading-relaxed text-xs italic">
+                Total paid out: <strong className="text-white">$1.31</strong> ($1.00 + $0.25 + $0.06). The $0.25 and $0.06 are calculated based on the $1.00 amount but are paid in addition to it, not deducted from it.
+              </p>
             </div>
 
             <div className="bg-white/5 rounded-xl p-5 border border-white/10">
