@@ -376,17 +376,17 @@ export default function ReferralsPage() {
             <div className="bg-white/5 rounded-xl p-5 border border-white/10">
               <h3 className="text-base font-bold text-accent mb-3">Example 3: $100 VIP Elite Match (Multi-Level Chain)</h3>
               <p className="text-white/80 mb-3 leading-relaxed">
-                You refer Alice (L1), Alice refers Bob (L2), and Bob refers Charlie (L3). When Charlie plays a $100 match:
+                Bob refers Charlie (L1), Alice refers Bob (L2), and you refer Alice (L3). When Charlie plays a $100 match:
               </p>
               <p className="text-white/80 mb-3 leading-relaxed">
                 Total pot: <strong className="text-white">$200</strong>. Platform fee: <strong className="text-white">$10.00</strong>. Bonus paid: <strong className="text-white">$1.75</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$8.02</strong>.
               </p>
               <ul className="list-disc list-inside space-y-1.5 text-white/80 ml-2 mt-2">
                 <li>Referral pool: <strong className="text-white">$2.005</strong> (25% of $8.02)</li>
-                <li>Amount flowing up Charlie's referral chain: <strong className="text-white">$1.00</strong> (half of $2.005)</li>
-                <li>You (L3): <strong className="text-pink-300">$0.06</strong> (6.25% of $1.00)</li>
-                <li>Alice (L2): <strong className="text-purple-300">$0.25</strong> (25% of $1.00)</li>
-                <li>Bob (L1): <strong className="text-accent">$1.00</strong> (100% of $1.00)</li>
+                <li>Charlie's referral pool share: <strong className="text-white">$1.00</strong> (half of $2.005)</li>
+                <li>Bob (L1): <strong className="text-accent">$1.00</strong> (100% of Charlie's $1.00)</li>
+                <li>Alice (L2): <strong className="text-purple-300">$0.25</strong> (25% of Bob's $1.00)</li>
+                <li>You (L3): <strong className="text-pink-300">$0.06</strong> (25% of Alice's $0.25)</li>
               </ul>
               <p className="text-white/80 mt-3 leading-relaxed text-xs italic">
                 Note: Charlie (the player) doesn't earn referral fees. The $1.00 flows up to his referrers based on the referral chain.
