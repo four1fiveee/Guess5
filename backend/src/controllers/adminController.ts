@@ -217,7 +217,9 @@ export const adminGetOwedReferrals = async (req: Request, res: Response) => {
 export const adminPreparePayoutBatch = async (req: Request, res: Response) => {
   try {
     const { scheduledSendAt, minPayoutUSD } = req.body;
-    const createdByAdmin = (req.headers['x-admin-user'] as string) || 'system';
+    // Express Request has headers property, but TypeScript needs explicit typing
+    const adminHeader = (req as any).headers?.['x-admin-user'] as string | undefined;
+    const createdByAdmin = adminHeader || 'system';
 
     const sendAt = scheduledSendAt ? new Date(scheduledSendAt) : getNextSunday1300EST();
     const minPayout = minPayoutUSD || 20;
