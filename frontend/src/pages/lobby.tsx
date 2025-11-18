@@ -56,7 +56,7 @@ const UsernameInput: React.FC<{ wallet: string; onUsernameSet: (username: string
     setUsernameError(null);
 
     try {
-      await setUsername(wallet, newUsername.trim());
+      await setUsernameAPI(wallet, newUsername.trim());
       onUsernameSet(newUsername.trim().toLowerCase());
     } catch (error: any) {
       setUsernameError(error.message || 'Failed to save username');
