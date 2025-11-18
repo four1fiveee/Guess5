@@ -8775,6 +8775,20 @@ const generateReportHandler = async (req: any, res: any) => {
             sanitizeCsvValue(player2Result?.numGuesses || ''),
             sanitizeCsvValue(player2Result?.totalTime ? Math.round(player2Result.totalTime / 1000) : ''),
             sanitizeCsvValue(player2Result?.reason || ''),
+            // Player 1 Referral Info
+            sanitizeCsvValue(player1Referrals[1]?.wallet || ''),
+            sanitizeCsvValue(player1Referrals[1]?.amountUSD || ''),
+            sanitizeCsvValue(player1Referrals[2]?.wallet || ''),
+            sanitizeCsvValue(player1Referrals[2]?.amountUSD || ''),
+            sanitizeCsvValue(player1Referrals[3]?.wallet || ''),
+            sanitizeCsvValue(player1Referrals[3]?.amountUSD || ''),
+            // Player 2 Referral Info
+            sanitizeCsvValue(player2Referrals[1]?.wallet || ''),
+            sanitizeCsvValue(player2Referrals[1]?.amountUSD || ''),
+            sanitizeCsvValue(player2Referrals[2]?.wallet || ''),
+            sanitizeCsvValue(player2Referrals[2]?.amountUSD || ''),
+            sanitizeCsvValue(player2Referrals[3]?.wallet || ''),
+            sanitizeCsvValue(player2Referrals[3]?.amountUSD || ''),
             // Timestamps
         convertToEST(match.createdAt),
         convertToEST(match.gameStartTimeUtc),
