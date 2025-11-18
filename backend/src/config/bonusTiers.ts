@@ -9,7 +9,7 @@ export const BONUS_TIERS: BonusTier[] = [
   {
     id: 'vip',
     minEntryUsd: 100,
-    bonusUsd: 1.75,
+    bonusUsd: 2.00,
     label: 'VIP Elite Boost'
   },
   {

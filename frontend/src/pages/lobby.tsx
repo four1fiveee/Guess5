@@ -189,10 +189,10 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '💎 VIP Showcase',
     badgeTheme: 'purple',
     headline: 'The most competitive tier with the biggest bonus we offer.',
-    incentive: 'Pocket an extra $1.75 every time you seal the match.',
+    incentive: 'Pocket an extra $2.00 every time you seal the match.',
     cta: 'Claim a VIP Seat',
     isPremium: true,
-    bonusUsd: 1.75
+    bonusUsd: 2.00
   }
 ];
 
