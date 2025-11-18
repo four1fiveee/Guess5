@@ -63,6 +63,63 @@ export class UserService {
   }
 
   /**
+   * Set username for a user (must be unique)
+   */
+  static async setUsername(walletAddress: string, username: string): Promise<User> {
+    const userRepository = AppDataSource.getRepository(User);
+    
+    // Validate username format (3-20 alphanumeric + underscore, case-insensitive)
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (!usernameRegex.test(username)) {
+      throw new Error('Username must be 3-20 characters and contain only letters, numbers, and underscores');
+    }
+
+    // Check if username is already taken
+    const existingUser = await userRepository.findOne({
+      where: { username: username.toLowerCase() }
+    });
+
+    if (existingUser && existingUser.walletAddress !== walletAddress) {
+      throw new Error('Username is already taken');
+    }
+
+    // Get or create user
+    const user = await this.getUserByWallet(walletAddress);
+    user.username = username.toLowerCase(); // Store lowercase for uniqueness
+    
+    return await userRepository.save(user);
+  }
+
+  /**
+   * Get username for a wallet address
+   */
+  static async getUsername(walletAddress: string): Promise<string | null> {
+    const user = await this.getUserByWallet(walletAddress);
+    return user.username;
+  }
+
+  /**
+   * Get user by username
+   */
+  static async getUserByUsername(username: string): Promise<User | null> {
+    const userRepository = AppDataSource.getRepository(User);
+    return await userRepository.findOne({
+      where: { username: username.toLowerCase() }
+    });
+  }
+
+  /**
+   * Check if username is available
+   */
+  static async isUsernameAvailable(username: string): Promise<boolean> {
+    const userRepository = AppDataSource.getRepository(User);
+    const existing = await userRepository.findOne({
+      where: { username: username.toLowerCase() }
+    });
+    return !existing;
+  }
+
+  /**
    * Recompute total entry fees for a user from matches table
    */
   static async recomputeTotalEntryFees(walletAddress: string): Promise<User> {

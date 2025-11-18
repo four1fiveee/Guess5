@@ -121,3 +121,23 @@ export const getGameState = async (matchId: string, wallet: string) => {
     method: 'GET',
   });
 };
+
+// Username API functions
+export const setUsername = async (wallet: string, username: string) => {
+  return apiRequest('/api/user/username', {
+    method: 'POST',
+    body: JSON.stringify({ wallet, username }),
+  });
+};
+
+export const getUsername = async (wallet: string) => {
+  return apiRequest(`/api/user/username?wallet=${wallet}`, {
+    method: 'GET',
+  });
+};
+
+export const checkUsernameAvailability = async (username: string) => {
+  return apiRequest(`/api/user/username/check?username=${encodeURIComponent(username)}`, {
+    method: 'GET',
+  });
+};

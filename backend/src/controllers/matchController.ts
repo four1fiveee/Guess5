@@ -882,11 +882,18 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
       
+      // Get usernames for both players
+      const { UserService } = require('../services/userService');
+      const player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
+      const player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
+      
       return {
         status: 'matched',
         matchId: matchData.matchId,
         player1: matchData.player1,
         player2: matchData.player2,
+        player1Username: player1Username || null,
+        player2Username: player2Username || null,
         entryFee: matchData.entryFee,
         squadsVaultAddress: vaultResult.vaultAddress,
         vaultAddress: vaultResult.vaultAddress,
@@ -4520,10 +4527,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   }
 
     applyNoCacheHeaders();
+    
+    // Get usernames for both players
+    const { UserService } = require('../services/userService');
+    const player1Username = await UserService.getUsername(match.player1).catch(() => null);
+    const player2Username = match.player2 ? await UserService.getUsername(match.player2).catch(() => null) : null;
+    
     res.json({
     status: playerSpecificStatus,
       player1: match.player1,
       player2: match.player2,
+      player1Username: player1Username || null,
+      player2Username: player2Username || null,
       squadsVaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
       squadsVaultPda: (match as any).squadsVaultPda || null,
       vaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
@@ -4855,12 +4870,31 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         message = 'Already in active match';
       }
       
+      // Get usernames for both players
+      const { UserService } = require('../services/userService');
+      let player1Username = null;
+      let player2Username = null;
+      try {
+        player1Username = await UserService.getUsername(activeMatch.player1);
+      } catch (e) {
+        // Ignore errors
+      }
+      if (activeMatch.player2) {
+        try {
+          player2Username = await UserService.getUsername(activeMatch.player2);
+        } catch (e) {
+          // Ignore errors
+        }
+      }
+      
       res.json({
         matched: true,
         matchId: activeMatch.id,
         status: activeMatch.status,
         player1: activeMatch.player1,
         player2: activeMatch.player2,
+        player1Username: player1Username || null,
+        player2Username: player2Username || null,
         player1Paid: activeMatch.player1Paid,
         player2Paid: activeMatch.player2Paid,
         word: activeMatch.word,

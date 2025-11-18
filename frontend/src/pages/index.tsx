@@ -112,6 +112,11 @@ export default function Home() {
               📚 Rules, FAQ & Match History
             </button>
           </Link>
+          <Link href="/referrals">
+            <button className="bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white text-sm sm:text-base font-semibold px-6 py-3 sm:py-3.5 rounded-xl shadow-lg border border-purple-400/40 hover:border-purple-300/60 transition-all duration-300 min-h-[48px] flex items-center justify-center transform hover:scale-105 active:scale-95">
+              💰 Referrals
+            </button>
+          </Link>
         </div>
 
         {/* Social Links */}

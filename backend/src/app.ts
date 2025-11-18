@@ -225,8 +225,10 @@ app.use('/api/multisig', multisigRoutes);
 // Referral and admin routes (ES6 modules need .default when using require)
 const referralRoutes = require('./routes/referralRoutes');
 const adminRoutes = require('./routes/adminRoutes');
+const userRoutes = require('./routes/userRoutes');
 app.use('/api/referral', referralRoutes.default || referralRoutes);
 app.use('/api/admin', adminRoutes.default || adminRoutes);
+app.use('/api/user', userRoutes.default || userRoutes);
 
 // Debug endpoints only in development
 if (process.env.NODE_ENV === 'development') {

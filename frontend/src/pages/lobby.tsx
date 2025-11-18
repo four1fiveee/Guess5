@@ -1,12 +1,13 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { requestMatch, getMatchStatus } from '../utils/api'
+import { requestMatch, getMatchStatus, getUsername } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
+import Link from 'next/link'
 
 const POT_RETURN_PERCENT = 0.95;
 
@@ -130,6 +131,7 @@ export default function Lobby() {
   const [solPrice, setSolPrice] = useState<number | null>(null)
   const [walletBalance, setWalletBalance] = useState<number | null>(null)
   const [signingRefund, setSigningRefund] = useState<string | null>(null)
+  const [username, setUsername] = useState<string | null>(null)
 
   const tierData = useMemo(() => {
     return STAKE_TIERS.map((tier) => {
@@ -269,6 +271,15 @@ export default function Lobby() {
     localStorage.removeItem('word');
     localStorage.removeItem('entryFee');
     
+    // Load username when wallet connects
+    if (publicKey) {
+      getUsername(publicKey.toString())
+        .then((response) => setUsername(response.username || null))
+        .catch((error) => console.error('Failed to load username:', error));
+    } else {
+      setUsername(null);
+    }
+    
     // Check if player has an active match
     const checkForActiveMatch = async () => {
       if (!publicKey) return;
@@ -366,6 +377,12 @@ export default function Lobby() {
       console.log('⏳ Already matchmaking, ignoring click');
       return;
     }
+
+    // Check if username is set
+    if (!username) {
+      alert('Please set a username before entering the queue. You can set it in the top right corner.');
+      return;
+    }
     
     // Check if balance is sufficient
     if (walletBalance !== null && walletBalance < solAmount) {
@@ -438,12 +455,25 @@ export default function Lobby() {
           >
             ← Back to Home
           </button>
+          <Link href="/referrals">
+            <button className="mb-4 bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white px-5 py-2.5 rounded-lg transition-all duration-200 text-sm border border-purple-400/40 hover:border-purple-300/60 backdrop-blur-sm">
+              💰 Referrals
+            </button>
+          </Link>
         </div>
 
         {/* Wallet Connection */}
         <div className="mb-6">
           <WalletConnectButton />
         </div>
+
+        {/* Username Requirement Notice */}
+        {publicKey && !username && (
+          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 max-w-md w-full text-center">
+            <div className="text-yellow-400 text-sm font-semibold mb-1">⚠️ Username Required</div>
+            <div className="text-white/80 text-xs">Set your username in the top right corner before entering the queue.</div>
+          </div>
+        )}
 
         {!publicKey ? (
           <div className="bg-secondary bg-opacity-10 rounded-2xl p-8 max-w-md w-full text-center border border-white/10 backdrop-blur-sm">

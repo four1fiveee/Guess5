@@ -829,6 +829,8 @@ const Matchmaking: React.FC = () => {
                   matchId: data.matchId,
                   player1: data.player1,
                   player2: data.player2,
+                  player1Username: data.player1Username || null,
+                  player2Username: data.player2Username || null,
                   entryFee: data.entryFee || entryFee,
                   status: 'payment_required',
                   player1Paid: data.player1Paid || false,
@@ -1152,6 +1154,8 @@ const Matchmaking: React.FC = () => {
             matchId: data.matchId,
             player1: data.player1,
             player2: data.player2,
+            player1Username: data.player1Username || null,
+            player2Username: data.player2Username || null,
             entryFee: data.entryFee || currentEntryFee,
             status: 'payment_required',
             player1Paid: data.player1Paid || false,
@@ -1362,6 +1366,11 @@ const Matchmaking: React.FC = () => {
               <div className="text-white/80 mb-6 text-center">
                 Waiting for another player to join
               </div>
+              {matchData?.player2Username && (
+                <div className="bg-accent/20 border border-accent/30 rounded-lg p-4 mb-6 text-center">
+                  <div className="text-accent text-lg font-bold">Match found against @{matchData.player2Username}!</div>
+                </div>
+              )}
               <div className="space-y-3 mb-6">
                 <div className="bg-secondary bg-opacity-20 rounded-lg p-4 border border-accent/20">
                   <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Entry Fee</div>
@@ -1466,6 +1475,9 @@ const Matchmaking: React.FC = () => {
                 <div className="animate-pulse w-3 h-3 bg-accent rounded-full mr-3"></div>
                 <h2 className="text-2xl font-bold text-accent">Waiting for Opponent</h2>
               </div>
+              {matchData?.player2Username && (
+                <p className="text-white/70 text-sm mb-4 text-center">Waiting for @{matchData.player2Username} to pay their entry fee</p>
+              )}
               <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
                 <div className="text-green-400 text-sm font-medium mb-1">✓ Your payment confirmed</div>
                 <p className="text-white/70 text-sm">Waiting for your opponent to pay their entry fee</p>
