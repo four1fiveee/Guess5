@@ -5,6 +5,11 @@ import { Guess } from '../models/Guess'
 import { Transaction } from '../models/Transaction'
 import { MatchAttestation } from '../models/MatchAttestation'
 import { MatchAuditLog } from '../models/MatchAuditLog'
+import { User } from '../models/User'
+import { Referral } from '../models/Referral'
+import { ReferralUpline } from '../models/ReferralUpline'
+import { ReferralEarning } from '../models/ReferralEarning'
+import { PayoutBatch } from '../models/PayoutBatch'
 import { MatchSubscriber } from '../subscribers/matchSubscriber'
 import * as dotenv from 'dotenv'
 
@@ -26,7 +31,7 @@ validateDatabaseConfig();
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL!,
-  entities: [Match, Guess, Transaction, MatchAttestation, MatchAuditLog],
+  entities: [Match, Guess, Transaction, MatchAttestation, MatchAuditLog, User, Referral, ReferralUpline, ReferralEarning, PayoutBatch],
   subscribers: [MatchSubscriber],
   migrations: ['dist/db/migrations/*.js'],
   synchronize: false, // Use migrations instead of synchronize

@@ -1,0 +1,335 @@
+import { useState, useEffect } from 'react';
+import Head from 'next/head';
+import Link from 'next/link';
+import Image from 'next/image';
+import logo from '../../public/logo.png';
+import { TopRightWallet } from '../components/WalletConnect';
+import { useWallet } from '@solana/wallet-adapter-react';
+
+interface ReferralStats {
+  totalEarnedUSD: number;
+  totalEarnedSOL: number;
+  pendingUSD: number;
+  paidUSD: number;
+  referredCount: number;
+  activeReferredCount: number;
+  eligibleReferredCount: number;
+}
+
+interface EarningsBreakdown {
+  byLevel: Array<{ level: number; totalUSD: number; count: number }>;
+  byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
+}
+
+interface PayoutHistory {
+  date: Date;
+  amountUSD: number;
+  amountSOL?: number;
+  level: number;
+  transactionSignature?: string;
+}
+
+export default function ReferralsPage() {
+  const { publicKey } = useWallet();
+  const [wallet, setWallet] = useState<string>('');
+  const [stats, setStats] = useState<ReferralStats | null>(null);
+  const [breakdown, setBreakdown] = useState<EarningsBreakdown | null>(null);
+  const [isEligible, setIsEligible] = useState<boolean>(false);
+  const [nextPayoutDate, setNextPayoutDate] = useState<Date | null>(null);
+  const [payoutHistory, setPayoutHistory] = useState<PayoutHistory[]>([]);
+  const [loading, setLoading] = useState<boolean>(false);
+  const [referralLink, setReferralLink] = useState<string>('');
+
+  useEffect(() => {
+    // Get wallet from connected wallet or query params
+    const walletAddress = publicKey?.toString() || '';
+    
+    if (walletAddress) {
+      setWallet(walletAddress);
+      setReferralLink(`${window.location.origin}?ref=${walletAddress}`);
+      loadDashboardData(walletAddress);
+    }
+  }, [publicKey]);
+
+  const loadDashboardData = async (walletAddress: string) => {
+    setLoading(true);
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5-backend.onrender.com';
+      const response = await fetch(`${apiUrl}/api/referral/dashboard?wallet=${walletAddress}`);
+      const data = await response.json();
+
+      if (data.success) {
+        setStats(data.stats);
+        setBreakdown(data.breakdown);
+        setIsEligible(data.isEligible);
+        setNextPayoutDate(data.nextPayoutDate ? new Date(data.nextPayoutDate) : null);
+        setPayoutHistory(data.payoutHistory || []);
+      }
+    } catch (error) {
+      console.error('Error loading referral dashboard:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyReferralLink = () => {
+    navigator.clipboard.writeText(referralLink);
+    alert('Referral link copied to clipboard!');
+  };
+
+  const formatUSD = (amount: number) => {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  };
+
+  const formatDate = (date: Date | string) => {
+    return new Date(date).toLocaleDateString('en-US', {
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  if (!wallet) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative">
+        <TopRightWallet />
+        <Head>
+          <title>Referrals - Guess5</title>
+        </Head>
+        <div className="flex flex-col items-center max-w-4xl w-full mt-8">
+          <div className="logo-shell mb-4 sm:mb-6">
+            <Image src={logo} alt="Guess5 Logo" width={100} height={100} priority />
+          </div>
+          <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-6 text-center">Referrals</h1>
+          <div className="bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+            <p className="text-white/90 text-center mb-4">Please connect your wallet to view your referral dashboard.</p>
+            <div className="flex justify-center gap-4">
+              <Link href="/">
+                <button className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl transition-all duration-300 border border-white/20">
+                  ← Back to Home
+                </button>
+              </Link>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative">
+      <TopRightWallet />
+      <Head>
+        <title>Referrals - Guess5</title>
+      </Head>
+      <div className="flex flex-col items-center max-w-4xl w-full mt-8">
+        <div className="logo-shell mb-4 sm:mb-6">
+          <Image src={logo} alt="Guess5 Logo" width={100} height={100} priority />
+        </div>
+        <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-6 text-center">Earn when your friends play</h1>
+        
+        {/* Referral Summary Card */}
+        <div className="referral-summary bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Summary</h2>
+          {loading ? (
+            <p>Loading...</p>
+          ) : stats ? (
+            <div className="space-y-3 text-white/90">
+              <div className="flex justify-between items-center">
+                <span className="font-semibold">Total Earned:</span>
+                <span className="text-accent font-bold text-lg">{formatUSD(stats.totalEarnedUSD)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold">Available to Payout:</span>
+                <span className="text-green-400 font-bold text-lg">{formatUSD(stats.pendingUSD)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold">Paid:</span>
+                <span className="text-white/70">{formatUSD(stats.paidUSD)}</span>
+              </div>
+              {nextPayoutDate && (
+                <div className="flex justify-between items-center pt-2 border-t border-white/20">
+                  <span className="font-semibold">Next Payout:</span>
+                  <span className="text-white/80">{formatDate(nextPayoutDate)}</span>
+                </div>
+              )}
+              {!isEligible && (
+                <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3 mt-4">
+                  <p className="text-yellow-400 text-sm">⚠️ Play your first match to start earning referral rewards!</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p>No data available</p>
+          )}
+        </div>
+
+        {/* Share Link */}
+        <div className="share-link bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-purple-500/30 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Your Referral Link</h2>
+          <div className="flex flex-col sm:flex-row gap-3 mb-4">
+            <input 
+              type="text" 
+              value={referralLink} 
+              readOnly 
+              className="flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/90 focus:outline-none focus:border-accent/50"
+            />
+            <button 
+              onClick={copyReferralLink} 
+              className="px-6 py-3 bg-accent hover:bg-yellow-300 text-primary font-bold rounded-xl transition-all duration-300 transform hover:scale-105 active:scale-95"
+            >
+              Copy Link
+            </button>
+          </div>
+          <div className="flex gap-3 flex-wrap mb-4">
+            <a
+              href={`https://twitter.com/intent/tweet?text=Check out Guess5.io - a fun word game on Solana!&url=${encodeURIComponent(referralLink)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
+            >
+              Share on Twitter
+            </a>
+            <button
+              onClick={() => navigator.share?.({ title: 'Guess5.io', text: 'Check out this fun word game!', url: referralLink })}
+              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium"
+            >
+              Share
+            </button>
+          </div>
+          <p className="text-sm text-white/70">
+            Share this link — every person who signs up and plays using your link will credit you. 
+            You'll earn a share of the net fee. Payouts: weekly Sunday 1pm EST, min $20 USD.
+          </p>
+        </div>
+
+        {/* Referral Funnel */}
+        {stats && (
+          <div className="referral-funnel bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Funnel</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
+                <div className="text-3xl font-bold text-accent mb-2">{stats.referredCount}</div>
+                <div className="text-white/80 text-sm">Referred Wallets</div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
+                <div className="text-3xl font-bold text-green-400 mb-2">{stats.activeReferredCount}</div>
+                <div className="text-white/80 text-sm">Active (Played)</div>
+              </div>
+              <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
+                <div className="text-3xl font-bold text-purple-400 mb-2">{stats.eligibleReferredCount}</div>
+                <div className="text-white/80 text-sm">Eligible</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Earnings Breakdown */}
+        {breakdown && (
+          <div className="earnings-breakdown bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown</h2>
+            <h3 className="text-lg font-semibold text-white/90 mb-3">By Level</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-white/20">
+                    <th className="text-left py-3 px-4 text-white/90 font-semibold">Level</th>
+                    <th className="text-right py-3 px-4 text-white/90 font-semibold">Total USD</th>
+                    <th className="text-right py-3 px-4 text-white/90 font-semibold">Count</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {breakdown.byLevel.map(item => (
+                    <tr key={item.level} className="border-b border-white/10 hover:bg-white/5">
+                      <td className="py-3 px-4 text-accent font-bold">L{item.level}</td>
+                      <td className="py-3 px-4 text-right text-white/90">{formatUSD(item.totalUSD)}</td>
+                      <td className="py-3 px-4 text-right text-white/70">{item.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Payout History */}
+        {payoutHistory.length > 0 && (
+          <div className="payout-history bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Payout History</h2>
+            <div className="overflow-x-auto">
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr className="border-b border-white/20">
+                    <th className="text-left py-3 px-4 text-white/90 font-semibold">Date</th>
+                    <th className="text-right py-3 px-4 text-white/90 font-semibold">Amount</th>
+                    <th className="text-center py-3 px-4 text-white/90 font-semibold">Level</th>
+                    <th className="text-center py-3 px-4 text-white/90 font-semibold">Transaction</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payoutHistory.map((payout, idx) => (
+                    <tr key={idx} className="border-b border-white/10 hover:bg-white/5">
+                      <td className="py-3 px-4 text-white/80 text-sm">{formatDate(payout.date)}</td>
+                      <td className="py-3 px-4 text-right text-green-400 font-semibold">{formatUSD(payout.amountUSD)}</td>
+                      <td className="py-3 px-4 text-center text-accent font-bold">L{payout.level}</td>
+                      <td className="py-3 px-4 text-center">
+                        {payout.transactionSignature ? (
+                          <a 
+                            href={`https://solscan.io/tx/${payout.transactionSignature}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-accent hover:text-yellow-300 underline"
+                          >
+                            View
+                          </a>
+                        ) : (
+                          <span className="text-white/50">-</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* Terms & FAQ */}
+        <div className="terms bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-white/20 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Terms & FAQ</h2>
+          <div className="space-y-3 text-white/80 text-sm">
+            <p>
+              <strong className="text-white">Referral rewards</strong> are calculated from the net platform fees (after bonuses & network costs). 
+              A portion of net fees is reserved for referral payouts.
+            </p>
+            <p>
+              <strong className="text-white">Eligibility:</strong> You must have played at least one match to be eligible to receive payments.
+            </p>
+            <p>
+              <strong className="text-white">Payouts:</strong> Weekly on Sunday 1pm EST. Minimum payout $20 USD.
+            </p>
+            <p>
+              <strong className="text-white">MLM Structure:</strong> L1 = 100% of per-player share, L2 = 25% of L1, L3 = 25% of L2.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex gap-4 mt-8 mb-8">
+          <Link href="/">
+            <button className="px-6 py-3 bg-white/10 hover:bg-white/20 text-white font-semibold rounded-xl transition-all duration-300 border border-white/20">
+              ← Back to Home
+            </button>
+          </Link>
+          <Link href="/lobby">
+            <button className="px-6 py-3 bg-accent hover:bg-yellow-300 text-primary font-bold rounded-xl transition-all duration-300 transform hover:scale-105">
+              Play Now
+            </button>
+          </Link>
+        </div>
+      </div>
+    </div>
+  );
+}
+

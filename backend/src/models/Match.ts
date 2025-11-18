@@ -187,6 +187,22 @@ export class Match {
   @Column({ nullable: true })
   bonusTier?: string;
 
+  // Referral program fields
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  squadsCost?: number; // Squads network costs per match
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  squadsCostUSD?: number; // USD equivalent
+
+  @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
+  netProfit?: number; // Calculated as platformFee - bonusAmount - squadsCost
+
+  @Column({ type: 'decimal', precision: 10, scale: 2, nullable: true })
+  netProfitUSD?: number; // USD equivalent
+
+  @Column({ default: false })
+  referralEarningsComputed?: boolean; // Flag to track if referral earnings were calculated
+
   @Column({ type: 'decimal', precision: 10, scale: 6, nullable: true })
   matchDuration?: number;
 

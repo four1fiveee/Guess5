@@ -1,5 +1,9 @@
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL, Keypair } from '@solana/web3.js';
 import { FEE_WALLET_ADDRESS } from '../config/wallet';
+import { AppDataSource } from '../db';
+import { ReferralEarning } from '../models/ReferralEarning';
+import { PayoutBatch, PayoutBatchStatus } from '../models/PayoutBatch';
+import { PriceService } from './priceService';
 
 // Smart contract configuration - using environment variables
 // Note: These are used in the smart contract service integration
@@ -278,5 +282,224 @@ export const refundFromFeeWallet = async (matchData: {
     console.error('❌ Error creating fee wallet refund transactions:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     return { success: false, error: errorMessage };
+  }
+};
+
+// Referral payout batch functions
+export const referralPayoutService = {
+  /**
+   * Aggregate unpaid referral earnings >= $20 by upline_wallet
+   */
+  async aggregateWeeklyPayouts(minPayoutUSD: number = 20): Promise<Array<{
+    uplineWallet: string;
+    totalUSD: number;
+    matchCount: number;
+    lastMatchTime: Date;
+  }>> {
+    const result = await AppDataSource.query(`
+      SELECT 
+        upline_wallet as "uplineWallet",
+        SUM(amount_usd) as "totalUSD",
+        COUNT(*) as "matchCount",
+        MAX("createdAt") as "lastMatchTime"
+      FROM referral_earning
+      WHERE paid = false
+        AND amount_usd IS NOT NULL
+      GROUP BY upline_wallet
+      HAVING SUM(amount_usd) >= $1
+      ORDER BY "totalUSD" DESC
+    `, [minPayoutUSD]);
+
+    return result.map((row: any) => ({
+      uplineWallet: row.uplineWallet,
+      totalUSD: parseFloat(row.totalUSD),
+      matchCount: parseInt(row.matchCount),
+      lastMatchTime: row.lastMatchTime
+    }));
+  },
+
+  /**
+   * Prepare a payout batch for weekly payouts
+   */
+  async preparePayoutBatch(
+    scheduledSendAt: Date,
+    minPayoutUSD: number = 20,
+    createdByAdmin?: string
+  ): Promise<PayoutBatch> {
+    // Get all eligible payouts
+    const payouts = await this.aggregateWeeklyPayouts(minPayoutUSD);
+
+    if (payouts.length === 0) {
+      throw new Error('No eligible payouts found');
+    }
+
+    // Get SOL price
+    const solPrice = await PriceService.getSOLPrice();
+
+    // Calculate total amounts
+    const totalUSD = payouts.reduce((sum, p) => sum + p.totalUSD, 0);
+    const totalSOL = await PriceService.convertUSDToSOL(totalUSD);
+
+    // Create batch
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+    const batch = batchRepository.create({
+      batchAt: new Date(),
+      scheduledSendAt,
+      minPayoutUSD,
+      status: PayoutBatchStatus.PREPARED,
+      totalAmountUSD: totalUSD,
+      totalAmountSOL: totalSOL,
+      solPriceAtPayout: solPrice,
+      createdByAdmin
+    });
+
+    const savedBatch = await batchRepository.save(batch);
+
+    // Update earnings with batch ID
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const uplineWallets = payouts.map(p => p.uplineWallet);
+    
+    await earningRepository.query(`
+      UPDATE referral_earning
+      SET "payoutBatchId" = $1
+      WHERE "uplineWallet" = ANY($2)
+        AND paid = false
+        AND "payoutBatchId" IS NULL
+    `, [savedBatch.id, uplineWallets]);
+
+    console.log(`✅ Prepared payout batch ${savedBatch.id} with ${payouts.length} payouts totaling $${totalUSD} USD (${totalSOL} SOL)`);
+
+    return savedBatch;
+  },
+
+  /**
+   * Generate Solana transaction for batch payout
+   */
+  async generateBatchTransaction(batchId: string): Promise<Transaction> {
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+    const batch = await batchRepository.findOne({ where: { id: batchId } });
+
+    if (!batch) {
+      throw new Error(`Batch ${batchId} not found`);
+    }
+
+    if (batch.status !== PayoutBatchStatus.PREPARED && batch.status !== PayoutBatchStatus.REVIEWED) {
+      throw new Error(`Batch ${batchId} is not in prepared/reviewed status`);
+    }
+
+    // Get all earnings for this batch
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const earnings = await earningRepository.find({
+      where: { payoutBatchId: batchId, paid: false }
+    });
+
+    // Convert USD to SOL for each earning
+    const solPrice = batch.solPriceAtPayout || await PriceService.getSOLPrice();
+    const transaction = new Transaction();
+
+    // Group by upline wallet to combine payments
+    const paymentsByWallet = new Map<string, number>();
+    
+    for (const earning of earnings) {
+      const amountSOL = Number(earning.amountUSD) / solPrice;
+      const existing = paymentsByWallet.get(earning.uplineWallet) || 0;
+      paymentsByWallet.set(earning.uplineWallet, existing + amountSOL);
+    }
+
+    // Add transfers to transaction
+    for (const [wallet, amountSOL] of paymentsByWallet.entries()) {
+      transaction.add(
+        SystemProgram.transfer({
+          fromPubkey: new PublicKey(FEE_WALLET_ADDRESS),
+          toPubkey: new PublicKey(wallet),
+          lamports: Math.floor(amountSOL * LAMPORTS_PER_SOL)
+        })
+      );
+    }
+
+    // Get latest blockhash
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = new PublicKey(FEE_WALLET_ADDRESS);
+
+    return transaction;
+  },
+
+  /**
+   * Send payout batch (execute transaction)
+   */
+  async sendPayoutBatch(batchId: string, transactionSignature: string): Promise<void> {
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+    const batch = await batchRepository.findOne({ where: { id: batchId } });
+
+    if (!batch) {
+      throw new Error(`Batch ${batchId} not found`);
+    }
+
+    // Update batch status
+    batch.status = PayoutBatchStatus.SENT;
+    batch.transactionSignature = transactionSignature;
+    await batchRepository.save(batch);
+
+    // Mark earnings as paid
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    await earningRepository.query(`
+      UPDATE referral_earning
+      SET paid = true,
+          "paidAt" = now()
+      WHERE "payoutBatchId" = $1
+    `, [batchId]);
+
+    console.log(`✅ Payout batch ${batchId} sent with transaction ${transactionSignature}`);
+  },
+
+  /**
+   * Validate payout batch for anti-abuse
+   */
+  async validatePayoutBatch(batchId: string): Promise<{
+    valid: boolean;
+    warnings: string[];
+    errors: string[];
+  }> {
+    const warnings: string[] = [];
+    const errors: string[] = [];
+
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+    const batch = await batchRepository.findOne({ where: { id: batchId } });
+
+    if (!batch) {
+      return { valid: false, warnings, errors: ['Batch not found'] };
+    }
+
+    // Get batch earnings
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const earnings = await earningRepository.find({
+      where: { payoutBatchId: batchId }
+    });
+
+    // Check for single referrer with >50% of total
+    const walletTotals = new Map<string, number>();
+    earnings.forEach(e => {
+      const existing = walletTotals.get(e.uplineWallet) || 0;
+      walletTotals.set(e.uplineWallet, existing + Number(e.amountUSD));
+    });
+
+    const maxWalletTotal = Math.max(...Array.from(walletTotals.values()));
+    const maxPercentage = (maxWalletTotal / Number(batch.totalAmountUSD)) * 100;
+
+    if (maxPercentage > 50) {
+      warnings.push(`Single referrer has ${maxPercentage.toFixed(2)}% of total payout`);
+    }
+
+    // Check for unusually high amounts
+    if (Number(batch.totalAmountUSD) > 10000) {
+      warnings.push(`Large payout batch: $${batch.totalAmountUSD} USD`);
+    }
+
+    return {
+      valid: errors.length === 0,
+      warnings,
+      errors
+    };
   }
 }; 

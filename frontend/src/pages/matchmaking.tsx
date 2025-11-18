@@ -1110,7 +1110,28 @@ const Matchmaking: React.FC = () => {
       setIsRequestInProgress(true);
       
       try {
-        const data = await requestMatch(publicKey.toString(), currentEntryFee);
+        // Check for referral code and send it with match request
+        const referralCode = localStorage.getItem('referralCode');
+        const data = await requestMatch(publicKey.toString(), currentEntryFee, referralCode || undefined);
+        
+        // Process referral if this is first match
+        if (referralCode && data.matchId) {
+          try {
+            const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5-backend.onrender.com';
+            await fetch(`${apiUrl}/api/referral/link`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                referredWallet: publicKey.toString(),
+                referrerWallet: referralCode
+              })
+            });
+            // Clear referral code after processing
+            localStorage.removeItem('referralCode');
+          } catch (error) {
+            console.warn('Failed to process referral:', error);
+          }
+        }
 
         if (data.status === 'waiting') {
           setWaitingCount(data.waitingCount || 0);

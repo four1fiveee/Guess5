@@ -2,8 +2,22 @@ import Image from 'next/image';
 import logo from '../../public/logo.png';
 import { TopRightWallet } from '../components/WalletConnect';
 import Link from 'next/link';
+import { useEffect } from 'react';
+import { useRouter } from 'next/router';
 
 export default function Home() {
+  const router = useRouter();
+
+  useEffect(() => {
+    // Handle referral link (?ref=<wallet>)
+    const ref = router.query.ref as string;
+    if (ref) {
+      // Store referral in localStorage
+      localStorage.setItem('referralCode', ref);
+      console.log('Referral code stored:', ref);
+    }
+  }, [router.query]);
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative">
       <TopRightWallet />

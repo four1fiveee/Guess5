@@ -97,6 +97,15 @@ async function startServer() {
       enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
       enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
       enhancedLogger.info(`   - Redis: Enabled (MM: ${process.env.REDIS_MM_HOST}, Ops: ${process.env.REDIS_OPS_HOST})`);
+
+      // Start cron jobs
+      try {
+        const { CronService } = require('./services/cronService');
+        CronService.start();
+        enhancedLogger.info('✅ Cron jobs started');
+      } catch (error) {
+        enhancedLogger.warn('⚠️ Failed to start cron jobs:', error);
+      }
     });
 
     // Graceful shutdown

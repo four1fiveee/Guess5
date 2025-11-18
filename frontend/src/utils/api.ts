@@ -55,11 +55,11 @@ const apiRequest = async (
 };
 
 // API functions (reCAPTCHA removed)
-export const requestMatch = async (wallet: string, entryFee: number) => {
+export const requestMatch = async (wallet: string, entryFee: number, referralCode?: string) => {
   return apiCallWithRetry(() => 
     apiRequest('/api/match/request-match', {
       method: 'POST',
-      body: JSON.stringify({ wallet, entryFee }),
+      body: JSON.stringify({ wallet, entryFee, referralCode }),
     })
   );
 };

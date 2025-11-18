@@ -1,0 +1,30 @@
+import { Router } from 'express';
+import {
+  adminDeleteMatch,
+  adminBackfillReferrals,
+  adminGetOwedReferrals,
+  adminPreparePayoutBatch,
+  adminSendPayoutBatch,
+  adminGetPayoutBatches,
+  adminGetPayoutBatch,
+  adminGetAbuseFlags
+} from '../controllers/adminController';
+
+const router = Router();
+
+// Match management
+router.post('/delete-match/:matchId', adminDeleteMatch);
+
+// Referral management
+router.post('/referral/backfill', adminBackfillReferrals);
+router.get('/referrals/owed', adminGetOwedReferrals);
+router.get('/referrals/abuse-flags', adminGetAbuseFlags);
+
+// Payout management
+router.post('/payouts/prepare', adminPreparePayoutBatch);
+router.post('/payouts/send/:batchId', adminSendPayoutBatch);
+router.get('/payouts/batches', adminGetPayoutBatches);
+router.get('/payouts/batch/:id', adminGetPayoutBatch);
+
+export default router;
+

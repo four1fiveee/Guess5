@@ -222,6 +222,8 @@ app.get('/', (req: any, res: any) => {
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
 app.use('/api/multisig', multisigRoutes);
+app.use('/api/referral', require('./routes/referralRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 
 // Debug endpoints only in development
 if (process.env.NODE_ENV === 'development') {

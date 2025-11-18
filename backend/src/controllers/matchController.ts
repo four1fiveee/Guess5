@@ -1760,6 +1760,64 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   
   console.log('✅ Match saved successfully with winner:', winner);
 
+  // Calculate net profit and referral earnings after match completion
+  // Do this outside the transaction to avoid blocking
+  try {
+    const { UserService } = require('../services/userService');
+    const { ReferralService } = require('../services/referralService');
+    
+    // Reload match to get all financial fields
+    const matchRepository = AppDataSource.getRepository(Match);
+    const completedMatch = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (completedMatch && completedMatch.isCompleted) {
+      // Calculate squads cost (use actualNetworkFees if available, otherwise estimate)
+      const squadsCost = completedMatch.actualNetworkFees || 
+        (completedMatch.entryFee * 0.002); // Estimate ~0.2% of entry fee
+      const squadsCostUSD = squadsCost * (completedMatch.solPriceAtTransaction || 0);
+      
+      // Calculate net profit: platformFee - bonusAmount - squadsCost
+      const platformFee = Number(completedMatch.platformFee || 0);
+      const bonusAmount = Number(completedMatch.bonusAmount || 0);
+      const netProfit = platformFee - bonusAmount - squadsCost;
+      const netProfitUSD = netProfit * (completedMatch.solPriceAtTransaction || 0);
+      
+      // Update match with calculated values
+      await matchRepository.query(`
+        UPDATE "match"
+        SET "squadsCost" = $1,
+            "squadsCostUSD" = $2,
+            "netProfit" = $3,
+            "netProfitUSD" = $4
+        WHERE id = $5
+      `, [squadsCost, squadsCostUSD, netProfit, netProfitUSD, matchId]);
+      
+      // Update user entry fees for both players
+      if (completedMatch.player1 && completedMatch.entryFeeUSD) {
+        await UserService.updateUserEntryFees(
+          completedMatch.player1,
+          completedMatch.entryFeeUSD,
+          completedMatch.entryFee
+        );
+      }
+      if (completedMatch.player2 && completedMatch.entryFeeUSD) {
+        await UserService.updateUserEntryFees(
+          completedMatch.player2,
+          completedMatch.entryFeeUSD,
+          completedMatch.entryFee
+        );
+      }
+      
+      // Compute referral earnings
+      await ReferralService.computeReferralEarningsForMatch(matchId);
+      
+      console.log('✅ Referral earnings computed for match:', matchId);
+    }
+  } catch (error) {
+    console.error('❌ Error computing referral earnings:', error);
+    // Don't fail the match completion if referral earnings fail
+  }
+
   return payoutResult;
 };
 
