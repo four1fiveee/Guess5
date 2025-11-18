@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router'
-import { WalletConnectButton } from '../components/WalletConnect'
+import { WalletConnectButton, TopRightWallet } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch, getMatchStatus, getUsername, setUsername, checkUsernameAvailability } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
