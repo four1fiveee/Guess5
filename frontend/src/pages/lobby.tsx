@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { requestMatch, getMatchStatus, getUsername, setUsername, checkUsernameAvailability } from '../utils/api'
+import { requestMatch, getMatchStatus, getUsername, setUsername as setUsernameAPI, checkUsernameAvailability } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
@@ -597,7 +597,7 @@ export default function Lobby() {
     setUsernameError(null);
 
     try {
-      await setUsername(publicKey.toString(), newUsername.trim());
+      await setUsernameAPI(publicKey.toString(), newUsername.trim());
       setUsername(newUsername.trim().toLowerCase());
       setEditingUsername(false);
       setNewUsername('');
