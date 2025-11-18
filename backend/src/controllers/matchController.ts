@@ -8709,7 +8709,7 @@ const generateReportHandler = async (req: any, res: any) => {
           return 0;
         };
         
-        const csvRows = fallbackMatches.map((match: any) => {
+        const csvRows = await Promise.all(fallbackMatches.map(async (match: any) => {
           const player1Result = match.player1Result ? JSON.parse(match.player1Result) : null;
           const player2Result = match.player2Result ? JSON.parse(match.player2Result) : null;
           const payoutResult = match.payoutResult ? JSON.parse(match.payoutResult) : null;
@@ -8719,11 +8719,40 @@ const generateReportHandler = async (req: any, res: any) => {
           const winner = payoutResult?.winner || match.winner || '';
           const entryFeeUSD = calculateEntryFeeUSD(match.entryFee);
           
+          // Fetch usernames for both players
+          const player1Username = match.player1 ? await UserService.getUsername(match.player1).catch(() => null) : null;
+          const player2Username = match.player2 ? await UserService.getUsername(match.player2).catch(() => null) : null;
+          
+          // Fetch referral earnings for this match
+          const referralEarnings = await referralEarningRepository.find({
+            where: { matchId: match.id }
+          }).catch(() => []);
+          
+          // Organize referral earnings by player and level
+          const player1Referrals: { [level: number]: { wallet: string; amountUSD: number } } = {};
+          const player2Referrals: { [level: number]: { wallet: string; amountUSD: number } } = {};
+          
+          for (const earning of referralEarnings) {
+            const level = earning.level;
+            const referralData = {
+              wallet: earning.uplineWallet,
+              amountUSD: Number(earning.amountUSD)
+            };
+            
+            if (earning.referredWallet === match.player1) {
+              player1Referrals[level] = referralData;
+            } else if (earning.referredWallet === match.player2) {
+              player2Referrals[level] = referralData;
+            }
+          }
+          
           return [
             // Core Match Info
         sanitizeCsvValue(match.id),
         sanitizeCsvValue(match.player1),
+        sanitizeCsvValue(player1Username || ''),
         sanitizeCsvValue(match.player2),
+        sanitizeCsvValue(player2Username || ''),
         sanitizeCsvValue(match.entryFee),
             // Entry Fee (USD) removed per user request
         sanitizeCsvValue(totalPot),
