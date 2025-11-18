@@ -8,8 +8,14 @@ import { referralPayoutService } from '../services/payoutService';
 import { ReferralService } from '../services/referralService';
 import { AntiAbuseService } from '../services/antiAbuseService';
 import { UserService } from '../services/userService';
-import * as csv from 'csv-parse/sync';
 import * as fs from 'fs';
+// csv-parse will be installed as dependency
+let csv: any;
+try {
+  csv = require('csv-parse/sync');
+} catch (e) {
+  csv = null;
+}
 
 /**
  * Admin endpoint to delete stuck matches
@@ -60,6 +66,10 @@ export const adminDeleteMatch = async (req: Request, res: Response) => {
  */
 export const adminBackfillReferrals = async (req: Request, res: Response) => {
   try {
+    if (!csv) {
+      return res.status(500).json({ error: 'csv-parse package not installed. Run: npm install csv-parse' });
+    }
+
     const { csvData, filePath } = req.body;
 
     let records: Array<{ referredWallet: string; referrerWallet: string; createdAt?: Date }> = [];
