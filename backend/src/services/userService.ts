@@ -11,20 +11,70 @@ export class UserService {
   static async getUserByWallet(walletAddress: string): Promise<User> {
     const userRepository = AppDataSource.getRepository(User);
     
-    let user = await userRepository.findOne({
-      where: { walletAddress }
-    });
-
-    if (!user) {
-      user = userRepository.create({
-        walletAddress,
-        totalEntryFees: 0,
-        totalEntryFeesSOL: 0
+    try {
+      let user = await userRepository.findOne({
+        where: { walletAddress }
       });
-      user = await userRepository.save(user);
-    }
 
-    return user;
+      if (!user) {
+        user = userRepository.create({
+          walletAddress,
+          totalEntryFees: 0,
+          totalEntryFeesSOL: 0
+        });
+        user = await userRepository.save(user);
+      }
+
+      return user;
+    } catch (error: any) {
+      // If table doesn't exist, try to create it via raw SQL
+      if (error?.message?.includes('relation "user" does not exist') || error?.message?.includes('does not exist')) {
+        console.log('⚠️ User table does not exist, attempting to create it...');
+        try {
+          await AppDataSource.query(`
+            CREATE TABLE IF NOT EXISTS "user" (
+              "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+              "walletAddress" text UNIQUE NOT NULL,
+              "username" text UNIQUE,
+              "totalEntryFees" numeric(12,2) DEFAULT 0 NOT NULL,
+              "totalEntryFeesSOL" numeric(12,6) DEFAULT 0 NOT NULL,
+              "createdAt" timestamp DEFAULT now() NOT NULL,
+              "updatedAt" timestamp DEFAULT now() NOT NULL
+            )
+          `);
+          
+          await AppDataSource.query(`
+            CREATE INDEX IF NOT EXISTS "IDX_user_walletAddress" ON "user" ("walletAddress")
+          `);
+          
+          await AppDataSource.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS "IDX_user_username" ON "user" ("username") WHERE "username" IS NOT NULL
+          `);
+          
+          console.log('✅ User table created successfully');
+          
+          // Retry the operation
+          let user = await userRepository.findOne({
+            where: { walletAddress }
+          });
+
+          if (!user) {
+            user = userRepository.create({
+              walletAddress,
+              totalEntryFees: 0,
+              totalEntryFeesSOL: 0
+            });
+            user = await userRepository.save(user);
+          }
+
+          return user;
+        } catch (createError: any) {
+          console.error('❌ Failed to create user table:', createError);
+          throw new Error('User table does not exist and could not be created. Please run migrations.');
+        }
+      }
+      throw error;
+    }
   }
 
   /**

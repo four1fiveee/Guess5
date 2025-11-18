@@ -878,7 +878,8 @@ export default function Lobby() {
                     !hasEnoughBalance ||
                     isMatchmaking ||
                     hasBlockingClaims ||
-                    hasUnsignedRefunds
+                    hasUnsignedRefunds ||
+                    !username // Require username before allowing queue entry
 
                   const badgeClassName =
                     badgeText && badgeTheme && BADGE_THEME_CLASSES[badgeTheme]
@@ -1007,6 +1008,11 @@ export default function Lobby() {
                           </div>
 
                           <div className="w-full mt-auto pt-5 sm:pt-6">
+                            {!username && (
+                              <div className="text-xs text-yellow-400 font-semibold bg-yellow-500/10 px-3 py-1.5 rounded-lg border border-yellow-500/20 mb-2">
+                                ⚠ Username Required
+                              </div>
+                            )}
                             {!hasEnoughBalance && walletBalance !== null && (
                               <div className="text-xs text-red-400 font-semibold bg-red-500/10 px-3 py-1.5 rounded-lg border border-red-500/20">
                                 ⚠ Insufficient Balance

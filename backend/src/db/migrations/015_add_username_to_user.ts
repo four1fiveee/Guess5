@@ -12,9 +12,10 @@ export class AddUsernameToUser015 implements MigrationInterface {
     `);
 
     if (!tableExists[0]?.exists) {
+      console.log('⚠️ User table does not exist, creating it...');
       // Create user table if it doesn't exist (from migration 014)
       await queryRunner.query(`
-        CREATE TABLE IF NOT EXISTS "user" (
+        CREATE TABLE "user" (
           "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
           "walletAddress" text UNIQUE NOT NULL,
           "totalEntryFees" numeric(12,2) DEFAULT 0 NOT NULL,
@@ -27,6 +28,7 @@ export class AddUsernameToUser015 implements MigrationInterface {
       await queryRunner.query(`
         CREATE INDEX IF NOT EXISTS "IDX_user_walletAddress" ON "user" ("walletAddress")
       `);
+      console.log('✅ User table created');
     }
 
     // Check if username column already exists
