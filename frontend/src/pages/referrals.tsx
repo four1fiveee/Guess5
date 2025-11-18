@@ -356,20 +356,20 @@ export default function ReferralsPage() {
             <div className="bg-white/5 rounded-xl p-5 border border-white/10">
               <h3 className="text-base font-bold text-accent mb-3">Example 1: $20 Competitive Match</h3>
               <p className="text-white/80 mb-3 leading-relaxed">
-                A $20 match completes. Total pot: <strong className="text-white">$40</strong> (both players). Platform fee (5%): <strong className="text-white">$2.00</strong>. Bonus paid: <strong className="text-white">$0.25</strong>. Network costs: <strong className="text-white">~$0.01</strong>. Net profit: <strong className="text-white">$1.74</strong>.
+                A $20 match completes. Total pot: <strong className="text-white">$40</strong> (both players). Platform fee (5%): <strong className="text-white">$2.00</strong>. Bonus paid: <strong className="text-white">$0.25</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$1.52</strong>.
               </p>
               <p className="text-white/80 mb-3 leading-relaxed">
-                Referral pool: 25% of $1.74 = <strong className="text-white">$0.435</strong>. Split equally: <strong className="text-white">$0.2175 per player</strong>. If Player A was referred by you (L1), you earn <strong className="text-accent">$0.22</strong>. If Player A's referrer was referred by you (L2), you earn <strong className="text-purple-300">$0.05</strong> (25% of $0.2175).
+                Referral pool: 25% of $1.52 = <strong className="text-white">$0.38</strong>. Split equally: <strong className="text-white">$0.19 per player</strong>. If Player A was referred by you (L1), you earn <strong className="text-accent">$0.19</strong>. If Player A's referrer was referred by you (L2), you earn <strong className="text-purple-300">$0.05</strong> (25% of $0.19).
               </p>
             </div>
 
             <div className="bg-white/5 rounded-xl p-5 border border-white/10">
               <h3 className="text-base font-bold text-accent mb-3">Example 2: $50 Veteran Match (Both Players Have Referrers)</h3>
               <p className="text-white/80 mb-3 leading-relaxed">
-                A $50 match completes. Total pot: <strong className="text-white">$100</strong>. Platform fee: <strong className="text-white">$5.00</strong>. Bonus paid: <strong className="text-white">$0.75</strong>. Network costs: <strong className="text-white">~$0.01</strong>. Net profit: <strong className="text-white">$4.24</strong>.
+                A $50 match completes. Total pot: <strong className="text-white">$100</strong>. Platform fee: <strong className="text-white">$5.00</strong>. Bonus paid: <strong className="text-white">$0.75</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$4.02</strong>.
               </p>
               <p className="text-white/80 mb-3 leading-relaxed">
-                Referral pool: 25% of $4.24 = <strong className="text-white">$1.06</strong>. Each player's share: <strong className="text-white">$0.53</strong>. If you referred Player A (L1) and someone else referred Player B (L1), you earn <strong className="text-accent">$0.53</strong> from Player A's activity, while Player B's referrer earns $0.53 from Player B's activity. Both referrers get their share independently.
+                Referral pool: 25% of $4.02 = <strong className="text-white">$1.005</strong>. Each player's share: <strong className="text-white">$0.50</strong>. If you referred Player A (L1) and someone else referred Player B (L1), you earn <strong className="text-accent">$0.50</strong> from Player A's activity, while Player B's referrer earns $0.50 from Player B's activity. Both referrers get their share independently.
               </p>
             </div>
 
@@ -379,24 +379,27 @@ export default function ReferralsPage() {
                 You refer Alice (L1), Alice refers Bob (L2), and Bob refers Charlie (L3). When Charlie plays a $100 match:
               </p>
               <p className="text-white/80 mb-3 leading-relaxed">
-                Total pot: <strong className="text-white">$200</strong>. Platform fee: <strong className="text-white">$10.00</strong>. Bonus paid: <strong className="text-white">$1.75</strong>. Network costs: <strong className="text-white">~$0.01</strong>. Net profit: <strong className="text-white">$8.24</strong>.
+                Total pot: <strong className="text-white">$200</strong>. Platform fee: <strong className="text-white">$10.00</strong>. Bonus paid: <strong className="text-white">$1.75</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$8.02</strong>.
               </p>
               <ul className="list-disc list-inside space-y-1.5 text-white/80 ml-2 mt-2">
-                <li>Referral pool: <strong className="text-white">$2.06</strong> (25% of $8.24)</li>
-                <li>Charlie's share: <strong className="text-white">$1.03</strong> (half of $2.06)</li>
-                <li>You (L3): <strong className="text-pink-300">$0.06</strong> (6.25% of $1.03)</li>
-                <li>Alice (L2): <strong className="text-purple-300">$0.26</strong> (25% of $1.03)</li>
-                <li>Bob (L1): <strong className="text-accent">$1.03</strong> (100% of $1.03)</li>
+                <li>Referral pool: <strong className="text-white">$2.005</strong> (25% of $8.02)</li>
+                <li>Amount flowing up Charlie's referral chain: <strong className="text-white">$1.00</strong> (half of $2.005)</li>
+                <li>You (L3): <strong className="text-pink-300">$0.06</strong> (6.25% of $1.00)</li>
+                <li>Alice (L2): <strong className="text-purple-300">$0.25</strong> (25% of $1.00)</li>
+                <li>Bob (L1): <strong className="text-accent">$1.00</strong> (100% of $1.00)</li>
               </ul>
+              <p className="text-white/80 mt-3 leading-relaxed text-xs italic">
+                Note: Charlie (the player) doesn't earn referral fees. The $1.00 flows up to his referrers based on the referral chain.
+              </p>
             </div>
 
             <div className="bg-white/5 rounded-xl p-5 border border-white/10">
               <h3 className="text-base font-bold text-accent mb-3">Example 4: $5 Starter Match</h3>
               <p className="text-white/80 mb-3 leading-relaxed">
-                A $5 match completes. Total pot: <strong className="text-white">$10</strong>. Platform fee: <strong className="text-white">$0.50</strong>. Bonus: <strong className="text-white">$0</strong> (no bonus for Starter tier). Network costs: <strong className="text-white">~$0.01</strong>. Net profit: <strong className="text-white">$0.49</strong>.
+                A $5 match completes. Total pot: <strong className="text-white">$10</strong>. Platform fee: <strong className="text-white">$0.50</strong>. Bonus: <strong className="text-white">$0</strong> (no bonus for Starter tier). Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$0.27</strong>.
               </p>
               <p className="text-white/80 mb-3 leading-relaxed">
-                Referral pool: 25% of $0.49 = <strong className="text-white">$0.1225</strong>. Per player: <strong className="text-white">$0.06125</strong>. If you referred Player A (L1), you earn <strong className="text-accent">$0.06</strong> from this match.
+                Referral pool: 25% of $0.27 = <strong className="text-white">$0.0675</strong>. Per player: <strong className="text-white">$0.034</strong>. If you referred Player A (L1), you earn <strong className="text-accent">$0.03</strong> from this match.
               </p>
             </div>
           </div>
