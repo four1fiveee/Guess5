@@ -230,8 +230,8 @@ export const TopRightWallet: React.FC = () => {
 
   return (
     <>
-      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 bg-secondary bg-opacity-20 rounded-lg p-3 backdrop-blur-sm border border-accent/20 min-w-[200px]">
-        <div className="flex flex-col items-center gap-2">
+      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 border border-white/20 shadow-xl min-w-[180px] sm:min-w-[220px]">
+        <div className="flex flex-col gap-3">
           {/* Username Display/Edit */}
           {editingUsername ? (
             <div className="w-full">
@@ -240,18 +240,18 @@ export const TopRightWallet: React.FC = () => {
                 value={newUsername}
                 onChange={(e) => handleUsernameChange(e.target.value)}
                 placeholder="Enter username"
-                className="w-full px-3 py-2 text-sm rounded-lg bg-white/10 border border-accent/30 text-white placeholder-white/50 focus:outline-none focus:border-accent"
+                className="w-full px-3 py-2 text-sm rounded-lg bg-white/10 border border-accent/40 text-white placeholder-white/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all"
                 maxLength={20}
                 disabled={savingUsername}
               />
               {usernameError && (
-                <div className="text-red-400 text-xs mt-1">{usernameError}</div>
+                <div className="text-red-400 text-xs mt-1.5 px-1">{usernameError}</div>
               )}
               <div className="flex gap-2 mt-2">
                 <button
                   onClick={handleSaveUsername}
                   disabled={savingUsername || !!usernameError || !newUsername.trim()}
-                  className="flex-1 px-3 py-1.5 text-xs font-bold bg-accent text-primary rounded hover:bg-yellow-400 disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="flex-1 px-3 py-1.5 text-xs font-bold bg-gradient-to-r from-accent to-yellow-400 text-primary rounded-lg hover:from-yellow-300 hover:to-accent disabled:opacity-50 disabled:cursor-not-allowed transition-all transform hover:scale-105 active:scale-95"
                 >
                   {savingUsername ? 'Saving...' : 'Save'}
                 </button>
@@ -261,16 +261,28 @@ export const TopRightWallet: React.FC = () => {
                     setNewUsername('');
                     setUsernameError(null);
                   }}
-                  className="px-3 py-1.5 text-xs font-bold bg-white/10 text-white rounded hover:bg-white/20"
+                  className="px-3 py-1.5 text-xs font-bold bg-white/10 text-white rounded-lg hover:bg-white/20 transition-all"
                 >
                   Cancel
                 </button>
               </div>
             </div>
           ) : (
-            <div className="w-full text-center">
+            <div className="w-full">
               {username ? (
-                <div className="text-sm font-bold text-accent mb-1">@{username}</div>
+                <div className="flex items-center justify-between bg-white/5 rounded-lg px-3 py-2 border border-white/10">
+                  <div className="text-sm font-bold text-accent">@{username}</div>
+                  <button
+                    onClick={() => {
+                      setEditingUsername(true);
+                      setNewUsername(username);
+                      setUsernameError(null);
+                    }}
+                    className="text-xs text-white/60 hover:text-white/80 transition-colors"
+                  >
+                    ✏️
+                  </button>
+                </div>
               ) : (
                 <button
                   onClick={() => {
@@ -278,34 +290,25 @@ export const TopRightWallet: React.FC = () => {
                     setNewUsername('');
                     setUsernameError(null);
                   }}
-                  className="text-xs text-accent hover:text-yellow-400 underline mb-1"
+                  className="w-full px-3 py-2 text-xs font-semibold bg-gradient-to-r from-purple-500/20 to-pink-500/20 border border-purple-500/30 text-purple-300 rounded-lg hover:from-purple-500/30 hover:to-pink-500/30 hover:border-purple-500/50 transition-all transform hover:scale-105 active:scale-95"
                 >
-                  Set Username
-                </button>
-              )}
-              {username && (
-                <button
-                  onClick={() => {
-                    setEditingUsername(true);
-                    setNewUsername(username);
-                    setUsernameError(null);
-                  }}
-                  className="text-xs text-white/60 hover:text-white/80 underline"
-                >
-                  Edit
+                  ✏️ Set Username
                 </button>
               )}
             </div>
           )}
 
           {/* Balance */}
-          <div className="text-sm sm:text-base font-bold text-accent text-center">
-            {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
+          <div className="bg-gradient-to-r from-accent/20 to-yellow-400/20 border border-accent/30 rounded-lg px-3 py-2.5 text-center">
+            <div className="text-xs text-white/70 mb-0.5">Balance</div>
+            <div className="text-base sm:text-lg font-black text-accent">
+              {walletBalance !== null ? `${walletBalance.toFixed(4)} SOL` : 'Loading...'}
+            </div>
           </div>
 
           {/* Disconnect Button */}
           <button
-            className="px-4 py-2 text-xs sm:text-sm font-bold bg-red-600 text-white rounded-lg hover:bg-red-700 transition-colors min-h-[36px] flex items-center justify-center w-full"
+            className="px-4 py-2 text-xs sm:text-sm font-bold bg-gradient-to-r from-red-600 to-red-700 text-white rounded-lg hover:from-red-500 hover:to-red-600 transition-all min-h-[36px] flex items-center justify-center w-full shadow-lg hover:shadow-red-500/30 transform hover:scale-105 active:scale-95 border border-red-500/30"
             onClick={disconnect}
           >
             Disconnect

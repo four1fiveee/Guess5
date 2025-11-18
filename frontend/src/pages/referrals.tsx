@@ -296,23 +296,150 @@ export default function ReferralsPage() {
           </div>
         )}
 
+        {/* How Referrals Work - Detailed Explanation */}
+        <div className="how-it-works bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-purple-500/30 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-6">💰 How the Referral Program Works</h2>
+          
+          <div className="space-y-6 text-white/90">
+            {/* Step 1 */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <h3 className="text-lg font-bold text-accent mb-3 flex items-center gap-2">
+                <span className="bg-accent text-primary rounded-full w-8 h-8 flex items-center justify-center text-sm font-black">1</span>
+                Referral Pool Calculation
+              </h3>
+              <p className="text-sm leading-relaxed mb-2">
+                For every completed match, Guess5 calculates the <strong className="text-white">net profit</strong>:
+              </p>
+              <div className="bg-black/30 rounded-lg p-4 mb-3 font-mono text-xs">
+                <div className="text-white/80 mb-1">Net Profit = Platform Fee - Bonus - Squads Network Costs</div>
+                <div className="text-accent mt-2">Referral Pool = 25% of Net Profit</div>
+              </div>
+              <p className="text-sm text-white/70">
+                The referral pool is split equally between the two players in the match. Each player's activity generates a <strong className="text-white">per-player share</strong> that flows up their referral chain.
+              </p>
+            </div>
+
+            {/* Step 2 */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <h3 className="text-lg font-bold text-accent mb-3 flex items-center gap-2">
+                <span className="bg-accent text-primary rounded-full w-8 h-8 flex items-center justify-center text-sm font-black">2</span>
+                Multi-Level Earnings (Geometric Decay)
+              </h3>
+              <p className="text-sm leading-relaxed mb-3">
+                When someone you referred (or someone in your referral chain) plays a match, earnings flow up to 3 levels:
+              </p>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
+                <div className="bg-accent/20 border border-accent/40 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-black text-accent mb-1">L1</div>
+                  <div className="text-xs text-white/90">100% of per-player share</div>
+                  <div className="text-xs text-white/70 mt-1">Direct referral</div>
+                </div>
+                <div className="bg-purple-500/20 border border-purple-500/40 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-black text-purple-400 mb-1">L2</div>
+                  <div className="text-xs text-white/90">25% of L1</div>
+                  <div className="text-xs text-white/70 mt-1">Your referral's referral</div>
+                </div>
+                <div className="bg-pink-500/20 border border-pink-500/40 rounded-lg p-3 text-center">
+                  <div className="text-2xl font-black text-pink-400 mb-1">L3</div>
+                  <div className="text-xs text-white/90">25% of L2</div>
+                  <div className="text-xs text-white/70 mt-1">3rd level down</div>
+                </div>
+              </div>
+              <div className="bg-black/30 rounded-lg p-3 font-mono text-xs">
+                <div className="text-white/80">Example: If per-player share = $10</div>
+                <div className="text-accent mt-1">L1 earns: $10.00</div>
+                <div className="text-purple-400 mt-1">L2 earns: $2.50 (25% of $10)</div>
+                <div className="text-pink-400 mt-1">L3 earns: $0.63 (25% of $2.50)</div>
+              </div>
+            </div>
+
+            {/* Step 3 */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <h3 className="text-lg font-bold text-accent mb-3 flex items-center gap-2">
+                <span className="bg-accent text-primary rounded-full w-8 h-8 flex items-center justify-center text-sm font-black">3</span>
+                Eligibility Requirements
+              </h3>
+              <p className="text-sm leading-relaxed mb-2">
+                To receive referral payouts, you must:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-white/80 ml-4">
+                <li>Have played at least <strong className="text-white">one match</strong> (any entry fee level)</li>
+                <li>Have referred players who have also played matches</li>
+                <li>Accumulate at least <strong className="text-accent">$20 USD</strong> in pending earnings</li>
+              </ul>
+            </div>
+
+            {/* Step 4 */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <h3 className="text-lg font-bold text-accent mb-3 flex items-center gap-2">
+                <span className="bg-accent text-primary rounded-full w-8 h-8 flex items-center justify-center text-sm font-black">4</span>
+                Weekly Payout Schedule
+              </h3>
+              <p className="text-sm leading-relaxed mb-2">
+                Referral earnings are paid out weekly:
+              </p>
+              <ul className="list-disc list-inside space-y-1 text-sm text-white/80 ml-4">
+                <li><strong className="text-white">Schedule:</strong> Every Sunday at 1:00 PM EST</li>
+                <li><strong className="text-white">Minimum:</strong> $20 USD equivalent in SOL</li>
+                <li><strong className="text-white">Method:</strong> Batched on-chain transactions</li>
+                <li><strong className="text-white">Conversion:</strong> USD amounts converted to SOL at payout time using current market rates</li>
+              </ul>
+              <p className="text-sm text-white/70 mt-3">
+                Earnings below $20 accumulate until you reach the minimum threshold. All eligible earnings are automatically included in the next payout batch.
+              </p>
+            </div>
+
+            {/* Step 5 */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <h3 className="text-lg font-bold text-accent mb-3 flex items-center gap-2">
+                <span className="bg-accent text-primary rounded-full w-8 h-8 flex items-center justify-center text-sm font-black">5</span>
+                How to Start Earning
+              </h3>
+              <ol className="list-decimal list-inside space-y-2 text-sm text-white/80 ml-4">
+                <li>Play your first match to become eligible</li>
+                <li>Share your referral link (found above) with friends</li>
+                <li>When they sign up using your link and play matches, you earn a percentage of the net fees</li>
+                <li>Earnings accumulate in your account and are paid out weekly if you meet the $20 minimum</li>
+                <li>You can track all your earnings, referrals, and payout history on this dashboard</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+
         {/* Terms & FAQ */}
         <div className="terms bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-white/20 w-full">
           <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Terms & FAQ</h2>
-          <div className="space-y-3 text-white/80 text-sm">
-            <p>
-              <strong className="text-white">Referral rewards</strong> are calculated from the net platform fees (after bonuses & network costs). 
-              A portion of net fees is reserved for referral payouts.
-            </p>
-            <p>
-              <strong className="text-white">Eligibility:</strong> You must have played at least one match to be eligible to receive payments.
-            </p>
-            <p>
-              <strong className="text-white">Payouts:</strong> Weekly on Sunday 1pm EST. Minimum payout $20 USD.
-            </p>
-            <p>
-              <strong className="text-white">MLM Structure:</strong> L1 = 100% of per-player share, L2 = 25% of L1, L3 = 25% of L2.
-            </p>
+          <div className="space-y-4 text-white/80 text-sm">
+            <div>
+              <strong className="text-white">Q: How is the referral pool calculated?</strong>
+              <p className="mt-1 text-white/70">
+                The referral pool is 25% of the match's net profit. Net profit = Platform Fee - Bonus Amount - Squads Network Costs. This pool is split equally between the two players, and each player's share flows up their referral chain.
+              </p>
+            </div>
+            <div>
+              <strong className="text-white">Q: What happens if I haven't played a match yet?</strong>
+              <p className="mt-1 text-white/70">
+                You can still refer players, but you won't receive payouts until you've played at least one match. Once you play, all accumulated earnings become eligible for payout.
+              </p>
+            </div>
+            <div>
+              <strong className="text-white">Q: Can I refer myself?</strong>
+              <p className="mt-1 text-white/70">
+                No, self-referrals are not allowed. The system automatically prevents this.
+              </p>
+            </div>
+            <div>
+              <strong className="text-white">Q: What if my earnings are less than $20?</strong>
+              <p className="mt-1 text-white/70">
+                Earnings below $20 accumulate in your account. Once you reach $20 or more, you'll be included in the next weekly payout batch.
+              </p>
+            </div>
+            <div>
+              <strong className="text-white">Q: How are payouts converted from USD to SOL?</strong>
+              <p className="mt-1 text-white/70">
+                At payout time, your USD earnings are converted to SOL using the current market rate. The exact SOL amount you receive may vary based on SOL price fluctuations between when earnings were calculated and when the payout occurs.
+              </p>
+            </div>
           </div>
         </div>
 

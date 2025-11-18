@@ -1,13 +1,102 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
-import { requestMatch, getMatchStatus, getUsername } from '../utils/api'
+import { requestMatch, getMatchStatus, getUsername, setUsername, checkUsernameAvailability } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect, useMemo } from 'react'
 import Image from 'next/image'
 import logo from '../../public/logo.png'
 import { usePendingClaims } from '../hooks/usePendingClaims'
 import Link from 'next/link'
+
+// Username Input Component
+const UsernameInput: React.FC<{ wallet: string; onUsernameSet: (username: string) => void }> = ({ wallet, onUsernameSet }) => {
+  const [newUsername, setNewUsername] = useState('');
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [savingUsername, setSavingUsername] = useState(false);
+
+  const handleUsernameChange = async (value: string) => {
+    setNewUsername(value);
+    setUsernameError(null);
+
+    // Validate format
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (value && !usernameRegex.test(value)) {
+      setUsernameError('3-20 chars, letters/numbers/underscores only');
+      return;
+    }
+
+    // Check availability if username is valid
+    if (value && usernameRegex.test(value)) {
+      setCheckingAvailability(true);
+      try {
+        const response = await checkUsernameAvailability(value);
+        if (!response.available) {
+          setUsernameError('Username taken');
+        }
+      } catch (error) {
+        console.error('Failed to check username:', error);
+      } finally {
+        setCheckingAvailability(false);
+      }
+    }
+  };
+
+  const handleSaveUsername = async () => {
+    if (!newUsername.trim()) return;
+
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (!usernameRegex.test(newUsername)) {
+      setUsernameError('Invalid format');
+      return;
+    }
+
+    setSavingUsername(true);
+    setUsernameError(null);
+
+    try {
+      await setUsername(wallet, newUsername.trim());
+      onUsernameSet(newUsername.trim().toLowerCase());
+    } catch (error: any) {
+      setUsernameError(error.message || 'Failed to save username');
+    } finally {
+      setSavingUsername(false);
+    }
+  };
+
+  return (
+    <div className="w-full">
+      <div className="mb-3">
+        <input
+          type="text"
+          value={newUsername}
+          onChange={(e) => handleUsernameChange(e.target.value)}
+          placeholder="Enter username (3-20 characters)"
+          className="w-full px-4 py-3 rounded-xl bg-white/10 border border-accent/40 text-white placeholder-white/50 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/30 transition-all text-center text-lg font-semibold"
+          maxLength={20}
+          disabled={savingUsername}
+        />
+        {usernameError && (
+          <div className="text-red-400 text-xs mt-2 text-center">{usernameError}</div>
+        )}
+        {checkingAvailability && (
+          <div className="text-accent text-xs mt-2 text-center">Checking availability...</div>
+        )}
+      </div>
+      <button
+        onClick={handleSaveUsername}
+        disabled={savingUsername || !!usernameError || !newUsername.trim()}
+        className="w-full px-6 py-3 bg-gradient-to-r from-accent to-yellow-400 text-primary font-bold rounded-xl hover:from-yellow-300 hover:to-accent transition-all duration-300 transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg border-2 border-accent/30 hover:border-accent/60"
+      >
+        {savingUsername ? 'Saving...' : 'Save Username'}
+      </button>
+      <p className="text-xs text-white/60 mt-3 text-center">
+        Your username will be shown to opponents during matchmaking
+      </p>
+    </div>
+  );
+};
 
 const POT_RETURN_PERCENT = 0.95;
 
@@ -467,11 +556,29 @@ export default function Lobby() {
           <WalletConnectButton />
         </div>
 
-        {/* Username Requirement Notice */}
-        {publicKey && !username && (
-          <div className="mb-6 bg-yellow-500/10 border border-yellow-500/30 rounded-lg p-4 max-w-md w-full text-center">
-            <div className="text-yellow-400 text-sm font-semibold mb-1">⚠️ Username Required</div>
-            <div className="text-white/80 text-xs">Set your username in the top right corner before entering the queue.</div>
+        {/* Username Input Section */}
+        {publicKey && (
+          <div className="mb-6 bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 border border-white/20 shadow-xl max-w-md w-full">
+            <h3 className="text-lg font-bold text-accent mb-4 text-center">Set Your Username</h3>
+            {!username ? (
+              <UsernameInput 
+                wallet={publicKey.toString()}
+                onUsernameSet={(newUsername) => setUsername(newUsername)}
+              />
+            ) : (
+              <div className="text-center">
+                <div className="bg-white/5 rounded-lg px-4 py-3 mb-3 border border-white/10">
+                  <div className="text-sm text-white/70 mb-1">Your Username</div>
+                  <div className="text-xl font-bold text-accent">@{username}</div>
+                </div>
+                <button
+                  onClick={() => setUsername(null)}
+                  className="text-xs text-white/60 hover:text-white/80 underline"
+                >
+                  Change Username
+                </button>
+              </div>
+            )}
           </div>
         )}
 
