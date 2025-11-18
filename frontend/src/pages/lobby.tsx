@@ -1,5 +1,5 @@
 import { useRouter } from 'next/router'
-import { WalletConnectButton, TopRightWallet } from '../components/WalletConnect'
+import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
 import { requestMatch, getMatchStatus, getUsername, setUsername, checkUsernameAvailability } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
@@ -552,9 +552,64 @@ export default function Lobby() {
     }
   }
 
+  const { disconnect } = useWallet();
+  const [editingUsername, setEditingUsername] = useState(false);
+  const [newUsername, setNewUsername] = useState('');
+  const [usernameError, setUsernameError] = useState<string | null>(null);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
+  const [savingUsername, setSavingUsername] = useState(false);
+
+  const handleUsernameChange = async (value: string) => {
+    setNewUsername(value);
+    setUsernameError(null);
+
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (value && !usernameRegex.test(value)) {
+      setUsernameError('3-20 chars, letters/numbers/underscores only');
+      return;
+    }
+
+    if (value && usernameRegex.test(value)) {
+      setCheckingAvailability(true);
+      try {
+        const response = await checkUsernameAvailability(value);
+        if (!response.available) {
+          setUsernameError('Username taken');
+        }
+      } catch (error) {
+        console.error('Failed to check username:', error);
+      } finally {
+        setCheckingAvailability(false);
+      }
+    }
+  };
+
+  const handleSaveUsername = async () => {
+    if (!publicKey || !newUsername.trim()) return;
+
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    if (!usernameRegex.test(newUsername)) {
+      setUsernameError('Invalid format');
+      return;
+    }
+
+    setSavingUsername(true);
+    setUsernameError(null);
+
+    try {
+      await setUsername(publicKey.toString(), newUsername.trim());
+      setUsername(newUsername.trim().toLowerCase());
+      setEditingUsername(false);
+      setNewUsername('');
+    } catch (error: any) {
+      setUsernameError(error.message || 'Failed to save username');
+    } finally {
+      setSavingUsername(false);
+    }
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 py-8 relative">
-      <TopRightWallet />
       <div className="flex flex-col items-center w-full max-w-6xl">
         {/* Logo and Back Button */}
         <div className="flex flex-col items-center mb-6 sm:mb-8">
@@ -582,57 +637,6 @@ export default function Lobby() {
           </div>
         )}
 
-        {/* Username Input Section */}
-        {publicKey && (
-          <div className="mb-8 max-w-lg w-full">
-            <div className={`bg-gradient-to-br ${username ? 'from-accent/15 via-yellow-400/10 to-accent/15' : 'from-purple-500/20 via-pink-500/15 to-purple-500/20'} backdrop-blur-xl rounded-2xl p-6 sm:p-8 border-2 ${username ? 'border-accent/40' : 'border-purple-400/40'} shadow-2xl transition-all duration-300 hover:shadow-3xl`}>
-              <div className="flex items-center gap-3 mb-6">
-                <div className={`w-12 h-12 rounded-xl ${username ? 'bg-gradient-to-br from-accent/30 to-yellow-400/30' : 'bg-gradient-to-br from-purple-500/30 to-pink-500/30'} flex items-center justify-center border-2 ${username ? 'border-accent/50' : 'border-purple-400/50'} shadow-lg`}>
-                  {username ? (
-                    <span className="text-2xl">✓</span>
-                  ) : (
-                    <svg className="w-6 h-6 text-purple-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
-                    </svg>
-                  )}
-                </div>
-                <div>
-                  <h3 className={`text-xl font-bold ${username ? 'text-accent' : 'text-purple-200'} mb-1`}>
-                    {username ? 'Your Username' : 'Set Your Username'}
-                  </h3>
-                  <p className="text-xs text-white/60">
-                    {username ? 'Your identity in matches' : 'Required before entering queue'}
-                  </p>
-                </div>
-              </div>
-              
-              {!username ? (
-                <UsernameInput 
-                  wallet={publicKey.toString()}
-                  onUsernameSet={(newUsername) => setUsername(newUsername)}
-                />
-              ) : (
-                <div className="space-y-4">
-                  <div className="bg-white/10 rounded-xl px-6 py-4 border border-white/20 backdrop-blur-sm">
-                    <div className="flex items-center justify-center gap-3">
-                      <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-accent/40 to-yellow-400/40 flex items-center justify-center border border-accent/50">
-                        <span className="text-accent text-lg font-bold">@</span>
-                      </div>
-                      <div className="text-2xl font-black text-accent tracking-wide">{username}</div>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => setUsername(null)}
-                    className="w-full px-4 py-2.5 text-sm font-semibold bg-white/10 text-white/80 rounded-xl hover:bg-white/20 hover:text-white transition-all duration-200 border border-white/20 hover:border-white/30"
-                  >
-                    Change Username
-                  </button>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-
         {!publicKey ? (
           <div className="bg-secondary bg-opacity-10 rounded-2xl p-8 max-w-md w-full text-center border border-white/10 backdrop-blur-sm">
             <div className="text-white text-lg font-medium mb-2">Connect Your Wallet</div>
@@ -652,7 +656,7 @@ export default function Lobby() {
                 </p>
                 
                 {/* Price & Balance Info Bar */}
-                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8">
+                <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8 flex-wrap">
                   {/* SOL Price Display */}
                   {solPrice && (
                     <div className="flex items-center gap-2.5 bg-gradient-to-r from-blue-500/10 to-blue-600/10 rounded-xl px-5 py-3 border border-blue-400/20 backdrop-blur-sm">
@@ -681,6 +685,97 @@ export default function Lobby() {
                         <span className="text-green-200 text-sm font-semibold">(${walletBalanceUSD.toFixed(2)} USD)</span>
                       )}
                     </div>
+                  )}
+
+                  {/* Username Display/Edit */}
+                  {publicKey && (
+                    <div className="relative flex items-center gap-2.5 bg-gradient-to-r from-purple-500/10 to-pink-500/10 rounded-xl px-5 py-3 border border-purple-400/20 backdrop-blur-sm">
+                      {editingUsername ? (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex items-center gap-2">
+                            <span className="text-white/80 text-sm font-medium">@</span>
+                            <input
+                              type="text"
+                              value={newUsername}
+                              onChange={(e) => handleUsernameChange(e.target.value)}
+                              placeholder="username"
+                              className="px-3 py-1.5 rounded-lg bg-white/10 border border-purple-400/50 text-white placeholder-white/40 focus:outline-none focus:border-accent focus:ring-2 focus:ring-accent/20 transition-all text-sm font-medium w-32"
+                              maxLength={20}
+                              disabled={savingUsername}
+                            />
+                            {checkingAvailability && (
+                              <div className="animate-spin rounded-full h-4 w-4 border-2 border-purple-400/30 border-t-purple-300"></div>
+                            )}
+                            <button
+                              onClick={handleSaveUsername}
+                              disabled={savingUsername || !!usernameError || !newUsername.trim()}
+                              className="px-3 py-1.5 bg-accent hover:bg-yellow-300 text-primary font-bold rounded-lg transition-all text-xs disabled:opacity-50"
+                            >
+                              {savingUsername ? '...' : 'Save'}
+                            </button>
+                            <button
+                              onClick={() => {
+                                setEditingUsername(false);
+                                setNewUsername('');
+                                setUsernameError(null);
+                              }}
+                              className="px-3 py-1.5 bg-white/10 hover:bg-white/20 text-white rounded-lg transition-all text-xs"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                          {usernameError && (
+                            <div className="px-3 py-1.5 text-red-300 text-xs font-medium bg-red-500/15 border border-red-500/40 rounded-lg">
+                              {usernameError}
+                            </div>
+                          )}
+                        </div>
+                      ) : (
+                        <div className="flex items-center gap-2">
+                          <span className="text-white/80 text-sm font-medium">Username:</span>
+                          {username ? (
+                            <>
+                              <span className="text-purple-300 font-bold text-lg">@{username}</span>
+                              <button
+                                onClick={() => {
+                                  setEditingUsername(true);
+                                  setNewUsername(username);
+                                  setUsernameError(null);
+                                }}
+                                className="text-purple-400 hover:text-purple-300 text-xs transition-colors ml-1"
+                                title="Edit username"
+                              >
+                                ✏️
+                              </button>
+                            </>
+                          ) : (
+                            <button
+                              onClick={() => {
+                                setEditingUsername(true);
+                                setNewUsername('');
+                                setUsernameError(null);
+                              }}
+                              className="text-purple-300 hover:text-purple-200 text-sm font-medium transition-colors"
+                            >
+                              Set Username
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Disconnect Button */}
+                  {publicKey && (
+                    <button
+                      onClick={() => disconnect()}
+                      className="flex items-center gap-2 bg-gradient-to-r from-red-500/10 to-red-600/10 rounded-xl px-5 py-3 border border-red-400/20 backdrop-blur-sm hover:from-red-500/20 hover:to-red-600/20 transition-all text-sm font-medium text-red-300 hover:text-red-200"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                      Disconnect
+                    </button>
                   )}
                   
                   {!solPrice && (
