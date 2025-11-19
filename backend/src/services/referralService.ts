@@ -34,7 +34,13 @@ export class ReferralService {
       return existing; // Already referred
     }
 
-    // Check if referrer is eligible (has played at least one match)
+    // Check if referrer can refer others (20 games minimum OR exempt)
+    const canReferCheck = await UserService.canReferOthers(referrerWallet);
+    if (!canReferCheck.canRefer) {
+      throw new Error(canReferCheck.reason || 'Cannot refer others');
+    }
+
+    // Check if referrer is eligible for payouts (has played at least one match)
     const isEligible = await UserService.checkReferralEligibility(referrerWallet);
 
     // Create referral

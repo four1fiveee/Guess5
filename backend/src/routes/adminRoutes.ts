@@ -8,7 +8,10 @@ import {
   adminSendPayoutBatch,
   adminGetPayoutBatches,
   adminGetPayoutBatch,
-  adminGetAbuseFlags
+  adminGetAbuseFlags,
+  adminGetExemptList,
+  adminAddExempt,
+  adminRemoveExempt
 } from '../controllers/adminController';
 
 const router = Router();
@@ -20,6 +23,9 @@ router.post('/delete-match/:matchId', adminDeleteMatch);
 router.post('/referral/backfill', adminBackfillReferrals);
 router.get('/referrals/owed', adminGetOwedReferrals);
 router.get('/referrals/abuse-flags', adminGetAbuseFlags);
+router.get('/referrals/exempt-list', adminGetExemptList);
+router.post('/referrals/exempt', adminAddExempt);
+router.post('/referrals/remove-exempt', adminRemoveExempt);
 
 // Payout management
 router.post('/payouts/prepare', adminPreparePayoutBatch);

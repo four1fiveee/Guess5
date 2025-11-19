@@ -16,6 +16,13 @@ interface ReferralStats {
   eligibleReferredCount: number;
 }
 
+interface CanReferInfo {
+  canReferOthers: boolean;
+  canReferReason?: string;
+  matchCount: number;
+  exemptFromMinimum: boolean;
+}
+
 interface EarningsBreakdown {
   byLevel: Array<{ level: number; totalUSD: number; count: number }>;
   byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
@@ -35,6 +42,7 @@ export default function ReferralsPage() {
   const [stats, setStats] = useState<ReferralStats | null>(null);
   const [breakdown, setBreakdown] = useState<EarningsBreakdown | null>(null);
   const [isEligible, setIsEligible] = useState<boolean>(false);
+  const [canReferInfo, setCanReferInfo] = useState<CanReferInfo | null>(null);
   const [nextPayoutDate, setNextPayoutDate] = useState<Date | null>(null);
   const [payoutHistory, setPayoutHistory] = useState<PayoutHistory[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
@@ -62,6 +70,12 @@ export default function ReferralsPage() {
         setStats(data.stats);
         setBreakdown(data.breakdown);
         setIsEligible(data.isEligible);
+        setCanReferInfo({
+          canReferOthers: data.canReferOthers,
+          canReferReason: data.canReferReason,
+          matchCount: data.matchCount,
+          exemptFromMinimum: data.exemptFromMinimum
+        });
         setNextPayoutDate(data.nextPayoutDate ? new Date(data.nextPayoutDate) : null);
         setPayoutHistory(data.payoutHistory || []);
       }

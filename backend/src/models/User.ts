@@ -18,6 +18,9 @@ export class User {
   @Column({ type: 'decimal', precision: 12, scale: 6, default: 0 })
   totalEntryFeesSOL!: number; // Cumulative in SOL
 
+  @Column({ default: false })
+  exemptFromReferralMinimum!: boolean; // Admin exemption from 20-game minimum requirement
+
   @CreateDateColumn()
   createdAt!: Date;
 

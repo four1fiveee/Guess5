@@ -53,6 +53,7 @@ export const getReferralDashboard = async (req: Request, res: Response) => {
     const stats = await ReferralService.getReferralStats(wallet);
     const breakdown = await ReferralService.getEarningsBreakdown(wallet);
     const isEligible = await UserService.checkReferralEligibility(wallet);
+    const canReferCheck = await UserService.canReferOthers(wallet);
 
     // Calculate next payout date (Sunday 13:00 EST)
     const now = new Date();
@@ -85,6 +86,10 @@ export const getReferralDashboard = async (req: Request, res: Response) => {
       stats,
       breakdown,
       isEligible,
+      canReferOthers: canReferCheck.canRefer,
+      canReferReason: canReferCheck.reason,
+      matchCount: canReferCheck.matchCount,
+      exemptFromMinimum: canReferCheck.exempt,
       nextPayoutDate: nextSunday.toISOString(),
       payoutHistory: paidEarnings.map(e => ({
         date: e.paidAt,

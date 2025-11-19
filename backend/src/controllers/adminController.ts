@@ -443,6 +443,122 @@ export const adminGetAbuseFlags = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Get list of exempt players
+ * GET /api/admin/referrals/exempt-list
+ */
+export const adminGetExemptList = async (req: Request, res: Response) => {
+  try {
+    const { User } = require('../models/User');
+    const userRepository = AppDataSource.getRepository(User);
+    
+    const exemptUsers = await userRepository.find({
+      where: { exemptFromReferralMinimum: true },
+      order: { updatedAt: 'DESC' }
+    });
+
+    // Get match counts for exempt users
+    const exemptList = await Promise.all(
+      exemptUsers.map(async (user) => {
+        const matchCount = await UserService.getMatchCount(user.walletAddress);
+        return {
+          walletAddress: user.walletAddress,
+          username: user.username,
+          matchCount,
+          totalEntryFeesUSD: Number(user.totalEntryFees),
+          exemptedAt: user.updatedAt
+        };
+      })
+    );
+
+    return res.json({
+      success: true,
+      exemptList,
+      count: exemptList.length
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to get exempt list', details: errorMessage });
+  }
+};
+
+/**
+ * Add player to exempt list
+ * POST /api/admin/referrals/exempt
+ */
+export const adminAddExempt = async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.body;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'walletAddress is required' });
+    }
+
+    const { User } = require('../models/User');
+    const user = await UserService.getUserByWallet(walletAddress);
+    const userRepository = AppDataSource.getRepository(User);
+
+    user.exemptFromReferralMinimum = true;
+    await userRepository.save(user);
+
+    const matchCount = await UserService.getMatchCount(walletAddress);
+
+    return res.json({
+      success: true,
+      message: `Player ${walletAddress} added to exempt list`,
+      user: {
+        walletAddress: user.walletAddress,
+        username: user.username,
+        matchCount,
+        exemptFromReferralMinimum: user.exemptFromReferralMinimum
+      }
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to add exempt player', details: errorMessage });
+  }
+};
+
+/**
+ * Remove player from exempt list
+ * POST /api/admin/referrals/remove-exempt
+ */
+export const adminRemoveExempt = async (req: Request, res: Response) => {
+  try {
+    const { walletAddress } = req.body;
+
+    if (!walletAddress) {
+      return res.status(400).json({ error: 'walletAddress is required' });
+    }
+
+    const { User } = require('../models/User');
+    const user = await UserService.getUserByWallet(walletAddress);
+    const userRepository = AppDataSource.getRepository(User);
+
+    user.exemptFromReferralMinimum = false;
+    await userRepository.save(user);
+
+    const matchCount = await UserService.getMatchCount(walletAddress);
+    const canReferCheck = await UserService.canReferOthers(walletAddress);
+
+    return res.json({
+      success: true,
+      message: `Player ${walletAddress} removed from exempt list`,
+      user: {
+        walletAddress: user.walletAddress,
+        username: user.username,
+        matchCount,
+        exemptFromReferralMinimum: user.exemptFromReferralMinimum,
+        canReferOthers: canReferCheck.canRefer,
+        reason: canReferCheck.reason
+      }
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to remove exempt player', details: errorMessage });
+  }
+};
+
 
 
 

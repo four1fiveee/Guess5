@@ -97,11 +97,65 @@ export class UserService {
   }
 
   /**
+   * Count number of matches played by a user
+   */
+  static async getMatchCount(walletAddress: string): Promise<number> {
+    const matchRepository = AppDataSource.getRepository('Match');
+    const result = await matchRepository.query(`
+      SELECT COUNT(*) as count
+      FROM "match"
+      WHERE ("player1" = $1 OR "player2" = $1)
+        AND "isCompleted" = true
+    `, [walletAddress]);
+    return parseInt(result[0]?.count || '0', 10);
+  }
+
+  /**
    * Check if a user is eligible for referral payouts (must have played at least one match)
    */
   static async checkReferralEligibility(walletAddress: string): Promise<boolean> {
     const user = await this.getUserByWallet(walletAddress);
     return Number(user.totalEntryFees) > 0;
+  }
+
+  /**
+   * Check if a user can refer others (must have played 20 games OR be exempt)
+   */
+  static async canReferOthers(walletAddress: string): Promise<{
+    canRefer: boolean;
+    reason?: string;
+    matchCount: number;
+    exempt: boolean;
+  }> {
+    const user = await this.getUserByWallet(walletAddress);
+    
+    // Check if exempt
+    if (user.exemptFromReferralMinimum) {
+      return {
+        canRefer: true,
+        matchCount: await this.getMatchCount(walletAddress),
+        exempt: true
+      };
+    }
+
+    // Check match count
+    const matchCount = await this.getMatchCount(walletAddress);
+    const MIN_MATCHES_REQUIRED = 20;
+
+    if (matchCount >= MIN_MATCHES_REQUIRED) {
+      return {
+        canRefer: true,
+        matchCount,
+        exempt: false
+      };
+    }
+
+    return {
+      canRefer: false,
+      reason: `Must play at least ${MIN_MATCHES_REQUIRED} games before referring others. You have played ${matchCount} game${matchCount !== 1 ? 's' : ''}.`,
+      matchCount,
+      exempt: false
+    };
   }
 
   /**
