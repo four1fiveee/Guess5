@@ -494,7 +494,6 @@ export const adminAddExempt = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'walletAddress is required' });
     }
 
-    const { User } = require('../models/User');
     const user = await UserService.getUserByWallet(walletAddress);
     const userRepository = AppDataSource.getRepository(User);
 
@@ -531,7 +530,6 @@ export const adminRemoveExempt = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'walletAddress is required' });
     }
 
-    const { User } = require('../models/User');
     const user = await UserService.getUserByWallet(walletAddress);
     const userRepository = AppDataSource.getRepository(User);
 
