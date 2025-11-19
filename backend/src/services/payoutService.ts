@@ -428,6 +428,7 @@ export const referralPayoutService = {
 
   /**
    * Send payout batch (execute transaction)
+   * Requires batch to be in REVIEWED status (approved by admin)
    */
   async sendPayoutBatch(batchId: string, transactionSignature: string): Promise<void> {
     const batchRepository = AppDataSource.getRepository(PayoutBatch);
@@ -435,6 +436,11 @@ export const referralPayoutService = {
 
     if (!batch) {
       throw new Error(`Batch ${batchId} not found`);
+    }
+
+    // Require batch to be in REVIEWED status (admin approval required)
+    if (batch.status !== PayoutBatchStatus.REVIEWED) {
+      throw new Error(`Batch ${batchId} must be reviewed and approved before sending. Current status: ${batch.status}`);
     }
 
     // Update batch status
