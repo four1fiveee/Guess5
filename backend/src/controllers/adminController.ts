@@ -4,6 +4,7 @@ import { Match } from '../models/Match';
 import { Referral } from '../models/Referral';
 import { ReferralEarning } from '../models/ReferralEarning';
 import { PayoutBatch, PayoutBatchStatus } from '../models/PayoutBatch';
+import { User } from '../models/User';
 import { referralPayoutService } from '../services/payoutService';
 import { ReferralService } from '../services/referralService';
 import { AntiAbuseService } from '../services/antiAbuseService';
@@ -449,7 +450,6 @@ export const adminGetAbuseFlags = async (req: Request, res: Response) => {
  */
 export const adminGetExemptList = async (req: Request, res: Response) => {
   try {
-    const { User } = require('../models/User');
     const userRepository = AppDataSource.getRepository(User);
     
     const exemptUsers = await userRepository.find({
