@@ -38,7 +38,13 @@ export class PayoutBatch {
   solPriceAtPayout?: number; // SOL/USD price at payout time
 
   @Column({ type: 'text', nullable: true })
-  createdByAdmin?: string; // Admin user who created/approved
+  createdByAdmin?: string; // Admin user who created the batch
+
+  @Column({ type: 'text', nullable: true })
+  reviewedByAdmin?: string; // Admin user who approved the batch
+
+  @Column({ nullable: true })
+  reviewedAt?: Date; // When batch was approved
 
   @Column({ type: 'text', nullable: true })
   transactionSignature?: string; // Solana transaction signature

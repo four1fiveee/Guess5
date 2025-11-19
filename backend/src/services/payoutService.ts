@@ -383,8 +383,9 @@ export const referralPayoutService = {
       throw new Error(`Batch ${batchId} not found`);
     }
 
-    if (batch.status !== PayoutBatchStatus.PREPARED && batch.status !== PayoutBatchStatus.REVIEWED) {
-      throw new Error(`Batch ${batchId} is not in prepared/reviewed status`);
+    // Require batch to be in REVIEWED status (admin approval required)
+    if (batch.status !== PayoutBatchStatus.REVIEWED) {
+      throw new Error(`Batch ${batchId} must be reviewed and approved before sending. Current status: ${batch.status}`);
     }
 
     // Get all earnings for this batch

@@ -8064,7 +8064,7 @@ const generateReportHandler = async (req: any, res: any) => {
       'Match ID',
       'Player 1 Wallet',
       'Player 1 Username',
-      'Player 2 Wallet',
+      'Player 2 Wallet', 
       'Player 2 Username',
       'Entry Fee (SOL)',
       // 'Entry Fee (USD)', // Removed per user request

@@ -3,6 +3,8 @@ import { User } from '../models/User';
 import { Referral } from '../models/Referral';
 import { UserService } from './userService';
 import { referralPayoutService } from './payoutService';
+import { getNextSunday1300EST } from '../utils/referralUtils';
+import { notifyAdmin } from '../services/notificationService';
 
 /**
  * Cron service for scheduled tasks
@@ -57,8 +59,16 @@ export class CronService {
 
       console.log(`✅ Prepared payout batch ${batch.id} with $${batch.totalAmountUSD} USD`);
 
-      // TODO: Send notification to admin (Discord/Slack/Email)
-      // await notifyAdmin(`New payout batch prepared: ${batch.id}`);
+      // Send notification to admin
+      await notifyAdmin({
+        type: 'payout_batch_prepared',
+        title: 'New Referral Payout Batch Prepared',
+        message: `Payout batch ${batch.id} has been prepared with $${batch.totalAmountUSD.toFixed(2)} USD (${batch.totalAmountSOL.toFixed(6)} SOL). Please review and approve before payment.`,
+        batchId: batch.id,
+        totalAmountUSD: batch.totalAmountUSD,
+        totalAmountSOL: batch.totalAmountSOL,
+        scheduledSendAt: batch.scheduledSendAt
+      });
 
     } catch (error) {
       console.error('❌ Error preparing weekly payout:', error);
@@ -116,14 +126,4 @@ export class CronService {
   }
 }
 
-/**
- * Helper function to get next Sunday 13:00 EST
- */
-function getNextSunday1300EST(): Date {
-  const now = new Date();
-  const nextSunday = new Date(now);
-  nextSunday.setDate(now.getDate() + (7 - now.getDay()));
-  nextSunday.setHours(13, 0, 0, 0);
-  return nextSunday;
-}
 

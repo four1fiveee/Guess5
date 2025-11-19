@@ -158,9 +158,17 @@ export default function ReferralsPage() {
                 <span className="text-white/70">{formatUSD(stats.paidUSD)}</span>
               </div>
               {nextPayoutDate && (
-                <div className="flex justify-between items-center pt-2 border-t border-white/20">
-                  <span className="font-semibold">Next Payout:</span>
-                  <span className="text-white/80">{formatDate(nextPayoutDate)}</span>
+                <div className="pt-2 border-t border-white/20 space-y-2">
+                  <div className="flex justify-between items-center">
+                    <span className="font-semibold">Next Payout:</span>
+                    <span className="text-white/80">{formatDate(nextPayoutDate)}</span>
+                  </div>
+                  <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-3 mt-3">
+                    <p className="text-blue-300 text-xs font-semibold mb-1">📋 Review Window</p>
+                    <p className="text-blue-200 text-xs leading-relaxed">
+                      Payout batches are prepared every Sunday at 1:00 PM EST. There is a <strong>review window from 11:00 AM - 1:00 PM EST</strong> where batches are reviewed and approved before payment. Earnings accumulated during this review window will be included in the following week's payout.
+                    </p>
+                  </div>
                 </div>
               )}
               {!isEligible && (
@@ -335,16 +343,18 @@ export default function ReferralsPage() {
               </div>
             </div>
 
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <h3 className="text-lg font-bold text-accent mb-3">Requirements & Payouts</h3>
-              <ul className="space-y-2 text-white/80 text-sm leading-relaxed">
-                <li>• Play at least <strong className="text-white">one match</strong> to become eligible for referral payouts</li>
-                <li>• Minimum payout: <strong className="text-accent">$20 USD</strong> (earnings accumulate until you reach this threshold)</li>
-                <li>• Payouts: <strong className="text-white">Every Sunday at 1:00 PM EST</strong> via batched on-chain transactions</li>
-                <li>• USD amounts are converted to SOL at payout time using current market rates</li>
-                <li>• All eligible earnings are automatically included in the next payout batch once you meet the minimum</li>
-              </ul>
-            </div>
+        <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+          <h3 className="text-lg font-bold text-accent mb-3">Requirements & Payouts</h3>
+          <ul className="space-y-2 text-white/80 text-sm leading-relaxed">
+            <li>• Play at least <strong className="text-white">one match</strong> to become eligible for referral payouts</li>
+            <li>• Minimum payout: <strong className="text-accent">$20 USD</strong> (earnings accumulate until you reach this threshold)</li>
+            <li>• Payouts: <strong className="text-white">Every Sunday at 1:00 PM EST</strong> via batched on-chain transactions</li>
+            <li>• <strong className="text-yellow-300">Review Window:</strong> Batches are prepared at 1:00 PM EST and reviewed/approved between <strong className="text-white">11:00 AM - 1:00 PM EST</strong> on Sunday</li>
+            <li>• Earnings accumulated during the review window (11 AM - 1 PM EST) will be included in the <strong className="text-white">following week's payout</strong></li>
+            <li>• USD amounts are converted to SOL at payout time using current market rates</li>
+            <li>• All eligible earnings are automatically included in the next payout batch once you meet the minimum</li>
+          </ul>
+        </div>
           </div>
         </div>
 

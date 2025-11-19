@@ -8,6 +8,8 @@ import { referralPayoutService } from '../services/payoutService';
 import { ReferralService } from '../services/referralService';
 import { AntiAbuseService } from '../services/antiAbuseService';
 import { UserService } from '../services/userService';
+import { getNextSunday1300EST } from '../utils/referralUtils';
+import { notifyAdmin } from '../services/notificationService';
 import * as fs from 'fs';
 // csv-parse will be installed as dependency
 let csv: any;
@@ -229,6 +231,18 @@ export const adminPreparePayoutBatch = async (req: Request, res: Response) => {
     // Validate batch
     const validation = await referralPayoutService.validatePayoutBatch(batch.id);
 
+    // Send notification
+    await notifyAdmin({
+      type: 'payout_batch_prepared',
+      title: 'New Referral Payout Batch Prepared',
+      message: `Payout batch ${batch.id} has been prepared with $${batch.totalAmountUSD.toFixed(2)} USD (${batch.totalAmountSOL.toFixed(6)} SOL). Please review and approve before payment.`,
+      batchId: batch.id,
+      totalAmountUSD: batch.totalAmountUSD,
+      totalAmountSOL: batch.totalAmountSOL,
+      scheduledSendAt: batch.scheduledSendAt,
+      createdBy: createdByAdmin
+    });
+
     return res.json({
       success: true,
       batch: {
@@ -238,7 +252,8 @@ export const adminPreparePayoutBatch = async (req: Request, res: Response) => {
         status: batch.status,
         scheduledSendAt: batch.scheduledSendAt
       },
-      validation
+      validation,
+      message: 'Batch prepared. Please review and approve before sending.'
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -247,8 +262,75 @@ export const adminPreparePayoutBatch = async (req: Request, res: Response) => {
 };
 
 /**
- * Send payout batch
+ * Approve payout batch (change status from PREPARED to REVIEWED)
+ * POST /api/admin/payouts/approve/:batchId
+ */
+export const adminApprovePayoutBatch = async (req: Request, res: Response) => {
+  try {
+    const { batchId } = req.params;
+    const adminHeader = (req as any).headers?.['x-admin-user'] as string | undefined;
+    const reviewedByAdmin = adminHeader || 'unknown';
+
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+    const batch = await batchRepository.findOne({ where: { id: batchId } });
+
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    if (batch.status !== PayoutBatchStatus.PREPARED) {
+      return res.status(400).json({ 
+        error: `Batch must be in PREPARED status to approve. Current status: ${batch.status}` 
+      });
+    }
+
+    // Validate batch before approval
+    const validation = await referralPayoutService.validatePayoutBatch(batchId);
+    if (!validation.valid) {
+      return res.status(400).json({
+        error: 'Batch validation failed',
+        validation
+      });
+    }
+
+    // Update batch status to REVIEWED
+    batch.status = PayoutBatchStatus.REVIEWED;
+    batch.reviewedByAdmin = reviewedByAdmin;
+    batch.reviewedAt = new Date();
+    await batchRepository.save(batch);
+
+    // Send notification
+    await notifyAdmin({
+      type: 'payout_batch_approved',
+      title: 'Referral Payout Batch Approved',
+      message: `Payout batch ${batchId} has been approved by ${reviewedByAdmin} and is ready to send.`,
+      batchId: batch.id,
+      totalAmountUSD: batch.totalAmountUSD,
+      totalAmountSOL: batch.totalAmountSOL,
+      reviewedBy: reviewedByAdmin
+    });
+
+    return res.json({
+      success: true,
+      message: 'Payout batch approved successfully',
+      batch: {
+        id: batch.id,
+        status: batch.status,
+        reviewedByAdmin: batch.reviewedByAdmin,
+        reviewedAt: batch.reviewedAt
+      },
+      validation
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to approve payout batch', details: errorMessage });
+  }
+};
+
+/**
+ * Send payout batch (execute transaction)
  * POST /api/admin/payouts/send/:batchId
+ * Requires batch to be in REVIEWED status (approved)
  */
 export const adminSendPayoutBatch = async (req: Request, res: Response) => {
   try {
@@ -260,6 +342,15 @@ export const adminSendPayoutBatch = async (req: Request, res: Response) => {
     }
 
     await referralPayoutService.sendPayoutBatch(batchId, transactionSignature);
+
+    // Send notification
+    await notifyAdmin({
+      type: 'payout_batch_sent',
+      title: 'Referral Payout Batch Sent',
+      message: `Payout batch ${batchId} has been sent with transaction ${transactionSignature}.`,
+      batchId,
+      transactionSignature
+    });
 
     return res.json({
       success: true,
@@ -352,16 +443,6 @@ export const adminGetAbuseFlags = async (req: Request, res: Response) => {
   }
 };
 
-/**
- * Helper function to get next Sunday 13:00 EST
- */
-function getNextSunday1300EST(): Date {
-  const now = new Date();
-  const nextSunday = new Date(now);
-  nextSunday.setDate(now.getDate() + (7 - now.getDay()));
-  nextSunday.setHours(13, 0, 0, 0);
-  return nextSunday;
-}
 
 
 

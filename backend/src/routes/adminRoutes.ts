@@ -4,6 +4,7 @@ import {
   adminBackfillReferrals,
   adminGetOwedReferrals,
   adminPreparePayoutBatch,
+  adminApprovePayoutBatch,
   adminSendPayoutBatch,
   adminGetPayoutBatches,
   adminGetPayoutBatch,
@@ -22,6 +23,7 @@ router.get('/referrals/abuse-flags', adminGetAbuseFlags);
 
 // Payout management
 router.post('/payouts/prepare', adminPreparePayoutBatch);
+router.post('/payouts/approve/:batchId', adminApprovePayoutBatch);
 router.post('/payouts/send/:batchId', adminSendPayoutBatch);
 router.get('/payouts/batches', adminGetPayoutBatches);
 router.get('/payouts/batch/:id', adminGetPayoutBatch);
