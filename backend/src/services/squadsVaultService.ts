@@ -1314,59 +1314,104 @@ export class SquadsVaultService {
             programId: this.programId,
           });
           
-          // Wait a bit for account to be available
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // CRITICAL: Retry multiple times with increasing delays to handle blockchain indexing delays
+          // The proposal account needs time to be fully initialized with the linked transaction
+          let proposalVerified = false;
+          let retryCount = 0;
+          const maxRetries = 5;
+          const baseDelay = 2000; // Start with 2 seconds
           
-          const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
-          if (proposalAccount) {
-            try {
-              const proposal = await accounts.Proposal.fromAccountAddress(
-                this.connection,
-                proposalPda
-              );
-              const transactions = (proposal as any).transactions || [];
-              const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
-              
-              if (transactionCount === 0) {
-                enhancedLogger.error('❌ CRITICAL: Proposal created but has ZERO linked transactions!', {
+          while (!proposalVerified && retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, baseDelay * (retryCount + 1)));
+            
+            const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            if (proposalAccount) {
+              try {
+                const proposal = await accounts.Proposal.fromAccountAddress(
+                  this.connection,
+                  proposalPda
+                );
+                const transactions = (proposal as any).transactions || [];
+                const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
+                
+                if (transactionCount > 0) {
+                  enhancedLogger.info('✅ Proposal verified: has linked transactions', {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndex.toString(),
+                    proposalPda: proposalPda.toString(),
+                    transactionCount,
+                    retryAttempt: retryCount + 1,
+                  });
+                  proposalVerified = true;
+                  break;
+                } else {
+                  enhancedLogger.warn(`⚠️ Proposal has 0 transactions (attempt ${retryCount + 1}/${maxRetries}), retrying...`, {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndex.toString(),
+                    proposalPda: proposalPda.toString(),
+                  });
+                }
+              } catch (decodeError: any) {
+                enhancedLogger.warn(`⚠️ Failed to decode proposal (attempt ${retryCount + 1}/${maxRetries}), retrying...`, {
                   vaultAddress,
                   proposalId,
-                  transactionIndex: transactionIndex.toString(),
                   proposalPda: proposalPda.toString(),
-                  note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation.',
-                });
-                throw new Error(`Proposal created without linked transaction. transactionIndex=${transactionIndex.toString()}, proposalPda=${proposalPda.toString()}`);
-              } else {
-                enhancedLogger.info('✅ Proposal verified: has linked transactions', {
-                  vaultAddress,
-                  proposalId,
-                  transactionIndex: transactionIndex.toString(),
-                  proposalPda: proposalPda.toString(),
-                  transactionCount,
+                  error: decodeError?.message || String(decodeError),
                 });
               }
-            } catch (decodeError: any) {
-              // CRITICAL: If we can't decode, we can't verify - this is a problem
-              const errorMsg = `Failed to decode proposal account to verify transactions. proposalPda=${proposalPda.toString()}, error=${decodeError?.message || String(decodeError)}`;
-              enhancedLogger.error('❌ CRITICAL: Could not decode proposal account to verify transactions', {
+            } else {
+              enhancedLogger.warn(`⚠️ Proposal account not found (attempt ${retryCount + 1}/${maxRetries}), retrying...`, {
                 vaultAddress,
                 proposalId,
                 proposalPda: proposalPda.toString(),
-                error: decodeError?.message || String(decodeError),
-                note: 'Cannot verify transaction linking without decoding proposal account.',
               });
-              throw new Error(errorMsg);
             }
-          } else {
-            // CRITICAL: Proposal account doesn't exist - this is a problem
-            const errorMsg = `Proposal account not found after creation. proposalPda=${proposalPda.toString()}`;
-            enhancedLogger.error('❌ CRITICAL: Proposal account not found after creation', {
-              vaultAddress,
-              proposalId,
-              proposalPda: proposalPda.toString(),
-              note: 'Proposal account should exist after creation.',
-            });
-            throw new Error(errorMsg);
+            retryCount++;
+          }
+          
+          if (!proposalVerified) {
+            // Final check - if still 0 transactions, this is a critical error
+            const finalProposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            if (finalProposalAccount) {
+              try {
+                const finalProposal = await accounts.Proposal.fromAccountAddress(
+                  this.connection,
+                  proposalPda
+                );
+                const finalTransactions = (finalProposal as any).transactions || [];
+                const finalTransactionCount = Array.isArray(finalTransactions) ? finalTransactions.length : 0;
+                
+                if (finalTransactionCount === 0) {
+                  enhancedLogger.error('❌ CRITICAL: Proposal created but has ZERO linked transactions after all retries!', {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndex.toString(),
+                    proposalPda: proposalPda.toString(),
+                    note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation. The transaction may need to be manually linked or the proposal recreated.',
+                  });
+                  throw new Error(`Proposal created without linked transaction after ${maxRetries} retries. transactionIndex=${transactionIndex.toString()}, proposalPda=${proposalPda.toString()}`);
+                }
+              } catch (finalDecodeError: any) {
+                enhancedLogger.error('❌ CRITICAL: Could not decode proposal account to verify transactions after all retries', {
+                  vaultAddress,
+                  proposalId,
+                  proposalPda: proposalPda.toString(),
+                  error: finalDecodeError?.message || String(finalDecodeError),
+                  note: 'Cannot verify transaction linking without decoding proposal account.',
+                });
+                throw new Error(`Failed to decode proposal account to verify transactions after ${maxRetries} retries. proposalPda=${proposalPda.toString()}, error=${finalDecodeError?.message || String(finalDecodeError)}`);
+              }
+            } else {
+              enhancedLogger.error('❌ CRITICAL: Proposal account not found after all retries', {
+                vaultAddress,
+                proposalId,
+                proposalPda: proposalPda.toString(),
+                note: 'Proposal account should exist after creation.',
+              });
+              throw new Error(`Proposal account not found after ${maxRetries} retries. proposalPda=${proposalPda.toString()}`);
+            }
           }
         } catch (verifyError: any) {
           // CRITICAL: Verification failure - fail loudly
@@ -2133,59 +2178,104 @@ export class SquadsVaultService {
             programId: this.programId,
           });
           
-          // Wait a bit for account to be available
-          await new Promise(resolve => setTimeout(resolve, 1000));
+          // CRITICAL: Retry multiple times with increasing delays to handle blockchain indexing delays
+          // The proposal account needs time to be fully initialized with the linked transaction
+          let proposalVerified = false;
+          let retryCount = 0;
+          const maxRetries = 5;
+          const baseDelay = 2000; // Start with 2 seconds
           
-          const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
-          if (proposalAccount) {
-            try {
-              const proposal = await accounts.Proposal.fromAccountAddress(
-                this.connection,
-                proposalPda
-              );
-              const transactions = (proposal as any).transactions || [];
-              const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
-              
-              if (transactionCount === 0) {
-                enhancedLogger.error('❌ CRITICAL: Proposal created but has ZERO linked transactions!', {
+          while (!proposalVerified && retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, baseDelay * (retryCount + 1)));
+            
+            const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            if (proposalAccount) {
+              try {
+                const proposal = await accounts.Proposal.fromAccountAddress(
+                  this.connection,
+                  proposalPda
+                );
+                const transactions = (proposal as any).transactions || [];
+                const transactionCount = Array.isArray(transactions) ? transactions.length : 0;
+                
+                if (transactionCount > 0) {
+                  enhancedLogger.info('✅ Proposal verified: has linked transactions', {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndex.toString(),
+                    proposalPda: proposalPda.toString(),
+                    transactionCount,
+                    retryAttempt: retryCount + 1,
+                  });
+                  proposalVerified = true;
+                  break;
+                } else {
+                  enhancedLogger.warn(`⚠️ Proposal has 0 transactions (attempt ${retryCount + 1}/${maxRetries}), retrying...`, {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndex.toString(),
+                    proposalPda: proposalPda.toString(),
+                  });
+                }
+              } catch (decodeError: any) {
+                enhancedLogger.warn(`⚠️ Failed to decode proposal (attempt ${retryCount + 1}/${maxRetries}), retrying...`, {
                   vaultAddress,
                   proposalId,
-                  transactionIndex: transactionIndex.toString(),
                   proposalPda: proposalPda.toString(),
-                  note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation.',
-                });
-                throw new Error(`Proposal created without linked transaction. transactionIndex=${transactionIndex.toString()}, proposalPda=${proposalPda.toString()}`);
-              } else {
-                enhancedLogger.info('✅ Proposal verified: has linked transactions', {
-                  vaultAddress,
-                  proposalId,
-                  transactionIndex: transactionIndex.toString(),
-                  proposalPda: proposalPda.toString(),
-                  transactionCount,
+                  error: decodeError?.message || String(decodeError),
                 });
               }
-            } catch (decodeError: any) {
-              // CRITICAL: If we can't decode, we can't verify - this is a problem
-              const errorMsg = `Failed to decode proposal account to verify transactions. proposalPda=${proposalPda.toString()}, error=${decodeError?.message || String(decodeError)}`;
-              enhancedLogger.error('❌ CRITICAL: Could not decode proposal account to verify transactions', {
+            } else {
+              enhancedLogger.warn(`⚠️ Proposal account not found (attempt ${retryCount + 1}/${maxRetries}), retrying...`, {
                 vaultAddress,
                 proposalId,
                 proposalPda: proposalPda.toString(),
-                error: decodeError?.message || String(decodeError),
-                note: 'Cannot verify transaction linking without decoding proposal account.',
               });
-              throw new Error(errorMsg);
             }
-          } else {
-            // CRITICAL: Proposal account doesn't exist - this is a problem
-            const errorMsg = `Proposal account not found after creation. proposalPda=${proposalPda.toString()}`;
-            enhancedLogger.error('❌ CRITICAL: Proposal account not found after creation', {
-              vaultAddress,
-              proposalId,
-              proposalPda: proposalPda.toString(),
-              note: 'Proposal account should exist after creation.',
-            });
-            throw new Error(errorMsg);
+            retryCount++;
+          }
+          
+          if (!proposalVerified) {
+            // Final check - if still 0 transactions, this is a critical error
+            const finalProposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            if (finalProposalAccount) {
+              try {
+                const finalProposal = await accounts.Proposal.fromAccountAddress(
+                  this.connection,
+                  proposalPda
+                );
+                const finalTransactions = (finalProposal as any).transactions || [];
+                const finalTransactionCount = Array.isArray(finalTransactions) ? finalTransactions.length : 0;
+                
+                if (finalTransactionCount === 0) {
+                  enhancedLogger.error('❌ CRITICAL: Proposal created but has ZERO linked transactions after all retries!', {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndex.toString(),
+                    proposalPda: proposalPda.toString(),
+                    note: 'This will prevent execution. VaultTransaction must be linked to Proposal during creation. The transaction may need to be manually linked or the proposal recreated.',
+                  });
+                  throw new Error(`Proposal created without linked transaction after ${maxRetries} retries. transactionIndex=${transactionIndex.toString()}, proposalPda=${proposalPda.toString()}`);
+                }
+              } catch (finalDecodeError: any) {
+                enhancedLogger.error('❌ CRITICAL: Could not decode proposal account to verify transactions after all retries', {
+                  vaultAddress,
+                  proposalId,
+                  proposalPda: proposalPda.toString(),
+                  error: finalDecodeError?.message || String(finalDecodeError),
+                  note: 'Cannot verify transaction linking without decoding proposal account.',
+                });
+                throw new Error(`Failed to decode proposal account to verify transactions after ${maxRetries} retries. proposalPda=${proposalPda.toString()}, error=${finalDecodeError?.message || String(finalDecodeError)}`);
+              }
+            } else {
+              enhancedLogger.error('❌ CRITICAL: Proposal account not found after all retries', {
+                vaultAddress,
+                proposalId,
+                proposalPda: proposalPda.toString(),
+                note: 'Proposal account should exist after creation.',
+              });
+              throw new Error(`Proposal account not found after ${maxRetries} retries. proposalPda=${proposalPda.toString()}`);
+            }
           }
         } catch (verifyError: any) {
           // CRITICAL: Verification failure - fail loudly
