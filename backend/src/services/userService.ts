@@ -1,6 +1,52 @@
 import { AppDataSource } from '../db';
 import { User } from '../models/User';
 
+const MIN_MATCHES_REQUIRED = 20; // Define the minimum matches required for referral eligibility
+
+// Proactive check to ensure exemptFromReferralMinimum column exists
+let columnCheckPromise: Promise<void> | null = null;
+const ensureExemptColumnExists = async (): Promise<void> => {
+  if (columnCheckPromise) {
+    return columnCheckPromise;
+  }
+  
+  columnCheckPromise = (async () => {
+    try {
+      if (!AppDataSource.isInitialized) {
+        return; // Will be checked during initialization
+      }
+      
+      const columnExists = await AppDataSource.query(`
+        SELECT EXISTS (
+          SELECT FROM information_schema.columns 
+          WHERE table_schema = 'public' 
+          AND table_name = 'user' 
+          AND column_name = 'exemptFromReferralMinimum'
+        );
+      `);
+      
+      if (!columnExists[0]?.exists) {
+        console.log('⚠️ Proactively adding exemptFromReferralMinimum column...');
+        await AppDataSource.query(`
+          ALTER TABLE "user" 
+          ADD COLUMN IF NOT EXISTS "exemptFromReferralMinimum" boolean DEFAULT false NOT NULL;
+        `);
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_user_exemptFromReferralMinimum" 
+          ON "user" ("exemptFromReferralMinimum") 
+          WHERE "exemptFromReferralMinimum" = true;
+        `);
+        console.log('✅ Proactively added exemptFromReferralMinimum column');
+      }
+    } catch (error: any) {
+      // Ignore errors - will be handled by fallback in getUserByWallet
+      console.warn('⚠️ Proactive column check failed (will retry on first use):', error?.message);
+    }
+  })();
+  
+  return columnCheckPromise;
+};
+
 /**
  * User service for tracking cumulative entry fees and referral eligibility
  */
