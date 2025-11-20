@@ -438,6 +438,33 @@ export const initializeDatabase = async () => {
           await ensureReferralTables();
         }
         
+        // Ensure user table exists (migration 014)
+        const userTableExists = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'user'
+          );
+        `);
+        
+        if (!userTableExists[0]?.exists) {
+          console.log('⚠️ User table missing - creating it...');
+          await AppDataSource.query(`
+            CREATE TABLE IF NOT EXISTS "user" (
+              "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+              "walletAddress" text UNIQUE NOT NULL,
+              "totalEntryFees" numeric(12,2) DEFAULT 0 NOT NULL,
+              "totalEntryFeesSOL" numeric(12,6) DEFAULT 0 NOT NULL,
+              "createdAt" timestamp DEFAULT now() NOT NULL,
+              "updatedAt" timestamp DEFAULT now() NOT NULL
+            )
+          `);
+          await AppDataSource.query(`
+            CREATE INDEX IF NOT EXISTS "IDX_user_walletAddress" ON "user" ("walletAddress")
+          `);
+          console.log('✅ User table created');
+        }
+        
         // Check if user table has username column (migration 015)
         const usernameColumnExists = await AppDataSource.query(`
           SELECT EXISTS (
