@@ -238,7 +238,6 @@ export class UserService {
 
     // Check match count
     const matchCount = await this.getMatchCount(walletAddress);
-    const MIN_MATCHES_REQUIRED = 20;
 
     if (matchCount >= MIN_MATCHES_REQUIRED) {
       return {
