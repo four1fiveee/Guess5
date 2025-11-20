@@ -2,6 +2,8 @@ import { Request, Response } from 'express';
 import { ReferralService } from '../services/referralService';
 import { UserService } from '../services/userService';
 import { AntiAbuseService } from '../services/antiAbuseService';
+import { AppDataSource } from '../db';
+import { ReferralEarning } from '../models/ReferralEarning';
 
 /**
  * Create referral link / process referral
@@ -61,26 +63,6 @@ export const getReferralDashboard = async (req: Request, res: Response) => {
     nextSunday.setDate(now.getDate() + (7 - now.getDay())); // Next Sunday
     nextSunday.setHours(13, 0, 0, 0); // 1:00 PM EST
 
-    // Get payout history
-    const { AppDataSource } = require('../db');
-    const { PayoutBatch } = require('../models/PayoutBatch');
-    const { ReferralEarning } = require('../models/ReferralEarning');
-    
-    const batchRepository = AppDataSource.getRepository(PayoutBatch);
-    const paidBatches = await batchRepository.find({
-      where: { status: 'sent' },
-      order: { createdAt: 'DESC' },
-      take: 10
-    });
-
-    const earningRepository = AppDataSource.getRepository(ReferralEarning);
-    const paidEarnings = await earningRepository.find({
-      where: { uplineWallet: wallet, paid: true },
-      relations: ['payoutBatch'],
-      order: { paidAt: 'DESC' },
-      take: 20
-    });
-
     return res.json({
       success: true,
       stats,
@@ -90,14 +72,7 @@ export const getReferralDashboard = async (req: Request, res: Response) => {
       canReferReason: canReferCheck.reason,
       matchCount: canReferCheck.matchCount,
       exemptFromMinimum: canReferCheck.exempt,
-      nextPayoutDate: nextSunday.toISOString(),
-      payoutHistory: paidEarnings.map(e => ({
-        date: e.paidAt,
-        amountUSD: e.amountUSD,
-        amountSOL: e.amountSOL,
-        level: e.level,
-        transactionSignature: e.payoutBatch?.transactionSignature
-      }))
+      nextPayoutDate: nextSunday.toISOString()
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -145,9 +120,6 @@ export const downloadReferralPayoutsCSV = async (req: Request, res: Response) =>
       return res.status(400).json({ error: 'wallet query parameter is required' });
     }
 
-    const { AppDataSource } = require('../db');
-    const { ReferralEarning } = require('../models/ReferralEarning');
-    
     // Get all paid referral earnings for this wallet
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
     const paidEarnings = await earningRepository.find({
