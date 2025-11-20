@@ -234,6 +234,11 @@ export class ReferralService {
     referredCount: number;
     activeReferredCount: number;
     eligibleReferredCount: number;
+    // Time-based earnings
+    earningsAllTime: number;
+    earningsYTD: number;
+    earningsQTD: number;
+    earningsLast7Days: number;
   }> {
     const referralRepository = AppDataSource.getRepository(Referral);
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
@@ -249,9 +254,9 @@ export class ReferralService {
     const activeReferred = await AppDataSource.query(`
       SELECT COUNT(DISTINCT wallet) as count
       FROM (
-        SELECT "player1" as wallet FROM "match" WHERE "player1" = ANY($1)
+        SELECT "player1" as wallet FROM "match" WHERE "player1" = ANY($1) AND status = 'completed'
         UNION
-        SELECT "player2" as wallet FROM "match" WHERE "player2" = ANY($1)
+        SELECT "player2" as wallet FROM "match" WHERE "player2" = ANY($1) AND status = 'completed'
       ) t
     `, [referredWallets]);
 
@@ -261,12 +266,29 @@ export class ReferralService {
     );
     const eligibleCount = eligibleReferred.filter(Boolean).length;
 
-    // Get earnings stats
+    // Get all earnings
     const earnings = await earningRepository.find({
       where: { uplineWallet: wallet }
     });
 
-    const totalEarnedUSD = earnings.reduce((sum, e) => sum + Number(e.amountUSD), 0);
+    // Calculate time-based earnings
+    const now = new Date();
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+    const startOfQuarter = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+
+    const earningsAllTime = earnings.reduce((sum, e) => sum + Number(e.amountUSD), 0);
+    const earningsYTD = earnings
+      .filter(e => new Date(e.createdAt) >= startOfYear)
+      .reduce((sum, e) => sum + Number(e.amountUSD), 0);
+    const earningsQTD = earnings
+      .filter(e => new Date(e.createdAt) >= startOfQuarter)
+      .reduce((sum, e) => sum + Number(e.amountUSD), 0);
+    const earningsLast7Days = earnings
+      .filter(e => new Date(e.createdAt) >= sevenDaysAgo)
+      .reduce((sum, e) => sum + Number(e.amountUSD), 0);
+
+    const totalEarnedUSD = earningsAllTime;
     const totalEarnedSOL = earnings.reduce((sum, e) => sum + (Number(e.amountSOL) || 0), 0);
     const paidUSD = earnings
       .filter(e => e.paid)
@@ -280,7 +302,11 @@ export class ReferralService {
       paidUSD,
       referredCount: referred.length,
       activeReferredCount: parseInt(activeReferred[0]?.count || '0'),
-      eligibleReferredCount: eligibleCount
+      eligibleReferredCount: eligibleCount,
+      earningsAllTime,
+      earningsYTD,
+      earningsQTD,
+      earningsLast7Days
     };
   }
 

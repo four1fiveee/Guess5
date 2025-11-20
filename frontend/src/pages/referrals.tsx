@@ -14,6 +14,10 @@ interface ReferralStats {
   referredCount: number;
   activeReferredCount: number;
   eligibleReferredCount: number;
+  earningsAllTime: number;
+  earningsYTD: number;
+  earningsQTD: number;
+  earningsLast7Days: number;
 }
 
 interface CanReferInfo {
@@ -220,28 +224,68 @@ export default function ReferralsPage() {
           {loading ? (
             <p className="text-white/70">Loading...</p>
           ) : (
-            <div className="space-y-3 text-white/90">
-              <div className="flex justify-between items-center">
-                <span className="font-semibold">Total Earned:</span>
-                <span className="text-accent font-bold text-lg">{formatUSD(stats?.totalEarnedUSD || 0)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-semibold">Available to Payout:</span>
-                <span className="text-green-400 font-bold text-lg">{formatUSD(stats?.pendingUSD || 0)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-semibold">Paid:</span>
-                <span className="text-white/70">{formatUSD(stats?.paidUSD || 0)}</span>
-              </div>
-              <div className="flex justify-between items-center">
-                <span className="font-semibold">Total Earned (SOL):</span>
-                <span className="text-white/70">{stats?.totalEarnedSOL?.toFixed(6) || '0.000000'} SOL</span>
-              </div>
-              {nextPayoutDate && (
-                <div className="pt-2 border-t border-white/20 space-y-2">
+            <div className="space-y-4 text-white/90">
+              {/* Total Referral Earnings Section */}
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <h3 className="text-lg font-bold text-accent mb-3">Total Referral Earnings</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex justify-between items-center">
-                    <span className="font-semibold">Next Payout:</span>
-                    <span className="text-white/80">{formatDate(nextPayoutDate)}</span>
+                    <span className="text-white/80 text-sm">All-Time:</span>
+                    <span className="text-accent font-bold">{formatUSD(stats?.earningsAllTime || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/80 text-sm">Year-to-Date:</span>
+                    <span className="text-white font-semibold">{formatUSD(stats?.earningsYTD || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/80 text-sm">Quarter-to-Date:</span>
+                    <span className="text-white font-semibold">{formatUSD(stats?.earningsQTD || 0)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/80 text-sm">Last 7 Days:</span>
+                    <span className="text-white font-semibold">{formatUSD(stats?.earningsLast7Days || 0)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Current Balance Section */}
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <h3 className="text-lg font-bold text-green-400 mb-3">Current Unpaid Balance</h3>
+                <div className="flex justify-between items-center">
+                  <span className="text-white/80">Awaiting Payout:</span>
+                  <span className="text-green-400 font-bold text-xl">{formatUSD(stats?.pendingUSD || 0)}</span>
+                </div>
+                <div className="flex justify-between items-center mt-2">
+                  <span className="text-white/80 text-sm">Total Paid:</span>
+                  <span className="text-white/70">{formatUSD(stats?.paidUSD || 0)}</span>
+                </div>
+              </div>
+
+              {/* Referred Players Section */}
+              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
+                <h3 className="text-lg font-bold text-purple-400 mb-3">Referred Players</h3>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-accent mb-1">{stats?.referredCount || 0}</div>
+                    <div className="text-white/70 text-xs">Total Referred</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-green-400 mb-1">{stats?.activeReferredCount || 0}</div>
+                    <div className="text-white/70 text-xs">Active (1+ Match)</div>
+                  </div>
+                  <div className="text-center">
+                    <div className="text-2xl font-bold text-purple-400 mb-1">{stats?.eligibleReferredCount || 0}</div>
+                    <div className="text-white/70 text-xs">Eligible</div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Next Payout Date */}
+              {nextPayoutDate && (
+                <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="font-semibold text-blue-300">Next Scheduled Payout:</span>
+                    <span className="text-white font-bold">{formatDate(nextPayoutDate)}</span>
                   </div>
                   <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-3 mt-3">
                     <p className="text-blue-300 text-xs font-semibold mb-1">📋 Review Window</p>
@@ -251,8 +295,9 @@ export default function ReferralsPage() {
                   </div>
                 </div>
               )}
+
               {!isEligible && (
-                <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3 mt-4">
+                <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3">
                   <p className="text-yellow-400 text-sm">⚠️ Play your first match to start earning referral rewards!</p>
                 </div>
               )}
