@@ -164,7 +164,7 @@ const STAKE_TIERS: StakeTier[] = [
     title: 'Competitive',
     badgeText: '⭐ Crowd Favorite',
     badgeTheme: 'accent',
-    headline: 'Step up to the first tier with a house boost.',
+    headline: 'Step up to the first tier with a platform bonus.',
     incentive: 'We add $0.25 to every victory for more bragging rights.',
     cta: 'Queue Competitive',
     isPopular: true,
@@ -177,7 +177,7 @@ const STAKE_TIERS: StakeTier[] = [
     badgeText: '🎯 Bonus Stacked',
     badgeTheme: 'blue',
     headline: 'Bigger stakes with an even bigger bonus.',
-    incentive: 'House boost: +$0.75 on every single win.',
+    incentive: 'Platform bonus: +$0.75 on every single win.',
     cta: 'Go Veteran',
     isHighValue: true,
     bonusUsd: 0.75
@@ -802,7 +802,7 @@ export default function Lobby() {
                           {' '}
                           ${highestTierData.totalWinUsd.toFixed(2)}
                         </span>
-                        {' '}including our house boost.
+                        {' '}including our platform bonus.
                       </>
                     ) : nextTierToUnlock && amountToUnlock !== null ? (
                       <>
@@ -822,10 +822,10 @@ export default function Lobby() {
                         <span className="text-green-300 font-semibold">
                           ${nextTierToUnlock.totalWinUsd.toFixed(2)}
                         </span>
-                        with the built-in house boost.
+                        with the built-in platform bonus.
                       </>
                     ) : (
-                      <>Top up your wallet to unlock bigger pots and larger house boosts.</>
+                      <>Top up your wallet to unlock bigger pots and larger platform bonuses.</>
                     )}
                   </div>
                 )}
@@ -1233,7 +1233,7 @@ export default function Lobby() {
                   </div>
                 </div>
                 <div className="text-center text-white/40 text-[11px] mt-4">
-                  * House boosts hit your wallet automatically on eligible wins. Promotional amounts rotate weekly.
+                  * Platform bonuses hit your wallet automatically on eligible wins. Promotional amounts rotate weekly.
                 </div>
               </div>
             </div>

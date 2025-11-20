@@ -70,6 +70,10 @@ export default function Home() {
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">4.</span>
               <span><b>Win the pot:</b> Fewest guesses wins! Winner gets 95% of the pot (you must sign to claim). 5% platform fee covers infrastructure</span>
             </div>
+            <div className="flex items-start space-x-2.5">
+              <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">5.</span>
+              <span><b>Neither player guesses correctly:</b> If both players use all 7 guesses without solving, the match ends in a tie. Both players receive a refund of their entry fee</span>
+            </div>
           </div>
         </div>
 

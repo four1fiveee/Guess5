@@ -962,7 +962,13 @@ const Result: React.FC = () => {
           ? `You solved it ${diff}s faster.`
           : `Opponent finished ${diff}s quicker.`;
     } else {
-      tempoCopy = 'Both players matched pace exactly.';
+      // Only show "matched pace exactly" for winning ties
+      if (payoutData.isTie && payoutData.isWinningTie) {
+        tempoCopy = 'Both players matched pace exactly.';
+      } else {
+        // For losing ties or non-ties, don't show tempo copy
+        tempoCopy = null;
+      }
     }
   }
 

@@ -1475,9 +1475,14 @@ const Matchmaking: React.FC = () => {
                 <div className="animate-pulse w-3 h-3 bg-accent rounded-full mr-3"></div>
                 <h2 className="text-2xl font-bold text-accent">Waiting for Opponent</h2>
               </div>
-              {matchData?.player2Username && (
-                <p className="text-white/70 text-sm mb-4 text-center">Waiting for @{matchData.player2Username} to pay their entry fee</p>
-              )}
+              {(() => {
+                // Determine which player the current user is
+                const isPlayer1 = currentWallet === matchData.player1;
+                const opponentUsername = isPlayer1 ? matchData.player2Username : matchData.player1Username;
+                return opponentUsername && (
+                  <p className="text-white/70 text-sm mb-4 text-center">Waiting for @{opponentUsername} to pay their entry fee</p>
+                );
+              })()}
               <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
                 <div className="text-green-400 text-sm font-medium mb-1">✓ Your payment confirmed</div>
                 <p className="text-white/70 text-sm">Waiting for your opponent to pay their entry fee</p>

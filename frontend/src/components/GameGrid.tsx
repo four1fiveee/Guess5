@@ -122,6 +122,7 @@ const GameGrid: React.FC<{
               disabled={remainingGuesses <= 0}
               onKeyDown={handleKeyDown}
               placeholder="Enter 5-letter word"
+              autoFocus
               // Mobile optimizations
               autoComplete="off"
               autoCorrect="off"
