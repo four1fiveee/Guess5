@@ -9170,101 +9170,50 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         transactionId: result.transactionId
       });
 
-      // Update payment status using raw SQL to avoid TypeORM column issues
+      // Update payment status using TypeORM (columns now guaranteed to exist)
       const { AppDataSource } = require('../db/index');
-      
-      // Get match using raw SQL to avoid selecting non-existent columns
-      const matchRows = await AppDataSource.query(`
-        SELECT id, "player1", "player2", "player1Paid", "player2Paid", 
-               "player1PaymentSignature", "player2PaymentSignature",
-               "matchStatus", status, word, "gameStartTime"
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
+      const matchRepository = AppDataSource.getRepository(Match);
+      const matchEntity = await matchRepository.findOne({ where: { id: matchId } });
 
-      if (!matchRows || matchRows.length === 0) {
+      if (!matchEntity) {
         return res.status(404).json({
           success: false,
           error: 'Match not found'
         });
       }
 
-      const matchData = matchRows[0];
-      const isPlayer1 = playerWallet === matchData.player1;
-      if (!isPlayer1 && playerWallet !== matchData.player2) {
+      const isPlayer1 = playerWallet === matchEntity.player1;
+      if (!isPlayer1 && playerWallet !== matchEntity.player2) {
         return res.status(403).json({ success: false, error: 'Player not part of this match' });
       }
 
-      // Update using raw SQL
       if (isPlayer1) {
-        await AppDataSource.query(`
-          UPDATE "match"
-          SET "player1Paid" = true,
-              "player1PaymentSignature" = COALESCE($1, "player1PaymentSignature"),
-              "player1PaymentTime" = NOW(),
-              "matchStatus" = CASE 
-                WHEN "matchStatus" IS NULL OR "matchStatus" = 'PENDING' THEN 'PAYMENT_REQUIRED'
-                ELSE "matchStatus"
-              END
-          WHERE id = $2
-        `, [depositTxSignature, matchId]);
+        matchEntity.player1Paid = true;
+        matchEntity.player1PaymentSignature = depositTxSignature || matchEntity.player1PaymentSignature;
+        matchEntity.player1PaymentTime = new Date();
       } else {
-        await AppDataSource.query(`
-          UPDATE "match"
-          SET "player2Paid" = true,
-              "player2PaymentSignature" = COALESCE($1, "player2PaymentSignature"),
-              "player2PaymentTime" = NOW(),
-              "matchStatus" = CASE 
-                WHEN "matchStatus" IS NULL OR "matchStatus" = 'PENDING' THEN 'PAYMENT_REQUIRED'
-                ELSE "matchStatus"
-              END
-          WHERE id = $2
-        `, [depositTxSignature, matchId]);
+        matchEntity.player2Paid = true;
+        matchEntity.player2PaymentSignature = depositTxSignature || matchEntity.player2PaymentSignature;
+        matchEntity.player2PaymentTime = new Date();
       }
-      
+
+      if (!matchEntity.matchStatus || matchEntity.matchStatus === 'PENDING') {
+        matchEntity.matchStatus = 'PAYMENT_REQUIRED';
+      }
+
+      await matchRepository.save(matchEntity);
       console.log(`✅ Marked ${isPlayer1 ? 'Player 1' : 'Player 2'} (${playerWallet}) as paid for match ${matchId}`);
 
-      // Get updated match data for activation check
-      const updatedMatchRows = await AppDataSource.query(`
-        SELECT id, "player1", "player2", "player1Paid", "player2Paid", 
-               "matchStatus", status, word, "gameStartTime"
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
-      
-      const updatedMatchData = updatedMatchRows[0];
       let activated = false;
-      
       try {
-        // Check if both paid and activate if ready
-        if (updatedMatchData.player1Paid && updatedMatchData.player2Paid && !updatedMatchData.gameStartTime) {
-          const matchRepository = AppDataSource.getRepository(Match);
-          // Create a minimal match object for activation
-          const matchForActivation = {
-            id: updatedMatchData.id,
-            player1: updatedMatchData.player1,
-            player2: updatedMatchData.player2,
-            player1Paid: updatedMatchData.player1Paid,
-            player2Paid: updatedMatchData.player2Paid,
-            matchStatus: updatedMatchData.matchStatus,
-            status: updatedMatchData.status,
-            word: updatedMatchData.word
-          };
-          const activationResult = await activateMatchIfReady(matchRepository, matchForActivation, playerWallet);
-          activated = activationResult.activated;
-        }
+        const activationResult = await activateMatchIfReady(matchRepository, matchEntity, playerWallet);
+        activated = activationResult.activated;
       } catch (activationError: any) {
         console.error('❌ Error activating game after deposit:', activationError?.message || activationError);
       }
 
-      // Get final match state
-      const finalMatchRows = await AppDataSource.query(`
-        SELECT "player1Paid", "player2Paid", status
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
-      
-      const responseMatch = finalMatchRows[0] || updatedMatchData;
+      const refreshedMatch = await matchRepository.findOne({ where: { id: matchId } });
+      const responseMatch = refreshedMatch || matchEntity;
       const bothPaid = !!(responseMatch?.player1Paid && responseMatch?.player2Paid);
 
       console.log(`🔍 Payment status for match ${matchId}:`, {
@@ -9297,7 +9246,7 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         playerWallet,
         player1Paid: responseMatch?.player1Paid ?? false,
         player2Paid: responseMatch?.player2Paid ?? false,
-        status: responseMatch?.status ?? updatedMatchData?.status ?? 'pending',
+        status: responseMatch?.status ?? matchEntity.status,
         bothPaid
       });
     } else {
