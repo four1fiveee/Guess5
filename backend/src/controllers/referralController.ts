@@ -133,3 +133,90 @@ export const getReferralStats = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Download referral payouts as CSV
+ * GET /api/referral/payouts/csv?wallet=...
+ */
+export const downloadReferralPayoutsCSV = async (req: Request, res: Response) => {
+  try {
+    const { wallet } = req.query;
+
+    if (!wallet || typeof wallet !== 'string') {
+      return res.status(400).json({ error: 'wallet query parameter is required' });
+    }
+
+    const { AppDataSource } = require('../db');
+    const { ReferralEarning } = require('../models/ReferralEarning');
+    
+    // Get all paid referral earnings for this wallet
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const paidEarnings = await earningRepository.find({
+      where: { uplineWallet: wallet, paid: true },
+      relations: ['payoutBatch', 'match'],
+      order: { paidAt: 'DESC' }
+    });
+
+    // Helper to sanitize CSV values
+    const sanitizeCsvValue = (value: any) => {
+      if (value === null || value === undefined) return '';
+      const str = String(value);
+      // Escape quotes and wrap in quotes if contains comma, quote, or newline
+      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+      }
+      return str;
+    };
+
+    // Helper to format date
+    const formatDate = (date: Date | string | null | undefined) => {
+      if (!date) return '';
+      return new Date(date).toISOString();
+    };
+
+    // CSV headers
+    const csvHeaders = [
+      'Paid Date',
+      'Match ID',
+      'Referred Wallet',
+      'Level',
+      'Amount USD',
+      'Amount SOL',
+      'Transaction Signature',
+      'Payout Batch ID',
+      'Match Entry Fee',
+      'Match Status'
+    ];
+
+    // CSV rows
+    const csvRows = paidEarnings.map(earning => [
+      sanitizeCsvValue(formatDate(earning.paidAt)),
+      sanitizeCsvValue(earning.matchId),
+      sanitizeCsvValue(earning.referredWallet),
+      sanitizeCsvValue(earning.level),
+      sanitizeCsvValue(earning.amountUSD),
+      sanitizeCsvValue(earning.amountSOL || ''),
+      sanitizeCsvValue(earning.payoutBatch?.transactionSignature || ''),
+      sanitizeCsvValue(earning.payoutBatchId || ''),
+      sanitizeCsvValue(earning.match?.entryFee || ''),
+      sanitizeCsvValue(earning.match?.status || '')
+    ]);
+
+    // Combine headers and rows
+    const csvContent = [csvHeaders, ...csvRows]
+      .map((row: any[]) => row.map((field: any) => sanitizeCsvValue(field)).join(','))
+      .join('\n');
+
+    // Set response headers for CSV download
+    const filename = `Guess5_Referral_Payouts_${wallet.slice(0, 8)}.csv`;
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    
+    console.log(`✅ Generated referral payouts CSV for wallet ${wallet.slice(0, 8)}... (${paidEarnings.length} records)`);
+    res.send(csvContent);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error generating referral payouts CSV:', errorMessage);
+    return res.status(500).json({ error: 'Failed to generate CSV', details: errorMessage });
+  }
+};
+

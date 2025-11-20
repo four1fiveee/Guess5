@@ -32,13 +32,6 @@ interface EarningsBreakdown {
   byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
 }
 
-interface PayoutHistory {
-  date: Date;
-  amountUSD: number;
-  amountSOL?: number;
-  level: number;
-  transactionSignature?: string;
-}
 
 export default function ReferralsPage() {
   const { publicKey } = useWallet();
@@ -81,7 +74,6 @@ export default function ReferralsPage() {
           exemptFromMinimum: data.exemptFromMinimum
         });
         setNextPayoutDate(data.nextPayoutDate ? new Date(data.nextPayoutDate) : null);
-        setPayoutHistory(data.payoutHistory || []);
       }
     } catch (error) {
       console.error('Error loading referral dashboard:', error);
@@ -306,78 +298,65 @@ export default function ReferralsPage() {
         <div className="earnings-breakdown bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
           <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown</h2>
           <h3 className="text-lg font-semibold text-white/90 mb-3">By Level</h3>
-          {breakdown && breakdown.byLevel.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-white/20">
-                    <th className="text-left py-3 px-4 text-white/90 font-semibold">Level</th>
-                    <th className="text-right py-3 px-4 text-white/90 font-semibold">Total USD</th>
-                    <th className="text-right py-3 px-4 text-white/90 font-semibold">Count</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {breakdown.byLevel.map(item => (
-                    <tr key={item.level} className="border-b border-white/10 hover:bg-white/5">
-                      <td className="py-3 px-4 text-accent font-bold">L{item.level}</td>
-                      <td className="py-3 px-4 text-right text-white/90">{formatUSD(item.totalUSD)}</td>
-                      <td className="py-3 px-4 text-right text-white/70">{item.count}</td>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b border-white/20">
+                  <th className="text-left py-3 px-4 text-white/90 font-semibold">Level</th>
+                  <th className="text-right py-3 px-4 text-white/90 font-semibold">Total USD</th>
+                  <th className="text-right py-3 px-4 text-white/90 font-semibold">Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[1, 2, 3].map(level => {
+                  const levelData = breakdown?.byLevel.find(item => item.level === level);
+                  return (
+                    <tr key={level} className="border-b border-white/10 hover:bg-white/5">
+                      <td className="py-3 px-4 text-accent font-bold">L{level}</td>
+                      <td className="py-3 px-4 text-right text-white/90">{formatUSD(levelData?.totalUSD || 0)}</td>
+                      <td className="py-3 px-4 text-right text-white/70">{levelData?.count || 0}</td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-white/70 text-center py-8">
-              <p>No earnings yet. Start referring players to earn rewards!</p>
-            </div>
-          )}
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        {/* Payout History */}
+        {/* Payout History - CSV Download */}
         <div className="payout-history bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Payout History</h2>
-          {payoutHistory.length > 0 ? (
-            <div className="overflow-x-auto">
-              <table className="w-full border-collapse">
-                <thead>
-                  <tr className="border-b border-white/20">
-                    <th className="text-left py-3 px-4 text-white/90 font-semibold">Date</th>
-                    <th className="text-right py-3 px-4 text-white/90 font-semibold">Amount</th>
-                    <th className="text-center py-3 px-4 text-white/90 font-semibold">Level</th>
-                    <th className="text-center py-3 px-4 text-white/90 font-semibold">Transaction</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payoutHistory.map((payout, idx) => (
-                    <tr key={idx} className="border-b border-white/10 hover:bg-white/5">
-                      <td className="py-3 px-4 text-white/80 text-sm">{formatDate(payout.date)}</td>
-                      <td className="py-3 px-4 text-right text-green-400 font-semibold">{formatUSD(payout.amountUSD)}</td>
-                      <td className="py-3 px-4 text-center text-accent font-bold">L{payout.level}</td>
-                      <td className="py-3 px-4 text-center">
-                        {payout.transactionSignature ? (
-                          <a 
-                            href={`https://solscan.io/tx/${payout.transactionSignature}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-accent hover:text-yellow-300 underline"
-                          >
-                            View
-                          </a>
-                        ) : (
-                          <span className="text-white/50">-</span>
-                        )}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <div className="text-white/70 text-center py-8">
-              <p>No payout history yet. Earnings will appear here after your first payout.</p>
-            </div>
-          )}
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl sm:text-2xl font-bold text-accent">Payout History</h2>
+            <button
+              onClick={async () => {
+                try {
+                  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5-backend.onrender.com';
+                  const response = await fetch(`${apiUrl}/api/referral/payouts/csv?wallet=${wallet}`);
+                  if (!response.ok) {
+                    throw new Error('Failed to download CSV');
+                  }
+                  const blob = await response.blob();
+                  const url = window.URL.createObjectURL(blob);
+                  const a = document.createElement('a');
+                  a.href = url;
+                  a.download = `Guess5_Referral_Payouts_${wallet.slice(0, 8)}.csv`;
+                  document.body.appendChild(a);
+                  a.click();
+                  window.URL.revokeObjectURL(url);
+                  document.body.removeChild(a);
+                } catch (error) {
+                  console.error('Error downloading CSV:', error);
+                  alert('Failed to download payout history. Please try again.');
+                }
+              }}
+              className="px-4 py-2 bg-accent hover:bg-yellow-300 text-primary font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95"
+            >
+              📥 Download All-Time Payouts (CSV)
+            </button>
+          </div>
+          <p className="text-white/70 text-sm">
+            Download a complete CSV file containing all your referral payout history, including dates, amounts, levels, and transaction signatures.
+          </p>
         </div>
 
         {/* How Referrals Work */}
