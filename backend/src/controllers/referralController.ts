@@ -180,8 +180,8 @@ export const downloadReferralPayoutsCSV = async (req: Request, res: Response) =>
 
     // Set response headers for CSV download
     const filename = `Guess5_Referral_Payouts_${wallet.slice(0, 8)}.csv`;
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.header('Content-Type', 'text/csv');
+    res.header('Content-Disposition', `attachment; filename="${filename}"`);
     
     console.log(`✅ Generated referral payouts CSV for wallet ${wallet.slice(0, 8)}... (${paidEarnings.length} records)`);
     res.send(csvContent);
