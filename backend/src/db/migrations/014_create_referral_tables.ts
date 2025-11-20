@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateReferralTables014 implements MigrationInterface {
+export class CreateReferralTables1700000000014 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Create User table if not exists
     await queryRunner.query(`

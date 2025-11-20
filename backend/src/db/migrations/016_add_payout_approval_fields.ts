@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddPayoutApprovalFields016 implements MigrationInterface {
+export class AddPayoutApprovalFields1700000000016 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add reviewedByAdmin field to track who approved the batch
     const reviewedByColumnExists = await queryRunner.query(`

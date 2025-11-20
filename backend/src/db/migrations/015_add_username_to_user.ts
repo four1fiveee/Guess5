@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddUsernameToUser015 implements MigrationInterface {
+export class AddUsernameToUser1700000000015 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Ensure user table exists first (in case migration 014 hasn't run)
     const tableExists = await queryRunner.query(`
