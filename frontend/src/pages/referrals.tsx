@@ -152,24 +152,90 @@ export default function ReferralsPage() {
         
         <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-6 text-center">Earn when your friends play</h1>
         
-        {/* Referral Summary Card */}
+        {/* Referral Link - Moved to Top */}
+        <div className={`share-link bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-purple-500/30 w-full ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50' : ''}`}>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-xl sm:text-2xl font-bold text-accent">Your Referral Link</h2>
+            {canReferInfo?.canReferOthers ? (
+              <span className="px-3 py-1 bg-green-500/20 border border-green-500/40 rounded-lg text-green-400 text-xs font-semibold">
+                ✓ Qualified
+              </span>
+            ) : canReferInfo?.exemptFromMinimum ? (
+              <span className="px-3 py-1 bg-purple-500/20 border border-purple-500/40 rounded-lg text-purple-400 text-xs font-semibold">
+                ⭐ Exempt
+              </span>
+            ) : (
+              <span className="px-3 py-1 bg-yellow-500/20 border border-yellow-500/40 rounded-lg text-yellow-400 text-xs font-semibold">
+                ⚠️ Not Qualified
+              </span>
+            )}
+          </div>
+          
+          {!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum && (
+            <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3 mb-4">
+              <p className="text-yellow-400 text-sm">
+                ⚠️ You need to play at least <strong>20 games</strong> before you can refer others. You have played <strong>{canReferInfo?.matchCount || 0} game{canReferInfo?.matchCount !== 1 ? 's' : ''}</strong>.
+              </p>
+            </div>
+          )}
+          
+          <div className="flex flex-col sm:flex-row gap-3 mb-3">
+            <input 
+              type="text" 
+              value={referralLink} 
+              readOnly 
+              disabled={!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum}
+              className={`flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/90 focus:outline-none focus:border-accent/50 ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
+            />
+            <button 
+              onClick={copyReferralLink}
+              disabled={!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum}
+              className={`px-6 py-3 bg-accent hover:bg-yellow-300 text-primary font-bold rounded-xl transition-all duration-300 transform hover:scale-105 active:scale-95 ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              Copy Link
+            </button>
+          </div>
+          <div className="flex gap-3 flex-wrap">
+            <a
+              href={`https://twitter.com/intent/tweet?text=Check out Guess5.io - a fun word game on Solana!&url=${encodeURIComponent(referralLink)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50 cursor-not-allowed pointer-events-none' : ''}`}
+            >
+              Share on Twitter
+            </a>
+            <button
+              onClick={() => navigator.share?.({ title: 'Guess5.io', text: 'Check out this fun word game!', url: referralLink })}
+              disabled={!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum}
+              className={`px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
+            >
+              Share
+            </button>
+          </div>
+        </div>
+
+        {/* Referral Summary Card - Moved Below Link */}
         <div className="referral-summary bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
           <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Summary</h2>
           {loading ? (
-            <p>Loading...</p>
-          ) : stats ? (
+            <p className="text-white/70">Loading...</p>
+          ) : (
             <div className="space-y-3 text-white/90">
               <div className="flex justify-between items-center">
                 <span className="font-semibold">Total Earned:</span>
-                <span className="text-accent font-bold text-lg">{formatUSD(stats.totalEarnedUSD)}</span>
+                <span className="text-accent font-bold text-lg">{formatUSD(stats?.totalEarnedUSD || 0)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="font-semibold">Available to Payout:</span>
-                <span className="text-green-400 font-bold text-lg">{formatUSD(stats.pendingUSD)}</span>
+                <span className="text-green-400 font-bold text-lg">{formatUSD(stats?.pendingUSD || 0)}</span>
               </div>
               <div className="flex justify-between items-center">
                 <span className="font-semibold">Paid:</span>
-                <span className="text-white/70">{formatUSD(stats.paidUSD)}</span>
+                <span className="text-white/70">{formatUSD(stats?.paidUSD || 0)}</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="font-semibold">Total Earned (SOL):</span>
+                <span className="text-white/70">{stats?.totalEarnedSOL?.toFixed(6) || '0.000000'} SOL</span>
               </div>
               {nextPayoutDate && (
                 <div className="pt-2 border-t border-white/20 space-y-2">
@@ -191,72 +257,33 @@ export default function ReferralsPage() {
                 </div>
               )}
             </div>
-          ) : (
-            <p>No data available</p>
           )}
         </div>
 
-        {/* Share Link */}
-        <div className="share-link bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-purple-500/30 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Your Referral Link</h2>
-          <div className="flex flex-col sm:flex-row gap-3 mb-3">
-            <input 
-              type="text" 
-              value={referralLink} 
-              readOnly 
-              className="flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/90 focus:outline-none focus:border-accent/50"
-            />
-            <button 
-              onClick={copyReferralLink} 
-              className="px-6 py-3 bg-accent hover:bg-yellow-300 text-primary font-bold rounded-xl transition-all duration-300 transform hover:scale-105 active:scale-95"
-            >
-              Copy Link
-            </button>
-          </div>
-          <div className="flex gap-3 flex-wrap">
-            <a
-              href={`https://twitter.com/intent/tweet?text=Check out Guess5.io - a fun word game on Solana!&url=${encodeURIComponent(referralLink)}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
-            >
-              Share on Twitter
-            </a>
-            <button
-              onClick={() => navigator.share?.({ title: 'Guess5.io', text: 'Check out this fun word game!', url: referralLink })}
-              className="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg transition-colors text-sm font-medium"
-            >
-              Share
-            </button>
+        {/* Referral Funnel */}
+        <div className="referral-funnel bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Funnel</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
+              <div className="text-3xl font-bold text-accent mb-2">{stats?.referredCount || 0}</div>
+              <div className="text-white/80 text-sm">Referred Wallets</div>
+            </div>
+            <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
+              <div className="text-3xl font-bold text-green-400 mb-2">{stats?.activeReferredCount || 0}</div>
+              <div className="text-white/80 text-sm">Active (Played)</div>
+            </div>
+            <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
+              <div className="text-3xl font-bold text-purple-400 mb-2">{stats?.eligibleReferredCount || 0}</div>
+              <div className="text-white/80 text-sm">Eligible</div>
+            </div>
           </div>
         </div>
 
-        {/* Referral Funnel */}
-        {stats && (
-          <div className="referral-funnel bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Funnel</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-              <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
-                <div className="text-3xl font-bold text-accent mb-2">{stats.referredCount}</div>
-                <div className="text-white/80 text-sm">Referred Wallets</div>
-              </div>
-              <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
-                <div className="text-3xl font-bold text-green-400 mb-2">{stats.activeReferredCount}</div>
-                <div className="text-white/80 text-sm">Active (Played)</div>
-              </div>
-              <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
-                <div className="text-3xl font-bold text-purple-400 mb-2">{stats.eligibleReferredCount}</div>
-                <div className="text-white/80 text-sm">Eligible</div>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Earnings Breakdown */}
-        {breakdown && (
-          <div className="earnings-breakdown bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown</h2>
-            <h3 className="text-lg font-semibold text-white/90 mb-3">By Level</h3>
+        <div className="earnings-breakdown bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown</h2>
+          <h3 className="text-lg font-semibold text-white/90 mb-3">By Level</h3>
+          {breakdown && breakdown.byLevel.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -277,13 +304,17 @@ export default function ReferralsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="text-white/70 text-center py-8">
+              <p>No earnings yet. Start referring players to earn rewards!</p>
+            </div>
+          )}
+        </div>
 
         {/* Payout History */}
-        {payoutHistory.length > 0 && (
-          <div className="payout-history bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Payout History</h2>
+        <div className="payout-history bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
+          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Payout History</h2>
+          {payoutHistory.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full border-collapse">
                 <thead>
@@ -319,8 +350,12 @@ export default function ReferralsPage() {
                 </tbody>
               </table>
             </div>
-          </div>
-        )}
+          ) : (
+            <div className="text-white/70 text-center py-8">
+              <p>No payout history yet. Earnings will appear here after your first payout.</p>
+            </div>
+          )}
+        </div>
 
         {/* How Referrals Work */}
         <div className="how-it-works bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-purple-500/30 w-full">
