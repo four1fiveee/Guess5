@@ -20,7 +20,8 @@ export class UserService {
         user = userRepository.create({
           walletAddress,
           totalEntryFees: 0,
-          totalEntryFeesSOL: 0
+          totalEntryFeesSOL: 0,
+          exemptFromReferralMinimum: false
         });
         user = await userRepository.save(user);
       }
@@ -38,9 +39,16 @@ export class UserService {
               "username" text UNIQUE,
               "totalEntryFees" numeric(12,2) DEFAULT 0 NOT NULL,
               "totalEntryFeesSOL" numeric(12,6) DEFAULT 0 NOT NULL,
+              "exemptFromReferralMinimum" boolean DEFAULT false NOT NULL,
               "createdAt" timestamp DEFAULT now() NOT NULL,
               "updatedAt" timestamp DEFAULT now() NOT NULL
             )
+          `);
+          
+          await AppDataSource.query(`
+            CREATE INDEX IF NOT EXISTS "IDX_user_exemptFromReferralMinimum" 
+            ON "user" ("exemptFromReferralMinimum") 
+            WHERE "exemptFromReferralMinimum" = true
           `);
           
           await AppDataSource.query(`
@@ -62,7 +70,8 @@ export class UserService {
             user = userRepository.create({
               walletAddress,
               totalEntryFees: 0,
-              totalEntryFeesSOL: 0
+              totalEntryFeesSOL: 0,
+              exemptFromReferralMinimum: false
             });
             user = await userRepository.save(user);
           }
