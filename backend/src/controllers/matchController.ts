@@ -4555,6 +4555,33 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     })(); // End background execution IIFE
   }
 
+    // CRITICAL: Reload match one final time after FINAL FALLBACK to ensure we have the latest proposal data
+    // This ensures the response includes the proposalId even if it was just created
+    try {
+      const finalReloadRows = await matchRepository.query(`
+        SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalCreatedAt", "needsSignatures", "proposalSigners"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [match.id]);
+      if (finalReloadRows && finalReloadRows.length > 0) {
+        (match as any).payoutProposalId = finalReloadRows[0].payoutProposalId || (match as any).payoutProposalId;
+        (match as any).tieRefundProposalId = finalReloadRows[0].tieRefundProposalId || (match as any).tieRefundProposalId;
+        (match as any).proposalStatus = finalReloadRows[0].proposalStatus || (match as any).proposalStatus;
+        (match as any).proposalCreatedAt = finalReloadRows[0].proposalCreatedAt || (match as any).proposalCreatedAt;
+        (match as any).needsSignatures = finalReloadRows[0].needsSignatures || (match as any).needsSignatures;
+        (match as any).proposalSigners = finalReloadRows[0].proposalSigners || (match as any).proposalSigners;
+        console.log('✅ Final reload after FINAL FALLBACK:', {
+          matchId: match.id,
+          payoutProposalId: (match as any).payoutProposalId,
+          tieRefundProposalId: (match as any).tieRefundProposalId,
+          proposalStatus: (match as any).proposalStatus
+        });
+      }
+    } catch (reloadError) {
+      console.warn('⚠️ Failed to reload match after FINAL FALLBACK:', reloadError);
+    }
+    
     applyNoCacheHeaders();
     
     // Get usernames for both players
