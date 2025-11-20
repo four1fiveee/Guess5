@@ -1,6 +1,6 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddReferralExemption017 implements MigrationInterface {
+export class AddReferralExemption1700000000017 implements MigrationInterface {
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add exemptFromReferralMinimum field to user table
     const exemptColumnExists = await queryRunner.query(`
