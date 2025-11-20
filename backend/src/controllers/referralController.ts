@@ -122,11 +122,23 @@ export const downloadReferralPayoutsCSV = async (req: Request, res: Response) =>
 
     // Get all paid referral earnings for this wallet
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
-    const paidEarnings = await earningRepository.find({
-      where: { uplineWallet: wallet, paid: true },
-      relations: ['payoutBatch', 'match'],
-      order: { paidAt: 'DESC' }
-    });
+    let paidEarnings: ReferralEarning[] = [];
+    
+    try {
+      paidEarnings = await earningRepository.find({
+        where: { uplineWallet: wallet, paid: true },
+        relations: ['payoutBatch', 'match'],
+        order: { paidAt: 'DESC' }
+      });
+    } catch (error: any) {
+      // If table doesn't exist yet, return empty CSV
+      if (error?.message?.includes('does not exist') || error?.message?.includes('relation')) {
+        console.log(`⚠️ Referral earnings table not found, returning empty CSV`);
+        paidEarnings = [];
+      } else {
+        throw error;
+      }
+    }
 
     // Helper to sanitize CSV values
     const sanitizeCsvValue = (value: any) => {
