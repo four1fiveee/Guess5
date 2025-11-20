@@ -362,6 +362,31 @@ export const initializeDatabase = async () => {
     }
   };
 
+  const ensureMatchReferralColumnsPreInit = async (client: Client) => {
+    try {
+      console.log('🔍 Ensuring match referral columns exist (pre-init)...');
+      await client.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "squadsCost" numeric(10,6)
+      `);
+      await client.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "squadsCostUSD" numeric(10,2)
+      `);
+      await client.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "netProfit" numeric(10,6)
+      `);
+      await client.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "netProfitUSD" numeric(10,2)
+      `);
+      await client.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "referralEarningsComputed" boolean DEFAULT false NOT NULL
+      `);
+      console.log('✅ Match referral columns verified/created (pre-init)');
+    } catch (error: any) {
+      console.error('❌ Failed to ensure match referral columns exist (pre-init):', error);
+      // Don't throw - continue with initialization
+    }
+  };
+
   const runPreInitializationSchemaFixes = async () => {
     let client: Client | undefined;
     try {
@@ -374,6 +399,7 @@ export const initializeDatabase = async () => {
       await ensureProposalExpiresAtColumn(client);
       await ensureBonusColumns(client);
       await ensureVaultColumns(client);
+      await ensureMatchReferralColumnsPreInit(client); // Add match referral columns BEFORE anything else
       await fixMigrationNames(client);
       await fixCompletedMatchStatuses(client);
       console.log('✅ Pre-initialization schema fixes complete');
@@ -400,17 +426,18 @@ export const initializeDatabase = async () => {
         return;
       }
       
-      await runPreInitializationSchemaFixes();
-      await AppDataSource.initialize();
-      console.log('✅ Database connected successfully');
-      
-      // Patch legacy migration records before running migrations
-      await fixMigrationNames();
-      // Ensure critical columns exist even if migration failed previously
-      await ensureProposalExpiresAtColumn();
-      await ensureBonusColumns();
-      await ensureVaultColumns();
-      await fixCompletedMatchStatuses();
+          await runPreInitializationSchemaFixes();
+          await AppDataSource.initialize();
+          console.log('✅ Database connected successfully');
+          
+          // Patch legacy migration records before running migrations
+          await fixMigrationNames();
+          // Ensure critical columns exist even if migration failed previously
+          await ensureProposalExpiresAtColumn();
+          await ensureBonusColumns();
+          await ensureVaultColumns();
+          await ensureMatchReferralColumns(); // Ensure match referral columns exist
+          await fixCompletedMatchStatuses();
 
       // Run migrations
       try {
