@@ -1005,6 +1005,23 @@ const Game: React.FC = () => {
           </div>
         )}
 
+        {/* Winner Pot Display - Only show during active gameplay */}
+        {gameState === 'playing' && entryFee > 0 && (
+          <div className="mb-4 flex justify-center">
+            <div className="bg-gradient-to-r from-accent/20 via-yellow-500/20 to-accent/20 backdrop-blur-sm rounded-xl px-6 py-3 border border-accent/30 shadow-lg">
+              <div className="flex items-center gap-3">
+                <span className="text-accent text-2xl">💰</span>
+                <div className="flex flex-col">
+                  <span className="text-white/70 text-xs font-medium">Winner Takes</span>
+                  <span className="text-accent text-lg font-bold">
+                    {(entryFee * 2 * 0.95).toFixed(4)} SOL
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Game Grid - No box wrapper */}
         {gameState === 'playing' && (
           <div className="mb-6">
