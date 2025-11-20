@@ -115,6 +115,137 @@ export const initializeDatabase = async () => {
     }
   };
 
+  const ensureReferralTables = async () => {
+    try {
+      // Create referral tables if they don't exist
+      await AppDataSource.query(`
+        CREATE TABLE IF NOT EXISTS "referral" (
+          "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "referredWallet" text UNIQUE NOT NULL,
+          "referrerWallet" text NOT NULL,
+          "referredAt" timestamp DEFAULT now() NOT NULL,
+          "eligible" boolean DEFAULT false NOT NULL,
+          "active" boolean DEFAULT true NOT NULL
+        )
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_referrerWallet" ON "referral" ("referrerWallet")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_referredWallet" ON "referral" ("referredWallet")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE TABLE IF NOT EXISTS "referral_upline" (
+          "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "referredWallet" text NOT NULL,
+          "level" integer NOT NULL,
+          "uplineWallet" text NOT NULL,
+          "createdAt" timestamp DEFAULT now() NOT NULL,
+          CONSTRAINT "UQ_referral_upline_referred_level_upline" UNIQUE ("referredWallet", "level", "uplineWallet")
+        )
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_upline_uplineWallet" ON "referral_upline" ("uplineWallet")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_upline_referredWallet" ON "referral_upline" ("referredWallet")
+      `);
+      
+      await AppDataSource.query(`
+        DO $$ BEGIN
+          CREATE TYPE payout_batch_status_enum AS ENUM ('prepared', 'reviewed', 'sent', 'failed');
+        EXCEPTION
+          WHEN duplicate_object THEN null;
+        END $$;
+      `);
+      
+      await AppDataSource.query(`
+        CREATE TABLE IF NOT EXISTS "payout_batch" (
+          "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "batchAt" timestamp NOT NULL,
+          "scheduledSendAt" timestamp NOT NULL,
+          "minPayoutUSD" numeric(12,2) DEFAULT 20 NOT NULL,
+          "status" payout_batch_status_enum DEFAULT 'prepared' NOT NULL,
+          "totalAmountUSD" numeric(12,2) NOT NULL,
+          "totalAmountSOL" numeric(12,6) NOT NULL,
+          "solPriceAtPayout" numeric(12,2),
+          "createdByAdmin" text,
+          "transactionSignature" text,
+          "createdAt" timestamp DEFAULT now() NOT NULL,
+          "updatedAt" timestamp DEFAULT now() NOT NULL
+        )
+      `);
+      
+      await AppDataSource.query(`
+        CREATE TABLE IF NOT EXISTS "referral_earning" (
+          "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
+          "matchId" uuid NOT NULL,
+          "referredWallet" text NOT NULL,
+          "uplineWallet" text NOT NULL,
+          "level" integer NOT NULL,
+          "amountUSD" numeric(12,2) NOT NULL,
+          "amountSOL" numeric(12,6),
+          "createdAt" timestamp DEFAULT now() NOT NULL,
+          "paid" boolean DEFAULT false NOT NULL,
+          "paidAt" timestamp,
+          "payoutBatchId" uuid,
+          CONSTRAINT "FK_referral_earning_match" FOREIGN KEY ("matchId") 
+            REFERENCES "match"("id") ON DELETE CASCADE
+        )
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_earning_uplineWallet" ON "referral_earning" ("uplineWallet")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_earning_matchId" ON "referral_earning" ("matchId")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_earning_paid" ON "referral_earning" ("paid")
+      `);
+      
+      await AppDataSource.query(`
+        CREATE INDEX IF NOT EXISTS "IDX_referral_earning_payoutBatchId" ON "referral_earning" ("payoutBatchId")
+      `);
+      
+      console.log('✅ Referral tables created');
+    } catch (error: any) {
+      console.error('❌ Error creating referral tables:', error);
+      throw error;
+    }
+  };
+
+  const ensureMatchReferralColumns = async () => {
+    try {
+      await AppDataSource.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "squadsCost" numeric(10,6)
+      `);
+      await AppDataSource.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "squadsCostUSD" numeric(10,2)
+      `);
+      await AppDataSource.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "netProfit" numeric(10,6)
+      `);
+      await AppDataSource.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "netProfitUSD" numeric(10,2)
+      `);
+      await AppDataSource.query(`
+        ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "referralEarningsComputed" boolean DEFAULT false NOT NULL
+      `);
+      console.log('✅ Match referral columns added');
+    } catch (error: any) {
+      console.error('❌ Error adding match referral columns:', error);
+      throw error;
+    }
+  };
+
   const ensureProposalExpiresAtColumn = async (client?: Client) => {
     try {
       console.log('🔍 Ensuring proposalExpiresAt column exists (fallback safeguard)...');
@@ -290,8 +421,71 @@ export const initializeDatabase = async () => {
           console.log('✅ No pending migrations');
         }
         
-        // Ensure migration 017 column exists (fallback if migration didn't run)
-        const columnCheck = await AppDataSource.query(`
+        // Ensure all referral-related migrations have run (fallback for 014-017)
+        console.log('🔍 Checking referral migration status...');
+        
+        // Check if referral tables exist (migration 014)
+        const referralTableExists = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_name = 'referral'
+          );
+        `);
+        
+        if (!referralTableExists[0]?.exists) {
+          console.log('⚠️ Migration 014 not run - creating referral tables...');
+          await ensureReferralTables();
+        }
+        
+        // Check if user table has username column (migration 015)
+        const usernameColumnExists = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'user' 
+            AND column_name = 'username'
+          );
+        `);
+        
+        if (!usernameColumnExists[0]?.exists) {
+          console.log('⚠️ Migration 015 not run - adding username column...');
+          await AppDataSource.query(`
+            ALTER TABLE "user" 
+            ADD COLUMN IF NOT EXISTS "username" text UNIQUE;
+          `);
+          await AppDataSource.query(`
+            CREATE UNIQUE INDEX IF NOT EXISTS "IDX_user_username" 
+            ON "user" ("username") WHERE "username" IS NOT NULL;
+          `);
+          console.log('✅ Added username column');
+        }
+        
+        // Check if payout_batch has approval fields (migration 016)
+        const reviewedByExists = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'payout_batch' 
+            AND column_name = 'reviewedByAdmin'
+          );
+        `);
+        
+        if (!reviewedByExists[0]?.exists) {
+          console.log('⚠️ Migration 016 not run - adding payout approval fields...');
+          await AppDataSource.query(`
+            ALTER TABLE "payout_batch" 
+            ADD COLUMN IF NOT EXISTS "reviewedByAdmin" text;
+          `);
+          await AppDataSource.query(`
+            ALTER TABLE "payout_batch" 
+            ADD COLUMN IF NOT EXISTS "reviewedAt" timestamp;
+          `);
+          console.log('✅ Added payout approval fields');
+        }
+        
+        // Check if user table has exemptFromReferralMinimum (migration 017)
+        const exemptColumnExists = await AppDataSource.query(`
           SELECT EXISTS (
             SELECT FROM information_schema.columns 
             WHERE table_schema = 'public' 
@@ -300,8 +494,8 @@ export const initializeDatabase = async () => {
           );
         `);
         
-        if (!columnCheck[0]?.exists) {
-          console.log('⚠️ Migration 017 column missing, adding it now...');
+        if (!exemptColumnExists[0]?.exists) {
+          console.log('⚠️ Migration 017 not run - adding exemptFromReferralMinimum column...');
           await AppDataSource.query(`
             ALTER TABLE "user" 
             ADD COLUMN IF NOT EXISTS "exemptFromReferralMinimum" boolean DEFAULT false NOT NULL;
@@ -313,6 +507,23 @@ export const initializeDatabase = async () => {
           `);
           console.log('✅ Added exemptFromReferralMinimum column');
         }
+        
+        // Check if match table has referral columns (migration 014)
+        const netProfitExists = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'match' 
+            AND column_name = 'netProfitUSD'
+          );
+        `);
+        
+        if (!netProfitExists[0]?.exists) {
+          console.log('⚠️ Migration 014 not run - adding match referral columns...');
+          await ensureMatchReferralColumns();
+        }
+        
+        console.log('✅ All referral migration fallbacks checked');
       } catch (migrationError: any) {
         console.error('❌ Migration error:', migrationError);
         // Log detailed error but don't fail startup - migrations might have partial failures
