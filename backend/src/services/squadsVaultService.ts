@@ -3578,7 +3578,7 @@ export class SquadsVaultService {
     let lastLogs: string[] | undefined;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      let tx: VersionedTransaction | null = null;
+      const tx: VersionedTransaction | null = null;
       try {
         const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
         // CRITICAL FIX: Use rpc.vaultTransactionExecute instead of transactions.vaultTransactionExecute
@@ -3640,10 +3640,11 @@ export class SquadsVaultService {
             });
           }
         } catch (simError: unknown) {
+          const errorMessage = simError instanceof Error ? simError.message : String(simError);
           enhancedLogger.warn('⚠️ Failed to simulate transaction (continuing with execution attempt)', {
             vaultAddress,
             proposalId,
-            error: simError instanceof Error ? simError.message : String(simError),
+            error: errorMessage,
           });
         }
 
@@ -3792,8 +3793,9 @@ export class SquadsVaultService {
             // Ignore
           }
           
+          const errorMessage = sendError instanceof Error ? sendError.message : String(sendError);
           logExecutionStep(correlationId, 'send-error', sendStartTime, {
-            error: sendError instanceof Error ? sendError.message : String(sendError),
+            error: errorMessage,
           });
           // Handle SendTransactionError specifically to extract logs
           if (sendError instanceof SendTransactionError) {
@@ -3801,20 +3803,21 @@ export class SquadsVaultService {
             let errorLogs: string[] = [];
             try {
               // SendTransactionError may have logs directly or via getLogs() method
-              if (sendError.logs && Array.isArray(sendError.logs)) {
-                errorLogs = sendError.logs;
+              if ((sendError as any)?.logs && Array.isArray((sendError as any).logs)) {
+                errorLogs = (sendError as any).logs;
               } else if (typeof (sendError as any).getLogs === 'function') {
                 errorLogs = (sendError as any).getLogs() || [];
               }
             } catch (logError: unknown) {
+              const logErrorMessage = logError instanceof Error ? logError.message : String(logError);
               enhancedLogger.warn('⚠️ Failed to extract logs from SendTransactionError', {
                 vaultAddress,
                 proposalId,
-                error: logError instanceof Error ? logError.message : String(logError),
+                error: logErrorMessage,
               });
             }
             
-            const errorMessage = sendError.message || String(sendError);
+            const errorMessage = (sendError as any)?.message || String(sendError);
             
             // Extract simulation response if available
             const simulationResponse = (sendError as any).simulationResponse;
@@ -4182,7 +4185,7 @@ export class SquadsVaultService {
         // Ensure word is set if not already present
         let word = match.word;
         if (!word) {
-          const { getRandomWord } = require('../wordList');
+          const { getRandomWord } = await import('../wordList');
           word = getRandomWord();
         }
         
