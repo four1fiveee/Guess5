@@ -102,6 +102,14 @@ const Result: React.FC = () => {
   };
 
   const shouldContinuePolling = (info: any) => {
+    // CRITICAL: Stop polling if proposal is executed
+    if (info?.proposalStatus === 'EXECUTED' || info?.proposalExecutedAt) {
+      console.log('🛑 Stopping polling: Proposal is executed', {
+        proposalStatus: info?.proposalStatus,
+        proposalExecutedAt: info?.proposalExecutedAt,
+      });
+      return false;
+    }
     if (!info) return false;
     const normalizedStatus = (info.proposalStatus || '').toString().toUpperCase();
     const needs = Number.isFinite(info.needsSignatures)
@@ -114,10 +122,9 @@ const Result: React.FC = () => {
       if (info.proposalTransactionId || normalizedStatus === 'EXECUTED') {
         return false;
       }
-      // If proposal exists and is ready to execute with no signatures needed, stop polling
-      if (info.proposalId && normalizedStatus === 'READY_TO_EXECUTE' && needs <= 0) {
-        return false;
-      }
+      // CRITICAL: Continue polling even if proposal is READY_TO_EXECUTE until it's actually EXECUTED
+      // This ensures we detect when the proposal is executed and stop the spinning
+      // Don't stop polling just because it's ready - wait for execution
       // Continue polling if proposal exists but hasn't been executed yet
       // CRITICAL: Even if proposal exists, continue polling until it's executed
       // This ensures the sign button appears immediately when proposal is ready
@@ -150,10 +157,9 @@ const Result: React.FC = () => {
       return false;
     }
 
-    // If proposal is ready to execute and no signatures needed, stop polling
-    if (normalizedStatus === 'READY_TO_EXECUTE' && needs <= 0) {
-      return false;
-    }
+    // CRITICAL: Continue polling even if proposal is READY_TO_EXECUTE until it's actually EXECUTED
+    // Don't stop polling just because it's ready - wait for execution
+    // Only stop if it's actually executed or has a transaction ID
 
     // If signatures are still needed, continue polling
     if (needs > 0) {
