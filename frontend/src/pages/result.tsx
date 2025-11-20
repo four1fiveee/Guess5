@@ -1324,10 +1324,10 @@ const Result: React.FC = () => {
                           </p>
                           )}
                           
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
                             <div className="mt-4">
                               <p className={`text-sm mb-2 ${
-                                payoutData.needsSignatures === 0 
+                                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? 'text-green-400 font-semibold'
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
                                   ? 'text-yellow-400'
@@ -1335,7 +1335,7 @@ const Result: React.FC = () => {
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
-                                {payoutData.needsSignatures === 0
+                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? playerProposalSigners.includes(publicKey?.toString() || '')
                                     ? '✓ You have signed. Waiting for proposal execution...'
                                     : playerProposalSigners.length > 0
@@ -1348,7 +1348,7 @@ const Result: React.FC = () => {
                               </p>
                               
                               {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
-                              {payoutData.needsSignatures > 0 && 
+                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && 
                                !playerProposalSigners.includes(publicKey?.toString() || '') && 
                                playerProposalSigners.length === 0 && (
                                 <button
@@ -1466,10 +1466,10 @@ const Result: React.FC = () => {
                             </div>
                           )}
                           
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
                             <div className="mt-4">
                               <p className={`text-sm mb-2 ${
-                                payoutData.needsSignatures === 0 
+                                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? 'text-green-400 font-semibold'
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
                                   ? 'text-yellow-400'
@@ -1477,7 +1477,7 @@ const Result: React.FC = () => {
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
-                                {payoutData.needsSignatures === 0 
+                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
                                   ? '✓ You have signed. Waiting for proposal execution...'
@@ -1488,7 +1488,7 @@ const Result: React.FC = () => {
                               </p>
                               
                               {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
-                              {payoutData.needsSignatures > 0 && 
+                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && 
                                !playerProposalSigners.includes(publicKey?.toString() || '') && 
                                playerProposalSigners.length === 0 && (
                                 <button
@@ -1523,10 +1523,10 @@ const Result: React.FC = () => {
                           </p>
                           )}
                           
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
                             <div className="mt-4">
                               <p className={`text-sm mb-2 ${
-                                payoutData.needsSignatures === 0 
+                                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? 'text-green-400 font-semibold'
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
                                   ? 'text-yellow-400'
@@ -1534,7 +1534,7 @@ const Result: React.FC = () => {
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
-                                {payoutData.needsSignatures === 0 
+                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? '✅ Proposal is ready to execute - waiting for processing...'
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
                                   ? '✓ You have signed. Waiting for proposal execution...'
@@ -1545,7 +1545,7 @@ const Result: React.FC = () => {
                               </p>
                               
                               {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
-                              {payoutData.needsSignatures > 0 && 
+                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && 
                                !playerProposalSigners.includes(publicKey?.toString() || '') && 
                                playerProposalSigners.length === 0 && (
                                 <button
