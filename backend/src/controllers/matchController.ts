@@ -3798,6 +3798,34 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     }
   }
   
+  // CRITICAL FIX: Ensure isWinningTie is always calculated and included for tie matches
+  if (match.winner === 'tie') {
+    const player1Result = match.getPlayer1Result();
+    const player2Result = match.getPlayer2Result();
+    
+    if (player1Result && player2Result) {
+      // Recalculate isWinningTie to ensure it's correct
+      const isWinningTie = player1Result.won && player2Result.won && 
+                          player1Result.numGuesses === player2Result.numGuesses &&
+                          Math.abs(player1Result.totalTime - player2Result.totalTime) < 0.001;
+      
+      if (!payoutResult) {
+        // Create payoutResult if it doesn't exist
+        payoutResult = {
+          winner: 'tie',
+          isWinningTie: isWinningTie,
+          refundAmount: isWinningTie ? match.entryFee : match.entryFee * 0.95
+        };
+      } else {
+        // Ensure isWinningTie is set correctly
+        payoutResult.isWinningTie = isWinningTie;
+      }
+    } else if (payoutResult && payoutResult.isWinningTie === undefined) {
+      // If we can't determine, assume losing tie (more common)
+      payoutResult.isWinningTie = false;
+    }
+  }
+  
   // CRITICAL FIX: Ensure refund amount is calculated correctly using actual entryFee
   // This prevents mismatches where payoutResult.refundAmount was calculated with a different entryFee
   if (payoutResult && match.winner === 'tie' && payoutResult.refundAmount) {
