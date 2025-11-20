@@ -28,8 +28,11 @@ export class UserService {
 
       return user;
     } catch (error: any) {
+      const errorMessage = error?.message || String(error);
+      
       // If exemptFromReferralMinimum column doesn't exist, add it
-      if (error?.message?.includes('exemptFromReferralMinimum') || error?.message?.includes('column') && error?.message?.includes('does not exist')) {
+      if (errorMessage.includes('exemptFromReferralMinimum') || 
+          (errorMessage.includes('column') && errorMessage.includes('does not exist') && errorMessage.includes('User'))) {
         console.log('⚠️ exemptFromReferralMinimum column missing, adding it now...');
         try {
           await AppDataSource.query(`
