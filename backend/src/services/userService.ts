@@ -28,6 +28,43 @@ export class UserService {
 
       return user;
     } catch (error: any) {
+      // If exemptFromReferralMinimum column doesn't exist, add it
+      if (error?.message?.includes('exemptFromReferralMinimum') || error?.message?.includes('column') && error?.message?.includes('does not exist')) {
+        console.log('⚠️ exemptFromReferralMinimum column missing, adding it now...');
+        try {
+          await AppDataSource.query(`
+            ALTER TABLE "user" 
+            ADD COLUMN IF NOT EXISTS "exemptFromReferralMinimum" boolean DEFAULT false NOT NULL;
+          `);
+          await AppDataSource.query(`
+            CREATE INDEX IF NOT EXISTS "IDX_user_exemptFromReferralMinimum" 
+            ON "user" ("exemptFromReferralMinimum") 
+            WHERE "exemptFromReferralMinimum" = true;
+          `);
+          console.log('✅ Added exemptFromReferralMinimum column');
+          
+          // Retry the operation
+          let user = await userRepository.findOne({
+            where: { walletAddress }
+          });
+
+          if (!user) {
+            user = userRepository.create({
+              walletAddress,
+              totalEntryFees: 0,
+              totalEntryFeesSOL: 0,
+              exemptFromReferralMinimum: false
+            });
+            user = await userRepository.save(user);
+          }
+
+          return user;
+        } catch (addColumnError: any) {
+          console.error('❌ Failed to add exemptFromReferralMinimum column:', addColumnError);
+          throw new Error('exemptFromReferralMinimum column does not exist and could not be created. Please run migrations.');
+        }
+      }
+      
       // If table doesn't exist, try to create it via raw SQL
       if (error?.message?.includes('relation "user" does not exist') || error?.message?.includes('does not exist')) {
         console.log('⚠️ User table does not exist, attempting to create it...');
