@@ -282,8 +282,21 @@ export const initializeDatabase = async () => {
       await fixCompletedMatchStatuses();
 
       // Run migrations
-      await AppDataSource.runMigrations();
-      console.log('✅ Database migrations completed');
+      try {
+        const migrations = await AppDataSource.runMigrations();
+        if (migrations.length > 0) {
+          console.log(`✅ Ran ${migrations.length} migration(s):`, migrations.map(m => m.name).join(', '));
+        } else {
+          console.log('✅ No pending migrations');
+        }
+      } catch (migrationError: any) {
+        console.error('❌ Migration error:', migrationError);
+        // Log detailed error but don't fail startup - migrations might have partial failures
+        if (migrationError.message) {
+          console.error('Migration error details:', migrationError.message);
+        }
+        throw migrationError; // Re-throw to prevent startup with failed migrations
+      }
       
       // Set up connection monitoring
       if (process.env.NODE_ENV === 'production') {
