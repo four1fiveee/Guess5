@@ -2778,7 +2778,7 @@ export class SquadsVaultService {
   /**
    * Approve a Squads vault transaction proposal
    * This allows players (multisig members) to sign proposals
-   * CRITICAL: In Squads v4, we need to approve BOTH the Proposal AND the VaultTransaction
+   * In Squads v4, only Proposal approval is needed - VaultTransaction execution is separate
    */
   async approveProposal(
     vaultAddress: string,
@@ -2817,7 +2817,7 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // STEP 1: Approve the Proposal
+      // Approve the Proposal (VaultTransaction approval is automatic in Squads v4)
       const proposalSignature = await rpc.proposalApprove({
         connection: this.connection,
         feePayer: signer,
@@ -2834,64 +2834,7 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // STEP 2: Approve the VaultTransaction (CRITICAL FIX)
-      // This is the missing piece causing "VaultTransaction has 0/2 approvals"
-      let vaultTxSignature: string | undefined;
-      try {
-        // Use transactions.vaultTransactionApprove to create and send the approval transaction
-        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        
-        // Check if vaultTransactionApprove exists in transactions module
-        if (typeof (transactions as any).vaultTransactionApprove === 'function') {
-          const vaultTxApprovalTx = await (transactions as any).vaultTransactionApprove({
-            connection: this.connection,
-            blockhash: latestBlockhash.blockhash,
-            feePayer: signer.publicKey,
-            multisigPda: multisigAddress,
-            transactionIndex,
-            member: signer.publicKey,
-            programId: this.programId,
-          });
-
-          vaultTxApprovalTx.sign([signer]);
-          vaultTxSignature = await this.connection.sendTransaction(vaultTxApprovalTx, {
-            skipPreflight: false,
-            preflightCommitment: 'confirmed',
-          });
-
-          await this.connection.confirmTransaction(vaultTxSignature, 'confirmed');
-
-          enhancedLogger.info('✅ VaultTransaction approved successfully using transactions.vaultTransactionApprove', {
-            vaultAddress,
-            proposalId,
-            vaultTxSignature,
-            signer: signer.publicKey.toString(),
-          });
-        } else {
-          // Fallback: Try to manually create the approval instruction
-          enhancedLogger.info('ℹ️ transactions.vaultTransactionApprove not available, trying manual approach', {
-            vaultAddress,
-            proposalId,
-            signer: signer.publicKey.toString(),
-          });
-          
-          // For now, log that VaultTransaction approval is not available
-          // The execution might still work if the Proposal approval is sufficient
-        }
-      } catch (vaultTxError: unknown) {
-        const vaultTxErrorMessage = vaultTxError instanceof Error ? vaultTxError.message : String(vaultTxError);
-        
-        // Log the VaultTransaction approval error but don't fail completely
-        enhancedLogger.warn('⚠️ VaultTransaction approval failed, but Proposal was approved', {
-          vaultAddress,
-          proposalId,
-          proposalSignature,
-          vaultTxError: vaultTxErrorMessage,
-          note: 'This might be expected for some proposal types. Continuing with Proposal approval only.',
-        });
-      }
-
-      const signature = vaultTxSignature ? `${proposalSignature},${vaultTxSignature}` : proposalSignature;
+      const signature = proposalSignature;
 
       enhancedLogger.info('📝 Fee wallet approve sig (expert recommendation)', {
         vaultAddress,
@@ -2973,14 +2916,14 @@ export class SquadsVaultService {
         signature,
       });
 
-      // FIXED: In Squads v4, BOTH Proposal AND VaultTransaction require approval
-      // The previous comment was incorrect - VaultTransaction needs separate approval
-      enhancedLogger.info('✅ Both Proposal and VaultTransaction approved (CRITICAL FIX)', {
+      // CORRECTED: In Squads v4, only Proposal approval is needed
+      // VaultTransaction execution is handled by rpc.vaultTransactionExecute, not separate approval
+      enhancedLogger.info('✅ Proposal approved successfully (CORRECTED UNDERSTANDING)', {
         vaultAddress,
         proposalId,
         signer: signer.publicKey.toString(),
-        signatures: signature,
-        note: 'Both Proposal and VaultTransaction have been approved - this fixes the "VaultTransaction has 0/2 approvals" error',
+        signature: signature,
+        note: 'Proposal approved. VaultTransaction execution will be handled by rpc.vaultTransactionExecute method.',
       });
 
       return { success: true, signature };
@@ -3560,15 +3503,30 @@ export class SquadsVaultService {
       let tx: VersionedTransaction | null = null;
       try {
         const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        tx = await transactions.vaultTransactionExecute({
+        // CRITICAL FIX: Use rpc.vaultTransactionExecute instead of transactions.vaultTransactionExecute
+        // The rpc method handles the execution directly without requiring manual transaction signing
+        const executionSignature = await rpc.vaultTransactionExecute({
           connection: this.connection,
-          blockhash: latestBlockhash.blockhash,
-          feePayer: executor.publicKey,
+          feePayer: executor,
           multisigPda: multisigAddress,
           transactionIndex,
-          member: executor.publicKey,
+          member: executor,
           programId: this.programId,
         });
+
+        enhancedLogger.info('✅ VaultTransaction executed successfully using rpc.vaultTransactionExecute', {
+          vaultAddress,
+          proposalId,
+          signature: executionSignature,
+          executor: executor.publicKey.toString(),
+        });
+
+        return {
+          success: true,
+          signature: executionSignature,
+          executedAt: new Date().toISOString(),
+          correlationId,
+        };
 
         tx.sign([executor]);
 
