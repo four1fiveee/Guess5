@@ -471,6 +471,25 @@ const Game: React.FC = () => {
 
         setFeeWalletAddress(matchData.feeWalletAddress || matchData.escrowAddress || '');
         setEntryFee(matchData.entryFee || 0);
+        setMatchData(matchData);
+        
+        // Set opponent username
+        const isPlayer1 = publicKey?.toString() === matchData.player1;
+        const opponentWallet = isPlayer1 ? matchData.player2 : matchData.player1;
+        if (opponentWallet) {
+          // Fetch opponent username
+          try {
+            const usernameResponse = await fetch(`${apiUrl}/api/user/username?wallet=${opponentWallet}`);
+            if (usernameResponse.ok) {
+              const usernameData = await usernameResponse.json();
+              setOpponentUsername(usernameData.username || opponentWallet.slice(0, 8) + '...');
+            } else {
+              setOpponentUsername(opponentWallet.slice(0, 8) + '...');
+            }
+          } catch (error) {
+            setOpponentUsername(opponentWallet.slice(0, 8) + '...');
+          }
+        }
 
         // Fetch initial game state
         await memoizedFetchGameStateRef.current?.();
@@ -975,7 +994,7 @@ const Game: React.FC = () => {
             </div>
             <div className="text-accent text-xl font-bold mb-4 flex items-center justify-center gap-2">
               <span className="animate-spin">⏳</span>
-              <span>Waiting for opponent to finish...</span>
+              <span>Waiting for {opponentUsername ? `@${opponentUsername}` : 'opponent'} to complete the puzzle...</span>
             </div>
             <div className="text-white/70 text-sm mb-3">
               Results will be available once both players complete the game

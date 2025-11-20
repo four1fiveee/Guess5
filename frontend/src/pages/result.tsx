@@ -108,32 +108,50 @@ const Result: React.FC = () => {
       ? Number(info.needsSignatures)
       : 0;
 
-    // If both players have results, stop polling (game is complete)
-    // This prevents stuck "waiting for opponent" state
+    // If both players have results, check if payout is complete
     if (info.player1Result && info.player2Result) {
-      return false;
+      // If proposal is executed or has transaction ID, stop polling
+      if (info.proposalTransactionId || normalizedStatus === 'EXECUTED') {
+        return false;
+      }
+      // If proposal exists and is ready to execute with no signatures needed, stop polling
+      if (info.proposalId && normalizedStatus === 'READY_TO_EXECUTE' && needs <= 0) {
+        return false;
+      }
+      // Continue polling if proposal exists but hasn't been executed yet
+      if (info.proposalId) {
+        return true;
+      }
+      // If no proposal yet but both players finished, continue polling for proposal creation
+      return true;
     }
 
+    // If no proposalId yet, continue polling (proposal being created)
     if (!info.proposalId) {
       return true;
     }
 
+    // If proposal has transaction ID, payout is complete
     if (info.proposalTransactionId) {
       return false;
     }
 
+    // If proposal is executed, stop polling
     if (normalizedStatus === 'EXECUTED') {
       return false;
     }
 
+    // If proposal is ready to execute and no signatures needed, stop polling
     if (normalizedStatus === 'READY_TO_EXECUTE' && needs <= 0) {
       return false;
     }
 
+    // If signatures are still needed, continue polling
     if (needs > 0) {
       return true;
     }
 
+    // Continue polling if proposal is active or pending
     return normalizedStatus === 'ACTIVE' || normalizedStatus === 'PENDING';
   };
 
