@@ -1177,11 +1177,11 @@ const Result: React.FC = () => {
                               Reason: {readableRefundReason}
                             </div>
                           )}
-                          {payoutData.proposalStatus === 'ACTIVE' && payoutData.needsSignatures >= 0 && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
                             <div className="mt-4">
                               <p
                                 className={`text-sm mb-2 ${
-                                  payoutData.needsSignatures === 0
+                                  (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                     ? playerProposalSigners.includes(publicKey?.toString() || '')
                                       ? 'text-green-400 font-semibold'
                                       : playerProposalSigners.length > 0
@@ -1194,7 +1194,7 @@ const Result: React.FC = () => {
                                     : 'text-white/60'
                                 }`}
                               >
-                                {payoutData.needsSignatures === 0
+                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
                                   ? playerProposalSigners.includes(publicKey?.toString() || '')
                                     ? '✓ You have signed. Waiting for refund execution...'
                                     : playerProposalSigners.length > 0
@@ -1206,7 +1206,7 @@ const Result: React.FC = () => {
                                   ? '🎉 Other player has signed! Refund will execute soon. No action needed.'
                                   : '⏳ Waiting for either player to sign the refund (only one signature needed)...'}
                               </p>
-                              {payoutData.needsSignatures > 0 &&
+                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) &&
                                !playerProposalSigners.includes(publicKey?.toString() || '') &&
                                playerProposalSigners.length === 0 && (
                                 <button
