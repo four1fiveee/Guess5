@@ -32,6 +32,8 @@ const Game: React.FC = () => {
   const [timerActive, setTimerActive] = useState<boolean>(false);
   const [feeWalletAddress, setFeeWalletAddress] = useState<string>('');
   const [entryFee, setEntryFee] = useState<number>(0);
+  const [opponentUsername, setOpponentUsername] = useState<string | null>(null);
+  const [matchDataState, setMatchDataState] = useState<any>(null);
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
