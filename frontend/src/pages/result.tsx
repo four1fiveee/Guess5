@@ -318,6 +318,27 @@ const Result: React.FC = () => {
                 window.location.reload();
               }, 1000);
             }
+
+            // CRITICAL FIX: Auto-refresh when proposal becomes ready to sign
+            // This fixes the issue where users need to manually refresh to see the sign button
+            if (payoutData.proposalId && 
+                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null) &&
+                payoutData.proposalStatus !== 'EXECUTED' && 
+                !payoutData.proposalExecutedAt &&
+                !playerProposalSigners.includes(publicKey?.toString() || '')) {
+              
+              console.log('🔄 Proposal is ready to sign but user hasn\'t signed yet - triggering page refresh', {
+                proposalId: payoutData.proposalId,
+                needsSignatures: payoutData.needsSignatures,
+                proposalStatus: payoutData.proposalStatus,
+                userHasSigned: playerProposalSigners.includes(publicKey?.toString() || ''),
+              });
+              
+              // Small delay to ensure state is updated, then refresh
+              setTimeout(() => {
+                window.location.reload();
+              }, 1000);
+            }
             return;
           } else {
             console.log('⏳ Game not yet completed, falling back to localStorage');
