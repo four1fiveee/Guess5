@@ -11,13 +11,15 @@ import {
   adminGetAbuseFlags,
   adminGetExemptList,
   adminAddExempt,
-  adminRemoveExempt
+  adminRemoveExempt,
+  adminClearProposalLock
 } from '../controllers/adminController';
 
 const router = Router();
 
 // Match management
 router.post('/delete-match/:matchId', adminDeleteMatch);
+router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
 
 // Referral management
 router.post('/referral/backfill', adminBackfillReferrals);

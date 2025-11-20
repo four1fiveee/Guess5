@@ -8,6 +8,7 @@ import { User } from '../models/User';
 import { referralPayoutService } from '../services/payoutService';
 import { ReferralService } from '../services/referralService';
 import { AntiAbuseService } from '../services/antiAbuseService';
+import { redisClient } from '../services/redisService';
 import { UserService } from '../services/userService';
 import { getNextSunday1300EST } from '../utils/referralUtils';
 import { notifyAdmin } from '../services/notificationService';
@@ -557,11 +558,41 @@ export const adminRemoveExempt = async (req: Request, res: Response) => {
   }
 };
 
-
-
-
-
-
-
-
-
+// Clear Redis proposal lock for a match (emergency admin function)
+export const adminClearProposalLock = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    
+    console.log('🔧 Admin clearing proposal lock for match:', matchId);
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID is required' });
+    }
+    
+    // Clear the Redis lock
+    const lockKey = `proposal_lock:${matchId}`;
+    const result = await redisClient.del(lockKey);
+    
+    console.log('✅ Proposal lock cleared:', {
+      matchId,
+      lockKey,
+      keysDeleted: result,
+    });
+    
+    return res.json({
+      success: true,
+      message: 'Proposal lock cleared successfully',
+      matchId,
+      keysDeleted: result,
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to clear proposal lock:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
