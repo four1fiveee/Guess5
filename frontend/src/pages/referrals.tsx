@@ -41,7 +41,6 @@ export default function ReferralsPage() {
   const [isEligible, setIsEligible] = useState<boolean>(false);
   const [canReferInfo, setCanReferInfo] = useState<CanReferInfo | null>(null);
   const [nextPayoutDate, setNextPayoutDate] = useState<Date | null>(null);
-  const [payoutHistory, setPayoutHistory] = useState<PayoutHistory[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [referralLink, setReferralLink] = useState<string>('');
 
