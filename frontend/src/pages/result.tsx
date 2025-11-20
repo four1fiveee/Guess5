@@ -1578,11 +1578,18 @@ const Result: React.FC = () => {
                         </div>
                       </div>
                       <p className="text-white/80 text-sm">
-                        The payout proposal is being created. Please wait...
+                        {payoutData?.proposalId 
+                          ? 'Waiting for proposal signatures...' 
+                          : 'The payout proposal is being created. Please wait...'}
                       </p>
                       {isPolling && (
                         <p className="text-white/60 text-xs mt-2">
                           Checking for updates...
+                        </p>
+                      )}
+                      {payoutData?.proposalId && payoutData?.needsSignatures > 0 && (
+                        <p className="text-white/60 text-xs mt-2">
+                          {payoutData.needsSignatures} signature{payoutData.needsSignatures !== 1 ? 's' : ''} needed
                         </p>
                       )}
                     </div>
