@@ -4337,7 +4337,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
       const dbSaysReady = dbNeedsSignatures === 0 && (match as any).proposalStatus === 'READY_TO_EXECUTE';
       
-      if (!hasFeeWalletSignature && !onChainReady && !dbSaysReady) {
+      // CRITICAL: Also check if proposal status is ACTIVE with 0 signatures needed (some proposals might be ACTIVE instead of READY_TO_EXECUTE)
+      const isActiveWithZeroSignatures = (match as any).proposalStatus === 'ACTIVE' && dbNeedsSignatures === 0;
+      const shouldExecute = dbSaysReady || isActiveWithZeroSignatures || (onChainReady && dbNeedsSignatures === 0);
+      
+      if (!shouldExecute && !hasFeeWalletSignature) {
         console.warn('⚠️ Skipping fallback execution - not ready in database or on-chain', {
           matchId: match.id,
           proposalId: proposalIdString,
@@ -4345,9 +4349,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           feeWalletApprovalError,
           dbNeedsSignatures,
           dbSaysReady,
+          isActiveWithZeroSignatures,
           onChainReady,
+          proposalStatus: (match as any).proposalStatus,
         });
-      } else if (feeWalletKeypair && (hasFeeWalletSignature || onChainReady || dbSaysReady)) {
+      } else if (feeWalletKeypair && (hasFeeWalletSignature || shouldExecute)) {
         console.log('🔁 Auto-execute (fallback) using vault PDA - executing NOW (not background)', {
           matchId: match.id,
           proposalId: proposalIdString,
