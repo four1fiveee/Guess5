@@ -9246,7 +9246,7 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
         playerWallet,
         player1Paid: responseMatch?.player1Paid ?? false,
         player2Paid: responseMatch?.player2Paid ?? false,
-        status: responseMatch?.status ?? matchEntity.status,
+        status: responseMatch?.status ?? updatedMatchData?.status,
         bothPaid
       });
     } else {
