@@ -471,7 +471,7 @@ const Game: React.FC = () => {
 
         setFeeWalletAddress(matchData.feeWalletAddress || matchData.escrowAddress || '');
         setEntryFee(matchData.entryFee || 0);
-        setMatchData(matchData);
+        setMatchDataState(matchData);
         
         // Set opponent username
         const isPlayer1 = publicKey?.toString() === matchData.player1;
