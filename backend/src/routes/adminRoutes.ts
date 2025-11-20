@@ -12,7 +12,8 @@ import {
   adminGetExemptList,
   adminAddExempt,
   adminRemoveExempt,
-  adminClearProposalLock
+  adminClearProposalLock,
+  adminClearLockAndDeleteMatch
 } from '../controllers/adminController';
 
 const router = Router();
@@ -20,6 +21,7 @@ const router = Router();
 // Match management
 router.post('/delete-match/:matchId', adminDeleteMatch);
 router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
+router.post('/clear-lock-and-delete/:matchId', adminClearLockAndDeleteMatch);
 
 // Referral management
 router.post('/referral/backfill', adminBackfillReferrals);

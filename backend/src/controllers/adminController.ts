@@ -8,7 +8,7 @@ import { User } from '../models/User';
 import { referralPayoutService } from '../services/payoutService';
 import { ReferralService } from '../services/referralService';
 import { AntiAbuseService } from '../services/antiAbuseService';
-import { redisClient } from '../services/redisService';
+import { getRedisMM } from '../config/redis';
 import { UserService } from '../services/userService';
 import { getNextSunday1300EST } from '../utils/referralUtils';
 import { notifyAdmin } from '../services/notificationService';
@@ -569,9 +569,10 @@ export const adminClearProposalLock = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Match ID is required' });
     }
     
-    // Clear the Redis lock
-    const lockKey = `proposal_lock:${matchId}`;
-    const result = await redisClient.del(lockKey);
+    // Clear the Redis lock (using the correct key format from proposalLocks.ts)
+    const redis = getRedisMM();
+    const lockKey = `proposal:lock:${matchId}`;
+    const result = await redis.del(lockKey);
     
     console.log('✅ Proposal lock cleared:', {
       matchId,
@@ -589,6 +590,62 @@ export const adminClearProposalLock = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Failed to clear proposal lock:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+// Clear Redis proposal lock AND delete match (emergency recovery function)
+export const adminClearLockAndDeleteMatch = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    
+    console.log('🔧 Admin clearing proposal lock and deleting match:', matchId);
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID is required' });
+    }
+    
+    // Step 1: Clear the Redis lock
+    const redis = getRedisMM();
+    const lockKey = `proposal:lock:${matchId}`;
+    const lockResult = await redis.del(lockKey);
+    
+    console.log('✅ Proposal lock cleared:', {
+      matchId,
+      lockKey,
+      keysDeleted: lockResult,
+    });
+    
+    // Step 2: Delete the match from database
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (match) {
+      await matchRepository.remove(match);
+      console.log('✅ Match deleted from database:', matchId);
+    } else {
+      console.log('⚠️ Match not found in database:', matchId);
+    }
+    
+    return res.json({
+      success: true,
+      message: 'Proposal lock cleared and match deleted successfully',
+      matchId,
+      lockKeysDeleted: lockResult,
+      matchDeleted: !!match,
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to clear lock and delete match:', errorMessage);
     
     return res.status(500).json({ 
       error: 'Internal server error',
