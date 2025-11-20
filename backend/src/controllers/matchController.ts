@@ -10740,13 +10740,31 @@ const signProposalHandler = async (req: any, res: any) => {
             match: onChainSignerCount === uniqueSigners.length,
           });
           
-          // Use on-chain state as source of truth if available
+          // Use on-chain state as source of truth if available, but validate it makes sense
+          // If on-chain shows more signatures needed than database calculation, use database (more reliable)
           if (onChainNeedsSignatures !== undefined && onChainNeedsSignatures !== null) {
-            newNeedsSignatures = onChainNeedsSignatures;
-            console.log('✅ Using on-chain needsSignatures as source of truth', {
-              matchId,
-              onChainNeedsSignatures,
-            });
+            const dbCalculatedNeeds = Math.max(0, 2 - uniqueSigners.length);
+            
+            // If on-chain value is higher than database calculation, it's likely incorrect
+            // (e.g., on-chain check failed and returned threshold, or blockchain indexing delay)
+            if (onChainNeedsSignatures > dbCalculatedNeeds) {
+              console.warn('⚠️ On-chain needsSignatures is higher than database calculation, using database value', {
+                matchId,
+                onChainNeedsSignatures,
+                dbCalculatedNeeds,
+                uniqueSigners: uniqueSigners.map(s => s.toString()),
+                onChainSignerCount,
+                databaseSignerCount: uniqueSigners.length,
+              });
+              newNeedsSignatures = dbCalculatedNeeds;
+            } else {
+              newNeedsSignatures = onChainNeedsSignatures;
+              console.log('✅ Using on-chain needsSignatures as source of truth', {
+                matchId,
+                onChainNeedsSignatures,
+                dbCalculatedNeeds,
+              });
+            }
           }
         }
       } catch (onChainCheckError: any) {
