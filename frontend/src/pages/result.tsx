@@ -119,8 +119,17 @@ const Result: React.FC = () => {
         return false;
       }
       // Continue polling if proposal exists but hasn't been executed yet
+      // CRITICAL: Even if proposal exists, continue polling until it's executed
+      // This ensures the sign button appears immediately when proposal is ready
       if (info.proposalId) {
-        return true;
+        // If proposal exists but needs signatures, continue polling
+        if (needs > 0) {
+          return true;
+        }
+        // If proposal is ready but not executed, continue polling
+        if (normalizedStatus !== 'EXECUTED' && !info.proposalTransactionId) {
+          return true;
+        }
       }
       // If no proposal yet but both players finished, continue polling for proposal creation
       return true;

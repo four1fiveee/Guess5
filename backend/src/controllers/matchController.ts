@@ -9761,21 +9761,9 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       return;
     }
     
-    // Try to parse as BigInt to validate it's a valid number
-    try {
-      BigInt(proposalIdString);
-    } catch (bigIntError: any) {
-      console.error('❌ proposalId cannot be converted to BigInt:', {
-        proposalId: proposalIdString,
-        error: bigIntError?.message,
-      });
-      sendResponse(400, { 
-        error: 'Proposal ID is not a valid number',
-        proposalId: proposalIdString,
-        details: bigIntError?.message,
-      });
-      return;
-    }
+    // proposalId is now a PDA address, not a number
+    // We need to query the proposal account to get the transactionIndex
+    // OR derive it from the proposal PDA
 
     // Verify player hasn't already signed
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
@@ -9837,24 +9825,80 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     });
 
     let multisigAddress;
-    let transactionIndex;
+    let transactionIndex: bigint;
     let memberPublicKey;
+    let proposalPda: PublicKey;
     
     try {
       multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
-      // Use the validated proposalIdString
-      transactionIndex = BigInt(proposalIdString);
+      proposalPda = new PublicKey(proposalIdString); // proposalId is now a PDA address
       memberPublicKey = new PublicKey(wallet);
       
-      console.log('✅ Created PublicKey instances:', {
+      // Query the proposal account to get the transactionIndex
+      const { accounts } = require('@sqds/multisig');
+      let proposalAccount;
+      try {
+        proposalAccount = await accounts.Proposal.fromAccountAddress(
+          connection,
+          proposalPda
+        );
+        
+        // The Proposal account has a transactionIndex field
+        // Extract it from the proposal account
+        const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
+        if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+          transactionIndex = BigInt(proposalTransactionIndex.toString());
+          console.log('✅ Extracted transactionIndex from proposal account:', {
+            proposalPda: proposalPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          throw new Error('Proposal account does not have transactionIndex field');
+        }
+      } catch (queryError: any) {
+        // Fallback: Try to derive transactionIndex from proposal PDA by testing common values
+        // This is a workaround - ideally we should store transactionIndex in the database
+        console.warn('⚠️ Failed to query proposal account, attempting to derive transactionIndex from PDA:', {
+          error: queryError?.message,
+          proposalPda: proposalPda.toString(),
+        });
+        
+        // Try transaction indices 0-10 (most proposals will be in this range)
+        let foundIndex: bigint | null = null;
+        const { getProposalPda } = require('@sqds/multisig');
+        for (let i = 0; i <= 10; i++) {
+          const [testPda] = getProposalPda({
+            multisigPda: multisigAddress,
+            transactionIndex: BigInt(i),
+            programId: programId,
+          });
+          if (testPda.toString() === proposalPda.toString()) {
+            foundIndex = BigInt(i);
+            break;
+          }
+        }
+        
+        if (foundIndex !== null) {
+          transactionIndex = foundIndex;
+          console.log('✅ Derived transactionIndex from proposal PDA:', {
+            proposalPda: proposalPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-10.`);
+        }
+      }
+      
+      console.log('✅ Created PublicKey instances and extracted transactionIndex:', {
         multisigAddress: multisigAddress.toString(),
         transactionIndex: transactionIndex.toString(),
         memberPublicKey: memberPublicKey.toString(),
+        proposalPda: proposalPda.toString(),
         proposalIdOriginal: proposalId,
         proposalIdType: typeof proposalId,
       });
     } catch (keyError: any) {
-      console.error('❌ Failed to create PublicKey instances:', {
+      console.error('❌ Failed to create PublicKey instances or extract transactionIndex:', {
         error: keyError?.message,
         stack: keyError?.stack,
         squadsVaultAddress: matchRow.squadsVaultAddress,
@@ -9862,7 +9906,11 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         proposalIdType: typeof proposalId,
         wallet: wallet,
       });
-      throw new Error(`Invalid address format: ${keyError?.message || String(keyError)}`);
+      sendResponse(400, { 
+        error: `Invalid address format or failed to extract transactionIndex: ${keyError?.message || String(keyError)}`,
+        proposalId: proposalIdString,
+      });
+      return;
     }
 
     // Get recent blockhash
