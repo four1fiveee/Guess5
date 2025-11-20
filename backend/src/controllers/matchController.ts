@@ -4128,6 +4128,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 ...(freshMatch.player2Paid !== undefined && { player2Paid: !!freshMatch.player2Paid }),
               };
               
+              console.log('🚀 FINAL FALLBACK: Calling proposeTieRefund synchronously...', {
+                matchId: freshMatch.id,
+                vaultAddress: (freshMatch as any).squadsVaultAddress,
+                player1: freshMatch.player1,
+                player2: freshMatch.player2,
+                refundAmount,
+                vaultPda: (freshMatch as any).squadsVaultPda,
+                tiePaymentStatus
+              });
+              
               const proposalResult = await squadsVaultService.proposeTieRefund(
                 (freshMatch as any).squadsVaultAddress,
                 new PublicKey(freshMatch.player1),
@@ -4136,6 +4146,15 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 (freshMatch as any).squadsVaultPda ?? undefined,
                 tiePaymentStatus
               );
+              
+              console.log('📋 FINAL FALLBACK: proposeTieRefund result:', {
+                matchId: freshMatch.id,
+                success: proposalResult.success,
+                proposalId: proposalResult.proposalId,
+                error: proposalResult.error,
+                needsSignatures: proposalResult.needsSignatures,
+                fullResult: JSON.stringify(proposalResult)
+              });
               
               if (proposalResult.success && proposalResult.proposalId) {
                 const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
@@ -4188,7 +4207,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   success: proposalResult.success,
                   proposalId: proposalResult.proposalId,
                   error: proposalResult.error,
-                  needsSignatures: proposalResult.needsSignatures
+                  needsSignatures: proposalResult.needsSignatures,
+                  vaultAddress: (freshMatch as any).squadsVaultAddress,
+                  vaultPda: (freshMatch as any).squadsVaultPda,
+                  player1: freshMatch.player1,
+                  player2: freshMatch.player2,
+                  refundAmount,
+                  fullResult: JSON.stringify(proposalResult)
                 });
               }
             }
