@@ -4035,7 +4035,8 @@ export class SquadsVaultService {
     retries: number = 10,
     initialDelayMs: number = 500
   ): Promise<void> {
-    const { accounts } = require('@sqds/multisig/lib/codegen/accounts');
+    // accounts is already imported from '@sqds/multisig' at the top of the file
+    // No need to require it again
     
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
