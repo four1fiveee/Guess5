@@ -289,6 +289,30 @@ export const initializeDatabase = async () => {
         } else {
           console.log('✅ No pending migrations');
         }
+        
+        // Ensure migration 017 column exists (fallback if migration didn't run)
+        const columnCheck = await AppDataSource.query(`
+          SELECT EXISTS (
+            SELECT FROM information_schema.columns 
+            WHERE table_schema = 'public' 
+            AND table_name = 'user' 
+            AND column_name = 'exemptFromReferralMinimum'
+          );
+        `);
+        
+        if (!columnCheck[0]?.exists) {
+          console.log('⚠️ Migration 017 column missing, adding it now...');
+          await AppDataSource.query(`
+            ALTER TABLE "user" 
+            ADD COLUMN IF NOT EXISTS "exemptFromReferralMinimum" boolean DEFAULT false NOT NULL;
+          `);
+          await AppDataSource.query(`
+            CREATE INDEX IF NOT EXISTS "IDX_user_exemptFromReferralMinimum" 
+            ON "user" ("exemptFromReferralMinimum") 
+            WHERE "exemptFromReferralMinimum" = true;
+          `);
+          console.log('✅ Added exemptFromReferralMinimum column');
+        }
       } catch (migrationError: any) {
         console.error('❌ Migration error:', migrationError);
         // Log detailed error but don't fail startup - migrations might have partial failures
