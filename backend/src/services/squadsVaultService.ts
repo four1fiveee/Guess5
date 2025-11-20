@@ -2998,8 +2998,8 @@ export class SquadsVaultService {
     logExecutionStep(correlationId, 'enqueue', execStartTime);
     
     try {
-      const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = BigInt(proposalId);
+      // transactionIndex and multisigAddress are already extracted above
+      // Derive PDAs using the extracted transactionIndex
       const [proposalPda] = getProposalPda({
         multisigPda: multisigAddress,
         transactionIndex,
