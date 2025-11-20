@@ -264,18 +264,14 @@ export default function ReferralsPage() {
               {/* Referred Players Section */}
               <div className="bg-white/5 rounded-xl p-4 border border-white/10">
                 <h3 className="text-lg font-bold text-purple-400 mb-3">Referred Players</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="text-center">
                     <div className="text-2xl font-bold text-accent mb-1">{stats?.referredCount || 0}</div>
                     <div className="text-white/70 text-xs">Total Referred</div>
                   </div>
                   <div className="text-center">
                     <div className="text-2xl font-bold text-green-400 mb-1">{stats?.activeReferredCount || 0}</div>
-                    <div className="text-white/70 text-xs">Active (1+ Match)</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-purple-400 mb-1">{stats?.eligibleReferredCount || 0}</div>
-                    <div className="text-white/70 text-xs">Eligible</div>
+                    <div className="text-white/70 text-xs">Active (1+ Match Played)</div>
                   </div>
                 </div>
               </div>
@@ -305,24 +301,6 @@ export default function ReferralsPage() {
           )}
         </div>
 
-        {/* Referral Funnel */}
-        <div className="referral-funnel bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Funnel</h2>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
-              <div className="text-3xl font-bold text-accent mb-2">{stats?.referredCount || 0}</div>
-              <div className="text-white/80 text-sm">Referred Wallets</div>
-            </div>
-            <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
-              <div className="text-3xl font-bold text-green-400 mb-2">{stats?.activeReferredCount || 0}</div>
-              <div className="text-white/80 text-sm">Active (Played)</div>
-            </div>
-            <div className="bg-white/5 rounded-xl p-4 text-center border border-white/10">
-              <div className="text-3xl font-bold text-purple-400 mb-2">{stats?.eligibleReferredCount || 0}</div>
-              <div className="text-white/80 text-sm">Eligible</div>
-            </div>
-          </div>
-        </div>
 
         {/* Earnings Breakdown */}
         <div className="earnings-breakdown bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
