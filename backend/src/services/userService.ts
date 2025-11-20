@@ -9,6 +9,9 @@ export class UserService {
    * Get or create a user by wallet address
    */
   static async getUserByWallet(walletAddress: string): Promise<User> {
+    // Ensure column exists proactively
+    await ensureExemptColumnExists();
+    
     const userRepository = AppDataSource.getRepository(User);
     
     try {
