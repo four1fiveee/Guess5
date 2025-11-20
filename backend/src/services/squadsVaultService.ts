@@ -2401,19 +2401,84 @@ export class SquadsVaultService {
   ): Promise<ProposalStatus> {
     try {
       const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = BigInt(proposalId);
+      
+      // proposalId is now a PDA address, not a transactionIndex
+      // First, try to parse it as a PDA address
+      let proposalPda: PublicKey;
+      let transactionIndex: bigint;
+      
+      try {
+        proposalPda = new PublicKey(proposalId);
+        
+        // Query the proposal account to get the transactionIndex
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda
+        );
+        
+        const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
+        if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+          transactionIndex = BigInt(proposalTransactionIndex.toString());
+          enhancedLogger.info('✅ Extracted transactionIndex from proposal account in checkProposalStatus', {
+            vaultAddress,
+            proposalId,
+            proposalPda: proposalPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } else {
+          throw new Error('Proposal account does not have transactionIndex field');
+        }
+      } catch (pdaError: any) {
+        // Fallback: Try to parse as transactionIndex (for backward compatibility)
+        try {
+          transactionIndex = BigInt(proposalId);
+          // Derive proposal PDA from transactionIndex
+          const [derivedProposalPda] = getProposalPda({
+            multisigPda: multisigAddress,
+            transactionIndex,
+            programId: this.programId,
+          });
+          proposalPda = derivedProposalPda;
+          enhancedLogger.info('✅ Using proposalId as transactionIndex (backward compatibility)', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndex.toString(),
+            proposalPda: proposalPda.toString(),
+          });
+        } catch (bigIntError: any) {
+          // If both fail, try to derive transactionIndex by testing common values
+          enhancedLogger.warn('⚠️ Failed to parse proposalId as PDA or transactionIndex, attempting to derive', {
+            vaultAddress,
+            proposalId,
+            pdaError: pdaError?.message,
+            bigIntError: bigIntError?.message,
+          });
+          
+          let foundIndex: bigint | null = null;
+          for (let i = 0; i <= 10; i++) {
+            const [testPda] = getProposalPda({
+              multisigPda: multisigAddress,
+              transactionIndex: BigInt(i),
+              programId: this.programId,
+            });
+            if (testPda.toString() === proposalId) {
+              foundIndex = BigInt(i);
+              proposalPda = testPda;
+              transactionIndex = foundIndex;
+              break;
+            }
+          }
+          
+          if (foundIndex === null) {
+            throw new Error(`Could not derive transactionIndex from proposalId: ${proposalId}`);
+          }
+        }
+      }
 
       // Get the transaction PDA
       const [transactionPda] = getTransactionPda({
         multisigPda: multisigAddress,
         index: transactionIndex,
-        programId: this.programId,
-      });
-
-      // Get the proposal PDA
-      const [proposalPda] = getProposalPda({
-        multisigPda: multisigAddress,
-        transactionIndex,
         programId: this.programId,
       });
 
@@ -2721,7 +2786,29 @@ export class SquadsVaultService {
   ): Promise<{ success: boolean; signature?: string; error?: string }> {
     try {
       const multisigAddress = new PublicKey(vaultAddress);
-      const transactionIndex = BigInt(proposalId);
+      
+      // proposalId is now a PDA address, extract transactionIndex
+      let transactionIndex: bigint;
+      try {
+        const proposalPda = new PublicKey(proposalId);
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda
+        );
+        const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
+        if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+          transactionIndex = BigInt(proposalTransactionIndex.toString());
+        } else {
+          throw new Error('Proposal account does not have transactionIndex field');
+        }
+      } catch (pdaError: any) {
+        // Fallback: Try to parse as transactionIndex (backward compatibility)
+        try {
+          transactionIndex = BigInt(proposalId);
+        } catch (bigIntError: any) {
+          throw new Error(`Could not parse proposalId as PDA or transactionIndex: ${proposalId}`);
+        }
+      }
 
       enhancedLogger.info('📝 Approving Squads proposal', {
         vaultAddress,
@@ -2869,7 +2956,29 @@ export class SquadsVaultService {
     overrideVaultPda?: string
   ): Promise<{ success: boolean; signature?: string; slot?: number; executedAt?: string; logs?: string[]; error?: string; correlationId?: string }> {
     const multisigAddress = new PublicKey(vaultAddress);
-    const transactionIndex = BigInt(proposalId);
+    
+    // proposalId is now a PDA address, extract transactionIndex
+    let transactionIndex: bigint;
+    try {
+      const proposalPda = new PublicKey(proposalId);
+      const proposalAccount = await accounts.Proposal.fromAccountAddress(
+        this.connection,
+        proposalPda
+      );
+      const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
+      if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+        transactionIndex = BigInt(proposalTransactionIndex.toString());
+      } else {
+        throw new Error('Proposal account does not have transactionIndex field');
+      }
+    } catch (pdaError: any) {
+      // Fallback: Try to parse as transactionIndex (backward compatibility)
+      try {
+        transactionIndex = BigInt(proposalId);
+      } catch (bigIntError: any) {
+        throw new Error(`Could not parse proposalId as PDA or transactionIndex: ${proposalId}`);
+      }
+    }
     const correlationId = `exec-${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
     const execStartTime = Date.now();
     
