@@ -562,20 +562,10 @@ export const initializeDatabase = async () => {
           console.log('✅ Added exemptFromReferralMinimum column');
         }
         
-        // Check if match table has referral columns (migration 014)
-        const netProfitExists = await AppDataSource.query(`
-          SELECT EXISTS (
-            SELECT FROM information_schema.columns 
-            WHERE table_schema = 'public' 
-            AND table_name = 'match' 
-            AND column_name = 'netProfitUSD'
-          );
-        `);
-        
-        if (!netProfitExists[0]?.exists) {
-          console.log('⚠️ Migration 014 not run - adding match referral columns...');
-          await ensureMatchReferralColumns();
-        }
+        // ALWAYS ensure match referral columns exist (defensive programming)
+        // This ensures columns exist even if migration failed or was skipped
+        console.log('🔍 Verifying match referral columns exist (post-migration check)...');
+        await ensureMatchReferralColumns();
         
         console.log('✅ All referral migration fallbacks checked');
       } catch (migrationError: any) {
