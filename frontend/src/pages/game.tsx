@@ -450,21 +450,41 @@ const Game: React.FC = () => {
             return;
           }
           
-          // If match is completed, redirect to result page
-          if (matchData.status === 'completed' || matchData.isCompleted) {
-            console.log('✅ Match is completed, redirecting to result page');
+          // CRITICAL: Only redirect if BOTH players have results
+          // Don't redirect just because status is "completed" - wait for both results
+          const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+          if (bothPlayersHaveResults) {
+            console.log('✅ Both players have results, redirecting to result page');
             router.push(`/result?matchId=${gameMatchId}`);
             return;
           }
           
-          router.push('/matchmaking');
+          // If match status is completed but we don't have both results yet, 
+          // the player finished first - show waiting state instead of redirecting
+          if (matchData.status === 'completed' || matchData.isCompleted) {
+            console.log('⏳ Match marked as completed but waiting for opponent to finish...');
+            setGameState('waiting');
+            // Don't redirect - let the polling logic handle it when both players finish
+            // Continue to game initialization below
+          } else {
+            router.push('/matchmaking');
+            return;
+          }
+        }
+        
+        // CRITICAL: Only redirect if BOTH players have results
+        const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+        if (bothPlayersHaveResults) {
+          console.log('⚠️ Both players have results, redirecting to result page');
+          router.push(`/result?matchId=${gameMatchId}`);
           return;
         }
         
+        // If match is marked completed but we don't have both results, show waiting state
         if (matchData.isCompleted) {
-          console.log('⚠️ Match is already completed, redirecting to result page');
-          router.push(`/result?matchId=${gameMatchId}`);
-          return;
+          console.log('⏳ Match marked as completed but waiting for opponent to finish...');
+          setGameState('waiting');
+          // Don't redirect - continue to game initialization
         }
         
         if (matchData.player1 !== publicKey.toString() && matchData.player2 !== publicKey.toString()) {
