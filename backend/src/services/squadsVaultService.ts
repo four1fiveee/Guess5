@@ -1236,7 +1236,13 @@ export class SquadsVaultService {
       }
       
       // Generate a numeric proposal ID for frontend compatibility
-      const proposalId = transactionIndex.toString();
+      // Derive the actual proposal PDA address (not just transaction index)
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex: transactionIndex,
+        programId: this.programId,
+      });
+      const proposalId = proposalPda.toString();
       
       enhancedLogger.info('✅ Vault transaction created successfully', {
         signature,
@@ -2055,7 +2061,13 @@ export class SquadsVaultService {
       }
       
       // Generate a numeric proposal ID for frontend compatibility
-      const proposalId = transactionIndex.toString();
+      // Derive the actual proposal PDA address (not just transaction index)
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex: transactionIndex,
+        programId: this.programId,
+      });
+      const proposalId = proposalPda.toString();
       
       enhancedLogger.info('📝 Created real Squads refund transaction', {
         proposalId,
