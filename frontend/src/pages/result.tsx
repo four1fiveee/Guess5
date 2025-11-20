@@ -1071,7 +1071,7 @@ const Result: React.FC = () => {
               </div>
                     </div>
                   </div>
-                  {payoutData.isTie && (
+                  {payoutData.isTie && payoutData.isWinningTie && (
                     <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
                         <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
