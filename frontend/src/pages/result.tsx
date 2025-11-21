@@ -422,12 +422,8 @@ const Result: React.FC = () => {
   };
 
   useEffect(() => {
-    // CRITICAL FIX: Don't redirect to home immediately if wallet disconnects
-    // This was causing players to be kicked to home page during result viewing
-    // Instead, show an error message and let them reconnect
     if (!publicKey) {
-      console.warn('⚠️ Wallet disconnected on result page - showing error instead of redirecting');
-      setError('Wallet disconnected. Please reconnect your wallet to view results.');
+      router.push('/');
       return;
     }
 

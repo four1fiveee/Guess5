@@ -392,12 +392,8 @@ const Game: React.FC = () => {
   }, [memoizedFetchGameState]);
 
   useEffect(() => {
-    // CRITICAL FIX: Don't redirect to home immediately if wallet disconnects during game
-    // This was causing players to be kicked to home page during gameplay
     if (!publicKey) {
-      console.warn('⚠️ Wallet disconnected during game - this may cause issues');
-      // Don't redirect immediately - let the game continue and show error if needed
-      // The user can reconnect their wallet
+      router.push('/');
       return;
     }
 
