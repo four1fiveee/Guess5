@@ -110,6 +110,16 @@ const Result: React.FC = () => {
       });
       return false;
     }
+    
+    // CRITICAL: Continue polling if no proposal exists yet
+    if (!info?.proposalId) {
+      console.log('🔄 Continue polling: No proposal ID yet', {
+        proposalId: info?.proposalId,
+        hasPlayerResults: !!(info?.player1Result && info?.player2Result)
+      });
+      return true;
+    }
+    
     if (!info) return false;
     const normalizedStatus = (info.proposalStatus || '').toString().toUpperCase();
     const needs = Number.isFinite(info.needsSignatures)
@@ -291,9 +301,17 @@ const Result: React.FC = () => {
             setLoading(false);
             // CRITICAL: Always stop loading even if proposal doesn't exist yet
             // This prevents the spinning wheel from blocking the UI
-            // Stop polling if both players have results (game is complete)
-            // CRITICAL: If proposalId is missing, we MUST continue polling until it appears
-            const keepPolling = bothPlayersHaveResults ? false : shouldContinuePolling(payoutData);
+            // CRITICAL FIX: Continue polling until proposal is executed or user has signed
+            const keepPolling = shouldContinuePolling(payoutData);
+            console.log('🔄 Polling Decision (localStorage):', {
+              matchId: router.query.matchId,
+              keepPolling,
+              proposalId: payoutData.proposalId,
+              proposalStatus: payoutData.proposalStatus,
+              bothPlayersHaveResults,
+              isPolling: isPolling
+            });
+            
             setIsPolling(keepPolling);
             if (!keepPolling) {
               stopRefreshLoops();
@@ -378,9 +396,17 @@ const Result: React.FC = () => {
         
         setPayoutData(data);
         setLoading(false);
-        // Stop polling if both players have results (game is complete)
-        const bothPlayersHaveResults = data.player1Result && data.player2Result;
-        const keepPolling = bothPlayersHaveResults ? false : shouldContinuePolling(data);
+        // CRITICAL FIX: Continue polling until proposal is executed or user has signed
+        const keepPolling = shouldContinuePolling(data);
+        console.log('🔄 Polling Decision (API):', {
+          matchId: router.query.matchId,
+          keepPolling,
+          proposalId: data.proposalId,
+          proposalStatus: data.proposalStatus,
+          bothPlayersHaveResults: data.player1Result && data.player2Result,
+          isPolling: isPolling
+        });
+        
         setIsPolling(keepPolling);
         if (!keepPolling) {
           stopRefreshLoops();
@@ -1389,21 +1415,37 @@ const Result: React.FC = () => {
                               </p>
                               
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
-                              {payoutData.proposalId && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
-                                <button
-                                  onClick={handleSignProposal}
-                                  disabled={signingProposal}
-                                  className="bg-accent hover:bg-yellow-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-primary font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
-                                >
-                                  {signingProposal ? (
-                                    <>
-                                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                                      Signing...
-                                    </>
-                                  ) : 'Sign to Claim Winnings'}
-                                </button>
-                              )}
+                              {(() => {
+                                const hasProposalId = !!payoutData.proposalId;
+                                const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+                                const shouldShowButton = hasProposalId && !userHasSigned;
+                                
+                                console.log('🔍 WINNER Sign Button Debug:', {
+                                  hasProposalId,
+                                  proposalId: payoutData.proposalId,
+                                  userHasSigned,
+                                  playerProposalSigners,
+                                  publicKey: publicKey?.toString(),
+                                  shouldShowButton,
+                                  proposalStatus: payoutData.proposalStatus,
+                                  needsSignatures: payoutData.needsSignatures
+                                });
+                                
+                                return shouldShowButton ? (
+                                  <button
+                                    onClick={handleSignProposal}
+                                    disabled={signingProposal}
+                                    className="bg-accent hover:bg-yellow-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-primary font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
+                                  >
+                                    {signingProposal ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                                        Signing...
+                                      </>
+                                    ) : 'Sign to Claim Winnings'}
+                                  </button>
+                                ) : null;
+                              })()}
                             </div>
                           )}
                        </div>
@@ -1528,16 +1570,32 @@ const Result: React.FC = () => {
                               </p>
                               
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
-                              {payoutData.proposalId && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
-                                <button
-                                  onClick={handleSignProposal}
-                                  disabled={signingProposal}
-                                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
-                                >
-                                  {signingProposal ? 'Signing...' : 'Sign to Claim Refund'}
-                                </button>
-                              )}
+                              {(() => {
+                                const hasProposalId = !!payoutData.proposalId;
+                                const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+                                const shouldShowButton = hasProposalId && !userHasSigned;
+                                
+                                console.log('🔍 TIE Sign Button Debug:', {
+                                  hasProposalId,
+                                  proposalId: payoutData.proposalId,
+                                  userHasSigned,
+                                  playerProposalSigners,
+                                  publicKey: publicKey?.toString(),
+                                  shouldShowButton,
+                                  proposalStatus: payoutData.proposalStatus,
+                                  needsSignatures: payoutData.needsSignatures
+                                });
+                                
+                                return shouldShowButton ? (
+                                  <button
+                                    onClick={handleSignProposal}
+                                    disabled={signingProposal}
+                                    className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                  >
+                                    {signingProposal ? 'Signing...' : 'Sign to Claim Refund'}
+                                  </button>
+                                ) : null;
+                              })()}
                             </div>
                           )}
                       </div>
