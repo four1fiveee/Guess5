@@ -298,46 +298,24 @@ const Result: React.FC = () => {
               setIsPolling(true);
             }
 
-            // CRITICAL FIX: Auto-refresh when proposal becomes ready to sign
+            // CRITICAL FIX: Auto-refresh when proposal becomes available to sign
             // This fixes the issue where users need to manually refresh to see the sign button
-            if (payoutData.proposalId && 
-                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null) &&
-                payoutData.proposalStatus !== 'EXECUTED' && 
-                !payoutData.proposalExecutedAt &&
-                !playerProposalSigners.includes(publicKey?.toString() || '')) {
-              
-              console.log('🔄 Proposal is ready to sign but user hasn\'t signed yet - triggering page refresh', {
+            const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+            const proposalReadyToSign = payoutData.proposalId && !userHasSigned && payoutData.proposalStatus !== 'EXECUTED' && !payoutData.proposalExecutedAt;
+            
+            if (proposalReadyToSign) {
+              console.log('🔄 Proposal is available but user hasn\'t signed yet - triggering page refresh', {
                 proposalId: payoutData.proposalId,
                 needsSignatures: payoutData.needsSignatures,
                 proposalStatus: payoutData.proposalStatus,
-                userHasSigned: playerProposalSigners.includes(publicKey?.toString() || ''),
+                userHasSigned,
+                proposalExecutedAt: payoutData.proposalExecutedAt,
               });
               
-              // Small delay to ensure state is updated, then refresh
+              // Immediate refresh to show sign button
               setTimeout(() => {
                 window.location.reload();
-              }, 1000);
-            }
-
-            // CRITICAL FIX: Auto-refresh when proposal becomes ready to sign
-            // This fixes the issue where users need to manually refresh to see the sign button
-            if (payoutData.proposalId && 
-                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null) &&
-                payoutData.proposalStatus !== 'EXECUTED' && 
-                !payoutData.proposalExecutedAt &&
-                !playerProposalSigners.includes(publicKey?.toString() || '')) {
-              
-              console.log('🔄 Proposal is ready to sign but user hasn\'t signed yet - triggering page refresh', {
-                proposalId: payoutData.proposalId,
-                needsSignatures: payoutData.needsSignatures,
-                proposalStatus: payoutData.proposalStatus,
-                userHasSigned: playerProposalSigners.includes(publicKey?.toString() || ''),
-              });
-              
-              // Small delay to ensure state is updated, then refresh
-              setTimeout(() => {
-                window.location.reload();
-              }, 1000);
+              }, 500);
             }
             return;
           } else {
