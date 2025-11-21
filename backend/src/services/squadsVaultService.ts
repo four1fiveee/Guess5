@@ -2,6 +2,7 @@
 import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, Transaction } from '@solana/web3.js';
 import {
   rpc,
+  instructions,
   PROGRAM_ID,
   getMultisigPda,
   getVaultPda,
@@ -2812,23 +2813,30 @@ export class SquadsVaultService {
         }
       }
 
-      enhancedLogger.info('📝 Approving Squads proposal', {
+      enhancedLogger.info('📝 Approving Squads proposal using official SDK method', {
         vaultAddress,
         proposalId,
+        transactionIndex: transactionIndex.toString(),
         signer: signer.publicKey.toString(),
       });
 
-      // Approve the Proposal (VaultTransaction approval is automatic in Squads v4)
-      const proposalSignature = await rpc.proposalApprove({
-        connection: this.connection,
-        feePayer: signer,
+      // CRITICAL FIX: Use the official Squads SDK instructions.proposalApprove method
+      // This is the correct way according to Squads v4 documentation
+      const approveInstruction = await instructions.proposalApprove({
         multisigPda: multisigAddress,
         transactionIndex,
-        member: signer,
-        programId: this.programId, // Use network-specific program ID (Devnet/Mainnet)
+        member: signer.publicKey,
+        programId: this.programId,
       });
 
-      enhancedLogger.info('✅ Proposal approved successfully', {
+      // Create and send the transaction with the approval instruction
+      const transaction = new Transaction().add(approveInstruction);
+      const proposalSignature = await this.connection.sendTransaction(transaction, [signer], {
+        skipPreflight: false,
+        preflightCommitment: 'confirmed',
+      });
+
+      enhancedLogger.info('✅ Proposal approved successfully using SDK instructions', {
         vaultAddress,
         proposalId,
         proposalSignature,
@@ -2917,166 +2925,9 @@ export class SquadsVaultService {
         signature,
       });
 
-      // CRITICAL FIX: In Squads v4, BOTH Proposal AND VaultTransaction must be approved
-      // The logs show "VaultTransaction has 0/2 approvals" - we need to approve the VaultTransaction too
-      let vaultTxSignature: string | undefined;
-      
-      try {
-        // Derive the VaultTransaction PDA to approve it
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: transactionIndex,
-          programId: this.programId,
-        });
-
-        enhancedLogger.info('🔧 Attempting to approve VaultTransaction (CRITICAL FIX)', {
-          vaultAddress,
-          proposalId,
-          transactionPda: transactionPda.toString(),
-          signer: signer.publicKey.toString(),
-          note: 'This addresses the "VaultTransaction has 0/2 approvals" error',
-        });
-
-        // Use RPC method to approve VaultTransaction (since transactions.vaultTransactionApprove doesn't exist)
-        try {
-          enhancedLogger.info('🔧 Attempting VaultTransaction approval using RPC method', {
-            vaultAddress,
-            proposalId,
-            transactionPda: transactionPda.toString(),
-            signer: signer.publicKey.toString(),
-          });
-
-        // Try different approaches to approve VaultTransaction
-        let vaultTxApproved = false;
-        
-        // Method 1: Try rpc.vaultTransactionApprove
-        if (typeof (rpc as any).vaultTransactionApprove === 'function') {
-          try {
-            vaultTxSignature = await (rpc as any).vaultTransactionApprove({
-              connection: this.connection,
-              feePayer: signer,
-              multisigPda: multisigAddress,
-              transactionIndex,
-              member: signer.publicKey,
-              programId: this.programId,
-            });
-            vaultTxApproved = true;
-            enhancedLogger.info('✅ VaultTransaction approved using rpc.vaultTransactionApprove', {
-              vaultAddress,
-              proposalId,
-              vaultTxSignature,
-            });
-          } catch (rpcError: any) {
-            enhancedLogger.warn('⚠️ rpc.vaultTransactionApprove failed, trying alternative', {
-              error: rpcError.message,
-            });
-          }
-        }
-        
-        // Method 2: Try transactions.vaultTransactionApprove
-        if (!vaultTxApproved && typeof (transactions as any).vaultTransactionApprove === 'function') {
-          try {
-            const vaultTxInstruction = await (transactions as any).vaultTransactionApprove({
-              multisigPda: multisigAddress,
-              transactionIndex,
-              member: signer.publicKey,
-              programId: this.programId,
-            });
-            
-            // Create and send transaction
-            const transaction = new Transaction().add(vaultTxInstruction);
-            vaultTxSignature = await this.connection.sendTransaction(transaction, [signer]);
-            vaultTxApproved = true;
-            enhancedLogger.info('✅ VaultTransaction approved using transactions.vaultTransactionApprove', {
-              vaultAddress,
-              proposalId,
-              vaultTxSignature,
-            });
-          } catch (txError: any) {
-            enhancedLogger.warn('⚠️ transactions.vaultTransactionApprove failed', {
-              error: txError.message,
-            });
-          }
-        }
-        
-        // Method 3: Manual instruction creation (last resort)
-        if (!vaultTxApproved) {
-          try {
-            enhancedLogger.info('🔧 Attempting manual VaultTransaction approval instruction', {
-              vaultAddress,
-              proposalId,
-              transactionPda: transactionPda.toString(),
-            });
-            
-            // Create manual instruction for VaultTransaction approval
-            // This is based on Squads v4 program structure
-            const instruction = new TransactionInstruction({
-              keys: [
-                { pubkey: multisigAddress, isSigner: false, isWritable: false },
-                { pubkey: transactionPda, isSigner: false, isWritable: true },
-                { pubkey: signer.publicKey, isSigner: true, isWritable: false },
-              ],
-              programId: this.programId,
-              data: Buffer.from([3]), // VaultTransaction approve instruction discriminator
-            });
-            
-            const transaction = new Transaction().add(instruction);
-            vaultTxSignature = await this.connection.sendTransaction(transaction, [signer]);
-            vaultTxApproved = true;
-            enhancedLogger.info('✅ VaultTransaction approved using manual instruction', {
-              vaultAddress,
-              proposalId,
-              vaultTxSignature,
-            });
-          } catch (manualError: any) {
-            enhancedLogger.warn('⚠️ Manual VaultTransaction approval failed', {
-              error: manualError.message,
-            });
-          }
-        }
-        
-        if (!vaultTxApproved) {
-          enhancedLogger.warn('⚠️ All VaultTransaction approval methods failed', {
-            vaultAddress,
-            proposalId,
-            note: 'VaultTransaction approval may be automatic in this SDK version, or require different approach',
-          });
-        }
-
-        } catch (vaultTxError: unknown) {
-          const vaultTxErrorMessage = vaultTxError instanceof Error ? vaultTxError.message : String(vaultTxError);
-          enhancedLogger.warn('⚠️ VaultTransaction approval failed, but Proposal was approved', {
-            vaultAddress,
-            proposalId,
-            proposalSignature: signature,
-            vaultTxError: vaultTxErrorMessage,
-            note: 'Proposal approval succeeded. VaultTransaction approval may not be required for all proposal types.',
-          });
-        }
-
-      } catch (vaultTxSetupError: unknown) {
-        const setupErrorMessage = vaultTxSetupError instanceof Error ? vaultTxSetupError.message : String(vaultTxSetupError);
-        enhancedLogger.warn('⚠️ Could not set up VaultTransaction approval, but Proposal was approved', {
-          vaultAddress,
-          proposalId,
-          proposalSignature: signature,
-          setupError: setupErrorMessage,
-        });
-      }
-
-      const combinedSignature = vaultTxSignature ? `${signature},${vaultTxSignature}` : signature;
-
-      enhancedLogger.info('✅ Proposal (and VaultTransaction) approved successfully (FIXED)', {
-        vaultAddress,
-        proposalId,
-        signer: signer.publicKey.toString(),
-        proposalSignature: signature,
-        vaultTxSignature: vaultTxSignature || 'not_required',
-        combinedSignature,
-        note: 'Both Proposal and VaultTransaction approvals attempted. This should fix the "VaultTransaction has 0/2 approvals" error.',
-      });
-
-      return { success: true, signature: combinedSignature };
+      // In Squads v4, only Proposal approval is needed according to official documentation
+      // VaultTransaction approval is handled automatically by the protocol
+      return { success: true, signature };
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3653,18 +3504,23 @@ export class SquadsVaultService {
       const tx: VersionedTransaction | null = null;
       try {
         const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        // CRITICAL FIX: Use rpc.vaultTransactionExecute instead of transactions.vaultTransactionExecute
-        // The rpc method handles the execution directly without requiring manual transaction signing
-        const executionSignature = await rpc.vaultTransactionExecute({
-          connection: this.connection,
-          feePayer: executor,
+        // CRITICAL FIX: Use instructions.vaultTransactionExecute for proper Squads v4 execution
+        // This follows the official Squads SDK documentation
+        const executeInstruction = await instructions.vaultTransactionExecute({
           multisigPda: multisigAddress,
           transactionIndex,
           member: executor.publicKey,
           programId: this.programId,
         });
 
-        enhancedLogger.info('✅ VaultTransaction executed successfully using rpc.vaultTransactionExecute', {
+        // Create and send the execution transaction
+        const executeTransaction = new Transaction().add(executeInstruction);
+        const executionSignature = await this.connection.sendTransaction(executeTransaction, [executor], {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+
+        enhancedLogger.info('✅ VaultTransaction executed successfully using instructions.vaultTransactionExecute', {
           vaultAddress,
           proposalId,
           signature: executionSignature,
