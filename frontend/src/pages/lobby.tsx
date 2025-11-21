@@ -632,9 +632,9 @@ export default function Lobby() {
 
         {/* Wallet Connection */}
         {!publicKey && (
-          <div className="mb-6">
-            <WalletConnectButton />
-          </div>
+        <div className="mb-6">
+          <WalletConnectButton />
+        </div>
         )}
 
         {!publicKey ? (
