@@ -1241,9 +1241,9 @@ const Result: React.FC = () => {
                                   ? '🎉 Other player has signed! Refund will execute soon. No action needed.'
                                   : '⏳ Waiting for either player to sign the refund (only one signature needed)...'}
                               </p>
-                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) &&
-                               !playerProposalSigners.includes(publicKey?.toString() || '') &&
-                               playerProposalSigners.length === 0 && (
+                              {/* Show sign button if proposal exists AND user hasn't signed yet */}
+                              {payoutData.proposalId && 
+                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -1382,10 +1382,9 @@ const Result: React.FC = () => {
                                 }
                               </p>
                               
-                              {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
-                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && 
-                               playerProposalSigners.length === 0 && (
+                              {/* Show sign button if proposal exists AND user hasn't signed yet */}
+                              {payoutData.proposalId && 
+                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -1522,10 +1521,9 @@ const Result: React.FC = () => {
                                 }
                               </p>
                               
-                              {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
-                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && 
-                               playerProposalSigners.length === 0 && (
+                              {/* Show sign button if proposal exists AND user hasn't signed yet */}
+                              {payoutData.proposalId && 
+                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -1579,10 +1577,9 @@ const Result: React.FC = () => {
                                 }
                               </p>
                               
-                              {/* Only show sign button if proposal needs signatures AND user hasn't signed AND other player hasn't signed yet */}
-                              {(payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && 
-                               playerProposalSigners.length === 0 && (
+                              {/* Show sign button if proposal exists AND user hasn't signed yet */}
+                              {payoutData.proposalId && 
+                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
                                 <button
                                   onClick={handleSignProposal}
                                   disabled={signingProposal}
@@ -1620,7 +1617,9 @@ const Result: React.FC = () => {
                       </div>
                       <p className="text-white/80 text-sm">
                         {payoutData?.proposalId 
-                          ? 'Waiting for proposal signatures...' 
+                          ? (payoutData.needsSignatures > 0 
+                              ? `Waiting for ${payoutData.needsSignatures} signature${payoutData.needsSignatures !== 1 ? 's' : ''}...`
+                              : 'Proposal ready for execution...')
                           : 'The payout proposal is being created. Please wait...'}
                       </p>
                       {isPolling && (
