@@ -292,12 +292,38 @@ export const getLockStats = async (): Promise<{
   }
 };
 
-// Auto-cleanup every 5 minutes
-setInterval(async () => {
-  try {
-    await cleanupStaleLocks();
-  } catch (error) {
-    enhancedLogger.error('❌ Auto-cleanup failed:', error);
+// Auto-cleanup interval reference
+let autoCleanupInterval: NodeJS.Timeout | null = null;
+
+/**
+ * Initialize auto-cleanup (call after Redis is ready)
+ */
+export const initializeAutoCleanup = (): void => {
+  if (autoCleanupInterval) {
+    enhancedLogger.warn('⚠️ Auto-cleanup already initialized');
+    return;
   }
-}, 5 * 60 * 1000);
+  
+  // Start auto-cleanup every 5 minutes
+  autoCleanupInterval = setInterval(async () => {
+    try {
+      await cleanupStaleLocks();
+    } catch (error) {
+      enhancedLogger.error('❌ Auto-cleanup failed:', error);
+    }
+  }, 5 * 60 * 1000);
+  
+  enhancedLogger.info('✅ Auto-cleanup initialized (5-minute intervals)');
+};
+
+/**
+ * Stop auto-cleanup (for graceful shutdown)
+ */
+export const stopAutoCleanup = (): void => {
+  if (autoCleanupInterval) {
+    clearInterval(autoCleanupInterval);
+    autoCleanupInterval = null;
+    enhancedLogger.info('🛑 Auto-cleanup stopped');
+  }
+};
 

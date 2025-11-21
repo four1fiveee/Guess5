@@ -35,6 +35,11 @@ async function startServer() {
     enhancedLogger.info('🔌 Initializing Redis connections...');
     await initializeRedis();
     enhancedLogger.info('✅ Redis initialized successfully');
+    
+    // Initialize Redis lock auto-cleanup after Redis is ready
+    const { initializeAutoCleanup } = require('./utils/proposalLocks');
+    initializeAutoCleanup();
+    enhancedLogger.info('✅ Redis lock auto-cleanup initialized');
 
     // Smart contract service is optional - matchmaking uses Squads Protocol
     // Only initialize if the file exists (it's not required for basic matchmaking)
@@ -112,6 +117,10 @@ async function startServer() {
     const gracefulShutdown = async (signal: string) => {
       enhancedLogger.info(`🛑 Received ${signal}. Starting graceful shutdown...`);
       try {
+        // Stop Redis lock auto-cleanup
+        const { stopAutoCleanup } = require('./utils/proposalLocks');
+        stopAutoCleanup();
+        
         await closeRedis();
         enhancedLogger.info('🔌 Redis connections closed');
         await queueService.close();
