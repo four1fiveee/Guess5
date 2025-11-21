@@ -477,11 +477,22 @@ const Result: React.FC = () => {
   };
 
   useEffect(() => {
+    // CRITICAL FIX: Don't immediately redirect if wallet not connected
+    // Give wallet time to connect, especially after game completion
     if (!publicKey) {
-      router.push('/');
-      return;
+      console.log('⚠️ Wallet not connected on results page, waiting for connection...');
+      // Set a timeout to redirect only if wallet doesn't connect within 5 seconds
+      const redirectTimeout = setTimeout(() => {
+        if (!publicKey) {
+          console.log('🔌 Wallet still not connected after 5s, redirecting to home');
+          router.push('/');
+        }
+      }, 5000);
+      
+      return () => clearTimeout(redirectTimeout);
     }
 
+    console.log('✅ Wallet connected on results page, loading payout data');
     loadPayoutData();
   }, [publicKey, router]);
 
@@ -900,6 +911,21 @@ const Result: React.FC = () => {
       setSigningProposal(false);
     }
   };
+
+  // CRITICAL FIX: Show loading state while waiting for wallet connection
+  if (!publicKey) {
+    return (
+      <div className="min-h-screen bg-primary flex items-center justify-center">
+        <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
+          <div className="text-center">
+            <div className="text-yellow-400 text-xl mb-4">🔌 Connecting Wallet</div>
+            <p className="text-white/80 mb-6">Waiting for wallet connection to load results...</p>
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto"></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
