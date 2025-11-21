@@ -2925,71 +2925,22 @@ export class SquadsVaultService {
         signature,
       });
 
-      // CRITICAL FIX: In Squads v4, BOTH Proposal AND VaultTransaction must be approved
-      // The backend logs show "VaultTransaction has 0/2 approvals" - we need to approve the VaultTransaction too
-      let vaultTxSignature: string | undefined;
-      
-      try {
-        // Derive the VaultTransaction PDA to approve it
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: transactionIndex,
-          programId: this.programId,
-        });
-
-        enhancedLogger.info('🔧 Attempting to approve VaultTransaction (CRITICAL FIX)', {
-          vaultAddress,
-          proposalId,
-          transactionPda: transactionPda.toString(),
-          signer: signer.publicKey.toString(),
-          note: 'This addresses the "VaultTransaction has 0/2 approvals" error',
-        });
-
-        // Use instructions.vaultTransactionApprove for proper VaultTransaction approval
-        const vaultTxApproveInstruction = await instructions.vaultTransactionApprove({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          member: signer.publicKey,
-          programId: this.programId,
-        });
-
-        const vaultTxTransaction = new Transaction().add(vaultTxApproveInstruction);
-        vaultTxTransaction.recentBlockhash = (await this.connection.getLatestBlockhash()).blockhash;
-        vaultTxTransaction.feePayer = signer.publicKey;
-        vaultTxTransaction.sign(signer);
-
-        vaultTxSignature = await this.connection.sendTransaction(vaultTxTransaction, [signer], {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
-
-        await this.connection.confirmTransaction(vaultTxSignature, 'confirmed');
-
-        enhancedLogger.info('✅ VaultTransaction approved successfully', {
-          vaultAddress,
-          proposalId,
-          transactionPda: transactionPda.toString(),
-          signer: signer.publicKey.toString(),
-          vaultTxSignature,
-        });
-
-      } catch (vaultTxError: any) {
-        enhancedLogger.warn('⚠️ VaultTransaction approval failed, but continuing (may not be required)', {
-          vaultAddress,
-          proposalId,
-          signer: signer.publicKey.toString(),
-          error: vaultTxError?.message || String(vaultTxError),
-          note: 'Some Squads setups may not require VaultTransaction approval',
-        });
-        // Don't fail the entire approval if VaultTransaction approval fails
+      // NOTE: In Squads v4, only Proposal approval is required
+      // VaultTransaction approval is handled automatically by the protocol
+      enhancedLogger.info('✅ Proposal approval completed - VaultTransaction approval is automatic in Squads v4', {
+        vaultAddress,
+        proposalId,
+        signer: signer.publicKey.toString(),
+        signature,
+        note: 'Squads v4 SDK only requires proposalApprove() - no separate VaultTransaction approval needed',
+      });
         // Some configurations may not require it
       }
 
       return { 
         success: true, 
         signature,
-        vaultTxSignature,
-        note: 'Both Proposal and VaultTransaction approval attempted'
+        note: 'Proposal approval completed - VaultTransaction approval is automatic in Squads v4'
       };
 
     } catch (error: unknown) {
@@ -3249,50 +3200,13 @@ export class SquadsVaultService {
           }
         }
         
-        // CRITICAL: Check VaultTransaction approval count BEFORE execution (expert recommendation)
-        // Abort execution if VaultTransaction is not approved
-        try {
-          const [transactionPda] = getTransactionPda({
-            multisigPda: multisigAddress,
-            index: transactionIndex,
-            programId: this.programId,
-          });
-          
-          const vaultTx = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda,
-            'confirmed'
-          );
-          
-          const vaultTxApprovals = (vaultTx as any).approvals || [];
-          const vaultTxApprovalCount = vaultTxApprovals.length;
-          const vaultTxThreshold = (vaultTx as any).threshold?.toNumber() || this.config.threshold;
-          
-          if (vaultTxApprovalCount < vaultTxThreshold) {
-            enhancedLogger.error('❌ VaultTransaction NOT approved — execution aborted', {
-              vaultAddress,
-              proposalId,
-              vaultTxApprovalCount,
-              vaultTxThreshold,
-              approvals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
-              note: 'Both Proposal AND VaultTransaction must be approved for ExecuteReady. Execution cannot proceed.',
-            });
-            
-            return {
-              success: false,
-              error: 'VAULT_TRANSACTION_NOT_APPROVED',
-              logs: [`VaultTransaction has ${vaultTxApprovalCount}/${vaultTxThreshold} approvals. Both Proposal and VaultTransaction must be approved.`],
-              correlationId,
-            };
-          }
-        } catch (vaultTxCheckError: unknown) {
-          enhancedLogger.warn('⚠️ Could not verify VaultTransaction approval count (continuing with execution)', {
-            vaultAddress,
-            proposalId,
-            error: vaultTxCheckError instanceof Error ? vaultTxCheckError.message : String(vaultTxCheckError),
-            note: 'Execution will proceed but may fail if VaultTransaction is not approved',
-          });
-        }
+        // NOTE: In Squads v4, VaultTransaction approval is automatic when Proposal is approved
+        // No separate VaultTransaction approval check is needed
+        enhancedLogger.info('ℹ️ Skipping VaultTransaction approval check - automatic in Squads v4', {
+          vaultAddress,
+          proposalId,
+          note: 'Squads v4 handles VaultTransaction approval automatically when Proposal is approved',
+        });
       } catch (proposalCheckError: unknown) {
         enhancedLogger.warn('⚠️ Failed to check Proposal account directly (using checkProposalStatus fallback)', {
           vaultAddress,
