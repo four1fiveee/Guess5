@@ -222,6 +222,18 @@ const Result: React.FC = () => {
         
         if (response.ok) {
           const matchData = await response.json();
+          
+          console.log('🔍 CRITICAL DEBUG: Raw API response data:', {
+            matchId,
+            payoutProposalId: matchData.payoutProposalId,
+            tieRefundProposalId: matchData.tieRefundProposalId,
+            proposalStatus: matchData.proposalStatus,
+            proposalSigners: matchData.proposalSigners,
+            needsSignatures: matchData.needsSignatures,
+            winner: matchData.winner,
+            isCompleted: matchData.isCompleted,
+            status: matchData.status
+          });
 
           // Check if both players have results (more reliable indicator of completion)
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
@@ -251,6 +263,17 @@ const Result: React.FC = () => {
               expectedBonusUsd && solPriceForMatch
                 ? expectedBonusUsd / solPriceForMatch
                 : bonusAmountSol;
+            const extractedProposalId = matchData.payoutProposalId || matchData.tieRefundProposalId;
+            
+            console.log('🔍 CRITICAL DEBUG: Proposal ID extraction:', {
+              matchId,
+              payoutProposalId: matchData.payoutProposalId,
+              tieRefundProposalId: matchData.tieRefundProposalId,
+              extractedProposalId,
+              proposalStatus: matchData.proposalStatus,
+              winner: matchData.winner
+            });
+            
             const payoutData = {
               won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
               isTie: matchData.winner === 'tie',
@@ -268,7 +291,7 @@ const Result: React.FC = () => {
               transactions: matchData.payout?.transactions || [],
               vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress,
               vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || null,
-              proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId,
+              proposalId: extractedProposalId,
               proposalStatus: matchData.proposalStatus,
               proposalSigners: normalizeProposalSigners(matchData.proposalSigners),
               needsSignatures: matchData.needsSignatures || 0,
@@ -303,13 +326,14 @@ const Result: React.FC = () => {
             // This prevents the spinning wheel from blocking the UI
             // CRITICAL FIX: Continue polling until proposal is executed or user has signed
             const keepPolling = shouldContinuePolling(payoutData);
-            console.log('🔄 Polling Decision (localStorage):', {
+            console.log('🔄 Polling Decision (API):', {
               matchId: router.query.matchId,
               keepPolling,
               proposalId: payoutData.proposalId,
               proposalStatus: payoutData.proposalStatus,
               bothPlayersHaveResults,
-              isPolling: isPolling
+              isPolling: isPolling,
+              extractedProposalId
             });
             
             setIsPolling(keepPolling);
