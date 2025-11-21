@@ -1845,4 +1845,3 @@ const Result: React.FC = () => {
 };
 
 export default Result; 
-export default Result; 
