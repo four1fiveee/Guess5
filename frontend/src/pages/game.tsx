@@ -728,12 +728,20 @@ const Game: React.FC = () => {
           
           // MUST have both conditions: both results AND completed status
           if (bothPlayersHaveResults && matchCompleted) {
-            console.log('🏆 Match completed detected via continuous polling:', {
+            const correlationId = `frontend-redirect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            console.log('🏆 COMPREHENSIVE: Match completed detected via continuous polling:', {
+              correlationId,
+              matchId,
               matchCompleted,
               bothPlayersHaveResults,
               status: matchData.status,
               isCompleted: matchData.isCompleted,
-              hasPayout: !!matchData.payout
+              hasPayout: !!matchData.payout,
+              hasPayoutProposalId: !!matchData.payoutProposalId,
+              hasTieRefundProposalId: !!matchData.tieRefundProposalId,
+              winner: matchData.winner,
+              timestamp: new Date().toISOString(),
+              action: 'redirecting_to_results'
             });
             
             // Stop polling

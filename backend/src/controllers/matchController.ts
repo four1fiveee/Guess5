@@ -2541,7 +2541,14 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       } else {
         // Both players haven't finished yet - save partial result and wait using raw SQL
-        console.log('⏳ Not all players finished yet, waiting for other player');
+        console.log('⏳ COMPREHENSIVE: Not all players finished yet, waiting for other player', {
+          matchId,
+          correlationId,
+          player1HasResult: !!currentMatch?.player1Result,
+          player2HasResult: !!currentMatch?.player2Result,
+          timestamp: new Date().toISOString(),
+          action: 'waiting_for_other_player'
+        });
         // Result was already saved in the transaction above, no need to save again
         
         res.json({
@@ -2566,17 +2573,26 @@ const submitResultHandler = async (req: any, res: any) => {
       const currentMatch = currentMatchRows?.[0];
       const bothPlayersHaveResults = currentMatch?.player1Result && currentMatch?.player2Result;
       
-      console.log('🔍 Game end check (FIXED - checking submitted results, not game state):', {
+      const correlationId = `submit-result-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      console.log('🔍 COMPREHENSIVE: Game end check (checking submitted results, not game state):', {
         matchId,
+        correlationId,
         player1HasResult: !!currentMatch?.player1Result,
         player2HasResult: !!currentMatch?.player2Result,
         bothPlayersHaveResults,
         isCompleted: currentMatch?.isCompleted,
+        timestamp: new Date().toISOString(),
         note: 'CRITICAL FIX: Only complete when both players submit results, not when both finish playing'
       });
       
       if (bothPlayersHaveResults) {
-        console.log('🏁 Both players have submitted results, determining winner...');
+        console.log('🏁 COMPREHENSIVE: Both players have submitted results, determining winner...', {
+          matchId,
+          correlationId,
+          timestamp: new Date().toISOString(),
+          action: 'starting_winner_determination'
+        });
         
         // Use transaction to ensure atomic winner determination
         let updatedMatch: any = null;
@@ -2649,26 +2665,34 @@ const submitResultHandler = async (req: any, res: any) => {
             const winnerAmount = totalPot * 0.95; // 95% of total pot to winner
             const feeAmount = totalPot * 0.05; // 5% fee from total pot
             
-            // CRITICAL: Create proposal in background to prevent blocking response
-            // This ensures the endpoint returns 200 even if proposal creation fails
-            (async () => {
-              try {
-                const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                  updatedMatch.squadsVaultAddress,
-                  new PublicKey(winner),
-                  winnerAmount,
-                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                  feeAmount,
-                  updatedMatch.squadsVaultPda ?? undefined
-                );
-                
-                if (proposalResult.success) {
-                  console.log('✅ Squads winner payout proposal created:', proposalResult.proposalId);
-                
-                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
+            // CRITICAL FIX: Create proposal synchronously to ensure database consistency
+            // This ensures the proposal is created and saved before response is sent
+            try {
+              console.log('🔄 Creating winner payout proposal synchronously...');
+              const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                updatedMatch.squadsVaultAddress,
+                new PublicKey(winner),
+                winnerAmount,
+                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                feeAmount,
+                updatedMatch.squadsVaultPda ?? undefined
+              );
+              
+              if (proposalResult.success && proposalResult.proposalId) {
+                console.log('✅ COMPREHENSIVE: Squads winner payout proposal created:', {
+                  matchId,
+                  correlationId,
+                  proposalId: proposalResult.proposalId,
+                  needsSignatures: proposalResult.needsSignatures,
+                  timestamp: new Date().toISOString(),
+                  action: 'winner_proposal_created'
+                });
+              
+                const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
 
-                  // Update match with proposal information using raw SQL
-                  await matchRepository.query(`
+                // CRITICAL: Update match with proposal information using transaction
+                await AppDataSource.transaction(async (transactionManager) => {
+                  await transactionManager.query(`
                     UPDATE "match"
                     SET "payoutProposalId" = $1,
                         "proposalCreatedAt" = $2,
@@ -2688,22 +2712,33 @@ const submitResultHandler = async (req: any, res: any) => {
                     new Date(),
                     updatedMatch.id
                   ]);
-                  
-                  console.log('✅ Match saved with proposal information:', {
-                    matchId: updatedMatch.id,
-                    proposalId: proposalResult.proposalId,
-                    proposalStatus: 'ACTIVE',
-                    needsSignatures: proposalState.normalizedNeeds,
-                  });
-                } else {
-                  console.error('❌ Squads proposal creation failed:', proposalResult.error);
-                }
-              } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                console.error('❌ Error creating Squads proposal (non-blocking):', errorMessage);
-                // Don't throw - proposal creation is non-blocking
+                });
+                
+                console.log('✅ COMPREHENSIVE: Match saved with proposal information (ATOMIC):', {
+                  matchId: updatedMatch.id,
+                  correlationId,
+                  proposalId: proposalResult.proposalId,
+                  proposalStatus: 'ACTIVE',
+                  needsSignatures: proposalState.normalizedNeeds,
+                  timestamp: new Date().toISOString(),
+                  action: 'database_updated_with_proposal',
+                  winner: updatedMatch.winner
+                });
+
+                // Update the payout result to include proposal info
+                (payoutResult as any).proposalId = proposalResult.proposalId;
+                (payoutResult as any).proposalStatus = 'ACTIVE';
+                (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
+                
+              } else {
+                console.error('❌ Squads proposal creation failed:', proposalResult.error);
+                // Continue with fallback payment instructions
               }
-            })();
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.error('❌ Error creating Squads proposal (CRITICAL):', errorMessage);
+              // Continue with fallback payment instructions
+            }
             
             // Set fallback payment instructions (proposal will be created in background)
             const paymentInstructions = {
@@ -2791,9 +2826,9 @@ const submitResultHandler = async (req: any, res: any) => {
               });
               // Don't throw - just log error and continue (proposal creation is non-blocking)
             } else {
-              // CRITICAL: Create tie refund proposal in background to prevent blocking response
-            (async () => {
+              // CRITICAL FIX: Create tie refund proposal synchronously to ensure database consistency
               try {
+                console.log('🔄 Creating tie refund proposal synchronously...');
                 const tiePaymentStatus = {
                   ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
                   ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
@@ -2808,49 +2843,67 @@ const submitResultHandler = async (req: any, res: any) => {
                   tiePaymentStatus
                 );
                 
-                if (refundResult.success) {
-                  console.log('✅ Squads tie refund proposal created:', refundResult.proposalId);
+                if (refundResult.success && refundResult.proposalId) {
+                  console.log('✅ COMPREHENSIVE: Squads tie refund proposal created:', {
+                  matchId,
+                  correlationId,
+                  proposalId: refundResult.proposalId,
+                  needsSignatures: refundResult.needsSignatures,
+                  timestamp: new Date().toISOString(),
+                  action: 'tie_refund_proposal_created'
+                });
                   
                   const proposalState = buildInitialProposalState(refundResult.needsSignatures);
 
-                  // Update match with proposal information using raw SQL
-                  // CRITICAL: For tie refunds, only set tieRefundProposalId, NOT payoutProposalId
-                  await matchRepository.query(`
-                    UPDATE "match"
-                    SET "tieRefundProposalId" = $1,
-                        "proposalCreatedAt" = $2,
-                        "proposalStatus" = $3,
-                        "needsSignatures" = $4,
-                        "proposalSigners" = $5,
-                        "matchStatus" = $6,
-                        "updatedAt" = $7
-                    WHERE id = $8
-                  `, [
-                    refundResult.proposalId,
-                    new Date(),
-                    'ACTIVE',
-                    proposalState.normalizedNeeds,
-                    proposalState.signersJson,
-                    'PROPOSAL_CREATED',
-                    new Date(),
-                    updatedMatch.id
-                  ]);
-                  
-                  console.log('✅ Match saved with tie refund proposal:', {
-                    matchId: updatedMatch.id,
-                    proposalId: refundResult.proposalId,
-                    proposalStatus: 'ACTIVE',
-                    needsSignatures: proposalState.normalizedNeeds,
+                  // CRITICAL: Update match with proposal information using transaction
+                  await AppDataSource.transaction(async (transactionManager) => {
+                    await transactionManager.query(`
+                      UPDATE "match"
+                      SET "payoutProposalId" = NULL,
+                          "tieRefundProposalId" = $1,
+                          "proposalCreatedAt" = $2,
+                          "proposalStatus" = $3,
+                          "needsSignatures" = $4,
+                          "proposalSigners" = $5,
+                          "matchStatus" = $6,
+                          "updatedAt" = $7
+                      WHERE id = $8
+                    `, [
+                      refundResult.proposalId,
+                      new Date(),
+                      'ACTIVE',
+                      proposalState.normalizedNeeds,
+                      proposalState.signersJson,
+                      'PROPOSAL_CREATED',
+                      new Date(),
+                      updatedMatch.id
+                    ]);
                   });
+                  
+                console.log('✅ COMPREHENSIVE: Match saved with tie refund proposal (ATOMIC):', {
+                  matchId: updatedMatch.id,
+                  correlationId,
+                  proposalId: refundResult.proposalId,
+                  proposalStatus: 'ACTIVE',
+                  needsSignatures: proposalState.normalizedNeeds,
+                  timestamp: new Date().toISOString(),
+                  action: 'database_updated_with_tie_refund_proposal'
+                });
+
+                  // Update the payout result to include proposal info
+                  (payoutResult as any).proposalId = refundResult.proposalId;
+                  (payoutResult as any).proposalStatus = 'ACTIVE';
+                  (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
+                  
                 } else {
-                  console.error('❌ Squads tie refund proposal failed:', refundResult.error);
+                  console.error('❌ Squads tie refund proposal creation failed:', refundResult.error);
+                  // Continue with fallback payment instructions
                 }
               } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                console.error('❌ Error creating Squads tie refund proposal (non-blocking):', errorMessage);
-                // Don't throw - proposal creation is non-blocking
+                console.error('❌ Error creating Squads tie refund proposal (CRITICAL):', errorMessage);
+                // Continue with fallback payment instructions
               }
-            })();
             
             // Set fallback payment instructions (proposal will be created in background)
             const paymentInstructions = {
@@ -3219,7 +3272,14 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       } else {
         // Both players haven't finished yet - save partial result and wait using raw SQL
-        console.log('⏳ Not all players have submitted results yet, waiting for other player to submit');
+        console.log('⏳ COMPREHENSIVE: Not all players have submitted results yet, waiting for other player to submit', {
+          matchId,
+          correlationId,
+          player1HasResult: !!currentMatch?.player1Result,
+          player2HasResult: !!currentMatch?.player2Result,
+          timestamp: new Date().toISOString(),
+          action: 'waiting_for_other_player_submit'
+        });
         // Result was already saved in the transaction above, no need to save again
         
         res.json({

@@ -180,12 +180,17 @@ const Result: React.FC = () => {
     const filtered = normalizedProposalSigners.filter(
       (signer) => signer && signer.toLowerCase() !== feeWallet
     );
-    console.log('🔍 Proposal signer state', {
+    console.log('🔍 COMPREHENSIVE: Proposal signer state', {
+      matchId: typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('matchId') : 'unknown',
       raw: payoutData?.proposalSigners,
       normalized: normalizedProposalSigners,
       playerOnly: filtered,
       feeWallet,
       needsSignatures: payoutData?.needsSignatures,
+      proposalId: payoutData?.proposalId,
+      proposalStatus: payoutData?.proposalStatus,
+      timestamp: new Date().toISOString(),
+      action: 'calculating_player_signers'
     });
     return filtered;
   }, [normalizedProposalSigners, payoutData?.proposalSigners, payoutData?.needsSignatures]);
