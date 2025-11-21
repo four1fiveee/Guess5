@@ -2934,8 +2934,6 @@ export class SquadsVaultService {
         signature,
         note: 'Squads v4 SDK only requires proposalApprove() - no separate VaultTransaction approval needed',
       });
-        // Some configurations may not require it
-      }
 
       return { 
         success: true, 
