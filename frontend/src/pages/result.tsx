@@ -117,7 +117,11 @@ const Result: React.FC = () => {
     if (!info?.proposalId) {
       console.log('🔄 Continue polling: No proposal ID yet', {
         proposalId: info?.proposalId,
-        hasPlayerResults: !!(info?.player1Result && info?.player2Result)
+        hasPlayerResults: !!(info?.player1Result && info?.player2Result),
+        bothPlayersFinished: !!(info?.player1Result && info?.player2Result),
+        currentPlayer: publicKey?.toString(),
+        isPlayer1: publicKey?.toString() === info?.player1,
+        isPlayer2: publicKey?.toString() === info?.player2
       });
       return true;
     }
@@ -234,7 +238,13 @@ const Result: React.FC = () => {
             needsSignatures: matchData.needsSignatures,
             winner: matchData.winner,
             isCompleted: matchData.isCompleted,
-            status: matchData.status
+            status: matchData.status,
+            currentPlayer: publicKey?.toString(),
+            isPlayer1: publicKey?.toString() === matchData.player1,
+            isPlayer2: publicKey?.toString() === matchData.player2,
+            player1Result: !!matchData.player1Result,
+            player2Result: !!matchData.player2Result,
+            bothPlayersHaveResults: !!(matchData.player1Result && matchData.player2Result)
           });
 
           // Check if both players have results (more reliable indicator of completion)
@@ -533,6 +543,12 @@ const Result: React.FC = () => {
       hasProposalId: hasProposal,
       baseInterval,
       bothPlayersHaveResults: !!(payoutData?.player1Result && payoutData?.player2Result),
+      currentPlayer: publicKey?.toString(),
+      isPlayer1: publicKey?.toString() === payoutData?.player1,
+      isPlayer2: publicKey?.toString() === payoutData?.player2,
+      proposalId: payoutData?.proposalId,
+      proposalStatus: payoutData?.proposalStatus,
+      needsSignatures: payoutData?.needsSignatures
     });
 
     let pollCount = 0;
@@ -1490,7 +1506,12 @@ const Result: React.FC = () => {
                                   publicKey: publicKey?.toString(),
                                   shouldShowButton,
                                   proposalStatus: payoutData.proposalStatus,
-                                  needsSignatures: payoutData.needsSignatures
+                                  needsSignatures: payoutData.needsSignatures,
+                                  isPlayer1: publicKey?.toString() === payoutData.player1,
+                                  isPlayer2: publicKey?.toString() === payoutData.player2,
+                                  winner: payoutData.winner,
+                                  rawProposalSigners: payoutData.proposalSigners,
+                                  normalizedSigners: playerProposalSigners
                                 });
                                 
                                 return shouldShowButton ? (
@@ -1645,7 +1666,12 @@ const Result: React.FC = () => {
                                   publicKey: publicKey?.toString(),
                                   shouldShowButton,
                                   proposalStatus: payoutData.proposalStatus,
-                                  needsSignatures: payoutData.needsSignatures
+                                  needsSignatures: payoutData.needsSignatures,
+                                  isPlayer1: publicKey?.toString() === payoutData.player1,
+                                  isPlayer2: publicKey?.toString() === payoutData.player2,
+                                  winner: payoutData.winner,
+                                  rawProposalSigners: payoutData.proposalSigners,
+                                  normalizedSigners: playerProposalSigners
                                 });
                                 
                                 return shouldShowButton ? (
