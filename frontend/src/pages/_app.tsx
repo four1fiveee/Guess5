@@ -6,6 +6,7 @@ import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { PhantomWalletAdapter } from '@solana/wallet-adapter-wallets';
 import { useMemo, useEffect } from 'react';
+import { Analytics } from '@vercel/analytics/react';
 
 function MyApp({ Component, pageProps }: AppProps) {
   const network = WalletAdapterNetwork.Devnet;
@@ -50,6 +51,7 @@ function MyApp({ Component, pageProps }: AppProps) {
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>
           <Component {...pageProps} />
+          <Analytics />
         </WalletModalProvider>
       </WalletProvider>
     </ConnectionProvider>

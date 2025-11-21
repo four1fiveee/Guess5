@@ -26,101 +26,112 @@ export const useWalletBalanceSSE = (walletAddress: string | null) => {
       return;
     }
 
-    // Close existing connection and clear any pending reconnection
-    if (eventSourceRef.current) {
-      eventSourceRef.current.close();
-    }
-    if (reconnectTimeoutRef.current) {
-      clearTimeout(reconnectTimeoutRef.current);
-      reconnectTimeoutRef.current = null;
-    }
-    reconnectAttemptsRef.current = 0;
-
-    // Create new SSE connection
-    const sseUrl = `${config.API_URL}/api/match/wallet-balance/${walletAddress}`;
-    
-    // Debug logging
-    console.log('🔍 SSE Debug:', {
+    // TODO: Implement SSE wallet balance updates when backend endpoint is ready
+    // Currently disabled to prevent 404 errors
+    console.log('🔍 SSE Debug (disabled):', {
       API_URL: config.API_URL,
-      sseUrl: sseUrl,
-      walletAddress: walletAddress
+      walletAddress: walletAddress,
+      note: 'SSE disabled - using manual balance fetching instead'
     });
 
+    // Set connected to false since SSE is disabled
+    setIsConnected(false);
+    return;
+
+    // DISABLED SSE CODE:
+    // // Close existing connection and clear any pending reconnection
+    // if (eventSourceRef.current) {
+    //   eventSourceRef.current.close();
+    // }
+    // if (reconnectTimeoutRef.current) {
+    //   clearTimeout(reconnectTimeoutRef.current);
+    //   reconnectTimeoutRef.current = null;
+    // }
+    // reconnectAttemptsRef.current = 0;
+
+    // // Create new SSE connection
+    // const sseUrl = `${config.API_URL}/api/match/wallet-balance/${walletAddress}`;
     
-    const eventSource = new EventSource(sseUrl);
-    eventSourceRef.current = eventSource;
+    // // Debug logging
+    // console.log('🔍 SSE Debug:', {
+    //   API_URL: config.API_URL,
+    //   sseUrl: sseUrl,
+    //   walletAddress: walletAddress
+    // });
 
-    eventSource.onopen = () => {
-  
-      setIsConnected(true);
-      setError(null);
-      reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
-    };
+    
+    // const eventSource = new EventSource(sseUrl);
+    // eventSourceRef.current = eventSource;
 
-    eventSource.onmessage = (event) => {
-      try {
-        const data: BalanceUpdate = JSON.parse(event.data);
+    // DISABLED SSE EVENT HANDLERS:
+    // eventSource.onopen = () => {
+    //   setIsConnected(true);
+    //   setError(null);
+    //   reconnectAttemptsRef.current = 0; // Reset reconnect attempts on successful connection
+    // };
+
+    // eventSource.onmessage = (event) => {
+    //   try {
+    //     const data: BalanceUpdate = JSON.parse(event.data);
         
-        switch (data.type) {
-          case 'connected':
-        
-            break;
+    //     switch (data.type) {
+    //       case 'connected':
+    //         break;
             
-          case 'balance_update':
-            console.log('💰 Balance update received:', data.balance, 'SOL');
-            setBalance(data.balance || null);
-            setError(null);
-            break;
+    //       case 'balance_update':
+    //         console.log('💰 Balance update received:', data.balance, 'SOL');
+    //         setBalance(data.balance || null);
+    //         setError(null);
+    //         break;
             
-          case 'error':
-            console.error('❌ SSE error:', data.message);
-            setError(data.message || 'Failed to fetch balance');
-            break;
-        }
-      } catch (error) {
-        console.error('❌ Error parsing SSE message:', error);
-        setError('Failed to parse balance update');
-      }
-    };
+    //       case 'error':
+    //         console.error('❌ SSE error:', data.message);
+    //         setError(data.message || 'Failed to fetch balance');
+    //         break;
+    //     }
+    //   } catch (error) {
+    //     console.error('❌ Error parsing SSE message:', error);
+    //     setError('Failed to parse balance update');
+    //   }
+    // };
 
-    eventSource.onerror = (error) => {
-      console.error('❌ SSE connection error:', error);
-      console.error('❌ EventSource readyState:', eventSource.readyState);
-      setIsConnected(false);
-      setError('Connection lost - balance updates may be delayed');
+    // eventSource.onerror = (error) => {
+    //   console.error('❌ SSE connection error:', error);
+    //   console.error('❌ EventSource readyState:', eventSource.readyState);
+    //   setIsConnected(false);
+    //   setError('Connection lost - balance updates may be delayed');
       
-      // Implement exponential backoff for reconnection
-      if (reconnectAttemptsRef.current < maxReconnectAttempts) {
-        const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000); // Max 30 seconds
-        reconnectAttemptsRef.current++;
+    //   // Implement exponential backoff for reconnection
+    //   if (reconnectAttemptsRef.current < maxReconnectAttempts) {
+    //     const delay = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000); // Max 30 seconds
+    //     reconnectAttemptsRef.current++;
         
-        console.log(`🔄 Attempting to reconnect SSE in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`);
+    //     console.log(`🔄 Attempting to reconnect SSE in ${delay}ms (attempt ${reconnectAttemptsRef.current}/${maxReconnectAttempts})...`);
         
-        reconnectTimeoutRef.current = setTimeout(() => {
-          if (walletAddress) {
-            console.log('🔄 Reconnecting SSE...');
-            eventSource.close();
-            // The useEffect will handle reconnection
-          }
-        }, delay);
-      } else {
-        console.error('❌ Max SSE reconnection attempts reached');
-        setError('Unable to maintain connection - please refresh the page');
-      }
-    };
+    //     reconnectTimeoutRef.current = setTimeout(() => {
+    //       if (walletAddress) {
+    //         console.log('🔄 Reconnecting SSE...');
+    //         eventSource.close();
+    //         // The useEffect will handle reconnection
+    //       }
+    //     }, delay);
+    //   } else {
+    //     console.error('❌ Max SSE reconnection attempts reached');
+    //     setError('Unable to maintain connection - please refresh the page');
+    //   }
+    // };
 
-    // Cleanup function
-    return () => {
-      if (eventSource) {
-    
-        eventSource.close();
-        setIsConnected(false);
-      }
-      if (reconnectTimeoutRef.current) {
-        clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = null;
-      }
-    };
+    // // Cleanup function
+    // return () => {
+    //   if (eventSource) {
+    //     eventSource.close();
+    //     setIsConnected(false);
+    //   }
+    //   if (reconnectTimeoutRef.current) {
+    //     clearTimeout(reconnectTimeoutRef.current);
+    //     reconnectTimeoutRef.current = null;
+    //   }
+    // };
   }, [walletAddress]);
 
   // Cleanup on unmount

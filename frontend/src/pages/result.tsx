@@ -578,65 +578,66 @@ const Result: React.FC = () => {
     }
   }, [payoutData]);
 
-  // Listen for SSE proposal signing events
-  useEffect(() => {
-    const matchId = router.query.matchId as string;
-    if (!matchId || !publicKey) return;
+  // TODO: Implement SSE proposal signing events when backend endpoint is ready
+  // Currently disabled to prevent 404 errors - using polling instead
+  // useEffect(() => {
+  //   const matchId = router.query.matchId as string;
+  //   if (!matchId || !publicKey) return;
 
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-    const eventSource = new EventSource(
-      `${apiUrl}/api/wallet/${publicKey.toString()}/balance/stream`
-    );
+  //   const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+  //   const eventSource = new EventSource(
+  //     `${apiUrl}/api/wallet/${publicKey.toString()}/balance/stream`
+  //   );
 
-    eventSource.addEventListener('proposal_signed', (event: any) => {
-      try {
-        const data = JSON.parse(event.data);
-        if (data.matchId === matchId) {
-          console.log('📢 Received proposal signed notification:', data);
+  //   eventSource.addEventListener('proposal_signed', (event: any) => {
+  //     try {
+  //       const data = JSON.parse(event.data);
+  //       if (data.matchId === matchId) {
+  //         console.log('📢 Received proposal signed notification:', data);
           
-          // Check if opponent signed (not current user)
-          const eventSigners = normalizeProposalSigners(data.proposalSigners);
-          const feeWallet = config.FEE_WALLET_ADDRESS?.toLowerCase?.();
-          const eventPlayerSigners = eventSigners.filter(
-            (signer) => signer && signer.toLowerCase() !== feeWallet
-          );
-          const currentUserSigned = eventPlayerSigners.includes(publicKey?.toString() || '');
+  //         // Check if opponent signed (not current user)
+  //         const eventSigners = normalizeProposalSigners(data.proposalSigners);
+  //         const feeWallet = config.FEE_WALLET_ADDRESS?.toLowerCase?.();
+  //         const eventPlayerSigners = eventSigners.filter(
+  //           (signer) => signer && signer.toLowerCase() !== feeWallet
+  //         );
+  //         const currentUserSigned = eventPlayerSigners.includes(publicKey?.toString() || '');
           
-          if (!currentUserSigned && eventPlayerSigners.length > 0) {
-            // Opponent signed - show notification
-            setNotification('🎉 Other player has signed! Proposal is ready to execute.');
-          } else if (currentUserSigned) {
-            // Current user signed - show waiting message
-            setNotification('✅ You have signed! Waiting for other player...');
-          }
+  //         if (!currentUserSigned && eventPlayerSigners.length > 0) {
+  //           // Opponent signed - show notification
+  //           setNotification('🎉 Other player has signed! Proposal is ready to execute.');
+  //         } else if (currentUserSigned) {
+  //           // Current user signed - show waiting message
+  //           setNotification('✅ You have signed! Waiting for other player...');
+  //         }
           
-          // Immediately refresh payout data to get latest status
-          stopRefreshLoops();
-          loadPayoutData();
+  //         // Immediately refresh payout data to get latest status
+  //         stopRefreshLoops();
+  //         loadPayoutData();
           
-          // Hide sign button since only 1 signature needed
-          setSigningProposal(false);
+  //         // Hide sign button since only 1 signature needed
+  //         setSigningProposal(false);
           
-          // Poll a little faster for a short period to detect execution
-          refreshIntervalRef.current = setInterval(() => {
-            loadPayoutData();
-          }, 4000);
+  //         // Poll a little faster for a short period to detect execution
+  //         refreshIntervalRef.current = setInterval(() => {
+  //           loadPayoutData();
+  //         }, 4000);
           
-          refreshTimeoutRef.current = setTimeout(() => {
-            stopRefreshLoops();
-            loadPayoutData();
-          }, 20000);
-        }
-      } catch (error) {
-        console.error('❌ Error parsing proposal_signed event:', error);
-      }
-    });
+  //         refreshTimeoutRef.current = setTimeout(() => {
+  //           stopRefreshLoops();
+  //           loadPayoutData();
+  //         }, 20000);
+  //       }
+  //     } catch (error) {
+  //       console.error('❌ Error parsing proposal_signed event:', error);
+  //     }
+  //   });
 
-    return () => {
-      stopRefreshLoops();
-      eventSource.close();
-    };
-  }, [router.query.matchId, publicKey]);
+  //   return () => {
+  //     stopRefreshLoops();
+  //     eventSource.close();
+  //   };
+  // }, [router.query.matchId, publicKey]);
 
   const handlePlayAgain = () => {
     // Clear stored data
