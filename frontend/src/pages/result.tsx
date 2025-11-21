@@ -85,6 +85,8 @@ const Result: React.FC = () => {
   const [squadsClient] = useState(() => new SquadsClient());
   const [isPolling, setIsPolling] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
+  const [proposalCreationProgress, setProposalCreationProgress] = useState(0);
+  const [proposalCreationStartTime, setProposalCreationStartTime] = useState<number | null>(null);
   const [actualBonusAmount, setActualBonusAmount] = useState<number | null>(null);
   const [solPrice, setSolPrice] = useState<number | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
@@ -359,10 +361,8 @@ const Result: React.FC = () => {
                 proposalExecutedAt: payoutData.proposalExecutedAt,
               });
               
-              // Immediate refresh to show sign button
-              setTimeout(() => {
-                window.location.reload();
-              }, 500);
+              // REMOVED: No more automatic page reload - let React update naturally
+              console.log('✅ Proposal detected, React will update UI automatically');
             }
             return;
           } else {
@@ -493,8 +493,29 @@ const Result: React.FC = () => {
     }
 
     console.log('✅ Wallet connected on results page, loading payout data');
+    // Start tracking proposal creation time if we don't have a proposal yet
+    if (!payoutData?.proposalId && !proposalCreationStartTime) {
+      setProposalCreationStartTime(Date.now());
+    }
     loadPayoutData();
   }, [publicKey, router]);
+
+  // Track proposal creation progress
+  useEffect(() => {
+    if (!proposalCreationStartTime || payoutData?.proposalId) {
+      setProposalCreationProgress(100); // Complete if we have a proposal
+      return;
+    }
+
+    const progressInterval = setInterval(() => {
+      const elapsed = Date.now() - proposalCreationStartTime;
+      const maxTime = 45000; // 45 seconds max expected time
+      const progress = Math.min((elapsed / maxTime) * 100, 95); // Cap at 95% until actual completion
+      setProposalCreationProgress(progress);
+    }, 500);
+
+    return () => clearInterval(progressInterval);
+  }, [proposalCreationStartTime, payoutData?.proposalId]);
 
   // Poll for proposal updates when polling is active
   // Expert recommendation: More aggressive polling when game is active
@@ -503,27 +524,29 @@ const Result: React.FC = () => {
       return;
     }
     
-    // Expert recommendation: Poll every 1s for first 30s (to catch proposal creation), then 2s
-    console.log('🔄 Starting proposal polling (aggressive: 1s for 30s, then 2s)...', {
+    // Smart polling: 1s until proposal exists, then 3s for signatures
+    const hasProposal = !!payoutData?.proposalId;
+    const baseInterval = hasProposal ? 3000 : 1000; // Slower polling once we have proposal
+    
+    console.log('🔄 Starting smart proposal polling...', {
       matchId: router.query.matchId,
-      hasProposalId: !!payoutData?.proposalId,
+      hasProposalId: hasProposal,
+      baseInterval,
       bothPlayersHaveResults: !!(payoutData?.player1Result && payoutData?.player2Result),
     });
 
     let pollCount = 0;
-    const maxAggressivePolls = 30; // Increased from 10 to 30 to catch proposal creation faster
     
     const pollInterval = setInterval(() => {
       pollCount++;
-      const isAggressive = pollCount <= maxAggressivePolls;
-      const currentInterval = isAggressive ? 1000 : 2000;
+      const currentInterval = hasProposal ? 3000 : 1000; // Consistent with base interval
       
-      console.log('🔄 Polling for proposal updates...', {
+      console.log('🔄 Smart polling for proposal updates...', {
         matchId: router.query.matchId,
         hasProposalId: !!payoutData?.proposalId,
         pollCount,
         interval: currentInterval,
-        isAggressive,
+        mode: hasProposal ? 'signature_waiting' : 'proposal_creation',
       });
       
       loadPayoutData();
@@ -1721,20 +1744,36 @@ const Result: React.FC = () => {
                   </div>
                 </div>
                 ) : (
-                  <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-4">
+                  <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-6">
                     <div className="text-center">
-                      <div className="flex items-center justify-center mb-3">
+                      <div className="flex items-center justify-center mb-4">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
                         <div className="text-accent text-lg font-semibold">
-                          ⏳ Processing Payout
+                          {payoutData?.proposalId ? '⏳ Processing Payout' : '🔄 Creating Proposal'}
                         </div>
                       </div>
+                      
+                      {/* Progress bar for proposal creation */}
+                      {!payoutData?.proposalId && (
+                        <div className="mb-4">
+                          <div className="w-full bg-white/10 rounded-full h-2 mb-2">
+                            <div 
+                              className="bg-accent h-2 rounded-full transition-all duration-500 ease-out"
+                              style={{ width: `${proposalCreationProgress}%` }}
+                            ></div>
+                          </div>
+                          <p className="text-white/60 text-xs">
+                            Creating secure blockchain proposal... {Math.round(proposalCreationProgress)}%
+                          </p>
+                        </div>
+                      )}
+                      
                       <p className="text-white/80 text-sm">
                         {payoutData?.proposalId 
                           ? (payoutData.needsSignatures > 0 
                               ? `Waiting for ${payoutData.needsSignatures} signature${payoutData.needsSignatures !== 1 ? 's' : ''}...`
                               : 'Proposal ready for execution...')
-                          : 'The payout proposal is being created. Please wait...'}
+                          : 'Please wait while we create your secure payout proposal on the blockchain. This usually takes 15-30 seconds.'}
                       </p>
                       {isPolling && (
                         <p className="text-white/60 text-xs mt-2">
@@ -1816,4 +1855,5 @@ const Result: React.FC = () => {
   );
 };
 
+export default Result; 
 export default Result; 
