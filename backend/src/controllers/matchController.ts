@@ -2550,25 +2550,33 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       }
     } else {
-      // Player didn't solve - check if both players have finished playing
-      // This `serverGameState` needs to be `updatedServerGameState` for consistency
-      const updatedServerGameState = await getGameState(matchId);
-      const player1Finished = updatedServerGameState?.player1Solved || (updatedServerGameState?.player1Guesses?.length || 0) >= 7;
-      const player2Finished = updatedServerGameState?.player2Solved || (updatedServerGameState?.player2Guesses?.length || 0) >= 7;
+      // CRITICAL FIX: Check if both players have SUBMITTED RESULTS, not if they've "finished playing"
+      // Timeout doesn't mean "finished playing" - it means "this player's result is submitted"
+      // We should only complete the match when BOTH players have submitted their results
       
-      console.log('🔍 Game end check (non-solved case):', {
+      // Check if both players have submitted results by looking at the database
+      const { AppDataSource } = require('../db/index');
+      const matchRepository = AppDataSource.getRepository(Match);
+      const currentMatchRows = await matchRepository.query(`
+        SELECT "player1Result", "player2Result", "isCompleted"
+        FROM "match"
+        WHERE id = $1
+      `, [matchId]);
+      
+      const currentMatch = currentMatchRows?.[0];
+      const bothPlayersHaveResults = currentMatch?.player1Result && currentMatch?.player2Result;
+      
+      console.log('🔍 Game end check (FIXED - checking submitted results, not game state):', {
         matchId,
-        player1Solved: updatedServerGameState?.player1Solved,
-        player2Solved: updatedServerGameState?.player2Solved,
-        player1Guesses: updatedServerGameState?.player1Guesses?.length || 0,
-        player2Guesses: updatedServerGameState?.player2Guesses?.length || 0,
-        player1Finished,
-        player2Finished,
-        bothFinished: player1Finished && player2Finished
+        player1HasResult: !!currentMatch?.player1Result,
+        player2HasResult: !!currentMatch?.player2Result,
+        bothPlayersHaveResults,
+        isCompleted: currentMatch?.isCompleted,
+        note: 'CRITICAL FIX: Only complete when both players submit results, not when both finish playing'
       });
       
-      if (player1Finished && player2Finished) {
-        console.log('🏁 Both players have finished playing, determining winner...');
+      if (bothPlayersHaveResults) {
+        console.log('🏁 Both players have submitted results, determining winner...');
         
         // Use transaction to ensure atomic winner determination
         let updatedMatch: any = null;
@@ -3211,7 +3219,7 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       } else {
         // Both players haven't finished yet - save partial result and wait using raw SQL
-        console.log('⏳ Not all players finished yet (non-solved case), waiting for other player');
+        console.log('⏳ Not all players have submitted results yet, waiting for other player to submit');
         // Result was already saved in the transaction above, no need to save again
         
         res.json({
