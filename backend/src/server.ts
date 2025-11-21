@@ -111,6 +111,19 @@ async function startServer() {
       } catch (error) {
         enhancedLogger.warn('⚠️ Failed to start cron jobs:', error);
       }
+
+      // CRITICAL FIX: Start proposal execution services
+      try {
+        const { executionRetryService } = require('./services/executionRetryService');
+        const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
+        
+        executionRetryService.start();
+        proposalOnChainSyncService.start();
+        
+        enhancedLogger.info('✅ Proposal execution services started');
+      } catch (error) {
+        enhancedLogger.warn('⚠️ Failed to start proposal execution services:', error);
+      }
     });
 
     // Graceful shutdown
@@ -120,6 +133,28 @@ async function startServer() {
         // Stop Redis lock auto-cleanup
         const { stopAutoCleanup } = require('./utils/proposalLocks');
         stopAutoCleanup();
+        
+        // Stop cron jobs
+        try {
+          const { CronService } = require('./services/cronService');
+          CronService.stop();
+          enhancedLogger.info('✅ Cron jobs stopped');
+        } catch (error) {
+          enhancedLogger.warn('⚠️ Failed to stop cron jobs:', error);
+        }
+        
+        // Stop proposal execution services
+        try {
+          const { executionRetryService } = require('./services/executionRetryService');
+          const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
+          
+          executionRetryService.stop();
+          proposalOnChainSyncService.stop();
+          
+          enhancedLogger.info('✅ Proposal execution services stopped');
+        } catch (error) {
+          enhancedLogger.warn('⚠️ Failed to stop proposal execution services:', error);
+        }
         
         await closeRedis();
         enhancedLogger.info('🔌 Redis connections closed');

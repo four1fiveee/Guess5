@@ -2806,20 +2806,18 @@ const submitResultHandler = async (req: any, res: any) => {
                   const proposalState = buildInitialProposalState(refundResult.needsSignatures);
 
                   // Update match with proposal information using raw SQL
-                  // CRITICAL: Set both payoutProposalId and tieRefundProposalId for tie refunds
+                  // CRITICAL: For tie refunds, only set tieRefundProposalId, NOT payoutProposalId
                   await matchRepository.query(`
                     UPDATE "match"
-                    SET "payoutProposalId" = $1,
-                        "tieRefundProposalId" = $2,
-                        "proposalCreatedAt" = $3,
-                        "proposalStatus" = $4,
-                        "needsSignatures" = $5,
-                        "proposalSigners" = $6,
-                        "matchStatus" = $7,
-                        "updatedAt" = $8
-                    WHERE id = $9
+                    SET "tieRefundProposalId" = $1,
+                        "proposalCreatedAt" = $2,
+                        "proposalStatus" = $3,
+                        "needsSignatures" = $4,
+                        "proposalSigners" = $5,
+                        "matchStatus" = $6,
+                        "updatedAt" = $7
+                    WHERE id = $8
                   `, [
-                    refundResult.proposalId,
                     refundResult.proposalId,
                     new Date(),
                     'ACTIVE',
@@ -3716,7 +3714,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
                   if (proposalResult.success && proposalResult.proposalId) {
                     const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                    (match as any).payoutProposalId = proposalResult.proposalId;
+                    // CRITICAL FIX: For tie refunds, only set tieRefundProposalId, NOT payoutProposalId
                     (match as any).tieRefundProposalId = proposalResult.proposalId;
                     (match as any).proposalCreatedAt = new Date();
                     (match as any).proposalStatus = 'ACTIVE';
@@ -4187,8 +4185,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               if (proposalResult.success && proposalResult.proposalId) {
                 const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
                 applyProposalStateToMatch(freshMatch, proposalState);
-                // Update match with proposal data
-                (freshMatch as any).payoutProposalId = proposalResult.proposalId;
+                // Update match with proposal data - CRITICAL FIX: For tie refunds, only set tieRefundProposalId
                 (freshMatch as any).tieRefundProposalId = proposalResult.proposalId;
                 (freshMatch as any).proposalCreatedAt = new Date();
                 (freshMatch as any).proposalStatus = 'ACTIVE';

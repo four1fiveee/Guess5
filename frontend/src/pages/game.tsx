@@ -346,7 +346,7 @@ const Game: React.FC = () => {
                   transactions: matchData.payout?.transactions || [],
                   automatedPayout: matchData.payout?.paymentSuccess || false,
                   payoutSignature: matchData.payout?.transactions?.[0]?.signature || null,
-                  proposalId: matchData.payoutProposalId,
+                  proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId,
                   proposalStatus: matchData.proposalStatus
                 };
                 
@@ -392,8 +392,12 @@ const Game: React.FC = () => {
   }, [memoizedFetchGameState]);
 
   useEffect(() => {
+    // CRITICAL FIX: Don't redirect to home immediately if wallet disconnects during game
+    // This was causing players to be kicked to home page during gameplay
     if (!publicKey) {
-      router.push('/');
+      console.warn('⚠️ Wallet disconnected during game - this may cause issues');
+      // Don't redirect immediately - let the game continue and show error if needed
+      // The user can reconnect their wallet
       return;
     }
 

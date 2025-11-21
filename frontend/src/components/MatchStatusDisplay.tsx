@@ -26,6 +26,7 @@ interface MatchStatus {
     payoutTxHash: string;
     refundTxHash: string;
     payoutProposalId: string;
+    tieRefundProposalId: string;
     proposalCreatedAt: string;
     proposalStatus: string;
     proposalSigners: string[];
@@ -85,7 +86,8 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
   };
 
   const handleSignProposal = async () => {
-    if (!matchStatus?.match.payoutProposalId || !matchStatus?.match.squadsVaultAddress) {
+    const proposalId = matchStatus?.match.payoutProposalId || matchStatus?.match.tieRefundProposalId;
+    if (!proposalId || !matchStatus?.match.squadsVaultAddress) {
       setError('No proposal or vault address to sign');
       return;
     }
@@ -99,7 +101,7 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
     try {
       await squadsClient.signProposal(
         matchStatus.match.squadsVaultAddress,
-        matchStatus.match.payoutProposalId,
+        proposalId,
         publicKey
       );
       setError(null);
@@ -255,14 +257,14 @@ export const MatchStatusDisplay: React.FC<MatchStatusDisplayProps> = ({
       </div>
 
       {/* Proposal Status */}
-      {match.payoutProposalId && (
+      {(match.payoutProposalId || match.tieRefundProposalId) && (
         <div className="bg-secondary bg-opacity-10 rounded-lg p-6">
           <h3 className="text-xl font-bold text-accent mb-4">Proposal Status</h3>
           
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div className="bg-white bg-opacity-5 rounded-lg p-4">
               <p className="text-sm text-white/80 mb-2">Proposal ID:</p>
-              <p className="text-xs font-mono text-accent break-all">{match.payoutProposalId}</p>
+              <p className="text-xs font-mono text-accent break-all">{match.payoutProposalId || match.tieRefundProposalId}</p>
             </div>
 
             <div className="bg-white bg-opacity-5 rounded-lg p-4">
