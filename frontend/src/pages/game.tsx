@@ -492,7 +492,7 @@ const Game: React.FC = () => {
           // Don't redirect - continue to game initialization
         }
         
-        if (matchData.player1 !== publicKey.toString() && matchData.player2 !== publicKey.toString()) {
+        if (matchData.player1 !== publicKey?.toString() && matchData.player2 !== publicKey?.toString()) {
           throw new Error('You are not part of this match');
         }
 
