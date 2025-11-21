@@ -550,18 +550,7 @@ const Result: React.FC = () => {
       });
       
       loadPayoutData();
-      
-      // After 30 aggressive polls, switch to normal interval
-      if (pollCount === maxAggressivePolls) {
-        clearInterval(pollInterval);
-        const normalPollInterval = setInterval(() => {
-          loadPayoutData();
-        }, 2000);
-        
-        // Store in ref for cleanup
-        refreshIntervalRef.current = normalPollInterval;
-      }
-    }, 1000); // Start with 1 second intervals
+    }, baseInterval); // Use smart interval based on proposal existence
     
     // Store initial interval in ref for cleanup
     refreshIntervalRef.current = pollInterval;
