@@ -450,33 +450,26 @@ const Game: React.FC = () => {
             return;
           }
           
-          // CRITICAL: Only redirect if BOTH players have results
-          // Don't redirect just because status is "completed" - wait for both results
+          // CRITICAL: Only redirect if BOTH players have results AND match is completed
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
-          if (bothPlayersHaveResults) {
-            console.log('✅ Both players have results, redirecting to result page');
+          const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
+          
+          if (bothPlayersHaveResults && matchCompleted) {
+            console.log('✅ Both players have results and match completed, redirecting to result page');
             router.push(`/result?matchId=${gameMatchId}`);
             return;
           }
           
-          // If match status is completed but we don't have both results yet, 
-          // the player finished first - show waiting state instead of redirecting
-          if (matchData.status === 'completed' || matchData.isCompleted) {
-            console.log('⏳ Match marked as completed but waiting for opponent to finish...');
+          // If match is completed but we don't have both results yet, show waiting state
+          if (matchCompleted && !bothPlayersHaveResults) {
+            console.log('⏳ Match completed but waiting for opponent results...');
             setGameState('waiting');
-            // Don't redirect - let the polling logic handle it when both players finish
-            // Continue to game initialization below
-          } else {
+            // Continue to game initialization - polling will handle redirect when ready
+          } else if (!matchCompleted) {
+            // Match not completed, redirect to matchmaking
             router.push('/matchmaking');
             return;
           }
-        }
-        
-        // CRITICAL: Only redirect if BOTH players have results
-        const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
-        if (bothPlayersHaveResults) {
-          console.log('⚠️ Both players have results, redirecting to result page');
-          router.push(`/result?matchId=${gameMatchId}`);
           return;
         }
         
@@ -489,6 +482,15 @@ const Game: React.FC = () => {
         
         if (matchData.player1 !== publicKey.toString() && matchData.player2 !== publicKey.toString()) {
           throw new Error('You are not part of this match');
+        }
+
+        // SAFETY: If match is completed with both results but we're still on game page, force redirect
+        const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+        const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
+        if (bothPlayersHaveResults && matchCompleted) {
+          console.log('🚨 SAFETY REDIRECT: Match completed with both results, forcing redirect to results');
+          router.push(`/result?matchId=${gameMatchId}`);
+          return;
         }
 
         setFeeWalletAddress(matchData.feeWalletAddress || matchData.escrowAddress || '');
@@ -727,7 +729,7 @@ const Game: React.FC = () => {
             const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
             
             const payoutData = {
-              won: matchData.winner === publicKey.toString(),
+              won: matchData.winner === publicKey.toString() && matchData.winner !== 'tie',
               isTie: matchData.winner === 'tie',
               winner: matchData.winner,
               numGuesses: playerResult?.numGuesses || 0,
