@@ -9,6 +9,7 @@ import { referralPayoutService } from '../services/payoutService';
 import { ReferralService } from '../services/referralService';
 import { AntiAbuseService } from '../services/antiAbuseService';
 import { getRedisMM } from '../config/redis';
+import { forceReleaseLock, checkLockStatus, cleanupStaleLocks, getLockStats } from '../utils/proposalLocks';
 import { UserService } from '../services/userService';
 import { getNextSunday1300EST } from '../utils/referralUtils';
 import { notifyAdmin } from '../services/notificationService';
@@ -569,22 +570,19 @@ export const adminClearProposalLock = async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'Match ID is required' });
     }
     
-    // Clear the Redis lock (using the correct key format from proposalLocks.ts)
-    const redis = getRedisMM();
-    const lockKey = `proposal:lock:${matchId}`;
-    const result = await redis.del(lockKey);
+    // Clear the Redis lock using the enhanced force release function
+    const result = await forceReleaseLock(matchId);
     
     console.log('✅ Proposal lock cleared:', {
       matchId,
-      lockKey,
-      keysDeleted: result,
+      success: result,
     });
     
     return res.json({
       success: true,
       message: 'Proposal lock cleared successfully',
       matchId,
-      keysDeleted: result,
+      lockCleared: result,
     });
     
   } catch (error: unknown) {
@@ -609,15 +607,12 @@ export const adminClearLockAndDeleteMatch = async (req: Request, res: Response) 
       return res.status(400).json({ error: 'Match ID is required' });
     }
     
-    // Step 1: Clear the Redis lock
-    const redis = getRedisMM();
-    const lockKey = `proposal:lock:${matchId}`;
-    const lockResult = await redis.del(lockKey);
+    // Step 1: Clear the Redis lock using enhanced force release
+    const lockResult = await forceReleaseLock(matchId);
     
     console.log('✅ Proposal lock cleared:', {
       matchId,
-      lockKey,
-      keysDeleted: lockResult,
+      success: lockResult,
     });
     
     // Step 2: Delete the match from database
@@ -639,13 +634,99 @@ export const adminClearLockAndDeleteMatch = async (req: Request, res: Response) 
       success: true,
       message: 'Proposal lock cleared and match deleted successfully',
       matchId,
-      lockKeysDeleted: lockResult,
+      lockCleared: lockResult,
       matchDeleted: !!match,
     });
     
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Failed to clear lock and delete match:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+// Get Redis lock statistics (admin monitoring)
+export const adminGetLockStats = async (req: Request, res: Response) => {
+  try {
+    console.log('📊 Admin requesting lock statistics');
+    
+    const stats = await getLockStats();
+    
+    console.log('✅ Lock statistics retrieved:', stats);
+    
+    return res.json({
+      success: true,
+      stats,
+      timestamp: new Date().toISOString(),
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to get lock statistics:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+// Check specific lock status (admin debugging)
+export const adminCheckLockStatus = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    
+    console.log('🔍 Admin checking lock status for match:', matchId);
+    
+    if (!matchId) {
+      return res.status(400).json({ error: 'Match ID is required' });
+    }
+    
+    const status = await checkLockStatus(matchId);
+    
+    console.log('✅ Lock status retrieved:', { matchId, status });
+    
+    return res.json({
+      success: true,
+      matchId,
+      lockStatus: status,
+      timestamp: new Date().toISOString(),
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to check lock status:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+// Cleanup all stale locks (admin maintenance)
+export const adminCleanupStaleLocks = async (req: Request, res: Response) => {
+  try {
+    console.log('🧹 Admin initiating stale lock cleanup');
+    
+    const cleanedCount = await cleanupStaleLocks();
+    
+    console.log('✅ Stale lock cleanup completed:', { cleanedCount });
+    
+    return res.json({
+      success: true,
+      message: 'Stale lock cleanup completed',
+      cleanedCount,
+      timestamp: new Date().toISOString(),
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to cleanup stale locks:', errorMessage);
     
     return res.status(500).json({ 
       error: 'Internal server error',

@@ -13,7 +13,10 @@ import {
   adminAddExempt,
   adminRemoveExempt,
   adminClearProposalLock,
-  adminClearLockAndDeleteMatch
+  adminClearLockAndDeleteMatch,
+  adminGetLockStats,
+  adminCheckLockStatus,
+  adminCleanupStaleLocks
 } from '../controllers/adminController';
 
 const router = Router();
@@ -22,6 +25,11 @@ const router = Router();
 router.post('/delete-match/:matchId', adminDeleteMatch);
 router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
 router.post('/clear-lock-and-delete/:matchId', adminClearLockAndDeleteMatch);
+
+// Lock monitoring and management
+router.get('/locks/stats', adminGetLockStats);
+router.get('/locks/status/:matchId', adminCheckLockStatus);
+router.post('/locks/cleanup', adminCleanupStaleLocks);
 
 // Referral management
 router.post('/referral/backfill', adminBackfillReferrals);
