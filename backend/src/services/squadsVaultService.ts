@@ -2820,18 +2820,21 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // CRITICAL FIX: Use the official Squads SDK instructions.proposalApprove method
-      // This is the correct way according to Squads v4 documentation
-      const approveInstruction = await instructions.proposalApprove({
+      // CRITICAL FIX: Use transactions.proposalApprove which may handle VaultTransaction approval automatically
+      // This returns a VersionedTransaction that includes both Proposal and VaultTransaction approval
+      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+      const approveTransaction = transactions.proposalApprove({
+        blockhash: latestBlockhash.blockhash,
+        feePayer: signer.publicKey,
         multisigPda: multisigAddress,
         transactionIndex,
         member: signer.publicKey,
         programId: this.programId,
       });
 
-      // Create and send the transaction with the approval instruction
-      const transaction = new Transaction().add(approveInstruction);
-      const proposalSignature = await this.connection.sendTransaction(transaction, [signer], {
+      // Sign and send the versioned transaction
+      approveTransaction.sign([signer]);
+      const proposalSignature = await this.connection.sendTransaction(approveTransaction, {
         skipPreflight: false,
         preflightCommitment: 'confirmed',
       });
