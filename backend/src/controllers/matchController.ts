@@ -3011,7 +3011,28 @@ const submitResultHandler = async (req: any, res: any) => {
                     console.log('✅ Proposal was created by another process');
                     return; // Proposal already created
                   }
-                  // If still no proposal, continue (lock may have been stale)
+                  
+                  // CRITICAL FIX: Check if lock is stale and force cleanup if needed
+                  const { checkLockStatus, forceReleaseLock } = require('../utils/proposalLocks');
+                  const lockStatus = await checkLockStatus(finalMatch.id);
+                  if (lockStatus.exists && lockStatus.isStale) {
+                    console.log('🔧 CRITICAL FIX: Detected stale lock, forcing cleanup and retrying...', {
+                      matchId: finalMatch.id,
+                      lockAge: lockStatus.age ? `${Math.round(lockStatus.age / 1000)}s` : 'unknown',
+                      processId: lockStatus.processId
+                    });
+                    await forceReleaseLock(finalMatch.id);
+                    
+                    // Retry lock acquisition once after cleanup
+                    const retryLockAcquired = await getProposalLock(finalMatch.id);
+                    if (retryLockAcquired) {
+                      console.log('✅ Lock acquired after stale cleanup, continuing with proposal creation');
+                    } else {
+                      console.log('⚠️ Still could not acquire lock after cleanup, but continuing anyway (fail-open)');
+                    }
+                  } else {
+                    console.log('⚠️ Lock exists but is not stale, continuing anyway (fail-open)');
+                  }
                 }
                 
                 try {
@@ -3148,6 +3169,28 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (reloadedRows && reloadedRows.length > 0 && (reloadedRows[0].payoutProposalId || reloadedRows[0].tieRefundProposalId)) {
                     console.log('✅ Proposal was created by another process (fallback)');
                     return; // Proposal already created
+                  }
+                  
+                  // CRITICAL FIX: Check if lock is stale and force cleanup if needed
+                  const { checkLockStatus, forceReleaseLock } = require('../utils/proposalLocks');
+                  const lockStatus = await checkLockStatus(updatedMatch.id);
+                  if (lockStatus.exists && lockStatus.isStale) {
+                    console.log('🔧 CRITICAL FIX (fallback): Detected stale lock, forcing cleanup and retrying...', {
+                      matchId: updatedMatch.id,
+                      lockAge: lockStatus.age ? `${Math.round(lockStatus.age / 1000)}s` : 'unknown',
+                      processId: lockStatus.processId
+                    });
+                    await forceReleaseLock(updatedMatch.id);
+                    
+                    // Retry lock acquisition once after cleanup
+                    const retryLockAcquired = await getProposalLock(updatedMatch.id);
+                    if (retryLockAcquired) {
+                      console.log('✅ Lock acquired after stale cleanup (fallback), continuing with proposal creation');
+                    } else {
+                      console.log('⚠️ Still could not acquire lock after cleanup (fallback), but continuing anyway (fail-open)');
+                    }
+                  } else {
+                    console.log('⚠️ Lock exists but is not stale (fallback), continuing anyway (fail-open)');
                   }
                 }
                 
@@ -4043,6 +4086,28 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         // Update match object with new proposal
         (match as any).payoutProposalId = reloadedRows[0].payoutProposalId || (match as any).payoutProposalId;
         (match as any).tieRefundProposalId = reloadedRows[0].tieRefundProposalId || (match as any).tieRefundProposalId;
+      } else {
+        // CRITICAL FIX: Check if lock is stale and force cleanup if needed
+        const { checkLockStatus, forceReleaseLock } = require('../utils/proposalLocks');
+        const lockStatus = await checkLockStatus(freshMatch.id);
+        if (lockStatus.exists && lockStatus.isStale) {
+          console.log('🔧 CRITICAL FIX (FINAL FALLBACK winner): Detected stale lock, forcing cleanup and retrying...', {
+            matchId: freshMatch.id,
+            lockAge: lockStatus.age ? `${Math.round(lockStatus.age / 1000)}s` : 'unknown',
+            processId: lockStatus.processId
+          });
+          await forceReleaseLock(freshMatch.id);
+          
+          // Retry lock acquisition once after cleanup
+          const retryLockAcquired = await getProposalLock(freshMatch.id);
+          if (retryLockAcquired) {
+            console.log('✅ Lock acquired after stale cleanup (FINAL FALLBACK winner), continuing with proposal creation');
+          } else {
+            console.log('⚠️ Still could not acquire lock after cleanup (FINAL FALLBACK winner), but continuing anyway (fail-open)');
+          }
+        } else {
+          console.log('⚠️ Lock exists but is not stale (FINAL FALLBACK winner), continuing anyway (fail-open)');
+        }
       }
         } else {
           try {
@@ -4180,6 +4245,28 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         // Update match object with new proposal
         (match as any).payoutProposalId = reloadedRows[0].payoutProposalId || (match as any).payoutProposalId;
         (match as any).tieRefundProposalId = reloadedRows[0].tieRefundProposalId || (match as any).tieRefundProposalId;
+      } else {
+        // CRITICAL FIX: Check if lock is stale and force cleanup if needed
+        const { checkLockStatus, forceReleaseLock } = require('../utils/proposalLocks');
+        const lockStatus = await checkLockStatus(freshMatch.id);
+        if (lockStatus.exists && lockStatus.isStale) {
+          console.log('🔧 CRITICAL FIX (FINAL FALLBACK tie): Detected stale lock, forcing cleanup and retrying...', {
+            matchId: freshMatch.id,
+            lockAge: lockStatus.age ? `${Math.round(lockStatus.age / 1000)}s` : 'unknown',
+            processId: lockStatus.processId
+          });
+          await forceReleaseLock(freshMatch.id);
+          
+          // Retry lock acquisition once after cleanup
+          const retryLockAcquired = await getProposalLock(freshMatch.id);
+          if (retryLockAcquired) {
+            console.log('✅ Lock acquired after stale cleanup (FINAL FALLBACK tie), continuing with proposal creation');
+          } else {
+            console.log('⚠️ Still could not acquire lock after cleanup (FINAL FALLBACK tie), but continuing anyway (fail-open)');
+          }
+        } else {
+          console.log('⚠️ Lock exists but is not stale (FINAL FALLBACK tie), continuing anyway (fail-open)');
+        }
       }
     } else {
       try {
