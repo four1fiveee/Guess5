@@ -3114,9 +3114,35 @@ export class SquadsVaultService {
           };
         }
 
-        // If Proposal is Approved but not ExecuteReady, wait for transition with retries
+        // CRITICAL FIX: If approvals are sufficient (>= threshold), skip wait loop and proceed directly to execution
+        // The Squads SDK may accept "Approved" state for execution even if status hasn't transitioned to "ExecuteReady"
         if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
+          if (approvedCount >= this.config.threshold) {
+            // Approvals are sufficient - skip wait loop and proceed directly to execution
+            proposalIsExecuteReady = true;
+            enhancedLogger.info('✅ Approvals sufficient (>= threshold) - skipping wait loop and proceeding to execution', {
+              vaultAddress,
+              proposalId,
+              statusKind: proposalStatusKind,
+              approvedCount,
+              threshold: this.config.threshold,
+              note: 'Proceeding directly to execution - approvals are sufficient even if status is not ExecuteReady',
+            });
+          } else {
           enhancedLogger.warn('⚠️ Proposal is Approved but not ExecuteReady - waiting for transition', {
+          if (approvedCount >= this.config.threshold) {
+            // Approvals are sufficient - skip wait loop and proceed directly to execution
+            proposalIsExecuteReady = true;
+            enhancedLogger.info('✅ Approvals sufficient (>= threshold) - skipping wait loop and proceeding to execution', {
+              vaultAddress,
+              proposalId,
+              statusKind: proposalStatusKind,
+              approvedCount,
+              threshold: this.config.threshold,
+              note: 'Proceeding directly to execution - approvals are sufficient even if status is not ExecuteReady',
+            });
+          }
+          } else {
             vaultAddress,
             proposalId,
             statusKind: proposalStatusKind,
