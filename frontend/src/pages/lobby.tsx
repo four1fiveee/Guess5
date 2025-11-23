@@ -120,7 +120,6 @@ const UsernameInput: React.FC<{ wallet: string; onUsernameSet: (username: string
         </svg>
         <p className="text-xs text-white/50 leading-relaxed">
           Your username will be displayed to opponents during matchmaking. Choose something memorable!
-        </p>
       </div>
     </div>
   );
@@ -651,10 +650,6 @@ export default function Lobby() {
                 <h1 className="text-4xl sm:text-5xl lg:text-6xl font-black text-white mb-4 tracking-tight">
                   Choose Your <span className="bg-gradient-to-r from-accent via-yellow-400 to-accent bg-clip-text text-transparent">Level of Competition</span>
                 </h1>
-                <p className="text-white/70 text-base sm:text-lg mb-8 font-medium">
-                  Choose a tier, lock your entry, and we will seat you against a worthy opponent.
-                </p>
-                
                 {/* Price & Balance Info Bar */}
                 <div className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-8 flex-wrap">
                   {/* SOL Price Display */}
