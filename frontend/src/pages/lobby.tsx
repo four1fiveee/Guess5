@@ -120,6 +120,7 @@ const UsernameInput: React.FC<{ wallet: string; onUsernameSet: (username: string
         </svg>
         <p className="text-xs text-white/50 leading-relaxed">
           Your username will be displayed to opponents during matchmaking. Choose something memorable!
+        </p>
       </div>
     </div>
   );
