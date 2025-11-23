@@ -3479,34 +3479,122 @@ export class SquadsVaultService {
       const tx: VersionedTransaction | null = null;
       try {
         const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        // CRITICAL FIX: Use instructions.vaultTransactionExecute for proper Squads v4 execution
-        // This follows the official Squads SDK documentation
-        const executeInstruction = await instructions.vaultTransactionExecute({
+        // Derive PDAs for verification
+        const [proposalPda] = getProposalPda({
           multisigPda: multisigAddress,
           transactionIndex,
-          member: executor.publicKey,
+          programId: this.programId,
+        });
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
           programId: this.programId,
         });
 
-        // Create and send the execution transaction
-        const executeTransaction = new Transaction().add(executeInstruction);
-        const executionSignature = await this.connection.sendTransaction(executeTransaction, [executor], {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
+        // CRITICAL FIX: Use rpc.vaultTransactionExecute
+        enhancedLogger.info('🚀 Executing proposal using rpc.vaultTransactionExecute', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndex.toString(),
+          executor: executor.publicKey.toString(),
+          transactionPda: transactionPda.toString(),
+          proposalPda: proposalPda.toString(),
+          correlationId,
+          connectionValid: !!this.connection,
+          connectionRpcUrl: this.connection?.rpcEndpoint || 'N/A',
         });
 
-        enhancedLogger.info('✅ VaultTransaction executed successfully using instructions.vaultTransactionExecute', {
+        // Validate connection before calling SDK
+        if (!this.connection) {
+          throw new Error('Connection is undefined - cannot execute proposal');
+        }
+
+        // Verify VaultTransaction account exists before execution
+        try {
+          const vaultTxAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+          if (!vaultTxAccountInfo) {
+            throw new Error(`VaultTransaction account ${transactionPda.toString()} does not exist on-chain`);
+          }
+          enhancedLogger.info('✅ VaultTransaction account verified before execution', {
+            vaultAddress,
+            proposalId,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            accountOwner: vaultTxAccountInfo.owner.toString(),
+            accountDataLength: vaultTxAccountInfo.data.length,
+            accountLamports: vaultTxAccountInfo.lamports,
+            correlationId,
+          });
+        } catch (accountCheckError: any) {
+          const accountErrorMsg = accountCheckError?.message || String(accountCheckError);
+          enhancedLogger.error('❌ VaultTransaction account check failed before execution', {
+            vaultAddress,
+            proposalId,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: accountErrorMsg,
+            correlationId,
+          });
+          throw new Error(`VaultTransaction account check failed: ${accountErrorMsg}`);
+        }
+
+        // Use rpc.vaultTransactionExecute
+        let executionSignature: string;
+        try {
+            connection: this.connection,
+            feePayer: executor,
+            multisigPda: multisigAddress,
+            transactionIndex,
+            member: executor.publicKey,
+            programId: this.programId,
+            sendOptions: {
+              skipPreflight: false,
+              maxRetries: 3,
+              commitment: 'confirmed',
+            },
+          });
+        } catch (rpcExecuteError: any) {
+          const rpcErrorMsg = rpcExecuteError?.message || String(rpcExecuteError);
+          enhancedLogger.error('❌ rpc.vaultTransactionExecute failed', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndex.toString(),
+            executor: executor.publicKey.toString(),
+            transactionPda: transactionPda.toString(),
+            proposalPda: proposalPda.toString(),
+            connectionValid: !!this.connection,
+            connectionRpcUrl: this.connection?.rpcEndpoint || 'N/A',
+            error: rpcErrorMsg,
+            correlationId,
+          });
+          throw new Error(`rpc.vaultTransactionExecute failed: ${rpcErrorMsg}`);
+        }
+        
+        enhancedLogger.info('✅ VaultTransaction executed successfully via rpc.vaultTransactionExecute', {
           vaultAddress,
           proposalId,
           signature: executionSignature,
           executor: executor.publicKey.toString(),
-        });
-
-        return {
-          success: true,
-          signature: executionSignature,
-          executedAt: new Date().toISOString(),
           correlationId,
+        });
+        
+        let slot: number | undefined;
+        try {
+          const txDetails = await this.connection.getTransaction(executionSignature, {
+            commitment: 'confirmed',
+          });
+          slot = txDetails?.slot;
+        } catch (txFetchError: unknown) {
+          enhancedLogger.warn('⚠️ Could not fetch transaction details for slot', {
+            vaultAddress,
+            proposalId,
+            signature: executionSignature,
+            error: txFetchError instanceof Error ? txFetchError.message : String(txFetchError),
+            correlationId,
+          });
+        }
+        
+        return {
         };
 
         tx.sign([executor]);
