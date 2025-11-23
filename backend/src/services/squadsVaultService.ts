@@ -3541,6 +3541,7 @@ export class SquadsVaultService {
         // Use rpc.vaultTransactionExecute
         let executionSignature: string;
         try {
+          executionSignature = await rpc.vaultTransactionExecute({
             connection: this.connection,
             feePayer: executor,
             multisigPda: multisigAddress,
