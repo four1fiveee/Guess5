@@ -503,29 +503,20 @@ const Result: React.FC = () => {
     }
 
     console.log('✅ Wallet connected on results page, loading payout data');
-    // CRITICAL FIX: Start tracking proposal creation time immediately for ALL players
-    // This ensures both players see the progress bar consistently
-    if (!proposalCreationStartTime) {
+    // Start tracking proposal creation time if we don't have a proposal yet
+    if (!payoutData?.proposalId && !proposalCreationStartTime) {
       setProposalCreationStartTime(Date.now());
     }
     loadPayoutData();
   }, [publicKey, router]);
 
-  // CRITICAL FIX: Track proposal creation progress for ALL players consistently
+  // Track proposal creation progress
   useEffect(() => {
-    // If we have a proposal, show 100% complete
-    if (payoutData?.proposalId) {
-      setProposalCreationProgress(100);
+    if (!proposalCreationStartTime || payoutData?.proposalId) {
+      setProposalCreationProgress(100); // Complete if we have a proposal
       return;
     }
 
-    // If we don't have a start time, start tracking now
-    if (!proposalCreationStartTime) {
-      setProposalCreationStartTime(Date.now());
-      return;
-    }
-
-    // Show progress animation for all players waiting for proposal
     const progressInterval = setInterval(() => {
       const elapsed = Date.now() - proposalCreationStartTime;
       const maxTime = 45000; // 45 seconds max expected time
@@ -964,6 +955,14 @@ const Result: React.FC = () => {
     );
   }
 
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-primary flex items-center justify-center">
+        <div className="text-white text-xl">Loading results...</div>
+      </div>
+    );
+  }
+
   if (error) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
@@ -983,32 +982,19 @@ const Result: React.FC = () => {
     );
   }
 
-  // CRITICAL FIX: Show proposal creation progress for ALL players consistently
-  // Whether they have payoutData or not, if they're waiting for a proposal, show the same UI
-  if (loading || !payoutData) {
+  if (!payoutData) {
     return (
       <div className="min-h-screen bg-primary flex items-center justify-center">
         <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20 max-w-md w-full mx-4">
           <div className="text-center">
-            <div className="text-yellow-400 text-xl mb-6">🎯 Processing Results</div>
-            
-            {/* Show proposal creation progress bar for ALL players */}
-            <div className="mb-6">
-              <div className="w-full bg-white/10 rounded-full h-3 mb-3">
-                <div 
-                  className="bg-accent h-3 rounded-full transition-all duration-500 ease-out"
-                  style={{ width: `${proposalCreationProgress}%` }}
-                ></div>
-              </div>
-              <p className="text-white/60 text-sm mb-2">
-                Creating secure blockchain proposal... {Math.round(proposalCreationProgress)}%
-              </p>
-              <p className="text-white/40 text-xs">
-                Please wait 15-30 seconds while we create your secure payout proposal.
-              </p>
-            </div>
-
-            <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mx-auto"></div>
+            <div className="text-yellow-400 text-xl mb-4">⚠️ No Results</div>
+            <p className="text-white/80 mb-6">No game results found.</p>
+            <button
+              onClick={handlePlayAgain}
+              className="bg-accent hover:bg-accent/80 text-white px-6 py-2 rounded-lg transition-colors"
+            >
+              Back to Lobby
+            </button>
           </div>
         </div>
       </div>
@@ -1782,7 +1768,20 @@ const Result: React.FC = () => {
                         </div>
                       </div>
                       
-                      {/* Progress bar removed - now shown consistently in loading state for all players */}
+                      {/* Progress bar for proposal creation */}
+                      {!payoutData?.proposalId && (
+                        <div className="mb-4">
+                          <div className="w-full bg-white/10 rounded-full h-2 mb-2">
+                            <div 
+                              className="bg-accent h-2 rounded-full transition-all duration-500 ease-out"
+                              style={{ width: `${proposalCreationProgress}%` }}
+                            ></div>
+                          </div>
+                          <p className="text-white/60 text-xs">
+                            Creating secure blockchain proposal... {Math.round(proposalCreationProgress)}%
+                          </p>
+                        </div>
+                      )}
                       
                       <p className="text-white/80 text-sm">
                         {payoutData?.proposalId 
