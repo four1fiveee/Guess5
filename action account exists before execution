@@ -1,0 +1,4 @@
+[33m84c6873[m Fix Squads v4 proposal execution - use rpc.vaultTransactionExecute
+[33md2ff52a[m CRITICAL FIX: Use official Squads v4 SDK instructions for proposal approval and execution - Replace rpc.proposalApprove with instructions.proposalApprove following official docs - Replace rpc.vaultTransactionExecute with instructions.vaultTransactionExecute - Remove complex VaultTransaction approval code - not needed in Squads v4 - Follow official Squads documentation workflow exactly - This should fix proposals not transitioning to ExecuteReady state - Addresses VaultTransaction has 0/2 approvals error properly
+[33m0f13813[m FINAL FIX: Correct Squads v4 execution method and auto-refresh
+[33mb22cfd8[m Fix: Add wait/retry mechanism for Approved->ExecuteReady transition
