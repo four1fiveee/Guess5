@@ -197,7 +197,7 @@ const Game: React.FC = () => {
               
           // CRITICAL FIX: Only redirect when BOTH conditions are met
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-          if (bothPlayersHaveResults && matchCompleted) {
+          if (bothPlayersHaveResults) {
             console.log('🏆 Game completed via polling:', {
               matchCompleted,
               bothPlayersHaveResults,
@@ -458,7 +458,7 @@ const Game: React.FC = () => {
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
           
-          if (bothPlayersHaveResults && matchCompleted) {
+          if (bothPlayersHaveResults) {
             console.log('✅ Both players have results and match completed, redirecting to result page');
             router.push(`/result?matchId=${gameMatchId}`);
             return;
@@ -499,7 +499,7 @@ const Game: React.FC = () => {
         // SAFETY: If match is completed with both results but we're still on game page, force redirect
         const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
         const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-        if (bothPlayersHaveResults && matchCompleted) {
+        if (bothPlayersHaveResults) {
           console.log('🚨 SAFETY REDIRECT: Match completed with both results, forcing redirect to results');
           router.push(`/result?matchId=${gameMatchId}`);
           return;
@@ -727,7 +727,7 @@ const Game: React.FC = () => {
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
           
           // MUST have both conditions: both results AND completed status
-          if (bothPlayersHaveResults && matchCompleted) {
+          if (bothPlayersHaveResults) {
             const correlationId = `frontend-redirect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             console.log('🏆 COMPREHENSIVE: Match completed detected via continuous polling:', {
               correlationId,

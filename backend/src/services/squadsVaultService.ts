@@ -1003,7 +1003,7 @@ export class SquadsVaultService {
         vaultAddress,
         vaultPda: vaultPdaKey.toString(),
         currentLamports: vaultAccountInfo.lamports,
-        rentExemptReserve,
+        rentExemptReserveSOL,
         transferableLamports: Number(transferableLamportsBig),
         desiredWinnerLamports: Number(desiredWinnerLamportsBig),
         desiredFeeLamports: Number(desiredFeeLamportsBig),
@@ -1790,7 +1790,7 @@ export class SquadsVaultService {
         player1Paid,
         player2Paid,
         currentLamports: vaultAccountInfo.lamports,
-        rentExemptReserve,
+        rentExemptReserveSOL,
         transferableLamports: Number(transferableLamportsBig),
         desiredPlayer1Lamports: Number(desiredPlayer1Big),
         desiredPlayer2Lamports: Number(desiredPlayer2Big),
@@ -3309,7 +3309,12 @@ export class SquadsVaultService {
       try {
         const vaultBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
         const vaultBalanceSOL = vaultBalance / LAMPORTS_PER_SOL;
-        const rentExemptReserve = 0.00249864; // Approximate rent reserve for vault PDA
+        // COST OPTIMIZATION: Calculate actual rent-exempt reserve dynamically
+        // Vault PDA is a System Account (owned by System Program), so rent is minimal
+        // We only need enough to keep the account rent-exempt (typically ~0.00089 SOL for empty account)
+        // Execution fees are paid by the executor (fee wallet), NOT the vault
+        const rentExemptReserve = await this.connection.getMinimumBalanceForRentExemption(0); // 0 bytes = minimum
+        const rentExemptReserveSOL = rentExemptReserve / LAMPORTS_PER_SOL
         
         logExecutionStep(correlationId, 'check-vault-balance', balanceCheckStartTime, {
           balanceSOL: vaultBalanceSOL,
@@ -3327,10 +3332,12 @@ export class SquadsVaultService {
         });
 
         // If vault balance is very low (less than rent reserve + 0.01 SOL buffer), top it up
-        const minimumRequiredBalance = rentExemptReserve + 0.01; // Rent + small buffer
+        const minimumRequiredBalance = rentExemptReserveSOL + 0.001; // Rent + tiny buffer
         if (vaultBalanceSOL < minimumRequiredBalance) {
           // Calculate top-up amount: enough to cover rent reserve + 0.1 SOL for transfers
-          const topUpAmountSOL = 0.1; // Top up with 0.1 SOL to ensure sufficient balance
+          // Calculate minimal top-up: just enough to cover rent + tiny buffer
+          // This is much more cost-effective than the previous 0.1 SOL top-up
+          const topUpAmountSOL = Math.max(0.002, minimumRequiredBalance - vaultBalanceSOL + 0.001); // At least 0.002 SOL, or calculated gap + buffer
           const topUpAmountLamports = Math.ceil(topUpAmountSOL * LAMPORTS_PER_SOL);
           
           const topUpStartTime = Date.now();
@@ -3471,56 +3478,6 @@ export class SquadsVaultService {
       }
     }
 
-    const maxAttempts = 2;
-    let lastErrorMessage = '';
-    let lastLogs: string[] | undefined;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      const tx: VersionedTransaction | null = null;
-      try {
-        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        // CRITICAL FIX: Use instructions.vaultTransactionExecute for proper Squads v4 execution
-        // This follows the official Squads SDK documentation
-        const executeInstruction = await instructions.vaultTransactionExecute({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          member: executor.publicKey,
-          programId: this.programId,
-        });
-
-        // Create and send the execution transaction
-        const executeTransaction = new Transaction().add(executeInstruction);
-        const executionSignature = await this.connection.sendTransaction(executeTransaction, [executor], {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
-
-        enhancedLogger.info('✅ VaultTransaction executed successfully using instructions.vaultTransactionExecute', {
-          vaultAddress,
-          proposalId,
-          signature: executionSignature,
-          executor: executor.publicKey.toString(),
-        });
-
-        return {
-          success: true,
-          signature: executionSignature,
-          executedAt: new Date().toISOString(),
-          correlationId,
-        };
-
-        tx.sign([executor]);
-
-        // Simulate transaction before sending to get detailed error information
-        try {
-          const simulation = await this.connection.simulateTransaction(tx, {
-            replaceRecentBlockhash: true,
-            sigVerify: false,
-          });
-          
-          if (simulation.value.err) {
-            const simError = JSON.stringify(simulation.value.err);
-            enhancedLogger.error('❌ Transaction simulation failed before execution', {
               vaultAddress,
               proposalId,
               error: simError,
