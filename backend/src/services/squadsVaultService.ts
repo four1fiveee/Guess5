@@ -1746,6 +1746,7 @@ export class SquadsVaultService {
       const rentExemptReserve = await this.connection.getMinimumBalanceForRentExemption(
         vaultAccountInfo.data?.length ?? 0
       );
+      const rentExemptReserveSOL = rentExemptReserve / LAMPORTS_PER_SOL;
       const vaultLamportsBig = BigInt(vaultAccountInfo.lamports);
       const rentReserveBig = BigInt(rentExemptReserve);
 
