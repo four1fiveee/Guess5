@@ -3643,7 +3643,7 @@ export class SquadsVaultService {
           correlationId,
         };
       }
-      } catch (executionError: unknown) {
+    } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
       
