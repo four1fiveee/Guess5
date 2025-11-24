@@ -3550,11 +3550,13 @@ export class SquadsVaultService {
       });
 
       try {
+        // CRITICAL FIX: The SDK requires feePayer parameter - it accesses feePayer.publicKey internally
         const executionSignature = await rpc.vaultTransactionExecute({
           connection: this.connection,
+          feePayer: executor, // Fee payer must sign and pay for the execution transaction
           multisigPda: multisigAddress,
           transactionIndex: transactionIndexNumber,
-          member: executor,
+          member: executor, // Member that has execute permissions
           programId: this.programId,
         });
 
