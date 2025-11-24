@@ -3478,6 +3478,56 @@ export class SquadsVaultService {
       }
     }
 
+    const maxAttempts = 2;
+    let lastErrorMessage = '';
+    let lastLogs: string[] | undefined;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const tx: VersionedTransaction | null = null;
+      try {
+        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
+        // CRITICAL FIX: Use instructions.vaultTransactionExecute for proper Squads v4 execution
+        // This follows the official Squads SDK documentation
+        const executeInstruction = await instructions.vaultTransactionExecute({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          member: executor.publicKey,
+          programId: this.programId,
+        });
+
+        // Create and send the execution transaction
+        const executeTransaction = new Transaction().add(executeInstruction);
+        const executionSignature = await this.connection.sendTransaction(executeTransaction, [executor], {
+          skipPreflight: false,
+          preflightCommitment: 'confirmed',
+        });
+
+        enhancedLogger.info('✅ VaultTransaction executed successfully using instructions.vaultTransactionExecute', {
+          vaultAddress,
+          proposalId,
+          signature: executionSignature,
+          executor: executor.publicKey.toString(),
+        });
+
+        return {
+          success: true,
+          signature: executionSignature,
+          executedAt: new Date().toISOString(),
+          correlationId,
+        };
+
+        tx.sign([executor]);
+
+        // Simulate transaction before sending to get detailed error information
+        try {
+          const simulation = await this.connection.simulateTransaction(tx, {
+            replaceRecentBlockhash: true,
+            sigVerify: false,
+          });
+          
+          if (simulation.value.err) {
+            const simError = JSON.stringify(simulation.value.err);
+            enhancedLogger.error('❌ Transaction simulation failed before execution', {
               vaultAddress,
               proposalId,
               error: simError,
