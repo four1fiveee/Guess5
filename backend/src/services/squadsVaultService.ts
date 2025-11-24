@@ -2822,33 +2822,30 @@ export class SquadsVaultService {
         signer: signer.publicKey.toString(),
       });
 
-      // CRITICAL FIX: Use transactions.proposalApprove which may handle VaultTransaction approval automatically
-      // This returns a VersionedTransaction that includes both Proposal and VaultTransaction approval
-      const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-      const approveTransaction = transactions.proposalApprove({
-        blockhash: latestBlockhash.blockhash,
-        feePayer: signer.publicKey,
+      // CRITICAL FIX: Use rpc.proposalApprove which is the recommended SDK method
+      // This handles Proposal approval and may also handle VaultTransaction approval
+      enhancedLogger.info('📝 Approving Proposal using rpc.proposalApprove', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        signer: signer.publicKey.toString(),
+      });
+
+      const signature = await rpc.proposalApprove({
+        connection: this.connection,
+        feePayer: signer,
         multisigPda: multisigAddress,
-        transactionIndex,
+        transactionIndex: Number(transactionIndex),
         member: signer.publicKey,
         programId: this.programId,
       });
 
-      // Sign and send the versioned transaction
-      approveTransaction.sign([signer]);
-      const proposalSignature = await this.connection.sendTransaction(approveTransaction, {
-        skipPreflight: false,
-        preflightCommitment: 'confirmed',
-      });
-
-      enhancedLogger.info('✅ Proposal approved successfully using SDK instructions', {
+      enhancedLogger.info('✅ Proposal approved successfully using rpc.proposalApprove', {
         vaultAddress,
         proposalId,
-        proposalSignature,
+        signature,
         signer: signer.publicKey.toString(),
       });
-
-      const signature = proposalSignature;
 
       enhancedLogger.info('📝 Fee wallet approve sig (expert recommendation)', {
         vaultAddress,
@@ -2930,20 +2927,61 @@ export class SquadsVaultService {
         signature,
       });
 
-      // NOTE: In Squads v4, only Proposal approval is required
-      // VaultTransaction approval is handled automatically by the protocol
-      enhancedLogger.info('✅ Proposal approval completed - VaultTransaction approval is automatic in Squads v4', {
-        vaultAddress,
-        proposalId,
-        signer: signer.publicKey.toString(),
-        signature,
-        note: 'Squads v4 SDK only requires proposalApprove() - no separate VaultTransaction approval needed',
-      });
+      // NOTE: In Squads v4, rpc.proposalApprove should handle Proposal approval
+      // However, based on on-chain state, VaultTransaction may need separate approval
+      // We'll verify VaultTransaction approval status after confirmation
+      
+      // Verify VaultTransaction approval after a short delay
+      try {
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds for on-chain update
+        
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId: this.programId,
+        });
+        
+        const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+        if (transactionAccount) {
+          const vt = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda
+          );
+          const vaultTxApprovals = (vt as any).approvals || [];
+          const signerPubkeyStr = signer.publicKey.toString();
+          const isInVaultTxApprovals = vaultTxApprovals.some((a: any) => 
+            a?.toString?.() === signerPubkeyStr || String(a) === signerPubkeyStr
+          );
+          
+          if (!isInVaultTxApprovals) {
+            enhancedLogger.warn('⚠️ VaultTransaction not approved after Proposal approval - may need separate approval', {
+              vaultAddress,
+              proposalId,
+              signer: signerPubkeyStr,
+              vaultTxApprovals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
+              note: 'VaultTransaction has 0 approvals. Execution will fail until VaultTransaction is approved.',
+            });
+          } else {
+            enhancedLogger.info('✅ VaultTransaction approved (confirmed in on-chain state)', {
+              vaultAddress,
+              proposalId,
+              signer: signerPubkeyStr,
+              vaultTxApprovals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
+            });
+          }
+        }
+      } catch (verifyError: any) {
+        enhancedLogger.warn('⚠️ Could not verify VaultTransaction approval status', {
+          vaultAddress,
+          proposalId,
+          error: verifyError?.message || String(verifyError),
+        });
+      }
 
       return { 
         success: true, 
         signature,
-        note: 'Proposal approval completed - VaultTransaction approval is automatic in Squads v4'
+        note: 'Proposal approved using rpc.proposalApprove'
       };
 
     } catch (error: unknown) {
