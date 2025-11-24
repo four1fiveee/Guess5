@@ -3556,7 +3556,7 @@ export class SquadsVaultService {
           feePayer: executor, // Fee payer must sign and pay for the execution transaction
           multisigPda: multisigAddress,
           transactionIndex: transactionIndexNumber,
-          member: executor, // Member that has execute permissions
+          member: executor.publicKey, // Member that has execute permissions (must be PublicKey, not Keypair)
           programId: this.programId,
         });
 

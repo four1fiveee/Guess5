@@ -869,7 +869,11 @@ const Result: React.FC = () => {
               isTie: matchData.winner === 'tie',
               winner: matchData.winner,
               numGuesses: playerResult?.numGuesses || 0,
-              entryFee: matchData.entryFee || 0.1104,
+              entryFee: matchData.entryFee || (() => {
+                // Try to get from localStorage as fallback
+                const storedFee = localStorage.getItem('entryFee');
+                return storedFee ? Number(storedFee) : 0;
+              })(),
               timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
               opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
               opponentGuesses: opponentResult?.numGuesses || 0,
