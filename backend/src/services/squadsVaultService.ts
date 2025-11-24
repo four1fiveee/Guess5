@@ -3521,24 +3521,44 @@ export class SquadsVaultService {
       // This handles all transaction building, signing, and sending internally
       const transactionIndexNumber = Number(transactionIndex);
       
+      // Validate all parameters before SDK call
+      if (!this.connection) {
+        throw new Error('Connection is undefined');
+      }
+      if (!multisigAddress) {
+        throw new Error('multisigAddress is undefined');
+      }
+      if (!executor || !executor.publicKey) {
+        throw new Error('Executor keypair is invalid');
+      }
+      if (!this.programId) {
+        throw new Error('programId is undefined');
+      }
+
       enhancedLogger.info('🚀 Calling rpc.vaultTransactionExecute', {
         vaultAddress,
         proposalId,
         transactionIndex: transactionIndexNumber,
         executor: executor.publicKey.toString(),
+        executorHasSecretKey: !!executor.secretKey,
         connectionRpcUrl: this.connection.rpcEndpoint,
+        connectionType: typeof this.connection,
+        connectionHasGetAccountInfo: typeof this.connection.getAccountInfo === 'function',
+        multisigPda: multisigAddress.toString(),
+        programId: this.programId.toString(),
         correlationId,
       });
 
-      const executionSignature = await rpc.vaultTransactionExecute({
-        connection: this.connection,
-        multisigPda: multisigAddress,
-        transactionIndex: transactionIndexNumber,
-        member: executor,
-        programId: this.programId,
-      });
+      try {
+        const executionSignature = await rpc.vaultTransactionExecute({
+          connection: this.connection,
+          multisigPda: multisigAddress,
+          transactionIndex: transactionIndexNumber,
+          member: executor,
+          programId: this.programId,
+        });
 
-      enhancedLogger.info('✅ rpc.vaultTransactionExecute returned signature', {
+        enhancedLogger.info('✅ rpc.vaultTransactionExecute returned signature', {
         vaultAddress,
         proposalId,
         signature: executionSignature,
@@ -3625,16 +3645,22 @@ export class SquadsVaultService {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
       
+      // Enhanced error logging to identify what's undefined
       enhancedLogger.error('❌ rpc.vaultTransactionExecute failed', {
         vaultAddress,
         proposalId,
         transactionIndex: Number(transactionIndex),
-        executor: executor.publicKey.toString(),
+        executor: executor?.publicKey?.toString() || 'undefined',
+        executorType: typeof executor,
+        executorHasPublicKey: !!executor?.publicKey,
+        executorHasSecretKey: !!executor?.secretKey,
         error: errorMessage,
         stack: errorStack,
         connectionRpcUrl: this.connection?.rpcEndpoint,
         hasConnection: !!this.connection,
         hasGetAccountInfo: this.connection && typeof this.connection.getAccountInfo === 'function',
+        multisigPda: multisigAddress?.toString() || 'undefined',
+        programId: this.programId?.toString() || 'undefined',
         correlationId,
       });
 
