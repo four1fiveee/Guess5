@@ -162,7 +162,42 @@ export class ExecutionRetryService {
       );
       
       const multisigAddress = new PublicKey(match.squadsVaultAddress);
-      const transactionIndex = BigInt(proposalId);
+      
+      // CRITICAL FIX: proposalId is a PDA address, extract transactionIndex from Proposal account
+      let transactionIndex: bigint;
+      try {
+        const proposalPda = new PublicKey(proposalId);
+        const { accounts } = require('@sqds/multisig');
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          connection,
+          proposalPda
+        );
+        const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
+        if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+          transactionIndex = BigInt(Number(proposalTransactionIndex));
+        } else {
+          throw new Error('Proposal account does not have transactionIndex field');
+        }
+      } catch (pdaError: any) {
+        enhancedLogger.warn('⚠️ Could not extract transactionIndex from Proposal account (proceeding with retry)', {
+          matchId,
+          proposalId,
+          error: pdaError instanceof Error ? pdaError.message : String(pdaError),
+          note: 'Execution will proceed but may fail if transactionIndex is incorrect',
+        });
+        // Fallback: Try to parse as transactionIndex (backward compatibility)
+        try {
+          transactionIndex = BigInt(proposalId);
+        } catch (bigIntError: any) {
+          enhancedLogger.error('❌ Could not parse proposalId as PDA or transactionIndex', {
+            matchId,
+            proposalId,
+            error: bigIntError instanceof Error ? bigIntError.message : String(bigIntError),
+          });
+          return; // Cannot proceed without valid transactionIndex
+        }
+      }
+      
       const programId = process.env.SQUADS_PROGRAM_ID 
         ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
         : require('@sqds/multisig').PROGRAM_ID;
