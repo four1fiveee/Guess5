@@ -10178,82 +10178,17 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       }
     }
 
-    // CRITICAL: Also build VaultTransaction approval instruction
-    // rpc.proposalApprove only approves Proposal, not VaultTransaction
-    // Both must be approved for execution to succeed
-    let vaultTxApproveIx;
-    try {
-      const { getTransactionPda, getVaultPda } = require('@sqds/multisig');
-      const { TransactionInstruction } = require('@solana/web3.js');
-      const crypto = require('crypto');
-
-      // Get the VaultTransaction PDA
-      const [transactionPda] = getTransactionPda({
-        multisigPda: multisigAddress,
-        index: transactionIndex,
-        programId,
-      });
-
-      // Get the Vault PDA
-      const [vaultPda] = getVaultPda({
-        multisigPda: multisigAddress,
-        index: 0, // Vault index is 0 for the first vault
-        programId,
-      });
-
-      // Calculate discriminator: sha256("global:vault_transaction_approve")[0:8]
-      const discriminatorHash = crypto.createHash('sha256').update('global:vault_transaction_approve').digest();
-      const discriminator = discriminatorHash.slice(0, 8);
-
-      // Build args (memo: Option<string> = None)
-      const argsBuffer = Buffer.alloc(1);
-      argsBuffer.writeUInt8(0, 0); // memo: None (0 = no memo)
-
-      // Combine discriminator + args
-      const instructionData = Buffer.concat([discriminator, argsBuffer]);
-
-      vaultTxApproveIx = new TransactionInstruction({
-        programId,
-        keys: [
-          { pubkey: multisigAddress, isSigner: false, isWritable: false }, // multisig (readonly)
-          { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction (writable) - VaultTransaction account
-          { pubkey: memberPublicKey, isSigner: true, isWritable: true }, // member (writable, signer)
-          { pubkey: vaultPda, isSigner: false, isWritable: false }, // vault (readonly)
-        ],
-        data: instructionData,
-      });
-
-      console.log('✅ VaultTransaction approval instruction built', {
-        transactionPda: transactionPda.toString(),
-        vaultPda: vaultPda.toString(),
-        discriminator: discriminator.toString('hex'),
-      });
-    } catch (vaultTxError: any) {
-      console.error('❌ Failed to build VaultTransaction approval instruction:', {
-        error: vaultTxError?.message,
-        stack: vaultTxError?.stack,
-      });
-      // Don't fail the entire request - Proposal approval can still work
-      // But execution will fail until VaultTransaction is approved
-      console.warn('⚠️ Continuing without VaultTransaction approval - execution will fail until VaultTransaction is approved');
-      vaultTxApproveIx = null;
-    }
+    // NOTE: VaultTransaction approval is handled separately on the backend after Proposal approval
+    // We don't include it in the player-signed transaction because the instruction structure is not
+    // publicly documented and may cause transaction failures
+    // The backend will automatically approve VaultTransaction after Proposal is confirmed
     
     let messageV0;
     try {
-      // Combine both instructions: Proposal approval + VaultTransaction approval
-      const allInstructions = [approveIx];
-      if (vaultTxApproveIx) {
-        allInstructions.push(vaultTxApproveIx);
-        console.log('✅ Combined Proposal + VaultTransaction approval instructions');
-      } else {
-        console.warn('⚠️ Only Proposal approval instruction included (VaultTransaction approval failed)');
-      }
-
       messageV0 = new TransactionMessage({
       payerKey: memberPublicKey,
       recentBlockhash: blockhash,
-      instructions: allInstructions,
+      instructions: [approveIx], // Only Proposal approval - VaultTransaction handled separately
     }).compileToV0Message();
       console.log('✅ Transaction message compiled');
     } catch (msgError: any) {
@@ -10291,14 +10226,9 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to serialize transaction: ${serializeError?.message || String(serializeError)}`);
     }
 
-    // CRITICAL: Both Proposal AND VaultTransaction must be approved
-    // rpc.proposalApprove only approves Proposal, not VaultTransaction
-    // Execution requires VaultTransaction approvals, not just Proposal approvals
-    console.log('✅ Combined Proposal + VaultTransaction approval transaction built', {
-      hasProposalApproval: !!approveIx,
-      hasVaultTxApproval: !!vaultTxApproveIx,
-      note: 'Both must be approved for execution to succeed',
-    });
+    // NOTE: Only Proposal approval is included in player-signed transaction
+    // VaultTransaction approval will be handled separately on backend after Proposal is confirmed
+    console.log('✅ Proposal approval transaction built (VaultTransaction approval handled separately on backend)');
 
     sendResponse(200, {
       transaction: base64Tx, // Proposal approval transaction
