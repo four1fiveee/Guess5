@@ -123,29 +123,31 @@ export class SquadsVaultService {
         secretKeyLength: systemKeypair.secretKey?.length || 0,
       });
       
-      // Check fee wallet balance on-chain
-      try {
-        const balance = await this.connection.getBalance(systemKeypair.publicKey);
-        const balanceSOL = balance / 1e9;
-        enhancedLogger.info('💰 Fee wallet on-chain balance', {
-          publicKey: systemKeypair.publicKey.toString(),
-          balance: balance,
-          balanceSOL: balanceSOL.toFixed(9),
-          sufficient: balance >= 0.001 * 1e9,
-        });
-        if (balance < 0.001 * 1e9) {
-          enhancedLogger.warn('⚠️ Fee wallet has low balance - may fail to pay transaction fees', {
+      // Check fee wallet balance on-chain (non-blocking, fire and forget)
+      // Note: Constructor cannot be async, so we check balance in the background
+      this.connection.getBalance(systemKeypair.publicKey)
+        .then((balance) => {
+          const balanceSOL = balance / 1e9;
+          enhancedLogger.info('💰 Fee wallet on-chain balance', {
             publicKey: systemKeypair.publicKey.toString(),
+            balance: balance,
             balanceSOL: balanceSOL.toFixed(9),
-            minimumRecommended: 0.001,
+            sufficient: balance >= 0.001 * 1e9,
           });
-        }
-      } catch (balanceError: any) {
-        enhancedLogger.warn('⚠️ Could not check fee wallet balance during initialization', {
-          publicKey: systemKeypair.publicKey.toString(),
-          error: balanceError?.message || String(balanceError),
+          if (balance < 0.001 * 1e9) {
+            enhancedLogger.warn('⚠️ Fee wallet has low balance - may fail to pay transaction fees', {
+              publicKey: systemKeypair.publicKey.toString(),
+              balanceSOL: balanceSOL.toFixed(9),
+              minimumRecommended: 0.001,
+            });
+          }
+        })
+        .catch((balanceError: any) => {
+          enhancedLogger.warn('⚠️ Could not check fee wallet balance during initialization', {
+            publicKey: systemKeypair.publicKey.toString(),
+            error: balanceError?.message || String(balanceError),
+          });
         });
-      }
     } catch (keypairError: unknown) {
       const errorMsg = keypairError instanceof Error ? keypairError.message : String(keypairError);
       enhancedLogger.error('❌ Failed to load system keypair', {
