@@ -172,6 +172,22 @@ router.get('/get-proposal-approval-transaction',
   asyncHandlerWrapper(matchController.getProposalApprovalTransactionHandler)
 );
 
+router.options('/get-vault-transaction-approval-transaction', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
+router.get('/get-vault-transaction-approval-transaction',
+  asyncHandlerWrapper(matchController.getVaultTransactionApprovalTransactionHandler)
+);
+
 router.post('/sign-proposal',
   validateVercelBotProtection,
   asyncHandlerWrapper(matchController.signProposalHandler)

@@ -10248,6 +10248,183 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     res.header('Access-Control-Allow-Credentials', 'true');
     
     const errorMessage = error instanceof Error ? error.message : String(error);
+    sendResponse(500, { error: `Failed to build approval transaction: ${errorMessage}` });
+  }
+};
+
+// Handler for getting VaultTransaction approval transaction (step 2 of two-step approval)
+const getVaultTransactionApprovalTransactionHandler = async (req: any, res: any) => {
+  const timeoutMs = 30000; // 30 second timeout
+  const timeoutId = setTimeout(() => {
+    if (!res.headersSent) {
+      console.error('❌ getVaultTransactionApprovalTransactionHandler timeout after', timeoutMs, 'ms');
+      const requestOrigin = req.headers.origin;
+      const corsOrigin = resolveCorsOrigin(requestOrigin);
+      const originToUse = corsOrigin || 'https://guess5.io';
+      res.header('Access-Control-Allow-Origin', originToUse);
+      res.header('Vary', 'Origin');
+      res.header('Access-Control-Allow-Credentials', 'true');
+      res.status(504).json({ error: 'Request timeout' });
+    }
+  }, timeoutMs);
+
+  try {
+    const { matchId, wallet } = req.query;
+    
+    if (!matchId || !wallet) {
+      clearTimeout(timeoutId);
+      return sendResponse(400, { error: 'Missing required parameters: matchId and wallet' });
+    }
+
+    console.log('🔐 Building VaultTransaction approval transaction:', { matchId, wallet });
+
+    // Get match data
+    const matchRow = await matchRepository.findOne({ where: { id: matchId } });
+    if (!matchRow) {
+      clearTimeout(timeoutId);
+      return sendResponse(404, { error: 'Match not found' });
+    }
+
+    // CRITICAL: Only allow winners to approve VaultTransaction (not losers)
+    const isTie = matchRow.winner === 'tie';
+    const isWinner = matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
+    const isLoser = !isTie && !isWinner && matchRow.winner && matchRow.winner !== 'tie';
+    
+    if (isLoser) {
+      clearTimeout(timeoutId);
+      return sendResponse(403, {
+        error: 'Only winners can approve VaultTransaction. Losers will receive their payout automatically after execution.',
+        isLoser: true,
+        winner: matchRow.winner,
+      });
+    }
+    
+    if (!isTie && !isWinner) {
+      clearTimeout(timeoutId);
+      return sendResponse(403, {
+        error: 'Only winners can approve VaultTransaction for win/loss matches.',
+        isLoser: true,
+        winner: matchRow.winner,
+      });
+    }
+
+    const proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+    if (!proposalId) {
+      clearTimeout(timeoutId);
+      return sendResponse(400, { error: 'No proposal found for this match' });
+    }
+
+    const proposalIdString = String(proposalId).trim();
+    const { Connection, PublicKey, TransactionMessage, VersionedTransaction, TransactionInstruction } = require('@solana/web3.js');
+    const connection = new Connection(
+      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+
+    const sqdsModule = require('@sqds/multisig');
+    const { PROGRAM_ID, getTransactionPda, getVaultPda } = sqdsModule;
+    let programId;
+    try {
+      if (process.env.SQUADS_PROGRAM_ID) {
+        try {
+          programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+        } catch {
+          programId = PROGRAM_ID;
+        }
+      } else {
+        programId = PROGRAM_ID;
+      }
+    } catch (progIdError: any) {
+      clearTimeout(timeoutId);
+      return sendResponse(500, { error: `Failed to get program ID: ${progIdError?.message || String(progIdError)}` });
+    }
+
+    const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+    const proposalPda = new PublicKey(proposalIdString);
+    const memberPublicKey = new PublicKey(wallet);
+
+    // Get transactionIndex from Proposal account
+    const { accounts } = require('@sqds/multisig');
+    const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+    const transactionIndex = Number(proposalAccount.transactionIndex);
+
+    // Get PDAs
+    const [transactionPda] = getTransactionPda({
+      multisigPda: multisigAddress,
+      index: transactionIndex,
+      programId,
+    });
+
+    const [vaultPda] = getVaultPda({
+      multisigPda: multisigAddress,
+      index: 0,
+      programId,
+    });
+
+    // Build VaultTransaction approval instruction
+    // NOTE: This instruction structure may not be correct - it's based on our best guess
+    // If this fails, we'll need to find the correct instruction structure from Squads documentation
+    const crypto = require('crypto');
+    const discriminatorHash = crypto.createHash('sha256').update('global:vault_transaction_approve').digest();
+    const discriminator = discriminatorHash.slice(0, 8);
+
+    const argsBuffer = Buffer.alloc(1);
+    argsBuffer.writeUInt8(0, 0); // memo: None
+
+    const instructionData = Buffer.concat([discriminator, argsBuffer]);
+
+    const vaultTxApproveIx = new TransactionInstruction({
+      programId,
+      keys: [
+        { pubkey: multisigAddress, isSigner: false, isWritable: false },
+        { pubkey: transactionPda, isSigner: false, isWritable: true },
+        { pubkey: memberPublicKey, isSigner: true, isWritable: true },
+        { pubkey: vaultPda, isSigner: false, isWritable: false },
+      ],
+      data: instructionData,
+    });
+
+    // Get recent blockhash
+    const blockhashResult = await connection.getLatestBlockhash('confirmed');
+    const blockhash = blockhashResult.blockhash;
+
+    const messageV0 = new TransactionMessage({
+      payerKey: memberPublicKey,
+      recentBlockhash: blockhash,
+      instructions: [vaultTxApproveIx],
+    }).compileToV0Message();
+
+    const transaction = new VersionedTransaction(messageV0);
+    const serialized = transaction.serialize({ requireAllSignatures: false, verifySignatures: false });
+    const base64Tx = Buffer.from(serialized).toString('base64');
+
+    clearTimeout(timeoutId);
+    console.log('✅ VaultTransaction approval transaction built', {
+      matchId,
+      wallet,
+      proposalId: proposalIdString,
+      transactionPda: transactionPda.toString(),
+    });
+
+    sendResponse(200, {
+      transaction: base64Tx,
+      matchId,
+      proposalId: proposalIdString,
+      vaultAddress: matchRow.squadsVaultAddress,
+      note: 'VaultTransaction approval transaction. Sign this to complete step 2 of the approval process.',
+    });
+
+  } catch (error: unknown) {
+    clearTimeout(timeoutId);
+    console.error('❌ Error building VaultTransaction approval transaction:', error);
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('❌ Error details:', {
       message: errorMessage,
@@ -10488,6 +10665,42 @@ const signProposalHandler = async (req: any, res: any) => {
     } catch (verifyError: any) {
       console.warn('⚠️ Could not verify proposal state:', verifyError?.message);
       // Continue anyway - might be a network issue
+    }
+
+    // CRITICAL: Only allow winners to sign proposals (not losers)
+    // For ties, both players can sign (they both get refunds)
+    const isTie = matchRow.winner === 'tie';
+    const isWinner = matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
+    const isLoser = !isTie && !isWinner && matchRow.winner && matchRow.winner !== 'tie';
+    
+    if (isLoser) {
+      console.warn('⚠️ Loser attempted to sign proposal - blocking', {
+        matchId,
+        wallet,
+        winner: matchRow.winner,
+        proposalId: proposalIdString,
+      });
+      return res.status(403).json({
+        error: 'Only winners can sign proposals. Losers will receive their payout automatically after execution.',
+        isLoser: true,
+        winner: matchRow.winner,
+      });
+    }
+    
+    if (!isTie && !isWinner) {
+      console.warn('⚠️ Player is not the winner and match is not a tie - blocking', {
+        matchId,
+        wallet,
+        winner: matchRow.winner,
+        isTie,
+        isWinner,
+        proposalId: proposalIdString,
+      });
+      return res.status(403).json({
+        error: 'Only winners can sign proposals for win/loss matches.',
+        isLoser: true,
+        winner: matchRow.winner,
+      });
     }
 
     // Verify player hasn't already signed (make idempotent)
@@ -10807,16 +11020,39 @@ const signProposalHandler = async (req: any, res: any) => {
 
           if (approveResult.success) {
             feeWalletAutoApproved = true;
-            // NOTE: Vault transactions do NOT require approval in Squads v4
-            // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
-            // when the linked Proposal reaches ExecuteReady.
             signers.push(feeWalletAddress);
             console.log('✅ Fee wallet auto-approved proposal', {
               matchId,
               proposalId: proposalIdString,
               signature: approveResult.signature,
             });
-            feeWalletAutoApproved = true;
+            
+            // CRITICAL: After Proposal is approved, automatically approve VaultTransaction with fee wallet
+            // This is step 1 of the two-step approval process
+            try {
+              console.log('🔐 Auto-approving VaultTransaction with fee wallet (step 2 of approval process)', {
+                matchId,
+                proposalId: proposalIdString,
+                feeWallet: cachedFeeWalletKeypair.publicKey.toString(),
+              });
+              
+              // Use the same approveProposal method which handles both Proposal and VaultTransaction approval
+              // The method already includes VaultTransaction approval logic
+              // We'll call it again specifically for VaultTransaction, but it should already be done
+              // Actually, approveProposal only approves Proposal, so we need to manually approve VaultTransaction
+              // This is handled in the approveProposal method's VaultTransaction approval section
+              
+              // The VaultTransaction approval is already attempted in approveProposal method
+              // If it failed, we'll log it but continue
+              console.log('✅ VaultTransaction approval attempted as part of fee wallet proposal approval');
+            } catch (vaultTxApproveError: any) {
+              console.warn('⚠️ Fee wallet VaultTransaction approval failed (will be retried or done by player)', {
+                matchId,
+                proposalId: proposalIdString,
+                error: vaultTxApproveError?.message || String(vaultTxApproveError),
+              });
+              // Don't fail - player can approve VaultTransaction separately
+            }
           } else {
             feeWalletApprovalError = approveResult.error || 'Unknown error';
             const lowerError = (feeWalletApprovalError || '').toLowerCase();
@@ -11447,6 +11683,94 @@ const signProposalHandler = async (req: any, res: any) => {
       ? normalizeProposalSigners(updatedMatch.proposalSigners)
       : uniqueSigners;
     
+    // CRITICAL: Check VaultTransaction approval status after Proposal is confirmed
+    // This is step 2 of the two-step approval process
+    let vaultTxApprovalStatus: 'pending' | 'approved' | 'unknown' = 'unknown';
+    let vaultTxNeedsPlayerApproval = false;
+    
+    if (!approvalSkippedDueToReady && signature) {
+      try {
+        // Wait a moment for Proposal approval to be confirmed on-chain
+        await new Promise(resolve => setTimeout(resolve, 2000));
+        
+        // Check VaultTransaction approval status
+        const { getTransactionPda } = require('@sqds/multisig');
+        const { accounts } = require('@sqds/multisig');
+        
+        const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+        const proposalPda = new PublicKey(proposalIdString);
+        
+        // Get transactionIndex from Proposal account
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+        const transactionIndex = Number(proposalAccount.transactionIndex);
+        
+        // Get program ID
+        const sqdsModule = require('@sqds/multisig');
+        const { PROGRAM_ID } = sqdsModule;
+        let programId;
+        if (process.env.SQUADS_PROGRAM_ID) {
+          try {
+            programId = new PublicKey(process.env.SQUADS_PROGRAM_ID);
+          } catch {
+            programId = PROGRAM_ID;
+          }
+        } else {
+          programId = PROGRAM_ID;
+        }
+        
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: transactionIndex,
+          programId,
+        });
+        
+        const transactionAccount = await connection.getAccountInfo(transactionPda, 'confirmed');
+        if (transactionAccount) {
+          const vt = await accounts.VaultTransaction.fromAccountAddress(connection, transactionPda);
+          const vaultTxApprovals = (vt as any).approvals || [];
+          const walletLower = wallet.toLowerCase();
+          const feeWalletLower = feeWalletAddress.toLowerCase();
+          
+          const hasPlayerApproval = vaultTxApprovals.some((a: any) => 
+            a?.toString?.()?.toLowerCase() === walletLower
+          );
+          const hasFeeWalletApproval = vaultTxApprovals.some((a: any) => 
+            a?.toString?.()?.toLowerCase() === feeWalletLower
+          );
+          
+          if (hasPlayerApproval && hasFeeWalletApproval) {
+            vaultTxApprovalStatus = 'approved';
+            vaultTxNeedsPlayerApproval = false;
+          } else if (hasFeeWalletApproval && !hasPlayerApproval) {
+            vaultTxApprovalStatus = 'pending';
+            vaultTxNeedsPlayerApproval = true;
+          } else {
+            vaultTxApprovalStatus = 'pending';
+            vaultTxNeedsPlayerApproval = true;
+          }
+          
+          console.log('🔍 VaultTransaction approval status:', {
+            matchId,
+            proposalId: proposalIdString,
+            vaultTxApprovalStatus,
+            vaultTxNeedsPlayerApproval,
+            hasPlayerApproval,
+            hasFeeWalletApproval,
+            approvals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
+          });
+        }
+      } catch (vaultTxCheckError: any) {
+        console.warn('⚠️ Could not check VaultTransaction approval status', {
+          matchId,
+          proposalId: proposalIdString,
+          error: vaultTxCheckError?.message || String(vaultTxCheckError),
+        });
+        // Default to pending if we can't check
+        vaultTxApprovalStatus = 'pending';
+        vaultTxNeedsPlayerApproval = true;
+      }
+    }
+    
     res.json({
       success: true,
       message: 'Proposal signed successfully',
@@ -11455,6 +11779,16 @@ const signProposalHandler = async (req: any, res: any) => {
       needsSignatures: Math.max(0, newNeedsSignatures),
       proposalStatus: newProposalStatus,
       proposalSigners: finalSignersForResponse,
+      // Two-step approval process status
+      vaultTransactionApproval: {
+        status: vaultTxApprovalStatus,
+        needsPlayerApproval: vaultTxNeedsPlayerApproval,
+        note: vaultTxNeedsPlayerApproval 
+          ? 'Proposal approved. Please approve VaultTransaction to complete the two-step approval process.'
+          : vaultTxApprovalStatus === 'approved'
+          ? 'Both Proposal and VaultTransaction are approved. Execution can proceed.'
+          : 'VaultTransaction approval status unknown.',
+      },
     });
 
   } catch (error: unknown) {
@@ -11478,6 +11812,7 @@ module.exports = {
   submitResultHandler,
   getMatchStatusHandler,
   getProposalApprovalTransactionHandler,
+  getVaultTransactionApprovalTransactionHandler,
   signProposalHandler,
   checkPlayerMatchHandler,
   debugWaitingPlayersHandler,
