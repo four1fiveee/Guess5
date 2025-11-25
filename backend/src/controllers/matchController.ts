@@ -504,7 +504,16 @@ const periodicCleanup = async () => {
     const { AppDataSource } = require('../db/index');
     const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS: CONFIG_FEE_WALLET } = require('../config/wallet');
     const matchRepository = AppDataSource.getRepository(Match);
-    
+    const fetchLatestMatchState = async () => {
+      const latestRows = await matchRepository.query(`
+        SELECT "player1Result", "player2Result", "isCompleted"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchId]);
+      return latestRows && latestRows.length > 0 ? latestRows[0] : null;
+    };
+
     // Clean up matches older than 10 minutes using raw SQL to avoid proposalExpiresAt column
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     
@@ -1405,6 +1414,15 @@ const testDatabaseHandler = async (req: any, res: any) => {
     
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
+    const fetchLatestMatchState = async () => {
+      const latestRows = await matchRepository.query(`
+        SELECT "player1Result", "player2Result", "isCompleted"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchId]);
+      return latestRows && latestRows.length > 0 ? latestRows[0] : null;
+    };
     
     // Test 1: Simple count query
     console.log('🔍 Testing count query...');
@@ -1851,6 +1869,15 @@ const submitResultHandler = async (req: any, res: any) => {
     // Check database before Redis to handle cases where Redis state was deleted prematurely
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
+    const fetchLatestMatchState = async () => {
+      const latestRows = await matchRepository.query(`
+        SELECT "player1Result", "player2Result", "isCompleted"
+        FROM "match"
+        WHERE id = $1
+        LIMIT 1
+      `, [matchId]);
+      return latestRows && latestRows.length > 0 ? latestRows[0] : null;
+    };
     const matchRows = await matchRepository.query(`
       SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime", "isCompleted", status
       FROM "match"
@@ -2542,6 +2569,7 @@ const submitResultHandler = async (req: any, res: any) => {
         });
       } else {
         // Both players haven't finished yet - save partial result and wait using raw SQL
+        const currentMatch = await fetchLatestMatchState();
         console.log('⏳ COMPREHENSIVE: Not all players finished yet, waiting for other player', {
           matchId,
           correlationId,
@@ -2563,15 +2591,7 @@ const submitResultHandler = async (req: any, res: any) => {
       // We should only complete the match when BOTH players have submitted their results
       
       // Check if both players have submitted results by looking at the database
-      const { AppDataSource } = require('../db/index');
-      const matchRepository = AppDataSource.getRepository(Match);
-      const currentMatchRows = await matchRepository.query(`
-        SELECT "player1Result", "player2Result", "isCompleted"
-        FROM "match"
-        WHERE id = $1
-      `, [matchId]);
-      
-      const currentMatch = currentMatchRows?.[0];
+      const currentMatch = await fetchLatestMatchState();
       const bothPlayersHaveResults = currentMatch?.player1Result && currentMatch?.player2Result;
       
       console.log('🔍 COMPREHENSIVE: Game end check (checking submitted results, not game state):', {
@@ -3738,8 +3758,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       try {
         console.log('🔄 Calling determineWinnerAndPayout with:', {
           matchId: match.id,
-          player1Result: { won: player1Result.won, numGuesses: player1Result.numGuesses },
-          player2Result: { won: player2Result.won, numGuesses: player2Result.numGuesses }
+          player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+          player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
         });
         const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
         console.log('✅ determineWinnerAndPayout completed, payoutResult:', recalculatedPayout ? { winner: recalculatedPayout.winner } : null);
