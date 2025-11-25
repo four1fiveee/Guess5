@@ -10493,9 +10493,9 @@ const signProposalHandler = async (req: any, res: any) => {
     
     const matchRow = matchRows[0];
 
-    // Verify player is part of this match
-    const isPlayer1 = wallet === matchRow.player1;
-    const isPlayer2 = wallet === matchRow.player2;
+    // Verify player is part of this match (case-insensitive for safety)
+    const isPlayer1 = matchRow.player1 && matchRow.player1.toLowerCase() === wallet.toLowerCase();
+    const isPlayer2 = matchRow.player2 && matchRow.player2.toLowerCase() === wallet.toLowerCase();
     
     if (!isPlayer1 && !isPlayer2) {
       return res.status(403).json({ error: 'You are not part of this match' });
@@ -10677,10 +10677,9 @@ const signProposalHandler = async (req: any, res: any) => {
 
     // CRITICAL: Only allow winners to sign proposals (not losers)
     // For ties, both players can sign (they both get refunds)
+    // Note: isPlayer1 and isPlayer2 are already declared above (line 10497-10498)
     const isTie = matchRow.winner === 'tie';
     const isWinner = !isTie && matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
-    const isPlayer1 = matchRow.player1 && matchRow.player1.toLowerCase() === wallet.toLowerCase();
-    const isPlayer2 = matchRow.player2 && matchRow.player2.toLowerCase() === wallet.toLowerCase();
     const isParticipant = isPlayer1 || isPlayer2;
     
     // For ties: both players can sign
