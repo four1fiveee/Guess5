@@ -533,13 +533,8 @@ const Game: React.FC = () => {
         }
 
         // SAFETY: If match is completed with both results but we're still on game page, force redirect
-        // BUT only if current player has also finished
-        const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+        // BUT only if current player has also finished (reuse variables from above, line 463-465)
         const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-        
-        // Check if current player has finished
-        const isPlayer1 = publicKey?.toString() === matchData.player1;
-        const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
         
         if (bothPlayersHaveResults && currentPlayerHasResult) {
           console.log('🚨 SAFETY REDIRECT: Match completed with both results, forcing redirect to results');
