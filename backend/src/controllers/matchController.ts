@@ -1831,6 +1831,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
 const submitResultHandler = async (req: any, res: any) => {
   try {
     const { matchId, wallet, result } = req.body;
+    const correlationId = `submit-result-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     if (!matchId || !wallet || !result) {
       return res.status(400).json({ error: 'Missing required fields' });
@@ -2572,8 +2573,6 @@ const submitResultHandler = async (req: any, res: any) => {
       
       const currentMatch = currentMatchRows?.[0];
       const bothPlayersHaveResults = currentMatch?.player1Result && currentMatch?.player2Result;
-      
-      const correlationId = `submit-result-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
       
       console.log('🔍 COMPREHENSIVE: Game end check (checking submitted results, not game state):', {
         matchId,
