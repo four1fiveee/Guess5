@@ -327,18 +327,35 @@ const Game: React.FC = () => {
         }
         
         // Check if game is completed on the server side (both players finished)
-        // Redirect if game is completed regardless of current state
+        // CRITICAL: Only redirect if the current player has also finished
+        // This prevents kicking out a player who is still playing
         if (data.gameCompleted) {
-      
-          
-          // Try to fetch the completed match data to get payout information
+          // Check if current player has finished before redirecting
           try {
-            const matchResponse = await fetch(`${apiUrl}/api/match/status/${matchId}`);
+            const matchResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
             if (matchResponse.ok) {
               const matchData = await matchResponse.json();
-              if (matchData.payout && matchData.isCompleted) {
+              
+              // CRITICAL: Only redirect if current player has finished
+              const isPlayer1 = publicKey?.toString() === matchData.player1;
+              const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
+              const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+              
+              if (!currentPlayerHasResult) {
+                // Current player hasn't finished yet - don't redirect, let them continue playing
+                console.log('⚠️ Game marked as completed but current player is still playing, allowing game to continue', {
+                  currentPlayerHasResult,
+                  bothPlayersHaveResults,
+                  player1Result: !!matchData.player1Result,
+                  player2Result: !!matchData.player2Result,
+                  note: 'Player can continue playing until they finish'
+                });
+                return; // Don't redirect, continue playing
+              }
+              
+              // Current player has finished - safe to redirect
+              if (matchData.payout && matchData.isCompleted && bothPlayersHaveResults) {
                 // Create payout data from match data
-                const isPlayer1 = publicKey?.toString() === matchData.player1;
                 const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
                 const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
                 
@@ -361,16 +378,17 @@ const Game: React.FC = () => {
                   proposalStatus: matchData.proposalStatus
                 };
                 
-                        // Store payout data in localStorage
-        safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
-        
+                // Store payout data in localStorage
+                safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
+                
+                console.log('✅ Both players finished, redirecting to results page');
+                router.push(`/result?matchId=${matchId}`);
               }
             }
           } catch (error) {
             console.error('❌ Error fetching payout data:', error);
+            // If we can't verify, don't redirect - safer to let player continue
           }
-          
-          router.push(`/result?matchId=${matchId}`);
         }
         
         // If player has solved but hasn't submitted result yet, and they've run out of guesses, submit now
@@ -440,9 +458,17 @@ const Game: React.FC = () => {
 
         const matchData = await response.json();
         
+        // CRITICAL: Check if current player has finished BEFORE checking match status
+        // This prevents redirecting a player who is still playing
+        const isPlayer1 = publicKey?.toString() === matchData.player1;
+        const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
+        const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+        
         // Verify match is active and player is part of this match
-        if (matchData.status !== 'active') {
-          console.log('⚠️ Match is not active, status:', matchData.status);
+        // BUT: If player is still playing (hasn't submitted result), allow them to continue
+        if (matchData.status !== 'active' && currentPlayerHasResult) {
+          // Only check status redirects if the current player has already finished
+          console.log('⚠️ Match is not active, status:', matchData.status, 'but player has finished');
           
           // Handle cancelled matches
           if (matchData.status === 'cancelled') {
@@ -455,22 +481,8 @@ const Game: React.FC = () => {
             return;
           }
           
-          // If both players have paid but status is still payment_required, wait a moment and retry
-          if (matchData.status === 'payment_required' && matchData.player1Paid && matchData.player2Paid) {
-            console.log('⏳ Both players paid but game not yet active, waiting...');
-            setTimeout(() => {
-              router.reload();
-            }, 2000);
-            return;
-          }
-          
           // CRITICAL: Only redirect if BOTH players have results AND match is completed AND current player finished
-          const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-          
-          // Check if current player has finished
-          const isPlayer1 = publicKey?.toString() === matchData.player1;
-          const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
           
           if (bothPlayersHaveResults && currentPlayerHasResult) {
             console.log('✅ Both players have results and match completed, redirecting to result page');
@@ -497,6 +509,16 @@ const Game: React.FC = () => {
             return;
           }
           return;
+        } else if (matchData.status !== 'active' && !currentPlayerHasResult) {
+          // Match is not active BUT player is still playing - allow them to continue
+          console.log('⚠️ Match status is not active but player is still playing, allowing game to continue', {
+            status: matchData.status,
+            currentPlayerHasResult,
+            player1Result: !!matchData.player1Result,
+            player2Result: !!matchData.player2Result,
+            note: 'Player can continue playing until they finish'
+          });
+          // Continue with game initialization - don't redirect
         }
         
         // If match is marked completed but we don't have both results, show waiting state
