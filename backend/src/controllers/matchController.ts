@@ -2561,10 +2561,14 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
+        // Fetch current match state to include player results in response
+        const currentMatch = await fetchLatestMatchState();
         res.json({
           status: 'completed',
           winner: (payoutResult as any).winner,
           payout: payoutResult,
+          player1Result: currentMatch?.player1Result || null,
+          player2Result: currentMatch?.player2Result || null,
           message: 'Game completed - winner determined'
         });
       } else {
@@ -2582,6 +2586,8 @@ const submitResultHandler = async (req: any, res: any) => {
         
         res.json({
           status: 'waiting',
+          player1Result: currentMatch?.player1Result || null,
+          player2Result: currentMatch?.player2Result || null,
           message: 'Waiting for other player to finish'
         });
       }
@@ -3349,10 +3355,14 @@ const submitResultHandler = async (req: any, res: any) => {
             }
           }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
+        // Fetch current match state to include player results in response
+        const currentMatchForResponse = await fetchLatestMatchState();
         res.json({
           status: 'completed',
           winner: (payoutResult as any).winner,
           payout: payoutResult,
+          player1Result: currentMatchForResponse?.player1Result || null,
+          player2Result: currentMatchForResponse?.player2Result || null,
           message: 'Game completed - winner determined'
         });
       } else {
@@ -3369,6 +3379,8 @@ const submitResultHandler = async (req: any, res: any) => {
         
         res.json({
           status: 'waiting',
+          player1Result: currentMatch?.player1Result || null,
+          player2Result: currentMatch?.player2Result || null,
           message: 'Waiting for other player to finish'
         });
       }
@@ -10845,13 +10857,16 @@ const signProposalHandler = async (req: any, res: any) => {
         proposalStatusUpper === 'READY_TO_EXECUTE' ||
         proposalStatusUpper === 'EXECUTED';
 
-      if (!hadFeeWalletSignature && !proposalAlreadyReady && !approvalSkippedDueToReady) {
+      // CRITICAL FIX: Always attempt fee wallet auto-approval if it hasn't signed yet
+      // Don't skip just because proposal is already ready - we need to ensure fee wallet signs
+      if (!hadFeeWalletSignature && !approvalSkippedDueToReady) {
         try {
           cachedFeeWalletKeypair = getFeeWalletKeypair();
           console.log('🤝 Auto-approving proposal with fee wallet', {
             matchId,
             proposalId: proposalIdString,
             feeWallet: cachedFeeWalletKeypair.publicKey.toString(),
+            proposalAlreadyReady,
           });
           const approveResult = await squadsVaultService.approveProposal(
             matchRow.squadsVaultAddress,
@@ -10861,8 +10876,8 @@ const signProposalHandler = async (req: any, res: any) => {
 
           if (approveResult.success) {
             feeWalletAutoApproved = true;
-            signers.push(feeWalletAddress);
-            console.log('✅ Fee wallet auto-approved proposal', {
+            // Don't push to signers here - it will be verified on-chain below
+            console.log('✅ Fee wallet auto-approved proposal (transaction sent)', {
               matchId,
               proposalId: proposalIdString,
               signature: approveResult.signature,

@@ -146,8 +146,13 @@ const Game: React.FC = () => {
     try {
       const data = await submitResultWithRetry();
       
-      // If the game is completed, store payout data and navigate
-      if (data.status === 'completed' && data.payout) {
+      // CRITICAL FIX: Only redirect if BOTH players have finished
+      // Check if both players have results before redirecting
+      // This prevents one player from being kicked out when the other finishes
+      const bothPlayersHaveResults = data.player1Result && data.player2Result;
+      
+      // If the game is completed AND both players have finished, store payout data and navigate
+      if (data.status === 'completed' && data.payout && bothPlayersHaveResults) {
     
         
         // Create payout data object for localStorage
@@ -195,9 +200,14 @@ const Game: React.FC = () => {
               const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
               const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
               
-          // CRITICAL FIX: Only redirect when BOTH conditions are met
+          // CRITICAL FIX: Only redirect when BOTH conditions are met AND current player has finished
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-          if (bothPlayersHaveResults) {
+          
+          // Check if current player has finished
+          const isPlayer1 = publicKey?.toString() === matchData.player1;
+          const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
+          
+          if (bothPlayersHaveResults && currentPlayerHasResult) {
             console.log('🏆 Game completed via polling:', {
               matchCompleted,
               bothPlayersHaveResults,
@@ -454,11 +464,15 @@ const Game: React.FC = () => {
             return;
           }
           
-          // CRITICAL: Only redirect if BOTH players have results AND match is completed
+          // CRITICAL: Only redirect if BOTH players have results AND match is completed AND current player finished
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
           
-          if (bothPlayersHaveResults) {
+          // Check if current player has finished
+          const isPlayer1 = publicKey?.toString() === matchData.player1;
+          const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
+          
+          if (bothPlayersHaveResults && currentPlayerHasResult) {
             console.log('✅ Both players have results and match completed, redirecting to result page');
             router.push(`/result?matchId=${gameMatchId}`);
             return;
@@ -497,9 +511,15 @@ const Game: React.FC = () => {
         }
 
         // SAFETY: If match is completed with both results but we're still on game page, force redirect
+        // BUT only if current player has also finished
         const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
         const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-        if (bothPlayersHaveResults) {
+        
+        // Check if current player has finished
+        const isPlayer1 = publicKey?.toString() === matchData.player1;
+        const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
+        
+        if (bothPlayersHaveResults && currentPlayerHasResult) {
           console.log('🚨 SAFETY REDIRECT: Match completed with both results, forcing redirect to results');
           router.push(`/result?matchId=${gameMatchId}`);
           return;
@@ -723,11 +743,16 @@ const Game: React.FC = () => {
           const matchData = await response.json();
           
           // CRITICAL: Only redirect when BOTH players have results AND match is completed
+          // AND the current player has actually finished (to prevent premature redirects)
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
           const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
           
-          // MUST have both conditions: both results AND completed status
-          if (bothPlayersHaveResults) {
+          // Check if current player has finished
+          const isPlayer1 = publicKey.toString() === matchData.player1;
+          const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
+          
+          // MUST have all three conditions: both results AND completed status AND current player finished
+          if (bothPlayersHaveResults && currentPlayerHasResult) {
             const correlationId = `frontend-redirect-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
             console.log('🏆 COMPREHENSIVE: Match completed detected via continuous polling:', {
               correlationId,
