@@ -193,6 +193,23 @@ router.post('/sign-proposal',
   asyncHandlerWrapper(matchController.signProposalHandler)
 );
 
+router.options('/sign-vault-transaction-approval', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  if (origin) {
+    res.header('Access-Control-Allow-Origin', origin);
+  }
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
+router.post('/sign-vault-transaction-approval',
+  validateVercelBotProtection,
+  asyncHandlerWrapper(matchController.signVaultTransactionApprovalHandler)
+);
+
 // Cleanup endpoints (admin only)
 router.post('/cleanup-stuck-matches', asyncHandlerWrapper(matchController.cleanupStuckMatchesHandler));
 router.post('/cleanup-self-matches', asyncHandlerWrapper(matchController.cleanupSelfMatchesHandler));
