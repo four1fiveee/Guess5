@@ -8,6 +8,67 @@ import { TopRightWallet } from '../components/WalletConnect';
 import { SquadsClient } from '../utils/squadsClient';
 import config from '../config/environment';
 
+// Helper functions for base64 encoding/decoding that work in both browser and Node.js
+const base64ToUint8Array = (base64: string): Uint8Array => {
+  // Use browser APIs if available, otherwise use manual conversion
+  if (typeof window !== 'undefined' && typeof atob !== 'undefined') {
+    // Browser environment
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    return bytes;
+  } else {
+    // SSR/build environment - use manual base64 decoding
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let bufferLength = base64.length * 0.75;
+    if (base64[base64.length - 1] === '=') {
+      bufferLength--;
+      if (base64[base64.length - 2] === '=') {
+        bufferLength--;
+      }
+    }
+    const bytes = new Uint8Array(bufferLength);
+    let p = 0;
+    for (let i = 0; i < base64.length; i += 4) {
+      const encoded1 = chars.indexOf(base64[i]);
+      const encoded2 = chars.indexOf(base64[i + 1]);
+      const encoded3 = chars.indexOf(base64[i + 2]);
+      const encoded4 = chars.indexOf(base64[i + 3]);
+      bytes[p++] = (encoded1 << 2) | (encoded2 >> 4);
+      if (encoded3 !== -1) bytes[p++] = ((encoded2 & 15) << 4) | (encoded3 >> 2);
+      if (encoded4 !== -1) bytes[p++] = ((encoded3 & 3) << 6) | encoded4;
+    }
+    return bytes;
+  }
+};
+
+const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
+  // Use browser APIs if available, otherwise use manual conversion
+  if (typeof window !== 'undefined' && typeof btoa !== 'undefined') {
+    // Browser environment
+    const binaryString = Array.from(bytes, byte => String.fromCharCode(byte)).join('');
+    return btoa(binaryString);
+  } else {
+    // SSR/build environment - use manual base64 encoding
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+    let result = '';
+    let i = 0;
+    while (i < bytes.length) {
+      const a = bytes[i++];
+      const b = i < bytes.length ? bytes[i++] : 0;
+      const c = i < bytes.length ? bytes[i++] : 0;
+      const bitmap = (a << 16) | (b << 8) | c;
+      result += chars.charAt((bitmap >> 18) & 63);
+      result += chars.charAt((bitmap >> 12) & 63);
+      result += i - 2 < bytes.length ? chars.charAt((bitmap >> 6) & 63) : '=';
+      result += i - 1 < bytes.length ? chars.charAt(bitmap & 63) : '=';
+    }
+    return result;
+  }
+};
+
 const normalizeProposalSigners = (value: any): string[] => {
   const normalize = (input: any): string[] => {
     if (!input) {
@@ -780,19 +841,11 @@ const Result: React.FC = () => {
       const { VersionedTransaction } = await import('@solana/web3.js');
       
       // Step 2a: Sign proposal approval transaction
-      // Convert base64 to Uint8Array for browser compatibility
-      const base64String = txData.transaction;
-      const binaryString = atob(base64String);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
+      const bytes = base64ToUint8Array(txData.transaction);
       const approveTx = VersionedTransaction.deserialize(bytes);
       const signedProposalTx = await signTransaction(approveTx);
       const proposalSerialized = signedProposalTx.serialize();
-      // Convert Uint8Array to base64 for browser compatibility
-      const binaryString2 = Array.from(proposalSerialized, byte => String.fromCharCode(byte)).join('');
-      const base64ProposalTx = btoa(binaryString2);
+      const base64ProposalTx = uint8ArrayToBase64(proposalSerialized);
       
       console.log('✅ Proposal transaction signed', {
         matchId,
@@ -1003,19 +1056,11 @@ const Result: React.FC = () => {
 
       // Step 2: Sign the VaultTransaction approval transaction
       const { VersionedTransaction } = await import('@solana/web3.js');
-      // Convert base64 to Uint8Array for browser compatibility
-      const base64String = txData.transaction;
-      const binaryString = atob(base64String);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
+      const bytes = base64ToUint8Array(txData.transaction);
       const approveTx = VersionedTransaction.deserialize(bytes);
       const signedVaultTx = await signTransaction(approveTx);
       const vaultTxSerialized = signedVaultTx.serialize();
-      // Convert Uint8Array to base64 for browser compatibility
-      const binaryString = Array.from(vaultTxSerialized, byte => String.fromCharCode(byte)).join('');
-      const base64VaultTx = btoa(binaryString);
+      const base64VaultTx = uint8ArrayToBase64(vaultTxSerialized);
 
       console.log('✅ VaultTransaction approval transaction signed', {
         matchId,
