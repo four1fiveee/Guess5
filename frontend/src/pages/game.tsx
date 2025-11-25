@@ -224,55 +224,56 @@ const Game: React.FC = () => {
               if (response.ok) {
                 const matchData = await response.json();
               
-              // Check if both players have results (more reliable than just isCompleted)
-              const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
-              const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
-              
-          // CRITICAL FIX: Only redirect when BOTH conditions are met AND current player has finished
-          const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
-          
-          // Check if current player has finished
-          const isPlayer1 = publicKey?.toString() === matchData.player1;
-          const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
-          
-          if (bothPlayersHaveResults && currentPlayerHasResult) {
-            console.log('🏆 Game completed via polling:', {
-              matchCompleted,
-              bothPlayersHaveResults,
-              status: matchData.status,
-              isCompleted: matchData.isCompleted,
-              hasPayout: !!matchData.payout
-            });
+                // Check if both players have results (more reliable than just isCompleted)
+                const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+                const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
                 
-                // Create payout data from match data
+                // CRITICAL FIX: Only redirect when BOTH conditions are met AND current player has finished
+                const matchCompleted = matchData.status === 'completed' || matchData.isCompleted;
+                
+                // Check if current player has finished
                 const isPlayer1 = publicKey?.toString() === matchData.player1;
-                const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
-                const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+                const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
                 
-                const payoutData = {
-                  won: matchData.winner === publicKey?.toString(),
-                  isTie: matchData.winner === 'tie',
-                  winner: matchData.winner,
-                  numGuesses: playerResult?.numGuesses || result.numGuesses,
-                  entryFee: matchData.entryFee || entryFee,
-                  timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
-                  opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
-                  opponentGuesses: opponentResult?.numGuesses || 0,
-                  winnerAmount: matchData.payout?.winnerAmount || 0,
-                  feeAmount: matchData.payout?.feeAmount || 0,
-                  refundAmount: matchData.payout?.refundAmount || 0,
-                  isWinningTie: matchData.payout?.isWinningTie || false,
-                  feeWallet: matchData.payout?.feeWallet || '',
-                  transactions: matchData.payout?.transactions || [],
-                  automatedPayout: matchData.payout?.paymentSuccess || false,
-                  payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
-                };
-                
-                safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
-        
-                
-                router.push(`/result?matchId=${matchId}`);
-                return;
+                if (bothPlayersHaveResults && currentPlayerHasResult) {
+                  console.log('🏆 Game completed via polling:', {
+                    matchCompleted,
+                    bothPlayersHaveResults,
+                    status: matchData.status,
+                    isCompleted: matchData.isCompleted,
+                    hasPayout: !!matchData.payout
+                  });
+                  
+                  // Create payout data from match data
+                  const isPlayer1 = publicKey?.toString() === matchData.player1;
+                  const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+                  const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+                  
+                  const payoutData = {
+                    won: matchData.winner === publicKey?.toString(),
+                    isTie: matchData.winner === 'tie',
+                    winner: matchData.winner,
+                    numGuesses: playerResult?.numGuesses || result.numGuesses,
+                    entryFee: matchData.entryFee || entryFee,
+                    timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
+                    opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+                    opponentGuesses: opponentResult?.numGuesses || 0,
+                    winnerAmount: matchData.payout?.winnerAmount || 0,
+                    feeAmount: matchData.payout?.feeAmount || 0,
+                    refundAmount: matchData.payout?.refundAmount || 0,
+                    isWinningTie: matchData.payout?.isWinningTie || false,
+                    feeWallet: matchData.payout?.feeWallet || '',
+                    transactions: matchData.payout?.transactions || [],
+                    automatedPayout: matchData.payout?.paymentSuccess || false,
+                    payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
+                  };
+                  
+                  safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
+          
+                  
+                  router.push(`/result?matchId=${matchId}`);
+                  return;
+                }
               }
             } catch (fetchError: any) {
               clearTimeout(timeoutId);

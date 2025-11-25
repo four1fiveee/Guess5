@@ -3714,7 +3714,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             // Check on-chain proposal status (with timeout to prevent hanging)
             const onChainStatus = await Promise.race([
               squadsService.checkProposalStatus(vaultAddress, proposalIdString),
-              new Promise((_, reject) => setTimeout(() => reject(new Error('Catch-up check timeout')), 5000))
+              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Catch-up check timeout')), 5000))
             ]).catch(() => null);
             
             if (onChainStatus && onChainStatus.signers && feeWalletAddress) {
