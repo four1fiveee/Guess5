@@ -5595,32 +5595,55 @@ const submitGameGuessHandler = async (req: any, res: any) => {
 
     const match = matchRows[0];
     
-    // Check if match is already completed in database
-    // CRITICAL FIX: Allow guesses even if match is marked as completed,
-    // as long as the game state is still active (handles race conditions)
-    // This is for guess submission, so we should be more lenient
-    if (match.isCompleted) {
-      // Check if game state still exists (player might still be playing)
-      const gameState = await getGameState(matchId);
-      if (!gameState) {
+    // CRITICAL FIX: Check game state FIRST - if game state exists and is active, allow guess
+    // regardless of database status. This prevents race conditions where database status
+    // is updated before the player finishes their guesses.
+    let serverGameState = await getGameState(matchId as string);
+    
+    if (serverGameState) {
+      // Game state exists - check if player can still make guesses
+      const isPlayer1 = wallet.toLowerCase() === match.player1.toLowerCase();
+      const playerGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
+      const playerSolved = isPlayer1 ? serverGameState.player1Solved : serverGameState.player2Solved;
+      
+      // If player hasn't solved and hasn't used all 7 guesses, allow the guess
+      // regardless of database status (handles race conditions)
+      if (!playerSolved && playerGuesses.length < 7) {
+        // Game state is active - allow guess even if database says otherwise
+        if (match.status !== 'active' || match.isCompleted) {
+          console.log('⚠️ Database status indicates inactive/completed, but game state is active - allowing guess', {
+            matchId,
+            wallet,
+            databaseStatus: match.status,
+            isCompleted: match.isCompleted,
+            playerGuesses: playerGuesses.length,
+            playerSolved,
+            note: 'Game state is source of truth for active gameplay'
+          });
+        }
+        // Continue with guess processing - don't check database status
+      } else {
+        // Player has solved or used all guesses - game is done for this player
+        return res.status(400).json({ error: 'You have already completed this game' });
+      }
+    } else {
+      // No game state exists - check database status as fallback
+      if (match.isCompleted) {
         return res.status(400).json({ error: 'Game is already completed' });
       }
-      // If game state exists, allow the guess (match might be marked completed prematurely)
-      console.log('⚠️ Match marked as completed but game state still active, allowing guess', {
+      
+      // Check if match is in a valid state for guesses
+      if (match.status !== 'active') {
+        return res.status(400).json({ error: 'Game is not active' });
+      }
+      
+      // Game state missing but match is active - try to restore it
+      console.warn('⚠️ Redis game state missing but match is active, will try to restore', {
         matchId,
         wallet,
-        note: 'This may indicate a race condition - allowing guess to proceed'
+        status: match.status
       });
     }
-    
-    // Check if match is in a valid state for guesses
-    if (match.status !== 'active') {
-      return res.status(400).json({ error: 'Game is not active' });
-    }
-
-    // Get server-side game state from Redis
-    // If Redis state is missing but match exists and is active, try to restore it
-    let serverGameState = await getGameState(matchId as string);
     if (!serverGameState) {
       // Redis state missing but match is active - restore from database
       console.warn('⚠️ Redis game state missing but match is active, restoring from database', {
