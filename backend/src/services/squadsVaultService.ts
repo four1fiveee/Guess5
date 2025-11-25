@@ -2927,176 +2927,10 @@ export class SquadsVaultService {
         signature,
       });
 
-      // CRITICAL FIX: VaultTransaction must be approved separately from Proposal
-      // rpc.proposalApprove only approves the Proposal, not the VaultTransaction
-      // We need to manually approve the VaultTransaction using instructions
-      enhancedLogger.info('🔐 Approving VaultTransaction separately (required for execution)', {
-        vaultAddress,
-        proposalId,
-        transactionIndex: transactionIndex.toString(),
-        signer: signer.publicKey.toString(),
-      });
-
-      try {
-        // Get the VaultTransaction PDA
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: transactionIndex,
-          programId: this.programId,
-        });
-
-        // Get the Vault PDA
-        const [vaultPda] = getVaultPda({
-          multisigPda: multisigAddress,
-          index: 0, // Vault index is 0 for the first vault
-          programId: this.programId,
-        });
-
-        // CRITICAL: Based on authoritative Squads v4 documentation
-        // VaultTransaction approval requires: multisigPda, vaultPda, vaultTxPda (transactionPda), memberPubkey
-        // The SDK doesn't expose rpc.vaultTransactionApprove or createApproveInstruction
-        // 
-        // IMPORTANT: proposalApprove only approves Proposal, NOT VaultTransaction
-        // We need to build a TransactionInstruction manually that approves the VaultTransaction account
-        // 
-        // Based on the user's authoritative explanation:
-        // createApproveInstruction(multisigPda, vaultPda, vaultTxPda, memberPubkey)
-        // 
-        // Since this doesn't exist, we'll build a raw TransactionInstruction using the same pattern
-        // as proposalApprove but targeting the transaction account instead of proposal account
-        // 
-        // The instruction structure should be similar to proposalApprove but with transaction account
-        // We'll use the generated instruction builder pattern to construct it manually
-        
-        // Get the Proposal PDA (needed for the instruction structure)
-        const [proposalPda] = getProposalPda({
-          multisigPda: multisigAddress,
-          transactionIndex,
-          programId: this.programId,
-        });
-        
-        // CRITICAL: Build VaultTransaction approval instruction manually
-        // Based on authoritative Squads v4 documentation:
-        // createApproveInstruction(multisigPda, vaultPda, vaultTxPda, memberPubkey)
-        //
-        // The instruction accounts should be (based on Squads v4 structure):
-        // - multisig (readonly)
-        // - transaction (writable) - the VaultTransaction account (transactionPda)
-        // - member (writable, signer) - the approving member
-        // - vault (readonly) - the vault account (vaultPda)
-        //
-        // Since the SDK doesn't expose this, we need to build a raw TransactionInstruction
-        // The instruction discriminator is the first 8 bytes of sha256("global:vault_transaction_approve")
-        // However, we don't have the exact discriminator, so we'll try using proposalApprove
-        // but modify the accounts to target the transaction instead of proposal
-        //
-        // IMPORTANT: This is a workaround - proposalApprove will only approve Proposal, not VaultTransaction
-        // The real solution requires the correct instruction discriminator from Squads program IDL
-        
-        // Build raw VaultTransaction approval instruction manually
-        // Based on user's authoritative explanation: createApproveInstruction(multisigPda, vaultPda, vaultTxPda, memberPubkey)
-        // Account order: multisig (readonly), transaction (writable), member (writable, signer), vault (readonly)
-        // 
-        // The discriminator is the first 8 bytes of sha256("global:vault_transaction_approve") = a4becb5ae8238e8d
-        // However, since this instruction doesn't exist in the IDL, we'll try using proposalApprove
-        // but modify it to target the transaction account
-        
-        // CRITICAL: Build custom instruction with correct accounts
-        // Account structure based on user's authoritative explanation:
-        // 1. multisig (readonly) - multisigAddress
-        // 2. transaction (writable) - transactionPda (VaultTransaction account)  
-        // 3. member (writable, signer) - signer.publicKey
-        // 4. vault (readonly) - vaultPda
-        
-        // Calculate discriminator: sha256("global:vault_transaction_approve")[0:8]
-        const crypto = require('crypto');
-        const discriminatorHash = crypto.createHash('sha256').update('global:vault_transaction_approve').digest();
-        const discriminator = discriminatorHash.slice(0, 8);
-        
-        // Build args (similar to ProposalVoteArgs - memo: Option<string>)
-        // Anchor Option encoding: 0 = None, 1 = Some(value)
-        // For memo: null, we use 0 (None)
-        const argsBuffer = Buffer.alloc(1);
-        argsBuffer.writeUInt8(0, 0); // memo: None (0 = no memo)
-        
-        // Combine discriminator + args
-        const instructionData = Buffer.concat([discriminator, argsBuffer]);
-        
-        const vaultTxApproveIx = new TransactionInstruction({
-          programId: this.programId,
-          keys: [
-            { pubkey: multisigAddress, isSigner: false, isWritable: false }, // multisig (readonly)
-            { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction (writable) - VaultTransaction account
-            { pubkey: signer.publicKey, isSigner: true, isWritable: true }, // member (writable, signer)
-            { pubkey: vaultPda, isSigner: false, isWritable: false }, // vault (readonly)
-          ],
-          data: instructionData,
-        });
-        
-        enhancedLogger.info('🔧 Built raw VaultTransaction approval instruction with discriminator', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndex.toString(),
-          multisigPda: multisigAddress.toString(),
-          vaultPda: vaultPda.toString(),
-          transactionPda: transactionPda.toString(),
-          member: signer.publicKey.toString(),
-          discriminator: discriminator.toString('hex'),
-          note: 'Using discriminator from sha256("global:vault_transaction_approve"). If this fails, the instruction may not exist or use a different discriminator.',
-        });
-
-        // Build and send the VaultTransaction approval transaction
-        const latestBlockhash = await this.connection.getLatestBlockhash('confirmed');
-        const vaultTxApproveMessage = new TransactionMessage({
-          payerKey: signer.publicKey,
-          recentBlockhash: latestBlockhash.blockhash,
-          instructions: [vaultTxApproveIx],
-        }).compileToV0Message();
-
-        const vaultTxApproveTx = new VersionedTransaction(vaultTxApproveMessage);
-        vaultTxApproveTx.sign([signer]);
-
-        const vaultTxApproveSignature = await this.connection.sendTransaction(vaultTxApproveTx, {
-          skipPreflight: false,
-          preflightCommitment: 'confirmed',
-        });
-
-        enhancedLogger.info('✅ VaultTransaction approval transaction sent', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndex.toString(),
-          signer: signer.publicKey.toString(),
-          vaultTxApproveSignature,
-        });
-
-        // Confirm the transaction
-        await this.connection.confirmTransaction(vaultTxApproveSignature, 'confirmed');
-
-        enhancedLogger.info('✅ VaultTransaction approved successfully', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndex.toString(),
-          signer: signer.publicKey.toString(),
-          vaultTxApproveSignature,
-        });
-      } catch (vaultTxApproveError: unknown) {
-        const errorMessage = vaultTxApproveError instanceof Error ? vaultTxApproveError.message : String(vaultTxApproveError);
-        enhancedLogger.error('❌ Failed to approve VaultTransaction', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndex.toString(),
-          signer: signer.publicKey.toString(),
-          error: errorMessage,
-          note: 'Proposal was approved, but VaultTransaction approval failed. Execution will fail until VaultTransaction is approved.',
-        });
-        // Don't fail the entire approval - Proposal was approved successfully
-        // The VaultTransaction approval can be retried
-      }
-
-      return { 
-        success: true, 
+      return {
+        success: true,
         signature,
-        note: 'Proposal approved using rpc.proposalApprove'
+        note: 'Proposal approved using rpc.proposalApprove (VaultTransaction approval not required in Squads v4)'
       };
 
     } catch (error: unknown) {
@@ -3170,7 +3004,6 @@ export class SquadsVaultService {
 
     // Verify proposal status before executing and wait for ExecuteReady transition if needed
     let proposalIsExecuteReady = false;
-    let vaultTransactionIsExecuteReady = false;
     
     const statusCheckStartTime = Date.now();
     logExecutionStep(correlationId, 'enqueue', execStartTime);
@@ -3194,47 +3027,33 @@ export class SquadsVaultService {
         transactionPda: transactionPda.toString(),
       });
 
-      // Check both Proposal and VaultTransaction accounts
-      // The execution instruction may check VaultTransaction status, not Proposal status
+      // Check Proposal account status (source of truth for ExecuteReady)
       try {
-        // Check VaultTransaction account status
         try {
-          const transaction = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda,
-            'confirmed'
-          );
-          
-          const vaultTxStatus = (transaction as any).status;
-          // Status values: 0 = Active, 1 = ExecuteReady, 2 = Executed
-          vaultTransactionIsExecuteReady = vaultTxStatus === 1; // ExecuteReady
-          
-          // CRITICAL: Log vault transaction signers to verify both proposal and vault transaction are signed
-          const vaultTxApprovals = (transaction as any).approvals || [];
-          const vaultTxApprovalCount = vaultTxApprovals.length;
-          const vaultTxThreshold = (transaction as any).threshold?.toNumber() || this.config.threshold;
-          
-          enhancedLogger.info('🔍 VaultTransaction account status check before execution', {
-            vaultAddress,
-            proposalId,
-            transactionPda: transactionPda.toString(),
-            status: vaultTxStatus,
-            isExecuteReady: vaultTransactionIsExecuteReady,
-            approvalCount: vaultTxApprovalCount,
-            threshold: vaultTxThreshold,
-            approvals: vaultTxApprovals.map((a: any) => a?.toString?.() || String(a)),
-            hasEnoughSignatures: vaultTxApprovalCount >= vaultTxThreshold,
-            note: 'VaultTransaction status: 0=Active, 1=ExecuteReady, 2=Executed. Both Proposal AND VaultTransaction must be signed for ExecuteReady.',
-          });
+          const txAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+          if (txAccountInfo) {
+            enhancedLogger.info('🔎 VaultTransaction PDA located', {
+              vaultAddress,
+              proposalId,
+              transactionPda: transactionPda.toString(),
+              note: 'Squads v4 stores approvals on the Proposal account; VaultTransaction PDA simply holds the message',
+            });
+          } else {
+            enhancedLogger.warn('⚠️ VaultTransaction PDA not found (may already be closed)', {
+              vaultAddress,
+              proposalId,
+              transactionPda: transactionPda.toString(),
+            });
+          }
         } catch (vaultTxError: unknown) {
-          enhancedLogger.warn('⚠️ Failed to check VaultTransaction account status', {
+          enhancedLogger.warn('⚠️ Failed to fetch VaultTransaction PDA (continuing)', {
             vaultAddress,
             proposalId,
             error: vaultTxError instanceof Error ? vaultTxError.message : String(vaultTxError),
           });
         }
 
-        // Check Proposal account status
+        // Proposal status determines ExecuteReady state
         const proposal = await accounts.Proposal.fromAccountAddress(
           this.connection,
           proposalPda,
@@ -3255,7 +3074,6 @@ export class SquadsVaultService {
           approvedSigners: (proposal as any).approved,
           approvedCount,
           threshold: this.config.threshold,
-          vaultTransactionIsExecuteReady,
         });
 
         if (proposalStatusKind === 'Executed') {
@@ -3271,7 +3089,7 @@ export class SquadsVaultService {
         }
 
         // If Proposal is Approved but not ExecuteReady, wait for transition with retries
-        if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
+        if (proposalStatusKind === 'Approved' && !proposalIsExecuteReady) {
           enhancedLogger.warn('⚠️ Proposal is Approved but not ExecuteReady - waiting for transition', {
             vaultAddress,
             proposalId,
@@ -3307,28 +3125,6 @@ export class SquadsVaultService {
                 break;
               }
               
-              // Also check VaultTransaction status
-              try {
-                const refreshedTransaction = await accounts.VaultTransaction.fromAccountAddress(
-                  this.connection,
-                  transactionPda,
-                  'confirmed'
-                );
-                const refreshedVaultTxStatus = (refreshedTransaction as any).status;
-                if (refreshedVaultTxStatus === 1) { // ExecuteReady
-                  vaultTransactionIsExecuteReady = true;
-                  enhancedLogger.info('✅ VaultTransaction transitioned to ExecuteReady after waiting', {
-                    vaultAddress,
-                    proposalId,
-                    waitAttempt: waitAttempt + 1,
-                    totalWaitMs: (waitAttempt + 1) * waitIntervalMs,
-                  });
-                  break;
-                }
-              } catch (vaultTxRefreshError: unknown) {
-                // Ignore errors during refresh
-              }
-              
               enhancedLogger.info('⏳ Still waiting for ExecuteReady transition', {
                 vaultAddress,
                 proposalId,
@@ -3346,7 +3142,7 @@ export class SquadsVaultService {
             }
           }
           
-          if (!proposalIsExecuteReady && !vaultTransactionIsExecuteReady && approvedCount >= this.config.threshold) {
+          if (!proposalIsExecuteReady && approvedCount >= this.config.threshold) {
             enhancedLogger.warn('⚠️ Proposal has enough approvals but did not transition to ExecuteReady after waiting', {
               vaultAddress,
               proposalId,
@@ -3380,7 +3176,6 @@ export class SquadsVaultService {
         signers: proposalStatus.signers.map(s => s.toString()),
         needsSignatures: proposalStatus.needsSignatures,
         proposalIsExecuteReady,
-        vaultTransactionIsExecuteReady,
       });
 
       if (proposalStatus.executed) {
@@ -3396,14 +3191,13 @@ export class SquadsVaultService {
       }
 
       // Only warn if we don't have enough signatures AND neither account shows ExecuteReady
-      if (proposalStatus.needsSignatures > 0 && !proposalIsExecuteReady && !vaultTransactionIsExecuteReady) {
+      if (proposalStatus.needsSignatures > 0 && !proposalIsExecuteReady) {
         enhancedLogger.warn('⚠️ On-chain check shows proposal does not have enough signatures yet', {
           vaultAddress,
           proposalId,
           needsSignatures: proposalStatus.needsSignatures,
           signers: proposalStatus.signers.map(s => s.toString()),
           proposalIsExecuteReady,
-          vaultTransactionIsExecuteReady,
           note: 'Continuing with execution attempt - database state may be more accurate than on-chain check',
         });
         // Don't fail here - the on-chain check might be failing to read signers correctly

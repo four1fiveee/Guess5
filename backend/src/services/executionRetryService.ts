@@ -149,104 +149,44 @@ export class ExecutionRetryService {
       return;
     }
 
-    // CRITICAL: Check on-chain ExecuteReady state BEFORE attempting execution (expert recommendation)
-    // Prevents infinite execution attempts when vault transaction is not approved
+    // Confirm proposal is actually approved on-chain before retrying
     try {
-      const { squadsVaultService } = require('./squadsVaultService');
       const { Connection, PublicKey } = require('@solana/web3.js');
-      const { getTransactionPda, accounts } = require('@sqds/multisig');
-      
+      const { accounts } = require('@sqds/multisig');
       const connection = new Connection(
         process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
         'confirmed'
       );
-      
-      const multisigAddress = new PublicKey(match.squadsVaultAddress);
-      
-      // CRITICAL FIX: proposalId is a PDA address, extract transactionIndex from Proposal account
-      let transactionIndex: bigint;
-      try {
-        const proposalPda = new PublicKey(proposalId);
-        const { accounts } = require('@sqds/multisig');
-        const proposalAccount = await accounts.Proposal.fromAccountAddress(
-          connection,
-          proposalPda
-        );
-        const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
-        if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
-          transactionIndex = BigInt(Number(proposalTransactionIndex));
-        } else {
-          throw new Error('Proposal account does not have transactionIndex field');
-        }
-      } catch (pdaError: any) {
-        enhancedLogger.warn('⚠️ Could not extract transactionIndex from Proposal account (proceeding with retry)', {
-          matchId,
-          proposalId,
-          error: pdaError instanceof Error ? pdaError.message : String(pdaError),
-          note: 'Execution will proceed but may fail if transactionIndex is incorrect',
-        });
-        // Fallback: Try to parse as transactionIndex (backward compatibility)
-        try {
-          transactionIndex = BigInt(proposalId);
-        } catch (bigIntError: any) {
-          enhancedLogger.error('❌ Could not parse proposalId as PDA or transactionIndex', {
-            matchId,
-            proposalId,
-            error: bigIntError instanceof Error ? bigIntError.message : String(bigIntError),
-          });
-          return; // Cannot proceed without valid transactionIndex
-        }
-      }
-      
-      const programId = process.env.SQUADS_PROGRAM_ID 
-        ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
-        : require('@sqds/multisig').PROGRAM_ID;
-      
-      // Check VaultTransaction approval count
-      const [transactionPda] = getTransactionPda({
-        multisigPda: multisigAddress,
-        index: transactionIndex,
-        programId,
-      });
-      
-      const vaultTx = await accounts.VaultTransaction.fromAccountAddress(
-        connection,
-        transactionPda,
-        'confirmed'
-      );
-      
-      const vaultTxApprovals = (vaultTx as any).approvals || [];
-      const vaultTxApprovalCount = vaultTxApprovals.length;
-      const vaultTxThreshold = (vaultTx as any).threshold?.toNumber() || 2;
-      const vaultTxStatus = (vaultTx as any).status; // 0 = Active, 1 = ExecuteReady, 2 = Executed
-      
-      if (vaultTxStatus !== 1 && vaultTxApprovalCount < vaultTxThreshold) {
-        enhancedLogger.warn('⚠️ VaultTransaction NOT ExecuteReady - skipping execution retry', {
-          matchId,
-          proposalId,
-          vaultTxStatus,
-          vaultTxApprovalCount,
-          vaultTxThreshold,
-          note: 'Both Proposal AND VaultTransaction must be approved for ExecuteReady. Will retry later.',
-        });
-        return; // Don't attempt execution - it will fail
-      }
-      
-      enhancedLogger.info('✅ VaultTransaction is ExecuteReady - proceeding with execution retry', {
+
+      const proposalPda = new PublicKey(proposalId);
+      const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+      const statusKind = (proposalAccount as any).status?.__kind || 'Unknown';
+      const approvals = Array.isArray((proposalAccount as any).approved)
+        ? (proposalAccount as any).approved.map((a: any) => a?.toString?.() || String(a))
+        : [];
+
+      enhancedLogger.info('🔍 On-chain proposal status before execution retry', {
         matchId,
         proposalId,
-        vaultTxStatus,
-        vaultTxApprovalCount,
-        vaultTxThreshold,
+        statusKind,
+        approvalCount: approvals.length,
+        approvals,
       });
-    } catch (onChainCheckError: any) {
-      enhancedLogger.warn('⚠️ Could not verify on-chain ExecuteReady state (proceeding with retry)', {
+
+      if (statusKind !== 'ExecuteReady' && statusKind !== 'Approved') {
+        enhancedLogger.warn('⚠️ Proposal is not approved yet on-chain, skipping retry for now', {
+          matchId,
+          proposalId,
+          statusKind,
+        });
+        return;
+      }
+    } catch (proposalStatusError: any) {
+      enhancedLogger.warn('⚠️ Could not fetch proposal status before retry (continuing)', {
         matchId,
         proposalId,
-        error: onChainCheckError?.message || String(onChainCheckError),
-        note: 'Execution will proceed but may fail if not ExecuteReady',
+        error: proposalStatusError instanceof Error ? proposalStatusError.message : String(proposalStatusError),
       });
-      // Continue with execution attempt - executeProposal will also check
     }
 
     // Get fee wallet keypair for execution

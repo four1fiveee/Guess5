@@ -143,7 +143,6 @@ const Result: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [signingProposal, setSigningProposal] = useState(false);
-  const [signingVaultTransaction, setSigningVaultTransaction] = useState(false);
   const [squadsClient] = useState(() => new SquadsClient());
   const [isPolling, setIsPolling] = useState(false);
   const [notification, setNotification] = useState<string | null>(null);
@@ -1006,131 +1005,6 @@ const Result: React.FC = () => {
     }
   };
 
-  const handleSignVaultTransactionApproval = async () => {
-    if (!payoutData?.proposalId || !payoutData?.vaultAddress || !publicKey || !signTransaction) {
-      setError('Missing required data for VaultTransaction approval');
-      return;
-    }
-
-    const matchId = router.query.matchId as string;
-    if (!matchId) {
-      setError('Match ID not found');
-      return;
-    }
-
-    setSigningVaultTransaction(true);
-    setError(null);
-    
-    try {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com';
-      
-      console.log('🔐 Fetching VaultTransaction approval transaction', {
-        matchId,
-        wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
-      });
-
-      // Step 1: Get the VaultTransaction approval transaction from backend
-      const txResponse = await fetch(
-        `${apiUrl}/api/match/get-vault-transaction-approval-transaction?matchId=${matchId}&wallet=${publicKey.toString()}`,
-        {
-          method: 'GET',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          credentials: 'include',
-        }
-      );
-
-      if (!txResponse.ok) {
-        const errorText = await txResponse.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || 'Unknown error' };
-        }
-        throw new Error(errorData.error || `Failed to get VaultTransaction approval transaction: ${txResponse.status}`);
-      }
-
-      const txData = await txResponse.json();
-      console.log('✅ VaultTransaction approval transaction received', {
-        matchId,
-        wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
-      });
-
-      // Step 2: Sign the VaultTransaction approval transaction
-      const { VersionedTransaction } = await import('@solana/web3.js');
-      const bytes = base64ToUint8Array(txData.transaction);
-      const approveTx = VersionedTransaction.deserialize(bytes);
-      const signedVaultTx = await signTransaction(approveTx);
-      const vaultTxSerialized = signedVaultTx.serialize();
-      const base64VaultTx = uint8ArrayToBase64(vaultTxSerialized);
-
-      console.log('✅ VaultTransaction approval transaction signed', {
-        matchId,
-        wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
-      });
-
-      // Step 3: Send signed VaultTransaction approval transaction to backend
-      console.log('📤 Submitting signed VaultTransaction approval transaction to backend', {
-        matchId,
-        wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
-      });
-
-      const response = await fetch(`${apiUrl}/api/match/sign-vault-transaction-approval`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          matchId,
-          wallet: publicKey.toString(),
-          signedTransaction: base64VaultTx,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
-        try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || 'Unknown error' };
-        }
-        throw new Error(errorData.error || `Failed to sign VaultTransaction approval: ${response.status}`);
-      }
-
-      const result = await response.json();
-      console.log('✅ VaultTransaction approval signed & backend confirmed', {
-        matchId,
-        wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
-        response: result,
-        backendStatus: response.status,
-      });
-
-      // Refresh payout data
-      if (matchId && publicKey) {
-        try {
-          await loadPayoutData();
-        } catch (statusError) {
-          console.warn('⚠️ Error refreshing status after VaultTransaction approval (non-critical):', statusError);
-        }
-      }
-    } catch (err) {
-      console.error('❌ Error signing VaultTransaction approval:', err);
-      const errorMessage = err instanceof Error ? err.message : 'Failed to sign VaultTransaction approval';
-      setError(errorMessage);
-    } finally {
-      setSigningVaultTransaction(false);
-    }
-  };
-
   // CRITICAL FIX: Show loading state while waiting for wallet connection
   if (!publicKey) {
     return (
@@ -1706,49 +1580,24 @@ const Result: React.FC = () => {
                                 });
                                 
                                 // Show Proposal sign button if user hasn't signed Proposal yet
-                                if (shouldShowButton) {
-                                  return (
-                                    <button
-                                      onClick={handleSignProposal}
-                                      disabled={signingProposal}
-                                      className="bg-accent hover:bg-yellow-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-primary font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
-                                    >
-                                      {signingProposal ? (
-                                        <>
-                                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                                          Signing...
-                                        </>
-                                      ) : 'Step 1: Sign Proposal to Claim Winnings'}
-                                    </button>
-                                  );
+                                if (!shouldShowButton) {
+                                  return null;
                                 }
-                                
-                                // Show VaultTransaction approval button if user has signed Proposal but not VaultTransaction
-                                // For now, we'll show it if the Proposal is signed and status is READY_TO_EXECUTE or ACTIVE
-                                // TODO: Add backend field to track if player has signed VaultTransaction
-                                if (userHasSigned && (payoutData.proposalStatus === 'READY_TO_EXECUTE' || payoutData.proposalStatus === 'ACTIVE')) {
-                                  return (
-                                    <div className="space-y-2">
-                                      <p className="text-sm text-white/80 mb-2">
-                                        ✓ Step 1 Complete: Proposal signed. Now approve the execution to release funds.
-                                      </p>
-                                      <button
-                                        onClick={handleSignVaultTransactionApproval}
-                                        disabled={signingVaultTransaction}
-                                        className="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
-                                      >
-                                        {signingVaultTransaction ? (
-                                          <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-                                            Approving...
-                                          </>
-                                        ) : 'Step 2: Approve Execution'}
-                                      </button>
-                                    </div>
-                                  );
-                                }
-                                
-                                return null;
+
+                                return (
+                                  <button
+                                    onClick={handleSignProposal}
+                                    disabled={signingProposal}
+                                    className="bg-accent hover:bg-yellow-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-primary font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
+                                  >
+                                    {signingProposal ? (
+                                      <>
+                                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                                        Signing...
+                                      </>
+                                    ) : 'Sign Proposal to Claim Winnings'}
+                                  </button>
+                                );
                               })()}
                             </div>
                           )}
@@ -1896,37 +1745,19 @@ const Result: React.FC = () => {
                                 });
                                 
                                 // Show Proposal sign button if user hasn't signed Proposal yet
-                                if (shouldShowButton) {
-                                  return (
-                                    <button
-                                      onClick={handleSignProposal}
-                                      disabled={signingProposal}
-                                      className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
-                                    >
-                                      {signingProposal ? 'Signing...' : 'Step 1: Sign Proposal to Claim Refund'}
-                                    </button>
-                                  );
+                                if (!shouldShowButton) {
+                                  return null;
                                 }
-                                
-                                // Show VaultTransaction approval button if user has signed Proposal but not VaultTransaction
-                                if (userHasSigned && (payoutData.proposalStatus === 'READY_TO_EXECUTE' || payoutData.proposalStatus === 'ACTIVE')) {
-                                  return (
-                                    <div className="space-y-2">
-                                      <p className="text-sm text-white/80 mb-2">
-                                        ✓ Step 1 Complete: Proposal signed. Now approve the execution to release funds.
-                                      </p>
-                                      <button
-                                        onClick={handleSignVaultTransactionApproval}
-                                        disabled={signingVaultTransaction}
-                                        className="bg-green-600 hover:bg-green-500 disabled:bg-gray-600 text-white font-bold py-2 px-6 rounded-lg transition-colors"
-                                      >
-                                        {signingVaultTransaction ? 'Approving...' : 'Step 2: Approve Execution'}
-                                      </button>
-                                    </div>
-                                  );
-                                }
-                                
-                                return null;
+
+                                return (
+                                  <button
+                                    onClick={handleSignProposal}
+                                    disabled={signingProposal}
+                                    className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                  >
+                                    {signingProposal ? 'Signing...' : 'Sign Proposal to Claim Refund'}
+                                  </button>
+                                );
                               })()}
                             </div>
                           )}
