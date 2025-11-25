@@ -2824,21 +2824,64 @@ export class SquadsVaultService {
 
       // CRITICAL FIX: Use rpc.proposalApprove which is the recommended SDK method
       // This handles Proposal approval and may also handle VaultTransaction approval
+      
+      // Validate all parameters before calling rpc.proposalApprove
+      if (!this.connection) {
+        throw new Error('Connection is undefined');
+      }
+      if (!signer || !signer.publicKey) {
+        throw new Error('Signer keypair is invalid');
+      }
+      if (!multisigAddress) {
+        throw new Error('Multisig address is undefined');
+      }
+      if (!this.programId) {
+        throw new Error('Program ID is undefined');
+      }
+      
       enhancedLogger.info('📝 Approving Proposal using rpc.proposalApprove', {
         vaultAddress,
         proposalId,
         transactionIndex: transactionIndex.toString(),
         signer: signer.publicKey.toString(),
+        programId: this.programId.toString(),
+        multisigPda: multisigAddress.toString(),
+        connectionValid: typeof this.connection.getAccountInfo === 'function',
       });
 
-      const signature = await rpc.proposalApprove({
-        connection: this.connection,
-        feePayer: signer,
-        multisigPda: multisigAddress,
-        transactionIndex: Number(transactionIndex),
-        member: signer.publicKey,
-        programId: this.programId,
-      });
+      // CRITICAL: Some versions of the SDK may not support programId parameter
+      // Try with programId first, fallback without it if it fails
+      let signature: string;
+      try {
+        signature = await rpc.proposalApprove({
+          connection: this.connection,
+          feePayer: signer,
+          multisigPda: multisigAddress,
+          transactionIndex: Number(transactionIndex),
+          member: signer.publicKey,
+          programId: this.programId,
+        });
+      } catch (programIdError: any) {
+        const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
+        if (errorMsg.includes('toBase58') || errorMsg.includes('undefined') || errorMsg.includes('programId')) {
+          enhancedLogger.warn('⚠️ rpc.proposalApprove failed with programId, retrying without it', {
+            vaultAddress,
+            proposalId,
+            error: errorMsg,
+            note: 'Some SDK versions may not support programId parameter',
+          });
+          // Retry without programId (SDK will use default)
+          signature = await rpc.proposalApprove({
+            connection: this.connection,
+            feePayer: signer,
+            multisigPda: multisigAddress,
+            transactionIndex: Number(transactionIndex),
+            member: signer.publicKey,
+          });
+        } else {
+          throw programIdError; // Re-throw if it's a different error
+        }
+      }
 
       enhancedLogger.info('✅ Proposal approved successfully using rpc.proposalApprove', {
         vaultAddress,
@@ -2935,11 +2978,27 @@ export class SquadsVaultService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error ? error.stack : undefined;
+      const errorDetails = error instanceof Error ? {
+        name: error.name,
+        message: error.message,
+        stack: error.stack,
+      } : { raw: String(error) };
+      
       enhancedLogger.error('❌ Failed to approve proposal', {
         vaultAddress,
         proposalId,
         signer: signer.publicKey.toString(),
+        transactionIndex: transactionIndex.toString(),
         error: errorMessage,
+        errorStack,
+        errorDetails,
+        connectionValid: !!this.connection,
+        programIdValid: !!this.programId,
+        programId: this.programId?.toString(),
+        multisigAddress: multisigAddress?.toString(),
+        signerPublicKey: signer.publicKey?.toString(),
+        signerHasSecretKey: !!signer.secretKey,
       });
 
       return {
