@@ -10286,26 +10286,34 @@ const getVaultTransactionApprovalTransactionHandler = async (req: any, res: any)
     }
 
     // CRITICAL: Only allow winners to approve VaultTransaction (not losers)
+    // For ties, both players can approve (they both get refunds)
     const isTie = matchRow.winner === 'tie';
-    const isWinner = matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
-    const isLoser = !isTie && !isWinner && matchRow.winner && matchRow.winner !== 'tie';
+    const isWinner = !isTie && matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
+    const isPlayer1 = matchRow.player1 && matchRow.player1.toLowerCase() === wallet.toLowerCase();
+    const isPlayer2 = matchRow.player2 && matchRow.player2.toLowerCase() === wallet.toLowerCase();
+    const isParticipant = isPlayer1 || isPlayer2;
     
-    if (isLoser) {
-      clearTimeout(timeoutId);
-      return sendResponse(403, {
-        error: 'Only winners can approve VaultTransaction. Losers will receive their payout automatically after execution.',
-        isLoser: true,
-        winner: matchRow.winner,
-      });
-    }
-    
-    if (!isTie && !isWinner) {
-      clearTimeout(timeoutId);
-      return sendResponse(403, {
-        error: 'Only winners can approve VaultTransaction for win/loss matches.',
-        isLoser: true,
-        winner: matchRow.winner,
-      });
+    // For ties: both players can approve VaultTransaction
+    // For win/loss: only winner can approve
+    if (isTie) {
+      if (!isParticipant) {
+        clearTimeout(timeoutId);
+        return sendResponse(403, {
+          error: 'Only match participants can approve VaultTransaction for tie matches.',
+          isParticipant: false,
+        });
+      }
+      // Both players can approve in ties - allow through
+    } else {
+      // Win/loss match - only winner can approve
+      if (!isWinner) {
+        clearTimeout(timeoutId);
+        return sendResponse(403, {
+          error: 'Only winners can approve VaultTransaction. Losers will receive their payout automatically after execution.',
+          isLoser: true,
+          winner: matchRow.winner,
+        });
+      }
     }
 
     const proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
@@ -10670,37 +10678,45 @@ const signProposalHandler = async (req: any, res: any) => {
     // CRITICAL: Only allow winners to sign proposals (not losers)
     // For ties, both players can sign (they both get refunds)
     const isTie = matchRow.winner === 'tie';
-    const isWinner = matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
-    const isLoser = !isTie && !isWinner && matchRow.winner && matchRow.winner !== 'tie';
+    const isWinner = !isTie && matchRow.winner && matchRow.winner.toLowerCase() === wallet.toLowerCase();
+    const isPlayer1 = matchRow.player1 && matchRow.player1.toLowerCase() === wallet.toLowerCase();
+    const isPlayer2 = matchRow.player2 && matchRow.player2.toLowerCase() === wallet.toLowerCase();
+    const isParticipant = isPlayer1 || isPlayer2;
     
-    if (isLoser) {
-      console.warn('⚠️ Loser attempted to sign proposal - blocking', {
-        matchId,
-        wallet,
-        winner: matchRow.winner,
-        proposalId: proposalIdString,
-      });
-      return res.status(403).json({
-        error: 'Only winners can sign proposals. Losers will receive their payout automatically after execution.',
-        isLoser: true,
-        winner: matchRow.winner,
-      });
-    }
-    
-    if (!isTie && !isWinner) {
-      console.warn('⚠️ Player is not the winner and match is not a tie - blocking', {
-        matchId,
-        wallet,
-        winner: matchRow.winner,
-        isTie,
-        isWinner,
-        proposalId: proposalIdString,
-      });
-      return res.status(403).json({
-        error: 'Only winners can sign proposals for win/loss matches.',
-        isLoser: true,
-        winner: matchRow.winner,
-      });
+    // For ties: both players can sign
+    // For win/loss: only winner can sign
+    if (isTie) {
+      if (!isParticipant) {
+        console.warn('⚠️ Non-participant attempted to sign proposal for tie match - blocking', {
+          matchId,
+          wallet,
+          player1: matchRow.player1,
+          player2: matchRow.player2,
+          proposalId: proposalIdString,
+        });
+        return res.status(403).json({
+          error: 'Only match participants can sign proposals for tie matches.',
+          isParticipant: false,
+        });
+      }
+      // Both players can sign in ties - allow through
+    } else {
+      // Win/loss match - only winner can sign
+      if (!isWinner) {
+        const isLoser = isParticipant && !isWinner;
+        console.warn('⚠️ Loser attempted to sign proposal - blocking', {
+          matchId,
+          wallet,
+          winner: matchRow.winner,
+          isLoser,
+          proposalId: proposalIdString,
+        });
+        return res.status(403).json({
+          error: 'Only winners can sign proposals. Losers will receive their payout automatically after execution.',
+          isLoser: true,
+          winner: matchRow.winner,
+        });
+      }
     }
 
     // Verify player hasn't already signed (make idempotent)
