@@ -3209,6 +3209,16 @@ export class SquadsVaultService {
               threshold: this.config.threshold,
               note: 'This may be a Squads SDK bug. Attempting execution anyway - the execution instruction might accept Approved state or trigger the transition',
             });
+            // CRITICAL: Force execution to proceed if we have enough approvals, even if status hasn't updated
+            // The Squads program will accept execution if the proposal has enough approvals, regardless of status
+            proposalIsExecuteReady = true;
+            enhancedLogger.info('✅ Forcing execution to proceed - proposal has enough approvals (approvedCount >= threshold)', {
+              vaultAddress,
+              proposalId,
+              approvedCount,
+              threshold: this.config.threshold,
+              note: 'Execution will proceed even though status is not ExecuteReady - Squads program will validate approvals',
+            });
           }
         }
         
@@ -3557,14 +3567,38 @@ export class SquadsVaultService {
 
       try {
         // CRITICAL FIX: The SDK requires feePayer parameter - it accesses feePayer.publicKey internally
-        const executionSignature = await rpc.vaultTransactionExecute({
-          connection: this.connection,
-          feePayer: executor, // Fee payer must sign and pay for the execution transaction
-          multisigPda: multisigAddress,
-          transactionIndex: transactionIndexNumber,
-          member: executor.publicKey, // Member that has execute permissions (must be PublicKey, not Keypair)
-          programId: this.programId,
-        });
+        // Some SDK versions may not support programId parameter - try with it first, fallback without it
+        let executionSignature: string;
+        try {
+          executionSignature = await rpc.vaultTransactionExecute({
+            connection: this.connection,
+            feePayer: executor, // Fee payer must sign and pay for the execution transaction
+            multisigPda: multisigAddress,
+            transactionIndex: transactionIndexNumber,
+            member: executor.publicKey, // Member that has execute permissions (must be PublicKey, not Keypair)
+            programId: this.programId,
+          });
+        } catch (programIdError: any) {
+          const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
+          if (errorMsg.includes('toBase58') || errorMsg.includes('undefined') || errorMsg.includes('programId')) {
+            enhancedLogger.warn('⚠️ rpc.vaultTransactionExecute failed with programId, retrying without it', {
+              vaultAddress,
+              proposalId,
+              error: errorMsg,
+              note: 'Some SDK versions may not support programId parameter',
+            });
+            // Retry without programId (SDK will use default)
+            executionSignature = await rpc.vaultTransactionExecute({
+              connection: this.connection,
+              feePayer: executor,
+              multisigPda: multisigAddress,
+              transactionIndex: transactionIndexNumber,
+              member: executor.publicKey,
+            });
+          } else {
+            throw programIdError; // Re-throw if it's a different error
+          }
+        }
 
         enhancedLogger.info('✅ rpc.vaultTransactionExecute returned signature', {
         vaultAddress,

@@ -164,22 +164,44 @@ export class ExecutionRetryService {
       const approvals = Array.isArray((proposalAccount as any).approved)
         ? (proposalAccount as any).approved.map((a: any) => a?.toString?.() || String(a))
         : [];
+      const approvalCount = approvals.length;
+      const threshold = (proposalAccount as any).threshold?.toNumber() || 2; // Default to 2 if not found
 
       enhancedLogger.info('🔍 On-chain proposal status before execution retry', {
         matchId,
         proposalId,
         statusKind,
-        approvalCount: approvals.length,
+        approvalCount,
+        threshold,
         approvals,
       });
 
+      // CRITICAL: Retry execution if:
+      // 1. Status is ExecuteReady or Approved, OR
+      // 2. Status is Active but we have enough approvals (approvalCount >= threshold)
+      // This handles cases where the proposal has enough signatures but status hasn't updated yet
       if (statusKind !== 'ExecuteReady' && statusKind !== 'Approved') {
-        enhancedLogger.warn('⚠️ Proposal is not approved yet on-chain, skipping retry for now', {
-          matchId,
-          proposalId,
-          statusKind,
-        });
-        return;
+        if (statusKind === 'Active' && approvalCount >= threshold) {
+          enhancedLogger.info('✅ Proposal is Active but has enough approvals, proceeding with retry', {
+            matchId,
+            proposalId,
+            statusKind,
+            approvalCount,
+            threshold,
+            note: 'Proposal has enough signatures - execution will proceed even though status is Active',
+          });
+          // Continue with execution - don't return
+        } else {
+          enhancedLogger.warn('⚠️ Proposal is not ready for execution yet, skipping retry for now', {
+            matchId,
+            proposalId,
+            statusKind,
+            approvalCount,
+            threshold,
+            note: 'Proposal needs more approvals or is in an invalid state',
+          });
+          return;
+        }
       }
     } catch (proposalStatusError: any) {
       enhancedLogger.warn('⚠️ Could not fetch proposal status before retry (continuing)', {
