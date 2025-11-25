@@ -10925,31 +10925,43 @@ const signProposalHandler = async (req: any, res: any) => {
           // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
           // when the linked Proposal reaches ExecuteReady.
         } else if (proposalAlreadyReady || approvalSkippedDueToReady) {
-          // Proposal is already ready to execute on-chain, so fee wallet must have signed
-          // Verify on-chain before adding to signers
+          // Proposal is already ready to execute on-chain, verify fee wallet actually signed
+          // CRITICAL: Only add fee wallet to signers if it actually signed on-chain
           try {
             const proposalStatus = await squadsVaultService.checkProposalStatus(
               matchRow.squadsVaultAddress,
               proposalIdString
             );
             
-            if (proposalStatus && proposalStatus.needsSignatures === 0) {
-              // Proposal has enough signatures on-chain, fee wallet must have signed
-              feeWalletAutoApproved = true;
-              signers.push(feeWalletAddress);
-              console.log('✅ Fee wallet confirmed as signer (proposal ready on-chain)', {
-                matchId,
-                proposalId: proposalIdString,
-                needsSignatures: proposalStatus.needsSignatures,
-                signers: proposalStatus.signers.map(s => s.toString()),
-              });
+            if (proposalStatus && proposalStatus.signers) {
+              const onChainSigners = proposalStatus.signers.map((s: any) => s.toString().toLowerCase());
+              const feeWalletInSigners = onChainSigners.includes(feeWalletAddress.toLowerCase());
+              
+              if (feeWalletInSigners) {
+                // Fee wallet actually signed on-chain - add it to signers
+                feeWalletAutoApproved = true;
+                signers.push(feeWalletAddress);
+                console.log('✅ Fee wallet confirmed as signer (verified on-chain)', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  needsSignatures: proposalStatus.needsSignatures,
+                  onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
+                });
+              } else {
+                // Proposal is ready but fee wallet didn't sign - don't add it
+                console.warn('⚠️ Proposal ready but fee wallet not in on-chain signers - not adding to database', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  needsSignatures: proposalStatus.needsSignatures,
+                  onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
+                  feeWalletAddress,
+                });
+              }
             } else {
-              // Proposal not ready yet, fee wallet hasn't signed - don't add it
-              console.warn('⚠️ Proposal not ready on-chain, fee wallet signature not confirmed', {
+              // Could not get proposal status - don't add fee wallet
+              console.warn('⚠️ Could not get proposal status to verify fee wallet signature', {
                 matchId,
                 proposalId: proposalIdString,
-                needsSignatures: proposalStatus?.needsSignatures ?? 'unknown',
-                signers: proposalStatus?.signers?.map(s => s.toString()) ?? [],
               });
             }
           } catch (verifyError: any) {
