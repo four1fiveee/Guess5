@@ -110,19 +110,59 @@ export class SquadsVaultService {
     let systemKeypair: Keypair;
     try {
       systemKeypair = getFeeWalletKeypair();
+      
+      // Check if FEE_WALLET_PRIVATE_KEY environment variable is set
+      const hasPrivateKeyEnv = !!process.env.FEE_WALLET_PRIVATE_KEY;
+      const privateKeyLength = process.env.FEE_WALLET_PRIVATE_KEY?.length || 0;
+      
       enhancedLogger.info('✅ System keypair loaded successfully', {
         publicKey: systemKeypair.publicKey.toString(),
+        hasPrivateKeyEnv,
+        privateKeyLength,
+        hasSecretKey: !!systemKeypair.secretKey && systemKeypair.secretKey.length > 0,
+        secretKeyLength: systemKeypair.secretKey?.length || 0,
       });
+      
+      // Check fee wallet balance on-chain
+      try {
+        const balance = await this.connection.getBalance(systemKeypair.publicKey);
+        const balanceSOL = balance / 1e9;
+        enhancedLogger.info('💰 Fee wallet on-chain balance', {
+          publicKey: systemKeypair.publicKey.toString(),
+          balance: balance,
+          balanceSOL: balanceSOL.toFixed(9),
+          sufficient: balance >= 0.001 * 1e9,
+        });
+        if (balance < 0.001 * 1e9) {
+          enhancedLogger.warn('⚠️ Fee wallet has low balance - may fail to pay transaction fees', {
+            publicKey: systemKeypair.publicKey.toString(),
+            balanceSOL: balanceSOL.toFixed(9),
+            minimumRecommended: 0.001,
+          });
+        }
+      } catch (balanceError: any) {
+        enhancedLogger.warn('⚠️ Could not check fee wallet balance during initialization', {
+          publicKey: systemKeypair.publicKey.toString(),
+          error: balanceError?.message || String(balanceError),
+        });
+      }
     } catch (keypairError: unknown) {
       const errorMsg = keypairError instanceof Error ? keypairError.message : String(keypairError);
       enhancedLogger.error('❌ Failed to load system keypair', {
         error: errorMsg,
+        hasFEE_WALLET_PRIVATE_KEY: !!process.env.FEE_WALLET_PRIVATE_KEY,
+        FEE_WALLET_PRIVATE_KEY_length: process.env.FEE_WALLET_PRIVATE_KEY?.length || 0,
       });
       throw new Error(`Failed to load system keypair: ${errorMsg}. Ensure FEE_WALLET_PRIVATE_KEY is set.`);
     }
 
     // Validate keypair has signing capability
     if (!systemKeypair.secretKey || systemKeypair.secretKey.length === 0) {
+      enhancedLogger.error('❌ System keypair validation failed', {
+        publicKey: systemKeypair.publicKey.toString(),
+        hasSecretKey: !!systemKeypair.secretKey,
+        secretKeyLength: systemKeypair.secretKey?.length || 0,
+      });
       throw new Error('System keypair does not have a valid secret key for signing');
     }
 
@@ -2843,6 +2883,31 @@ export class SquadsVaultService {
         throw new Error('Program ID is undefined');
       }
       
+      // Check fee wallet balance before attempting approval
+      let feeWalletBalance: number | null = null;
+      try {
+        const balance = await this.connection.getBalance(signer.publicKey);
+        feeWalletBalance = balance;
+        enhancedLogger.info('💰 Fee wallet balance check', {
+          signer: signer.publicKey.toString(),
+          balance: balance,
+          balanceSOL: balance / 1e9,
+        });
+        if (balance < 0.001 * 1e9) {
+          enhancedLogger.warn('⚠️ Fee wallet has low balance - may fail to pay transaction fees', {
+            signer: signer.publicKey.toString(),
+            balance: balance,
+            balanceSOL: balance / 1e9,
+            minimumRecommended: 0.001,
+          });
+        }
+      } catch (balanceError: any) {
+        enhancedLogger.warn('⚠️ Could not check fee wallet balance', {
+          signer: signer.publicKey.toString(),
+          error: balanceError?.message || String(balanceError),
+        });
+      }
+
       enhancedLogger.info('📝 Approving Proposal using rpc.proposalApprove', {
         vaultAddress,
         proposalId,
@@ -2851,6 +2916,7 @@ export class SquadsVaultService {
         programId: this.programId.toString(),
         multisigPda: multisigAddress.toString(),
         connectionValid: typeof this.connection.getAccountInfo === 'function',
+        feeWalletBalance: feeWalletBalance !== null ? `${feeWalletBalance / 1e9} SOL` : 'unknown',
       });
 
       // CRITICAL: Some versions of the SDK may not support programId parameter
@@ -2865,6 +2931,12 @@ export class SquadsVaultService {
           member: signer.publicKey,
           programId: this.programId,
         });
+        enhancedLogger.info('✅ rpc.proposalApprove succeeded with programId', {
+          vaultAddress,
+          proposalId,
+          signature,
+          signer: signer.publicKey.toString(),
+        });
       } catch (programIdError: any) {
         const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
         if (errorMsg.includes('toBase58') || errorMsg.includes('undefined') || errorMsg.includes('programId')) {
@@ -2875,14 +2947,39 @@ export class SquadsVaultService {
             note: 'Some SDK versions may not support programId parameter',
           });
           // Retry without programId (SDK will use default)
-          signature = await rpc.proposalApprove({
-            connection: this.connection,
-            feePayer: signer,
-            multisigPda: multisigAddress,
-            transactionIndex: Number(transactionIndex),
-            member: signer.publicKey,
-          });
+          try {
+            signature = await rpc.proposalApprove({
+              connection: this.connection,
+              feePayer: signer,
+              multisigPda: multisigAddress,
+              transactionIndex: Number(transactionIndex),
+              member: signer.publicKey,
+            });
+            enhancedLogger.info('✅ rpc.proposalApprove succeeded WITHOUT programId (retry)', {
+              vaultAddress,
+              proposalId,
+              signature,
+              signer: signer.publicKey.toString(),
+            });
+          } catch (retryError: any) {
+            const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
+            enhancedLogger.error('❌ rpc.proposalApprove FAILED on retry without programId', {
+              vaultAddress,
+              proposalId,
+              signer: signer.publicKey.toString(),
+              error: retryErrorMsg,
+              stack: retryError instanceof Error ? retryError.stack : undefined,
+            });
+            throw retryError; // Re-throw the retry error
+          }
         } else {
+          enhancedLogger.error('❌ rpc.proposalApprove failed with non-programId error', {
+            vaultAddress,
+            proposalId,
+            signer: signer.publicKey.toString(),
+            error: errorMsg,
+            stack: programIdError instanceof Error ? programIdError.stack : undefined,
+          });
           throw programIdError; // Re-throw if it's a different error
         }
       }
