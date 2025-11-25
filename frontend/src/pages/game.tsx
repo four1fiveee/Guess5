@@ -535,8 +535,7 @@ const Game: React.FC = () => {
         setEntryFee(matchData.entryFee || 0);
         setMatchDataState(matchData);
         
-        // Set opponent username
-        const isPlayer1 = publicKey?.toString() === matchData.player1;
+        // Set opponent username (reuse isPlayer1 from above)
         const opponentWallet = isPlayer1 ? matchData.player2 : matchData.player1;
         if (opponentWallet) {
           // Fetch opponent username
