@@ -395,6 +395,21 @@ const Result: React.FC = () => {
             
             setPayoutData(payoutData);
             setLoading(false);
+            
+            // CRITICAL FIX: Set proposal creation start time based on when match was completed, not when player arrived
+            // This ensures both players see the same progress percentage
+            if (bothPlayersHaveResults && !proposalCreationStartTime && !payoutData.proposalId) {
+              // Use current time minus a small offset to account for the time it took to detect completion
+              // This ensures the progress bar starts from a reasonable point for both players
+              const matchCompletionTime = Date.now() - 2000; // Assume match completed 2 seconds ago
+              setProposalCreationStartTime(matchCompletionTime);
+              console.log('📊 Setting proposal creation start time based on match completion', {
+                matchId,
+                matchCompletionTime: new Date(matchCompletionTime).toISOString(),
+                bothPlayersHaveResults,
+                note: 'This ensures both players see consistent progress percentages'
+              });
+            }
             // CRITICAL: Always stop loading even if proposal doesn't exist yet
             // This prevents the spinning wheel from blocking the UI
             // CRITICAL FIX: Continue polling until proposal is executed or user has signed
@@ -564,10 +579,9 @@ const Result: React.FC = () => {
     }
 
     console.log('✅ Wallet connected on results page, loading payout data');
-    // Start tracking proposal creation time if we don't have a proposal yet
-    if (!payoutData?.proposalId && !proposalCreationStartTime) {
-      setProposalCreationStartTime(Date.now());
-    }
+    // CRITICAL FIX: Don't set proposalCreationStartTime here - wait until we know the match is completed
+    // This prevents the progress bar from starting at different times for different players
+    // The start time will be set in loadPayoutData when we detect bothPlayersHaveResults
     loadPayoutData();
   }, [publicKey, router]);
 

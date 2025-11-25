@@ -4202,7 +4202,103 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           
           const retryLockAcquired = await getProposalLock(freshMatch.id);
           if (retryLockAcquired) {
-            console.log('✅ Lock acquired after aggressive cleanup (FINAL FALLBACK winner)');
+            console.log('✅ Lock acquired after aggressive cleanup (FINAL FALLBACK winner), creating proposal now...');
+            
+            // CRITICAL FIX: Actually create the proposal after acquiring the lock
+            try {
+              const { AppDataSource } = require('../db/index');
+              const matchRepository = AppDataSource.getRepository(Match);
+              
+              // Double-check proposal still doesn't exist
+              const checkRows = await matchRepository.query(`
+                SELECT "payoutProposalId", "tieRefundProposalId"
+                FROM "match"
+                WHERE id = $1
+                LIMIT 1
+              `, [freshMatch.id]);
+              if (checkRows && checkRows.length > 0 && (checkRows[0].payoutProposalId || checkRows[0].tieRefundProposalId)) {
+                console.log('✅ Proposal already exists (created by another process after lock release)');
+                (match as any).payoutProposalId = checkRows[0].payoutProposalId || (match as any).payoutProposalId;
+                (match as any).tieRefundProposalId = checkRows[0].tieRefundProposalId || (match as any).tieRefundProposalId;
+              } else {
+                const { PublicKey } = require('@solana/web3.js');
+                const { squadsVaultService } = require('../services/squadsVaultService');
+                
+                const winner = freshMatch.winner;
+                const entryFee = freshMatch.entryFee;
+                const totalPot = entryFee * 2;
+                const winnerAmount = totalPot * 0.95;
+                const feeAmount = totalPot * 0.05;
+                
+                console.log('🚀 FINAL FALLBACK (after stale lock cleanup): Creating proposal synchronously...', {
+                  matchId: freshMatch.id,
+                  vaultAddress: (freshMatch as any).squadsVaultAddress,
+                  winner,
+                  winnerAmount,
+                  feeAmount
+                });
+                
+                const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                  (freshMatch as any).squadsVaultAddress,
+                  new PublicKey(winner),
+                  winnerAmount,
+                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                  feeAmount,
+                  (freshMatch as any).squadsVaultPda ?? undefined
+                );
+                
+                console.log('📋 FINAL FALLBACK (after stale lock cleanup): proposeWinnerPayout result:', {
+                  matchId: freshMatch.id,
+                  success: proposalResult.success,
+                  proposalId: proposalResult.proposalId,
+                  error: proposalResult.error,
+                  needsSignatures: proposalResult.needsSignatures
+                });
+                
+                if (proposalResult.success && proposalResult.proposalId) {
+                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
+                  applyProposalStateToMatch(match, proposalState);
+
+                  // Update match with proposal data using raw SQL
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "payoutProposalId" = $1,
+                        "proposalStatus" = $2,
+                        "proposalCreatedAt" = NOW(),
+                        "needsSignatures" = $3,
+                        "updatedAt" = NOW()
+                    WHERE id = $4
+                  `, [
+                    proposalResult.proposalId,
+                    proposalState.status,
+                    proposalState.needsSignatures,
+                    freshMatch.id
+                  ]);
+                  
+                  console.log('✅ FINAL FALLBACK: Proposal created successfully after stale lock cleanup', {
+                    matchId: freshMatch.id,
+                    proposalId: proposalResult.proposalId,
+                    status: proposalState.status,
+                    needsSignatures: proposalState.needsSignatures
+                  });
+                  
+                  (match as any).payoutProposalId = proposalResult.proposalId;
+                  (match as any).proposalStatus = proposalState.status;
+                  (match as any).needsSignatures = proposalState.needsSignatures;
+                } else {
+                  console.error('❌ FINAL FALLBACK: Failed to create proposal after stale lock cleanup', {
+                    matchId: freshMatch.id,
+                    error: proposalResult.error
+                  });
+                }
+              }
+            } catch (proposalError: any) {
+              console.error('❌ FINAL FALLBACK: Error creating proposal after stale lock cleanup', {
+                matchId: freshMatch.id,
+                error: proposalError?.message || String(proposalError),
+                stack: proposalError?.stack
+              });
+            }
           } else {
             console.warn('⚠️ Still could not acquire lock after cleanup, but continuing anyway (fail-open)');
           }
@@ -4355,7 +4451,111 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           
           const retryLockAcquired = await getProposalLock(freshMatch.id);
           if (retryLockAcquired) {
-            console.log('✅ Lock acquired after aggressive cleanup (FINAL FALLBACK tie)');
+            console.log('✅ Lock acquired after aggressive cleanup (FINAL FALLBACK tie), creating proposal now...');
+            
+            // CRITICAL FIX: Actually create the proposal after acquiring the lock
+            try {
+              const { AppDataSource } = require('../db/index');
+              const matchRepository = AppDataSource.getRepository(Match);
+              
+              // Double-check proposal still doesn't exist
+              const checkRows = await matchRepository.query(`
+                SELECT "payoutProposalId", "tieRefundProposalId"
+                FROM "match"
+                WHERE id = $1
+                LIMIT 1
+              `, [freshMatch.id]);
+              if (checkRows && checkRows.length > 0 && (checkRows[0].payoutProposalId || checkRows[0].tieRefundProposalId)) {
+                console.log('✅ Proposal already exists (created by another process after lock release)');
+                (match as any).payoutProposalId = checkRows[0].payoutProposalId || (match as any).payoutProposalId;
+                (match as any).tieRefundProposalId = checkRows[0].tieRefundProposalId || (match as any).tieRefundProposalId;
+              } else if (freshMatch.winner === 'tie') {
+                const player1Result = freshMatch.getPlayer1Result();
+                const player2Result = freshMatch.getPlayer2Result();
+                const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
+                
+                if (isLosingTie) {
+                  const { squadsVaultService } = require('../services/squadsVaultService');
+                  const entryFee = freshMatch.entryFee;
+                  const refundAmount = entryFee * 0.95;
+                  
+                  console.log('🚀 FINAL FALLBACK (after stale lock cleanup): Creating tie refund proposal...', {
+                    matchId: freshMatch.id,
+                    refundAmount,
+                    player1: freshMatch.player1,
+                    player2: freshMatch.player2,
+                    vaultAddress: (freshMatch as any).squadsVaultAddress
+                  });
+                  
+                  const tiePaymentStatus = {
+                    ...(freshMatch.player1Paid !== undefined && { player1Paid: !!freshMatch.player1Paid }),
+                    ...(freshMatch.player2Paid !== undefined && { player2Paid: !!freshMatch.player2Paid }),
+                  };
+                  
+                  const proposalResult = await squadsVaultService.proposeTieRefund(
+                    (freshMatch as any).squadsVaultAddress,
+                    new PublicKey(freshMatch.player1),
+                    new PublicKey(freshMatch.player2),
+                    refundAmount,
+                    (freshMatch as any).squadsVaultPda ?? undefined,
+                    tiePaymentStatus
+                  );
+                  
+                  console.log('📋 FINAL FALLBACK (after stale lock cleanup): proposeTieRefund result:', {
+                    matchId: freshMatch.id,
+                    success: proposalResult.success,
+                    proposalId: proposalResult.proposalId,
+                    error: proposalResult.error,
+                    needsSignatures: proposalResult.needsSignatures
+                  });
+                  
+                  if (proposalResult.success && proposalResult.proposalId) {
+                    const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
+                    applyProposalStateToMatch(match, proposalState);
+
+                    // Update match with proposal data using raw SQL
+                    await matchRepository.query(`
+                      UPDATE "match"
+                      SET "tieRefundProposalId" = $1,
+                          "proposalStatus" = $2,
+                          "proposalCreatedAt" = NOW(),
+                          "needsSignatures" = $3,
+                          "updatedAt" = NOW()
+                      WHERE id = $4
+                    `, [
+                      proposalResult.proposalId,
+                      proposalState.status,
+                      proposalState.needsSignatures,
+                      freshMatch.id
+                    ]);
+                    
+                    console.log('✅ FINAL FALLBACK: Tie refund proposal created successfully after stale lock cleanup', {
+                      matchId: freshMatch.id,
+                      proposalId: proposalResult.proposalId,
+                      status: proposalState.status,
+                      needsSignatures: proposalState.needsSignatures
+                    });
+                    
+                    (match as any).tieRefundProposalId = proposalResult.proposalId;
+                    (match as any).proposalStatus = proposalState.status;
+                    (match as any).needsSignatures = proposalState.needsSignatures;
+                  } else {
+                    console.error('❌ FINAL FALLBACK: Failed to create tie refund proposal after stale lock cleanup', {
+                      matchId: freshMatch.id,
+                      error: proposalResult.error
+                    });
+                  }
+                }
+              }
+            } catch (proposalError: any) {
+              console.error('❌ FINAL FALLBACK: Error creating tie refund proposal after stale lock cleanup', {
+                matchId: freshMatch.id,
+                error: proposalError?.message || String(proposalError),
+                stack: proposalError?.stack
+              });
+            }
+          } else {
+            console.warn('⚠️ Still could not acquire lock after cleanup (FINAL FALLBACK tie), but continuing anyway (fail-open)');
           }
         } else {
           // Check for existing proposals only if lock is not stale
