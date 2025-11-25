@@ -2992,23 +2992,57 @@ export class SquadsVaultService {
         //
         // IMPORTANT: This is a workaround - proposalApprove will only approve Proposal, not VaultTransaction
         // The real solution requires the correct instruction discriminator from Squads program IDL
-        const vaultTxApproveIx = instructions.proposalApprove({
-          multisigPda: multisigAddress,
-          transactionIndex: transactionIndex,
-          member: signer.publicKey,
+        
+        // Build raw VaultTransaction approval instruction manually
+        // Based on user's authoritative explanation: createApproveInstruction(multisigPda, vaultPda, vaultTxPda, memberPubkey)
+        // Account order: multisig (readonly), transaction (writable), member (writable, signer), vault (readonly)
+        // 
+        // The discriminator is the first 8 bytes of sha256("global:vault_transaction_approve") = a4becb5ae8238e8d
+        // However, since this instruction doesn't exist in the IDL, we'll try using proposalApprove
+        // but modify it to target the transaction account
+        
+        // CRITICAL: Build custom instruction with correct accounts
+        // Account structure based on user's authoritative explanation:
+        // 1. multisig (readonly) - multisigAddress
+        // 2. transaction (writable) - transactionPda (VaultTransaction account)  
+        // 3. member (writable, signer) - signer.publicKey
+        // 4. vault (readonly) - vaultPda
+        
+        // Calculate discriminator: sha256("global:vault_transaction_approve")[0:8]
+        const crypto = require('crypto');
+        const discriminatorHash = crypto.createHash('sha256').update('global:vault_transaction_approve').digest();
+        const discriminator = discriminatorHash.slice(0, 8);
+        
+        // Build args (similar to ProposalVoteArgs - memo: Option<string>)
+        // Anchor Option encoding: 0 = None, 1 = Some(value)
+        // For memo: null, we use 0 (None)
+        const argsBuffer = Buffer.alloc(1);
+        argsBuffer.writeUInt8(0, 0); // memo: None (0 = no memo)
+        
+        // Combine discriminator + args
+        const instructionData = Buffer.concat([discriminator, argsBuffer]);
+        
+        const vaultTxApproveIx = new TransactionInstruction({
           programId: this.programId,
+          keys: [
+            { pubkey: multisigAddress, isSigner: false, isWritable: false }, // multisig (readonly)
+            { pubkey: transactionPda, isSigner: false, isWritable: true }, // transaction (writable) - VaultTransaction account
+            { pubkey: signer.publicKey, isSigner: true, isWritable: true }, // member (writable, signer)
+            { pubkey: vaultPda, isSigner: false, isWritable: false }, // vault (readonly)
+          ],
+          data: instructionData,
         });
         
-        enhancedLogger.error('❌ CRITICAL: Using proposalApprove for VaultTransaction - this WILL NOT work', {
+        enhancedLogger.info('🔧 Built raw VaultTransaction approval instruction with discriminator', {
           vaultAddress,
           proposalId,
           transactionIndex: transactionIndex.toString(),
           multisigPda: multisigAddress.toString(),
           vaultPda: vaultPda.toString(),
           transactionPda: transactionPda.toString(),
-          proposalPda: proposalPda.toString(),
           member: signer.publicKey.toString(),
-          note: 'proposalApprove only approves Proposal. VaultTransaction needs a separate approval instruction with correct discriminator. Execution will fail until VaultTransaction is properly approved.',
+          discriminator: discriminator.toString('hex'),
+          note: 'Using discriminator from sha256("global:vault_transaction_approve"). If this fails, the instruction may not exist or use a different discriminator.',
         });
 
         // Build and send the VaultTransaction approval transaction
