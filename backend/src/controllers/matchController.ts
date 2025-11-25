@@ -11239,39 +11239,75 @@ const signProposalHandler = async (req: any, res: any) => {
         } else {
           // CRITICAL: Atomic execution enqueue (expert recommendation)
           // Use atomic update to ensure only one execution is enqueued
+          // CRITICAL FIX: Allow execution if executedAt is NULL, even if status is already 'EXECUTING'
+          // This handles cases where execution was marked as EXECUTING but never completed (stuck state)
           try {
-            const updated = await matchRepository.query(`
-              UPDATE "match"
-              SET "proposalStatus" = 'EXECUTING'
-              WHERE id = $1 
-                AND "proposalExecutedAt" IS NULL 
-                AND "proposalStatus" != 'EXECUTING'
-              RETURNING id
+            // First check if proposal is already executed
+            const checkExecuted = await matchRepository.query(`
+              SELECT "proposalExecutedAt", "proposalStatus"
+              FROM "match"
+              WHERE id = $1
+              LIMIT 1
             `, [matchId]);
             
-            if (updated.length === 0) {
-              console.log('⚠️ Execution already enqueued or executed (atomic check)', {
+            if (checkExecuted && checkExecuted.length > 0 && checkExecuted[0].proposalExecutedAt) {
+              console.log('✅ Proposal already executed, skipping duplicate execution', {
                 matchId,
                 proposalId: proposalIdString,
-                currentStatus: matchRow.proposalStatus,
-                executedAt: matchRow.proposalExecutedAt,
+                executedAt: checkExecuted[0].proposalExecutedAt,
               });
-              // Execution already in progress or completed, skip
               return;
             }
             
-            console.log('✅ Execution enqueued atomically', {
-              matchId,
-              proposalId: proposalIdString,
-            });
+            // If status is EXECUTING but no execution record, allow execution to proceed (stuck state recovery)
+            if (checkExecuted && checkExecuted.length > 0 && checkExecuted[0].proposalStatus === 'EXECUTING' && !checkExecuted[0].proposalExecutedAt) {
+              console.warn('⚠️ Proposal stuck in EXECUTING state with no execution record - forcing execution', {
+                matchId,
+                proposalId: proposalIdString,
+                currentStatus: checkExecuted[0].proposalStatus,
+                note: 'Previous execution attempt likely failed - retrying now'
+              });
+              // Continue with execution - don't return
+            } else {
+              // Normal case: try to atomically set status to EXECUTING
+              const updated = await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = 'EXECUTING'
+                WHERE id = $1 
+                  AND "proposalExecutedAt" IS NULL 
+                  AND "proposalStatus" != 'EXECUTING'
+                RETURNING id
+              `, [matchId]);
+              
+              if (updated.length === 0) {
+                console.log('⚠️ Could not atomically set status to EXECUTING (may already be EXECUTING or executed)', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  currentStatus: checkExecuted?.[0]?.proposalStatus || matchRow.proposalStatus,
+                  executedAt: checkExecuted?.[0]?.proposalExecutedAt || matchRow.proposalExecutedAt,
+                });
+                // If we couldn't update, check if it's because it's already executed
+                if (checkExecuted && checkExecuted.length > 0 && checkExecuted[0].proposalExecutedAt) {
+                  return; // Already executed, skip
+                }
+                // Otherwise, continue with execution (might be stuck in EXECUTING state)
+              } else {
+                console.log('✅ Execution enqueued atomically', {
+                  matchId,
+                  proposalId: proposalIdString,
+                });
+              }
+            }
           } catch (markError: any) {
-            console.warn('⚠️ Could not atomically enqueue execution', {
+            console.warn('⚠️ Could not atomically enqueue execution, but proceeding anyway (fail-open)', {
               matchId,
               proposalId: proposalIdString,
               error: markError?.message || String(markError),
+              note: 'Continuing with execution to prevent stuck proposals - duplicate execution will be handled by idempotent checks'
             });
-            // If atomic update fails, don't proceed with execution to avoid duplicates
-            return;
+            // CRITICAL FIX: Don't return on atomic update failure - proceed with execution
+            // The execution itself has idempotent checks (proposalExecutedAt check)
+            // This prevents proposals from getting stuck if atomic update fails
           }
           
           // CRITICAL: Log pre-execution check (expert recommendation)
@@ -11320,23 +11356,40 @@ const signProposalHandler = async (req: any, res: any) => {
               }
 
               if (feeWalletKeypair) {
-                console.log('🚀 Executing proposal in background with signer summary', {
+                console.log('🚀 CRITICAL: Executing proposal NOW in background with signer summary', {
                   matchId,
                   proposalId: proposalIdString,
-                  signers: finalSigners,
+                  signers: finalSigners.map(s => s.toString()),
+                  signerCount: finalSigners.length,
                   onChainSignerCount,
                   dbSignerCount: uniqueSigners.length,
                   needsSignaturesBeforeExecute: newNeedsSignatures,
                   proposalStatusBeforeExecute: newProposalStatus,
                   vaultAddress: matchRow.squadsVaultAddress,
                   vaultPda: matchRow.squadsVaultPda ?? null,
+                  executor: feeWalletKeypair.publicKey.toString(),
+                  threshold: 2,
+                  note: 'This execution MUST succeed - funds are locked in vault until execution completes'
                 });
+                
+                const executionStartTime = Date.now();
               const executeResult = await squadsVaultService.executeProposal(
                 matchRow.squadsVaultAddress,
                 proposalIdString,
                 feeWalletKeypair,
                 matchRow.squadsVaultPda ?? undefined
               );
+              
+              const executionDuration = Date.now() - executionStartTime;
+              console.log('📊 Execution attempt completed', {
+                matchId,
+                proposalId: proposalIdString,
+                success: executeResult.success,
+                duration: `${executionDuration}ms`,
+                signature: executeResult.signature || null,
+                error: executeResult.error || null,
+                correlationId: executeResult.correlationId || null,
+              });
 
             if (executeResult.success) {
               const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
@@ -11523,7 +11576,28 @@ const signProposalHandler = async (req: any, res: any) => {
             console.warn('⚠️ Proposal signed but execution error occurred. Will be retried on next status check.');
           }
         }
-        })(); // Execute in background - fire and forget
+        })().catch((uncaughtError: any) => {
+          // CRITICAL: Catch any uncaught errors in background execution
+          console.error('❌ UNCAUGHT ERROR in background proposal execution', {
+            matchId,
+            proposalId: proposalIdString,
+            error: uncaughtError?.message || String(uncaughtError),
+            stack: uncaughtError?.stack,
+            note: 'This error would have been silently swallowed - ensuring it is logged and proposal status is reset'
+          });
+          
+          // Reset status to READY_TO_EXECUTE so retry service can pick it up
+          matchRepository.query(`
+            UPDATE "match"
+            SET "proposalStatus" = 'READY_TO_EXECUTE'
+            WHERE id = $1 AND "proposalExecutedAt" IS NULL
+          `, [matchId]).catch((dbErr: any) => {
+            console.error('❌ Failed to reset proposal status after uncaught execution error', {
+              matchId,
+              error: dbErr?.message || String(dbErr),
+            });
+          });
+        }); // Execute in background with error handling
         } // Close else block for alreadyExecuted check
       } else {
         console.log('⏳ Proposal still awaiting additional signatures before execution', {
