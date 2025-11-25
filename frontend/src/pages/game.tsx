@@ -151,20 +151,27 @@ const Game: React.FC = () => {
       // This prevents one player from being kicked out when the other finishes
       const bothPlayersHaveResults = data.player1Result && data.player2Result;
       
-      // If the game is completed AND both players have finished, store payout data and navigate
-      if (data.status === 'completed' && data.payout && bothPlayersHaveResults) {
+      // If both players have results, redirect to results page (even if proposal isn't created yet)
+      // The results page will handle waiting for proposal creation
+      if (bothPlayersHaveResults) {
     
         
         // Create payout data object for localStorage
+        const player1Result = data.player1Result;
+        const player2Result = data.player2Result;
+        const isPlayer1 = publicKey?.toString() === data.player1;
+        const playerResult = isPlayer1 ? player1Result : player2Result;
+        const opponentResult = isPlayer1 ? player2Result : player1Result;
+        
         const payoutData = {
-          won: data.winner === publicKey?.toString(),
+          won: data.winner === publicKey?.toString() && data.winner !== 'tie',
           isTie: data.winner === 'tie',
           winner: data.winner,
-          numGuesses: result.numGuesses,
+          numGuesses: playerResult?.numGuesses || result.numGuesses,
           entryFee: entryFee, // Use the actual entry fee from match data
-          timeElapsed: `${Math.floor(result.totalTime / 1000)}s`,
-          opponentTimeElapsed: 'N/A', // This will be updated when opponent finishes
-          opponentGuesses: 0, // This will be updated when opponent finishes
+          timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
+          opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+          opponentGuesses: opponentResult?.numGuesses || 0,
           winnerAmount: data.payout?.winnerAmount || 0,
           feeAmount: data.payout?.feeAmount || 0,
           refundAmount: data.payout?.refundAmount || 0,
@@ -172,7 +179,9 @@ const Game: React.FC = () => {
           feeWallet: data.payout?.feeWallet || '',
           transactions: data.payout?.transactions || [],
           automatedPayout: data.payout?.paymentSuccess || false,
-          payoutSignature: data.payout?.transactions?.[0]?.signature || null
+          payoutSignature: data.payout?.transactions?.[0]?.signature || null,
+          proposalId: data.payoutProposalId || data.tieRefundProposalId || null,
+          proposalStatus: data.proposalStatus || null
         };
         
         // Store payout data in localStorage
@@ -180,7 +189,11 @@ const Game: React.FC = () => {
 
         
         // Navigate to results page
-        console.log('🏆 Game completed, navigating to results page');
+        console.log('🏆 Both players have results, navigating to results page', {
+          bothPlayersHaveResults,
+          hasPayout: !!data.payout,
+          proposalId: payoutData.proposalId
+        });
         router.push(`/result?matchId=${matchId}`);
       } else if (data.status === 'waiting') {
         // Game is still waiting for other player, show waiting state
@@ -191,10 +204,25 @@ const Game: React.FC = () => {
         const pollForCompletion = async () => {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL;
-            const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`);
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
-            if (response.ok) {
-              const matchData = await response.json();
+            try {
+              const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {
+                signal: controller.signal
+              });
+              
+              clearTimeout(timeoutId);
+              
+              // Handle timeout (408) or other errors
+              if (response.status === 408 || response.status >= 500) {
+                console.warn('⚠️ Status endpoint timeout or error, will retry:', response.status);
+                setTimeout(pollForCompletion, 2000);
+                return;
+              }
+              
+              if (response.ok) {
+                const matchData = await response.json();
               
               // Check if both players have results (more reliable than just isCompleted)
               const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
@@ -245,6 +273,13 @@ const Game: React.FC = () => {
                 
                 router.push(`/result?matchId=${matchId}`);
                 return;
+              }
+            } catch (fetchError: any) {
+              clearTimeout(timeoutId);
+              if (fetchError.name === 'AbortError') {
+                console.warn('⚠️ Status request timed out, will retry');
+              } else {
+                console.error('❌ Error fetching status:', fetchError);
               }
             }
           } catch (error) {

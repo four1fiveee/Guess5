@@ -3695,77 +3695,84 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       // Don't throw - allow the response to continue
     }
 
-    // CRITICAL FIX: Catch-up mechanism for fee wallet auto-approval
+    // CRITICAL FIX: Catch-up mechanism for fee wallet auto-approval (NON-BLOCKING)
     // If a player signed on-chain but the backend wasn't notified (e.g., frontend POST failed),
     // we detect it here and trigger fee wallet auto-approval
+    // IMPORTANT: This runs in the background and does NOT block the status endpoint response
     if (match && matchRepository && ((match as any).payoutProposalId || (match as any).tieRefundProposalId)) {
-      try {
-        const proposalIdString = String((match as any).payoutProposalId || (match as any).tieRefundProposalId).trim();
-        const vaultAddress = (match as any).squadsVaultAddress;
-        
-        if (vaultAddress && proposalIdString) {
-          const { SquadsVaultService } = require('../services/squadsVaultService');
-          const squadsService = new SquadsVaultService();
-          const feeWalletAddress = squadsService.getSystemPublicKey?.()?.toString();
+      // Fire and forget - don't await, don't block the response
+      (async () => {
+        try {
+          const proposalIdString = String((match as any).payoutProposalId || (match as any).tieRefundProposalId).trim();
+          const vaultAddress = (match as any).squadsVaultAddress;
           
-          // Check on-chain proposal status
-          const onChainStatus = await squadsService.checkProposalStatus(vaultAddress, proposalIdString);
-          
-          if (onChainStatus && onChainStatus.signers && feeWalletAddress) {
-            const onChainSigners = onChainStatus.signers.map((s: any) => s.toString().toLowerCase());
-            const feeWalletInSigners = onChainSigners.includes(feeWalletAddress.toLowerCase());
-            const dbSigners = normalizeProposalSigners((match as any).proposalSigners);
-            const feeWalletInDb = dbSigners.some((s: string) => s && s.toLowerCase() === feeWalletAddress.toLowerCase());
+          if (vaultAddress && proposalIdString) {
+            const { SquadsVaultService } = require('../services/squadsVaultService');
+            const squadsService = new SquadsVaultService();
+            const feeWalletAddress = squadsService.getSystemPublicKey?.()?.toString();
             
-            // If fee wallet hasn't signed on-chain but a player has, trigger auto-approval
-            if (!feeWalletInSigners && onChainSigners.length > 0 && onChainStatus.needsSignatures > 0) {
-              console.log('🔧 CATCH-UP: Player signed on-chain but fee wallet hasn\'t - triggering auto-approval', {
-                matchId: match.id,
-                proposalId: proposalIdString,
-                onChainSigners,
-                feeWalletAddress,
-                needsSignatures: onChainStatus.needsSignatures,
-              });
+            // Check on-chain proposal status (with timeout to prevent hanging)
+            const onChainStatus = await Promise.race([
+              squadsService.checkProposalStatus(vaultAddress, proposalIdString),
+              new Promise((_, reject) => setTimeout(() => reject(new Error('Catch-up check timeout')), 5000))
+            ]).catch(() => null);
+            
+            if (onChainStatus && onChainStatus.signers && feeWalletAddress) {
+              const onChainSigners = onChainStatus.signers.map((s: any) => s.toString().toLowerCase());
+              const feeWalletInSigners = onChainSigners.includes(feeWalletAddress.toLowerCase());
+              const dbSigners = normalizeProposalSigners((match as any).proposalSigners);
+              const feeWalletInDb = dbSigners.some((s: string) => s && s.toLowerCase() === feeWalletAddress.toLowerCase());
               
-              try {
-                const { getFeeWalletKeypair } = require('../config/wallet');
-                const feeWalletKeypair = getFeeWalletKeypair();
-                
-                const approveResult = await squadsService.approveProposal(
-                  vaultAddress,
-                  proposalIdString,
-                  feeWalletKeypair
-                );
-                
-                if (approveResult.success) {
-                  console.log('✅ CATCH-UP: Fee wallet auto-approval successful', {
-                    matchId: match.id,
-                    proposalId: proposalIdString,
-                    signature: approveResult.signature,
-                  });
-                } else {
-                  console.warn('⚠️ CATCH-UP: Fee wallet auto-approval failed', {
-                    matchId: match.id,
-                    proposalId: proposalIdString,
-                    error: approveResult.error,
-                  });
-                }
-              } catch (catchUpError: any) {
-                console.warn('⚠️ CATCH-UP: Fee wallet auto-approval exception', {
+              // If fee wallet hasn't signed on-chain but a player has, trigger auto-approval
+              if (!feeWalletInSigners && onChainSigners.length > 0 && onChainStatus.needsSignatures > 0) {
+                console.log('🔧 CATCH-UP: Player signed on-chain but fee wallet hasn\'t - triggering auto-approval', {
                   matchId: match.id,
                   proposalId: proposalIdString,
-                  error: catchUpError?.message || String(catchUpError),
+                  onChainSigners,
+                  feeWalletAddress,
+                  needsSignatures: onChainStatus.needsSignatures,
                 });
+                
+                try {
+                  const { getFeeWalletKeypair } = require('../config/wallet');
+                  const feeWalletKeypair = getFeeWalletKeypair();
+                  
+                  const approveResult = await squadsService.approveProposal(
+                    vaultAddress,
+                    proposalIdString,
+                    feeWalletKeypair
+                  );
+                  
+                  if (approveResult.success) {
+                    console.log('✅ CATCH-UP: Fee wallet auto-approval successful', {
+                      matchId: match.id,
+                      proposalId: proposalIdString,
+                      signature: approveResult.signature,
+                    });
+                  } else {
+                    console.warn('⚠️ CATCH-UP: Fee wallet auto-approval failed', {
+                      matchId: match.id,
+                      proposalId: proposalIdString,
+                      error: approveResult.error,
+                    });
+                  }
+                } catch (catchUpError: any) {
+                  console.warn('⚠️ CATCH-UP: Fee wallet auto-approval exception', {
+                    matchId: match.id,
+                    proposalId: proposalIdString,
+                    error: catchUpError?.message || String(catchUpError),
+                  });
+                }
               }
             }
           }
+        } catch (catchUpCheckError: unknown) {
+          enhancedLogger.warn('⚠️ Fee wallet catch-up check failed (non-blocking)', {
+            matchId: match?.id,
+            error: catchUpCheckError instanceof Error ? catchUpCheckError.message : String(catchUpCheckError),
+          });
         }
-      } catch (catchUpCheckError: unknown) {
-        enhancedLogger.warn('⚠️ Fee wallet catch-up check failed (non-blocking)', {
-          matchId: match?.id,
-          error: catchUpCheckError instanceof Error ? catchUpCheckError.message : String(catchUpCheckError),
-        });
-      }
+      })();
     }
 
     if (match && matchRepository) {
