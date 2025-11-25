@@ -1891,6 +1891,8 @@ const submitResultHandler = async (req: any, res: any) => {
     const match = matchRows[0];
     
     // Check if match is already completed in database
+    // CRITICAL FIX: Allow player to submit even if match is marked as completed,
+    // as long as they haven't submitted yet (handles race conditions)
     if (match.isCompleted) {
       // Match is completed - check if player already submitted
       const existingResultRaw = wallet === match.player1 ? match.player1Result : match.player2Result;
@@ -1903,7 +1905,17 @@ const submitResultHandler = async (req: any, res: any) => {
           matchId,
         });
       }
-      return res.status(400).json({ error: 'Match is already completed' });
+      // CRITICAL: If match is completed but player hasn't submitted yet, allow them to submit
+      // This handles race conditions where match was marked completed before second player submitted
+      console.log('⚠️ Match marked as completed but player has not submitted yet, allowing submission', {
+        matchId,
+        wallet,
+        isPlayer1: wallet === match.player1,
+        player1HasResult: !!match.player1Result,
+        player2HasResult: !!match.player2Result,
+        note: 'This may indicate a race condition - allowing submission to proceed'
+      });
+      // Continue with submission - don't return error
     }
 
     // SERVER-SIDE VALIDATION: Get server-side game state from Redis
@@ -5544,8 +5556,21 @@ const submitGameGuessHandler = async (req: any, res: any) => {
     const match = matchRows[0];
     
     // Check if match is already completed in database
+    // CRITICAL FIX: Allow guesses even if match is marked as completed,
+    // as long as the game state is still active (handles race conditions)
+    // This is for guess submission, so we should be more lenient
     if (match.isCompleted) {
-      return res.status(400).json({ error: 'Game is already completed' });
+      // Check if game state still exists (player might still be playing)
+      const gameState = await getGameState(matchId);
+      if (!gameState) {
+        return res.status(400).json({ error: 'Game is already completed' });
+      }
+      // If game state exists, allow the guess (match might be marked completed prematurely)
+      console.log('⚠️ Match marked as completed but game state still active, allowing guess', {
+        matchId,
+        wallet,
+        note: 'This may indicate a race condition - allowing guess to proceed'
+      });
     }
     
     // Check if match is in a valid state for guesses
