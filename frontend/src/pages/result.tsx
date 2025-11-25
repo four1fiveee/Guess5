@@ -1012,6 +1012,12 @@ const Result: React.FC = () => {
       return;
     }
 
+    const matchId = router.query.matchId as string;
+    if (!matchId) {
+      setError('Match ID not found');
+      return;
+    }
+
     setSigningVaultTransaction(true);
     setError(null);
     
