@@ -396,17 +396,40 @@ const Result: React.FC = () => {
             setPayoutData(payoutData);
             setLoading(false);
             
-            // CRITICAL FIX: Set proposal creation start time based on when match was completed, not when player arrived
+            // CRITICAL FIX: Set proposal creation start time based on when match was completed or proposal was created
             // This ensures both players see the same progress percentage
-            if (bothPlayersHaveResults && !proposalCreationStartTime && !payoutData.proposalId) {
-              // Use current time minus a small offset to account for the time it took to detect completion
-              // This ensures the progress bar starts from a reasonable point for both players
-              const matchCompletionTime = Date.now() - 2000; // Assume match completed 2 seconds ago
-              setProposalCreationStartTime(matchCompletionTime);
-              console.log('📊 Setting proposal creation start time based on match completion', {
+            if (bothPlayersHaveResults && !proposalCreationStartTime) {
+              // Use proposalCreatedAt if available, otherwise use match createdAt or current time minus offset
+              let startTime: number;
+              if (matchData.proposalCreatedAt) {
+                startTime = new Date(matchData.proposalCreatedAt).getTime();
+                console.log('📊 Using proposalCreatedAt from backend for progress bar', {
+                  matchId,
+                  proposalCreatedAt: matchData.proposalCreatedAt,
+                  startTime: new Date(startTime).toISOString(),
+                });
+              } else if (matchData.createdAt) {
+                // Use match creation time as fallback (proposal is created shortly after match completion)
+                startTime = new Date(matchData.createdAt).getTime();
+                console.log('📊 Using match createdAt as fallback for progress bar', {
+                  matchId,
+                  createdAt: matchData.createdAt,
+                  startTime: new Date(startTime).toISOString(),
+                });
+              } else {
+                // Last resort: assume match completed 2 seconds ago
+                startTime = Date.now() - 2000;
+                console.log('📊 Using estimated match completion time for progress bar', {
+                  matchId,
+                  startTime: new Date(startTime).toISOString(),
+                });
+              }
+              setProposalCreationStartTime(startTime);
+              console.log('📊 Setting proposal creation start time', {
                 matchId,
-                matchCompletionTime: new Date(matchCompletionTime).toISOString(),
+                startTime: new Date(startTime).toISOString(),
                 bothPlayersHaveResults,
+                hasProposal: !!payoutData.proposalId,
                 note: 'This ensures both players see consistent progress percentages'
               });
             }

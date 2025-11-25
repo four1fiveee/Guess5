@@ -10846,8 +10846,11 @@ const signProposalHandler = async (req: any, res: any) => {
 
     // Verify player hasn't already signed (make idempotent)
     const signers = normalizeProposalSigners(matchRow.proposalSigners);
-    const feeWalletAddress =
-      typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET;
+    // CRITICAL FIX: Use the actual systemPublicKey from the multisig, not FEE_WALLET_ADDRESS
+    // The systemPublicKey is the one that's actually a member of the multisig with permissions
+    // FEE_WALLET_ADDRESS might be different (e.g., a separate fee collection wallet)
+    const feeWalletAddress = squadsVaultService.getSystemPublicKey?.()?.toString() || 
+      (typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : CONFIG_FEE_WALLET);
     
     if (signers.includes(wallet)) {
       console.log('✅ Player already signed proposal, returning success (idempotent)', {

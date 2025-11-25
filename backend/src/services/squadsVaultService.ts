@@ -137,6 +137,10 @@ export class SquadsVaultService {
     return this.programId;
   }
 
+  public getSystemPublicKey(): PublicKey {
+    return this.config.systemPublicKey;
+  }
+
   public deriveVaultPda(multisigAddress: string): string | null {
     try {
       if (!multisigAddress) {
