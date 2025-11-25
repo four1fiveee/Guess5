@@ -780,11 +780,19 @@ const Result: React.FC = () => {
       const { VersionedTransaction } = await import('@solana/web3.js');
       
       // Step 2a: Sign proposal approval transaction
-      const txBuffer = Buffer.from(txData.transaction, 'base64');
-      const approveTx = VersionedTransaction.deserialize(txBuffer);
+      // Convert base64 to Uint8Array for browser compatibility
+      const base64String = txData.transaction;
+      const binaryString = atob(base64String);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const approveTx = VersionedTransaction.deserialize(bytes);
       const signedProposalTx = await signTransaction(approveTx);
       const proposalSerialized = signedProposalTx.serialize();
-      const base64ProposalTx = Buffer.from(proposalSerialized).toString('base64');
+      // Convert Uint8Array to base64 for browser compatibility
+      const binaryString2 = Array.from(proposalSerialized, byte => String.fromCharCode(byte)).join('');
+      const base64ProposalTx = btoa(binaryString2);
       
       console.log('✅ Proposal transaction signed', {
         matchId,
@@ -995,11 +1003,19 @@ const Result: React.FC = () => {
 
       // Step 2: Sign the VaultTransaction approval transaction
       const { VersionedTransaction } = await import('@solana/web3.js');
-      const txBuffer = Buffer.from(txData.transaction, 'base64');
-      const approveTx = VersionedTransaction.deserialize(txBuffer);
+      // Convert base64 to Uint8Array for browser compatibility
+      const base64String = txData.transaction;
+      const binaryString = atob(base64String);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const approveTx = VersionedTransaction.deserialize(bytes);
       const signedVaultTx = await signTransaction(approveTx);
       const vaultTxSerialized = signedVaultTx.serialize();
-      const base64VaultTx = Buffer.from(vaultTxSerialized).toString('base64');
+      // Convert Uint8Array to base64 for browser compatibility
+      const binaryString = Array.from(vaultTxSerialized, byte => String.fromCharCode(byte)).join('');
+      const base64VaultTx = btoa(binaryString);
 
       console.log('✅ VaultTransaction approval transaction signed', {
         matchId,
