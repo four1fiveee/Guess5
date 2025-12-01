@@ -3691,41 +3691,62 @@ export class SquadsVaultService {
       });
 
       try {
-        // CRITICAL FIX: The SDK requires feePayer parameter - it accesses feePayer.publicKey internally
-        // Some SDK versions may not support programId parameter - try with it first, fallback without it
-        let executionSignature: string;
-        try {
-          executionSignature = await rpc.vaultTransactionExecute({
-            connection: this.connection,
-            feePayer: executor, // Fee payer must sign and pay for the execution transaction
-            multisigPda: multisigAddress,
-            transactionIndex: transactionIndexNumber,
-            member: executor.publicKey, // Member that has execute permissions (must be PublicKey, not Keypair)
-            programId: this.programId,
-          });
-        } catch (programIdError: any) {
-          const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
-          if (errorMsg.includes('toBase58') || errorMsg.includes('undefined') || errorMsg.includes('programId')) {
-            enhancedLogger.warn('⚠️ rpc.vaultTransactionExecute failed with programId, retrying without it', {
-                vaultAddress,
-                proposalId,
-              error: errorMsg,
-              note: 'Some SDK versions may not support programId parameter',
-            });
-            // Retry without programId (SDK will use default)
-            executionSignature = await rpc.vaultTransactionExecute({
-              connection: this.connection,
-              feePayer: executor,
-              multisigPda: multisigAddress,
-              transactionIndex: transactionIndexNumber,
-              member: executor.publicKey,
-              });
-          } else {
-            throw programIdError; // Re-throw if it's a different error
-          }
+        // CRITICAL FIX: Use instructions.vaultTransactionExecute + manual transaction building
+        // This is the proven approach that works (same pattern as instructions.proposalApprove)
+        // rpc.vaultTransactionExecute fails with "Transaction signature verification failure"
+        // because it tries to auto-build the transaction and is missing account parameters
+        
+        if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
+          throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
         }
 
-        enhancedLogger.info('✅ rpc.vaultTransactionExecute returned signature', {
+        enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (proven approach)', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          executor: executor.publicKey.toString(),
+          programId: this.programId.toString(),
+          multisigPda: multisigAddress.toString(),
+        });
+
+        // Build the execution instruction
+        const executionIx = instructions.vaultTransactionExecute({
+          multisigPda: multisigAddress,
+          transactionIndex: transactionIndexNumber,
+          member: executor.publicKey,
+          programId: this.programId,
+        });
+
+        enhancedLogger.info('✅ Execution instruction created', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+        });
+
+        // Get latest blockhash
+        const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+
+        // Build transaction message
+        const message = new TransactionMessage({
+          payerKey: executor.publicKey,
+          recentBlockhash: blockhash,
+          instructions: [executionIx],
+        });
+
+        // Compile to V0 message (required for Squads)
+        const compiledMessage = message.compileToV0Message();
+        const transaction = new VersionedTransaction(compiledMessage);
+
+        // Sign the transaction
+        transaction.sign([executor]);
+
+        // Send and confirm the transaction
+        const executionSignature = await this.connection.sendTransaction(transaction, {
+          skipPreflight: false,
+          maxRetries: 3,
+        });
+
+        enhancedLogger.info('✅ Proposal execution transaction sent', {
               vaultAddress,
               proposalId,
         signature: executionSignature,
