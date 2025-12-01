@@ -46,11 +46,46 @@ async function fixTieProposal(req: Request, res: Response) {
       });
     }
     
-    // Check if proposal already exists
-    if ((match as any).tieRefundProposalId) {
+    // Check if proposal already exists in database
+    if ((match as any).tieRefundProposalId && !proposalId) {
       return res.status(400).json({ 
-        error: 'Proposal already exists',
+        error: 'Proposal already exists in database',
         proposalId: (match as any).tieRefundProposalId 
+      });
+    }
+    
+    // If proposalId is provided, just update the database (recovery case)
+    if (proposalId && typeof proposalId === 'string') {
+      enhancedLogger.info('🔧 Recovery mode: Updating database with existing proposal', {
+        matchId,
+        proposalId,
+      });
+      
+      const squadsService = new SquadsVaultService();
+      const proposalStatus = await squadsService.checkProposalStatus(
+        match.squadsVaultAddress!,
+        proposalId
+      );
+      
+      const proposalState = buildInitialProposalState(proposalStatus.needsSignatures);
+      (match as any).tieRefundProposalId = proposalId;
+      (match as any).proposalCreatedAt = new Date();
+      (match as any).proposalStatus = proposalStatus.executed ? 'EXECUTED' : 'ACTIVE';
+      applyProposalStateToMatch(match, proposalState);
+      await matchRepository.save(match);
+      
+      enhancedLogger.info('✅ Database updated with existing proposal', {
+        matchId,
+        proposalId,
+        needsSignatures: proposalStatus.needsSignatures,
+      });
+      
+      return res.json({
+        success: true,
+        message: 'Database updated with existing proposal',
+        proposalId,
+        needsSignatures: proposalState.normalizedNeeds,
+        signers: proposalState.signers,
       });
     }
     
