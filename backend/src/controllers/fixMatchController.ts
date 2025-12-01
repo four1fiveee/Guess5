@@ -8,13 +8,14 @@ import { buildInitialProposalState, applyProposalStateToMatch } from '../utils/p
 
 /**
  * Fix stuck tie matches by retroactively creating Squads proposals
- * POST /api/match/fix-tie-proposal/:matchId
+ * POST /api/match/fix-tie-proposal/:matchId?proposalId=xxx (optional proposalId for recovery)
  */
 async function fixTieProposal(req: Request, res: Response) {
   try {
     const { matchId } = req.params;
+    const proposalId = req.query.proposalId as string | undefined; // Optional: if proposal exists on-chain but not in DB
     
-    enhancedLogger.info('=��� Fix tie proposal requested', { matchId });
+    enhancedLogger.info('🔧 Fix tie proposal requested', { matchId, proposalId });
     
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
@@ -61,9 +62,15 @@ async function fixTieProposal(req: Request, res: Response) {
         proposalId,
       });
       
+      if (!match.squadsVaultAddress) {
+        return res.status(400).json({ 
+          error: 'Squads vault not found for this match' 
+        });
+      }
+      
       const squadsService = new SquadsVaultService();
       const proposalStatus = await squadsService.checkProposalStatus(
-        match.squadsVaultAddress!,
+        match.squadsVaultAddress,
         proposalId
       );
       
@@ -111,7 +118,7 @@ async function fixTieProposal(req: Request, res: Response) {
     const entryFee = match.entryFee;
     const refundAmount = entryFee * 0.95;
     
-    enhancedLogger.info('=��� Creating tie refund proposal', {
+    enhancedLogger.info('🔧 Creating tie refund proposal', {
       matchId,
       vaultAddress: match.squadsVaultAddress,
       player1: match.player1,
@@ -145,7 +152,7 @@ async function fixTieProposal(req: Request, res: Response) {
     applyProposalStateToMatch(match, proposalState);
     await matchRepository.save(match);
     
-    enhancedLogger.info('G�� Tie refund proposal created and saved', {
+    enhancedLogger.info('✅ Tie refund proposal created and saved', {
       matchId,
       proposalId: proposalResult.proposalId,
     });
@@ -160,7 +167,7 @@ async function fixTieProposal(req: Request, res: Response) {
     
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    enhancedLogger.error('G�� Failed to fix tie proposal', {
+    enhancedLogger.error('❌ Failed to fix tie proposal', {
       matchId: req.params.matchId,
       error: errorMessage,
     });
@@ -176,5 +183,3 @@ async function fixTieProposal(req: Request, res: Response) {
 module.exports = {
   fixTieProposal,
 };
-
-
