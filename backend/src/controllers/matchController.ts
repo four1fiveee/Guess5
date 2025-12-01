@@ -2384,8 +2384,9 @@ const submitResultHandler = async (req: any, res: any) => {
               player2: updatedMatch.player2,
             });
           } else {
-            // CRITICAL FIX: Create proposal BLOCKING with timeout to ensure it exists before response
-            // This prevents players from getting stuck at 95% waiting for a proposal that doesn't exist
+            // CRITICAL FIX: Create proposal with SHORT timeout (3s) to return response quickly
+            // If it times out, FINAL FALLBACK will create it in background
+            // This prevents submit-result endpoint from timing out
             try {
               const proposalCreationPromise = squadsVaultService.proposeWinnerPayout(
                 updatedMatch.squadsVaultAddress,
@@ -2397,7 +2398,7 @@ const submitResultHandler = async (req: any, res: any) => {
               );
               
               const timeoutPromise = new Promise<never>((_, reject) => {
-                setTimeout(() => reject(new Error('Proposal creation timeout (10s)')), 10000);
+                setTimeout(() => reject(new Error('Proposal creation timeout (3s)')), 3000);
               });
               
               const proposalResult = await Promise.race([proposalCreationPromise, timeoutPromise]) as any;
@@ -2583,7 +2584,9 @@ const submitResultHandler = async (req: any, res: any) => {
                 player2: updatedMatch.player2,
               });
             } else {
-              // CRITICAL FIX: Create tie refund proposal BLOCKING with timeout to ensure it exists before response
+              // CRITICAL FIX: Create tie refund proposal with SHORT timeout (3s) to return response quickly
+              // If it times out, FINAL FALLBACK will create it in background
+              // This prevents submit-result endpoint from timing out
               try {
                 const tiePaymentStatus = {
                   ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
@@ -2600,7 +2603,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 );
                 
                 const timeoutPromise = new Promise<never>((_, reject) => {
-                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (10s)')), 10000);
+                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (3s)')), 3000);
                 });
                 
                 const refundResult = await Promise.race([refundCreationPromise, timeoutPromise]) as any;
