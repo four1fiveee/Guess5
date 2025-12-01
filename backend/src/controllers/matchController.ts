@@ -3814,9 +3814,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     // CRITICAL FIX: Check if both players have results FIRST - if so, status is 'completed'
     // This ensures both players see 'completed' status and redirect together
-    const player1Result = match.getPlayer1Result();
-    const player2Result = match.getPlayer2Result();
-    const bothPlayersHaveResults = !!player1Result && !!player2Result;
+    const statusCheckPlayer1Result = match.getPlayer1Result();
+    const statusCheckPlayer2Result = match.getPlayer2Result();
+    const bothPlayersHaveResults = !!statusCheckPlayer1Result && !!statusCheckPlayer2Result;
     
     // Determine the appropriate status based on the requesting player's payment status
     let playerSpecificStatus = match.status;
