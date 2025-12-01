@@ -157,7 +157,7 @@ export class ExecutionRetryService {
         process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
         'confirmed'
       );
-
+      
       const proposalPda = new PublicKey(proposalId);
       const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
       const statusKind = (proposalAccount as any).status?.__kind || 'Unknown';
@@ -183,18 +183,18 @@ export class ExecutionRetryService {
       if (statusKind !== 'ExecuteReady' && statusKind !== 'Approved') {
         if (statusKind === 'Active' && approvalCount >= threshold) {
           enhancedLogger.info('✅ Proposal is Active but has enough approvals, proceeding with retry', {
-            matchId,
-            proposalId,
+          matchId,
+          proposalId,
             statusKind,
             approvalCount,
             threshold,
             note: 'Proposal has enough signatures - execution will proceed even though status is Active',
-          });
+        });
           // Continue with execution - don't return
         } else {
           enhancedLogger.warn('⚠️ Proposal is not ready for execution yet, skipping retry for now', {
-            matchId,
-            proposalId,
+        matchId,
+        proposalId,
             statusKind,
             approvalCount,
             threshold,

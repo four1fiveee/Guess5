@@ -2919,9 +2919,10 @@ export class SquadsVaultService {
         });
       }
 
-      enhancedLogger.info('📝 Approving Proposal using rpc.proposalApprove', {
+      enhancedLogger.info('📝 Approving Proposal using instructions.proposalApprove (proven approach)', {
         vaultAddress,
         proposalId,
+        proposalPda: proposalPda.toString(),
         transactionIndex: transactionIndex.toString(),
         signer: signer.publicKey.toString(),
         programId: this.programId.toString(),
@@ -2930,100 +2931,81 @@ export class SquadsVaultService {
         feeWalletBalance: feeWalletBalance !== null ? `${feeWalletBalance / 1e9} SOL` : 'unknown',
       });
 
-      // CRITICAL FIX: Try passing proposalPda instead of transactionIndex
-      // The SDK might need the proposalPda to derive accounts correctly
-      let signature: string;
+      // CRITICAL FIX: Use instructions.proposalApprove + manual transaction building
+      // This is the proven approach that works in multisigController.ts
+      // rpc.proposalApprove fails with "Cannot read properties of undefined (reading 'toBase58')"
+      // because it tries to auto-build the transaction and is missing account parameters
+      
+      if (!instructions || typeof instructions.proposalApprove !== 'function') {
+        throw new Error('Squads SDK instructions.proposalApprove is unavailable');
+      }
+
+      // Build the approval instruction (same as multisigController.ts)
+      const approvalIx = instructions.proposalApprove({
+        multisigPda: multisigAddress,
+        transactionIndex: Number(transactionIndex),
+        member: signer.publicKey,
+        programId: this.programId,
+      });
+
+      enhancedLogger.info('✅ Approval instruction created', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+      });
+
+      // Get latest blockhash
+      const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+
+      // Build transaction message
+      const message = new TransactionMessage({
+        payerKey: signer.publicKey,
+        recentBlockhash: blockhash,
+        instructions: [approvalIx],
+      });
+
+      // Compile to V0 message (required for Squads)
+      const compiledMessage = message.compileToV0Message();
+      const transaction = new VersionedTransaction(compiledMessage);
+
+      // Sign the transaction
+      transaction.sign([signer]);
+
+      // Send and confirm the transaction
+      const signature = await this.connection.sendTransaction(transaction, {
+        skipPreflight: false,
+        maxRetries: 3,
+      });
+
+      enhancedLogger.info('✅ Proposal approval transaction sent', {
+        vaultAddress,
+        proposalId,
+        signature,
+        signer: signer.publicKey.toString(),
+      });
+
+      // Confirm the transaction
       try {
-        // First try with proposalPda (if SDK supports it)
-        signature = await rpc.proposalApprove({
-          connection: this.connection,
-          feePayer: signer,
-          multisigPda: multisigAddress,
-          proposalPda: proposalPda,
-          member: signer.publicKey,
-          programId: this.programId,
-        });
-        enhancedLogger.info('✅ rpc.proposalApprove succeeded with proposalPda and programId', {
+        await this.connection.confirmTransaction({
+          signature,
+          blockhash,
+          lastValidBlockHeight,
+        }, 'confirmed');
+        enhancedLogger.info('✅ Proposal approval transaction confirmed', {
           vaultAddress,
           proposalId,
-          proposalPda: proposalPda.toString(),
           signature,
           signer: signer.publicKey.toString(),
         });
-      } catch (proposalPdaError: any) {
-        const errorMsg = proposalPdaError instanceof Error ? proposalPdaError.message : String(proposalPdaError);
-        enhancedLogger.warn('⚠️ rpc.proposalApprove failed with proposalPda, trying transactionIndex', {
+      } catch (confirmError: any) {
+        enhancedLogger.warn('⚠️ Proposal approval transaction confirmation failed (may still succeed)', {
           vaultAddress,
           proposalId,
-          error: errorMsg,
+          signature,
+          signer: signer.publicKey.toString(),
+          error: confirmError?.message || String(confirmError),
         });
-        
-        // Fallback: Try with transactionIndex instead
-        try {
-          signature = await rpc.proposalApprove({
-            connection: this.connection,
-            feePayer: signer,
-            multisigPda: multisigAddress,
-            transactionIndex: Number(transactionIndex),
-            member: signer.publicKey,
-            programId: this.programId,
-          });
-          enhancedLogger.info('✅ rpc.proposalApprove succeeded with transactionIndex and programId', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndex.toString(),
-            signature,
-            signer: signer.publicKey.toString(),
-          });
-        } catch (programIdError: any) {
-          const programIdErrorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
-          if (programIdErrorMsg.includes('toBase58') || programIdErrorMsg.includes('undefined') || programIdErrorMsg.includes('programId')) {
-            enhancedLogger.warn('⚠️ rpc.proposalApprove failed with programId, retrying without it', {
-              vaultAddress,
-              proposalId,
-              error: programIdErrorMsg,
-              note: 'Some SDK versions may not support programId parameter',
-            });
-            // Retry without programId (SDK will use default)
-            try {
-              signature = await rpc.proposalApprove({
-                connection: this.connection,
-                feePayer: signer,
-                multisigPda: multisigAddress,
-                transactionIndex: Number(transactionIndex),
-                member: signer.publicKey,
-              });
-              enhancedLogger.info('✅ rpc.proposalApprove succeeded WITHOUT programId (retry)', {
-                vaultAddress,
-                proposalId,
-                signature,
-                signer: signer.publicKey.toString(),
-              });
-            } catch (retryError: any) {
-              const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-              enhancedLogger.error('❌ rpc.proposalApprove FAILED on all retry attempts', {
-                vaultAddress,
-                proposalId,
-                proposalPda: proposalPda.toString(),
-                transactionIndex: transactionIndex.toString(),
-                signer: signer.publicKey.toString(),
-                error: retryErrorMsg,
-                stack: retryError instanceof Error ? retryError.stack : undefined,
-                attempts: ['proposalPda+programId', 'transactionIndex+programId', 'transactionIndex without programId'],
-              });
-              throw retryError; // Re-throw the retry error
-            }
-          } else {
-            enhancedLogger.error('❌ rpc.proposalApprove failed with non-programId error', {
-              vaultAddress,
-              proposalId,
-              signer: signer.publicKey.toString(),
-              error: programIdErrorMsg,
-              stack: programIdError instanceof Error ? programIdError.stack : undefined,
-            });
-            throw programIdError; // Re-throw if it's a different error
-          }
-        }
+        // Don't fail - transaction may still succeed
       }
 
       enhancedLogger.info('✅ Proposal approved successfully using rpc.proposalApprove', {
