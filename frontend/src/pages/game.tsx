@@ -232,13 +232,14 @@ const Game: React.FC = () => {
                 // This ensures both players redirect together when the second player submits
                 const matchCompleted = matchData.status === 'completed' || matchData.isCompleted || bothPlayersHaveResults;
                 
-                // Check if current player has finished
+                // Check if current player has finished (but don't require it if both players have results)
                 const isPlayer1 = publicKey?.toString() === matchData.player1;
                 const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
                 
-                // CRITICAL: Redirect if match is completed (status='completed') OR both players have results
+                // CRITICAL: If both players have results, redirect immediately (don't require currentPlayerHasResult check)
                 // This ensures the first player redirects immediately when the second player submits
-                if ((matchCompleted || bothPlayersHaveResults) && currentPlayerHasResult) {
+                // Only require currentPlayerHasResult if we're checking status='completed' without bothPlayersHaveResults
+                if (bothPlayersHaveResults || (matchCompleted && currentPlayerHasResult)) {
                   console.log('🏆 Game completed via polling:', {
                     matchCompleted,
                     bothPlayersHaveResults,
@@ -312,8 +313,9 @@ const Game: React.FC = () => {
           setTimeout(pollForCompletion, 500);
         };
         
-        // Start polling after a short delay
-        setTimeout(pollForCompletion, 2000);
+        // Start polling immediately (no delay) to catch status changes as fast as possible
+        // CRITICAL: This ensures the first player redirects immediately when the second player submits
+        pollForCompletion();
       }
     } catch (error: any) {
       console.error('❌ Failed to submit result:', error);
