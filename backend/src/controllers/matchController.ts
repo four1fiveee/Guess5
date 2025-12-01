@@ -513,7 +513,7 @@ const periodicCleanup = async () => {
       `, [matchId]);
       return latestRows && latestRows.length > 0 ? latestRows[0] : null;
     };
-
+    
     // Clean up matches older than 10 minutes using raw SQL to avoid proposalExpiresAt column
     const tenMinutesAgo = new Date(Date.now() - 10 * 60 * 1000);
     
@@ -3775,15 +3775,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       })();
     }
 
+    // CRITICAL FIX: Make auto-execute non-blocking to prevent status endpoint timeouts
+    // The status endpoint should return quickly with current match state
+    // Auto-execution can happen in the background
     if (match && matchRepository) {
-      try {
-        await attemptAutoExecuteIfReady(match, matchRepository, 'status_poll');
-      } catch (autoExecuteError: unknown) {
-        enhancedLogger.error('❌ Auto-execute readiness check errored during status poll', {
-          matchId: match?.id,
-          error: autoExecuteError instanceof Error ? autoExecuteError.message : String(autoExecuteError),
-        });
-      }
+      // Fire and forget - don't await, don't block the response
+      (async () => {
+        try {
+          await attemptAutoExecuteIfReady(match, matchRepository, 'status_poll');
+        } catch (autoExecuteError: unknown) {
+          enhancedLogger.error('❌ Auto-execute readiness check errored during status poll (non-blocking)', {
+            matchId: match?.id,
+            error: autoExecuteError instanceof Error ? autoExecuteError.message : String(autoExecuteError),
+          });
+        }
+      })();
     }
 
     // Check if this match already has results for the requesting player
@@ -4222,8 +4228,11 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   });
   
   // Create proposal for winner payout (non-tie matches)
-  // CRITICAL: Run this synchronously (await) to ensure proposal is created before response
+  // CRITICAL FIX: Make this non-blocking to prevent status endpoint timeouts
+  // The response will be sent with current match state, and proposal creation happens in background
   if (hasResults && hasWinner && needsProposal && hasVault) {
+    // Fire and forget - don't await, don't block the response
+    (async () => {
     console.log('🔄 FINAL FALLBACK: Creating missing winner payout proposal BEFORE response (synchronous)', {
       matchId: freshMatch.id,
       winner: freshMatch.winner,
@@ -4286,16 +4295,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             
             // CRITICAL FIX: Actually create the proposal after acquiring the lock
             try {
-              const { AppDataSource } = require('../db/index');
-              const matchRepository = AppDataSource.getRepository(Match);
+          const { AppDataSource } = require('../db/index');
+          const matchRepository = AppDataSource.getRepository(Match);
               
               // Double-check proposal still doesn't exist
               const checkRows = await matchRepository.query(`
-                SELECT "payoutProposalId", "tieRefundProposalId"
-                FROM "match"
-                WHERE id = $1
-                LIMIT 1
-              `, [freshMatch.id]);
+            SELECT "payoutProposalId", "tieRefundProposalId"
+            FROM "match"
+            WHERE id = $1
+            LIMIT 1
+          `, [freshMatch.id]);
               if (checkRows && checkRows.length > 0 && (checkRows[0].payoutProposalId || checkRows[0].tieRefundProposalId)) {
                 console.log('✅ Proposal already exists (created by another process after lock release)');
                 (match as any).payoutProposalId = checkRows[0].payoutProposalId || (match as any).payoutProposalId;
@@ -4494,9 +4503,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         await releaseProposalLock(freshMatch.id);
       }
     }
+    })(); // End async IIFE for winner payout proposal creation
   }
   // Create proposal for tie refund (tie matches)
+  // CRITICAL FIX: Make this non-blocking to prevent status endpoint timeouts
   if (hasResults && isTieMatch && needsProposal && hasVault) {
+    // Fire and forget - don't await, don't block the response
+    (async () => {
     
     console.log('🔄 FINAL FALLBACK: Creating missing proposal before response', {
       matchId: freshMatch.id,
@@ -4795,6 +4808,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         await releaseProposalLock(freshMatch.id);
       }
     }
+    })(); // End async IIFE for tie refund proposal creation
   }
 
   // CRITICAL: Move all execution logic to background to prevent blocking the status response
@@ -5908,15 +5922,15 @@ const submitGameGuessHandler = async (req: any, res: any) => {
       }
     } else {
       // No game state exists - check database status as fallback
-      if (match.isCompleted) {
-        return res.status(400).json({ error: 'Game is already completed' });
-      }
-      
-      // Check if match is in a valid state for guesses
-      if (match.status !== 'active') {
-        return res.status(400).json({ error: 'Game is not active' });
-      }
-      
+    if (match.isCompleted) {
+      return res.status(400).json({ error: 'Game is already completed' });
+    }
+    
+    // Check if match is in a valid state for guesses
+    if (match.status !== 'active') {
+      return res.status(400).json({ error: 'Game is not active' });
+    }
+
       // Game state missing but match is active - try to restore it
       console.warn('⚠️ Redis game state missing but match is active, will try to restore', {
         matchId,
@@ -11325,19 +11339,19 @@ const signProposalHandler = async (req: any, res: any) => {
               
               if (feeWalletInSigners) {
                 // Fee wallet actually signed on-chain - add it to signers
-                feeWalletAutoApproved = true;
-                signers.push(feeWalletAddress);
+              feeWalletAutoApproved = true;
+              signers.push(feeWalletAddress);
                 console.log('✅ Fee wallet confirmed as signer (verified on-chain)', {
-                  matchId,
-                  proposalId: proposalIdString,
-                  needsSignatures: proposalStatus.needsSignatures,
+                matchId,
+                proposalId: proposalIdString,
+                needsSignatures: proposalStatus.needsSignatures,
                   onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
-                });
-              } else {
+              });
+            } else {
                 // Proposal is ready but fee wallet didn't sign - don't add it
                 console.warn('⚠️ Proposal ready but fee wallet not in on-chain signers - not adding to database', {
-                  matchId,
-                  proposalId: proposalIdString,
+                matchId,
+                proposalId: proposalIdString,
                   needsSignatures: proposalStatus.needsSignatures,
                   onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
                   feeWalletAddress,
@@ -11553,32 +11567,32 @@ const signProposalHandler = async (req: any, res: any) => {
               // Continue with execution - don't return
             } else {
               // Normal case: try to atomically set status to EXECUTING
-              const updated = await matchRepository.query(`
-                UPDATE "match"
-                SET "proposalStatus" = 'EXECUTING'
-                WHERE id = $1 
-                  AND "proposalExecutedAt" IS NULL 
-                  AND "proposalStatus" != 'EXECUTING'
-                RETURNING id
-              `, [matchId]);
-              
-              if (updated.length === 0) {
+            const updated = await matchRepository.query(`
+              UPDATE "match"
+              SET "proposalStatus" = 'EXECUTING'
+              WHERE id = $1 
+                AND "proposalExecutedAt" IS NULL 
+                AND "proposalStatus" != 'EXECUTING'
+              RETURNING id
+            `, [matchId]);
+            
+            if (updated.length === 0) {
                 console.log('⚠️ Could not atomically set status to EXECUTING (may already be EXECUTING or executed)', {
-                  matchId,
-                  proposalId: proposalIdString,
+                matchId,
+                proposalId: proposalIdString,
                   currentStatus: checkExecuted?.[0]?.proposalStatus || matchRow.proposalStatus,
                   executedAt: checkExecuted?.[0]?.proposalExecutedAt || matchRow.proposalExecutedAt,
-                });
+              });
                 // If we couldn't update, check if it's because it's already executed
                 if (checkExecuted && checkExecuted.length > 0 && checkExecuted[0].proposalExecutedAt) {
                   return; // Already executed, skip
-                }
+            }
                 // Otherwise, continue with execution (might be stuck in EXECUTING state)
               } else {
-                console.log('✅ Execution enqueued atomically', {
-                  matchId,
-                  proposalId: proposalIdString,
-                });
+            console.log('✅ Execution enqueued atomically', {
+              matchId,
+              proposalId: proposalIdString,
+            });
               }
             }
           } catch (markError: any) {
