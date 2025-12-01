@@ -147,7 +147,7 @@ export class SquadsVaultService {
             publicKey: systemKeypair.publicKey.toString(),
             error: balanceError?.message || String(balanceError),
           });
-        });
+      });
     } catch (keypairError: unknown) {
       const errorMsg = keypairError instanceof Error ? keypairError.message : String(keypairError);
       enhancedLogger.error('❌ Failed to load system keypair', {
@@ -2838,10 +2838,11 @@ export class SquadsVaultService {
     try {
       const multisigAddress = new PublicKey(vaultAddress);
       
-      // proposalId is now a PDA address, extract transactionIndex
+      // proposalId is now a PDA address, extract transactionIndex AND keep proposalPda
       let transactionIndex: bigint;
+      let proposalPda: PublicKey;
       try {
-        const proposalPda = new PublicKey(proposalId);
+        proposalPda = new PublicKey(proposalId);
         const proposalAccount = await accounts.Proposal.fromAccountAddress(
           this.connection,
           proposalPda
@@ -2856,6 +2857,13 @@ export class SquadsVaultService {
         // Fallback: Try to parse as transactionIndex (backward compatibility)
         try {
           transactionIndex = BigInt(proposalId);
+          // Derive proposalPda from transactionIndex
+          const [derivedProposalPda] = getProposalPda({
+            multisigPda: new PublicKey(vaultAddress),
+            transactionIndex: transactionIndex,
+            programId: this.programId,
+          });
+          proposalPda = derivedProposalPda;
         } catch (bigIntError: any) {
           throw new Error(`Could not parse proposalId as PDA or transactionIndex: ${proposalId}`);
         }
@@ -2864,6 +2872,7 @@ export class SquadsVaultService {
       enhancedLogger.info('📝 Approving Squads proposal using official SDK method', {
         vaultAddress,
         proposalId,
+        proposalPda: proposalPda.toString(),
         transactionIndex: transactionIndex.toString(),
         signer: signer.publicKey.toString(),
       });
@@ -2921,68 +2930,99 @@ export class SquadsVaultService {
         feeWalletBalance: feeWalletBalance !== null ? `${feeWalletBalance / 1e9} SOL` : 'unknown',
       });
 
-      // CRITICAL: Some versions of the SDK may not support programId parameter
-      // Try with programId first, fallback without it if it fails
+      // CRITICAL FIX: Try passing proposalPda instead of transactionIndex
+      // The SDK might need the proposalPda to derive accounts correctly
       let signature: string;
       try {
+        // First try with proposalPda (if SDK supports it)
         signature = await rpc.proposalApprove({
           connection: this.connection,
           feePayer: signer,
           multisigPda: multisigAddress,
-          transactionIndex: Number(transactionIndex),
+          proposalPda: proposalPda,
           member: signer.publicKey,
           programId: this.programId,
         });
-        enhancedLogger.info('✅ rpc.proposalApprove succeeded with programId', {
+        enhancedLogger.info('✅ rpc.proposalApprove succeeded with proposalPda and programId', {
           vaultAddress,
           proposalId,
+          proposalPda: proposalPda.toString(),
           signature,
           signer: signer.publicKey.toString(),
         });
-      } catch (programIdError: any) {
-        const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
-        if (errorMsg.includes('toBase58') || errorMsg.includes('undefined') || errorMsg.includes('programId')) {
-          enhancedLogger.warn('⚠️ rpc.proposalApprove failed with programId, retrying without it', {
-            vaultAddress,
-            proposalId,
-            error: errorMsg,
-            note: 'Some SDK versions may not support programId parameter',
+      } catch (proposalPdaError: any) {
+        const errorMsg = proposalPdaError instanceof Error ? proposalPdaError.message : String(proposalPdaError);
+        enhancedLogger.warn('⚠️ rpc.proposalApprove failed with proposalPda, trying transactionIndex', {
+          vaultAddress,
+          proposalId,
+          error: errorMsg,
+        });
+        
+        // Fallback: Try with transactionIndex instead
+        try {
+          signature = await rpc.proposalApprove({
+            connection: this.connection,
+            feePayer: signer,
+            multisigPda: multisigAddress,
+            transactionIndex: Number(transactionIndex),
+            member: signer.publicKey,
+            programId: this.programId,
           });
-          // Retry without programId (SDK will use default)
-          try {
-            signature = await rpc.proposalApprove({
-              connection: this.connection,
-              feePayer: signer,
-              multisigPda: multisigAddress,
-              transactionIndex: Number(transactionIndex),
-              member: signer.publicKey,
-            });
-            enhancedLogger.info('✅ rpc.proposalApprove succeeded WITHOUT programId (retry)', {
-              vaultAddress,
-              proposalId,
-              signature,
-              signer: signer.publicKey.toString(),
-            });
-          } catch (retryError: any) {
-            const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
-            enhancedLogger.error('❌ rpc.proposalApprove FAILED on retry without programId', {
-              vaultAddress,
-              proposalId,
-              signer: signer.publicKey.toString(),
-              error: retryErrorMsg,
-              stack: retryError instanceof Error ? retryError.stack : undefined,
-            });
-            throw retryError; // Re-throw the retry error
-          }
-        } else {
-          enhancedLogger.error('❌ rpc.proposalApprove failed with non-programId error', {
+          enhancedLogger.info('✅ rpc.proposalApprove succeeded with transactionIndex and programId', {
             vaultAddress,
             proposalId,
+            transactionIndex: transactionIndex.toString(),
+            signature,
             signer: signer.publicKey.toString(),
-            error: errorMsg,
-            stack: programIdError instanceof Error ? programIdError.stack : undefined,
           });
-          throw programIdError; // Re-throw if it's a different error
+        } catch (programIdError: any) {
+          const programIdErrorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
+          if (programIdErrorMsg.includes('toBase58') || programIdErrorMsg.includes('undefined') || programIdErrorMsg.includes('programId')) {
+            enhancedLogger.warn('⚠️ rpc.proposalApprove failed with programId, retrying without it', {
+              vaultAddress,
+              proposalId,
+              error: programIdErrorMsg,
+              note: 'Some SDK versions may not support programId parameter',
+            });
+            // Retry without programId (SDK will use default)
+            try {
+              signature = await rpc.proposalApprove({
+                connection: this.connection,
+                feePayer: signer,
+                multisigPda: multisigAddress,
+                transactionIndex: Number(transactionIndex),
+                member: signer.publicKey,
+              });
+              enhancedLogger.info('✅ rpc.proposalApprove succeeded WITHOUT programId (retry)', {
+                vaultAddress,
+                proposalId,
+                signature,
+                signer: signer.publicKey.toString(),
+              });
+            } catch (retryError: any) {
+              const retryErrorMsg = retryError instanceof Error ? retryError.message : String(retryError);
+              enhancedLogger.error('❌ rpc.proposalApprove FAILED on all retry attempts', {
+                vaultAddress,
+                proposalId,
+                proposalPda: proposalPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                signer: signer.publicKey.toString(),
+                error: retryErrorMsg,
+                stack: retryError instanceof Error ? retryError.stack : undefined,
+                attempts: ['proposalPda+programId', 'transactionIndex+programId', 'transactionIndex without programId'],
+              });
+              throw retryError; // Re-throw the retry error
+            }
+          } else {
+            enhancedLogger.error('❌ rpc.proposalApprove failed with non-programId error', {
+              vaultAddress,
+              proposalId,
+              signer: signer.publicKey.toString(),
+              error: programIdErrorMsg,
+              stack: programIdError instanceof Error ? programIdError.stack : undefined,
+            });
+            throw programIdError; // Re-throw if it's a different error
+          }
         }
       }
 
@@ -3073,8 +3113,8 @@ export class SquadsVaultService {
         signature,
       });
 
-      return {
-        success: true,
+      return { 
+        success: true, 
         signature,
         note: 'Proposal approved using rpc.proposalApprove (VaultTransaction approval not required in Squads v4)'
       };
@@ -3195,9 +3235,9 @@ export class SquadsVaultService {
           const txAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
           if (txAccountInfo) {
             enhancedLogger.info('🔎 VaultTransaction PDA located', {
-              vaultAddress,
-              proposalId,
-              transactionPda: transactionPda.toString(),
+            vaultAddress,
+            proposalId,
+            transactionPda: transactionPda.toString(),
               note: 'Squads v4 stores approvals on the Proposal account; VaultTransaction PDA simply holds the message',
             });
           } else {
@@ -3205,7 +3245,7 @@ export class SquadsVaultService {
               vaultAddress,
               proposalId,
               transactionPda: transactionPda.toString(),
-            });
+          });
           }
         } catch (vaultTxError: unknown) {
           enhancedLogger.warn('⚠️ Failed to fetch VaultTransaction PDA (continuing)', {
@@ -3604,25 +3644,25 @@ export class SquadsVaultService {
     if (!this.connection || typeof this.connection.getAccountInfo !== 'function') {
       const error = 'Connection object is invalid or missing getAccountInfo method';
       enhancedLogger.error('❌ Invalid connection object for execution', {
-        vaultAddress,
-        proposalId,
+          vaultAddress,
+          proposalId,
         error,
         connectionType: typeof this.connection,
         hasGetAccountInfo: this.connection && typeof this.connection.getAccountInfo === 'function',
-      });
-      return {
+        });
+        return {
         success: false,
         error,
-        correlationId,
-      };
+          correlationId,
+        };
     }
 
     // Validate executor keypair
     if (!executor || !executor.publicKey || !executor.secretKey) {
       const error = 'Executor keypair is invalid';
       enhancedLogger.error('❌ Invalid executor keypair for execution', {
-        vaultAddress,
-        proposalId,
+              vaultAddress,
+              proposalId,
         error,
         hasExecutor: !!executor,
         hasPublicKey: executor && !!executor.publicKey,
@@ -3633,13 +3673,13 @@ export class SquadsVaultService {
         error,
         correlationId,
       };
-    }
+          }
 
     try {
       // CRITICAL FIX: Use rpc.vaultTransactionExecute - the ONLY supported execution method in Squads v4
       // This handles all transaction building, signing, and sending internally
       const transactionIndexNumber = Number(transactionIndex);
-      
+          
       // Validate all parameters before SDK call
       if (!this.connection) {
         throw new Error('Connection is undefined');
@@ -3652,11 +3692,11 @@ export class SquadsVaultService {
       }
       if (!this.programId) {
         throw new Error('programId is undefined');
-      }
+              }
 
       enhancedLogger.info('🚀 Calling rpc.vaultTransactionExecute', {
-        vaultAddress,
-        proposalId,
+              vaultAddress,
+              proposalId,
         transactionIndex: transactionIndexNumber,
         executor: executor.publicKey.toString(),
         executorHasSecretKey: !!executor.secretKey,
@@ -3665,7 +3705,7 @@ export class SquadsVaultService {
         connectionHasGetAccountInfo: typeof this.connection.getAccountInfo === 'function',
         multisigPda: multisigAddress.toString(),
         programId: this.programId.toString(),
-        correlationId,
+              correlationId,
       });
 
       try {
@@ -3685,8 +3725,8 @@ export class SquadsVaultService {
           const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
           if (errorMsg.includes('toBase58') || errorMsg.includes('undefined') || errorMsg.includes('programId')) {
             enhancedLogger.warn('⚠️ rpc.vaultTransactionExecute failed with programId, retrying without it', {
-              vaultAddress,
-              proposalId,
+                vaultAddress,
+                proposalId,
               error: errorMsg,
               note: 'Some SDK versions may not support programId parameter',
             });
@@ -3697,18 +3737,18 @@ export class SquadsVaultService {
               multisigPda: multisigAddress,
               transactionIndex: transactionIndexNumber,
               member: executor.publicKey,
-            });
+              });
           } else {
             throw programIdError; // Re-throw if it's a different error
           }
         }
 
         enhancedLogger.info('✅ rpc.vaultTransactionExecute returned signature', {
-        vaultAddress,
-        proposalId,
+              vaultAddress,
+              proposalId,
         signature: executionSignature,
         executor: executor.publicKey.toString(),
-        correlationId,
+              correlationId,
       });
 
       // CRITICAL VERIFICATION: Confirm execution succeeded on-chain
@@ -3718,13 +3758,13 @@ export class SquadsVaultService {
         const txDetails = await this.connection.getTransaction(executionSignature, {
           commitment: 'confirmed',
           maxSupportedTransactionVersion: 0,
-        });
+              });
 
         if (txDetails?.meta?.err) {
           const error = `Transaction failed on-chain: ${JSON.stringify(txDetails.meta.err)}`;
           enhancedLogger.error('❌ Execution transaction failed on-chain', {
-            vaultAddress,
-            proposalId,
+              vaultAddress,
+              proposalId,
             signature: executionSignature,
             error: txDetails.meta.err,
             logs: txDetails.meta.logMessages?.slice(-10),
@@ -3744,15 +3784,15 @@ export class SquadsVaultService {
           const postExecutionBalanceSOL = postExecutionBalance / LAMPORTS_PER_SOL;
           
           enhancedLogger.info('✅ Execution verified on-chain', {
-            vaultAddress,
-            proposalId,
+              vaultAddress,
+              proposalId,
             signature: executionSignature,
             postExecutionBalanceSOL,
             transactionError: txDetails?.meta?.err || null,
             correlationId,
           });
         }
-
+        
         enhancedLogger.info('✅ Proposal executed and verified successfully', {
           vaultAddress,
           proposalId,
@@ -3770,8 +3810,8 @@ export class SquadsVaultService {
       } catch (verificationError: unknown) {
         const errorMsg = verificationError instanceof Error ? verificationError.message : String(verificationError);
         enhancedLogger.warn('⚠️ Could not verify execution on-chain (but signature was returned)', {
-          vaultAddress,
-          proposalId,
+            vaultAddress,
+            proposalId,
           signature: executionSignature,
           error: errorMsg,
           correlationId,
@@ -3789,15 +3829,15 @@ export class SquadsVaultService {
       } catch (innerError: unknown) {
         // Re-throw to be caught by outer catch
         throw innerError;
-      }
+        }
     } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
       
       // Enhanced error logging to identify what's undefined
       enhancedLogger.error('❌ rpc.vaultTransactionExecute failed', {
-        vaultAddress,
-        proposalId,
+      vaultAddress,
+      proposalId,
         transactionIndex: Number(transactionIndex),
         executor: executor?.publicKey?.toString() || 'undefined',
         executorType: typeof executor,
@@ -3811,13 +3851,13 @@ export class SquadsVaultService {
         multisigPda: multisigAddress?.toString() || 'undefined',
         programId: this.programId?.toString() || 'undefined',
         correlationId,
-      });
+    });
 
-      return {
-        success: false,
+    return {
+      success: false,
         error: errorMessage,
         correlationId,
-      };
+    };
     }
   }
 
