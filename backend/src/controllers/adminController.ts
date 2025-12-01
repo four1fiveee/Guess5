@@ -54,7 +54,13 @@ export const adminDeleteMatch = async (req: Request, res: Response) => {
       return res.status(404).json({ error: 'Match not found' });
     }
     
-    await matchRepository.remove(match);
+    // Use delete instead of remove to avoid loading relations
+    // This is faster and avoids timeout issues
+    const deleteResult = await matchRepository.delete({ id: matchId });
+    
+    if (deleteResult.affected === 0) {
+      return res.status(404).json({ error: 'Match not found or already deleted' });
+    }
     
     console.log('✅ Match deleted:', matchId);
     
