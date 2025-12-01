@@ -2631,12 +2631,12 @@ const submitResultHandler = async (req: any, res: any) => {
         // Fetch current match state to include player results in response
         const currentMatch = await fetchLatestMatchState();
         // CRITICAL: Include proposalId in response so frontend can see it immediately
-        const finalMatchRows = await matchRepository.query(`
+        const proposalRows = await matchRepository.query(`
           SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus"
           FROM "match"
           WHERE id = $1
         `, [matchId]);
-        const proposalData = finalMatchRows?.[0];
+        const proposalData = proposalRows?.[0];
         res.json({
           status: 'completed',
           winner: (payoutResult as any).winner,
