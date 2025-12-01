@@ -2569,7 +2569,145 @@ const submitResultHandler = async (req: any, res: any) => {
             
             console.log('✅ Tie payment instructions created');
           } else {
-            // Losing tie - skip duplicate handler, use Squads proposal logic in main tie block below
+            // Losing tie - both players get 95% refund via Squads
+            console.log('🤝 Losing tie (solved case) - processing 95% refunds to both players via Squads...');
+            
+            const entryFee = updatedMatch.entryFee;
+            const refundAmount = entryFee * 0.95; // 95% refund to each player
+            
+            // Check if vault address exists
+            if (!updatedMatch.squadsVaultAddress) {
+              console.error('❌ Cannot create tie refund proposal (solved case): missing squadsVaultAddress', {
+                matchId: updatedMatch.id,
+                player1: updatedMatch.player1,
+                player2: updatedMatch.player2,
+              });
+            } else {
+              // CRITICAL FIX: Create tie refund proposal BLOCKING with timeout to ensure it exists before response
+              try {
+                const tiePaymentStatus = {
+                  ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                  ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
+                };
+
+                const refundCreationPromise = squadsVaultService.proposeTieRefund(
+                  updatedMatch.squadsVaultAddress,
+                  new PublicKey(updatedMatch.player1),
+                  new PublicKey(updatedMatch.player2),
+                  refundAmount,
+                  updatedMatch.squadsVaultPda ?? undefined,
+                  tiePaymentStatus
+                );
+                
+                const timeoutPromise = new Promise<never>((_, reject) => {
+                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (10s)')), 10000);
+                });
+                
+                const refundResult = await Promise.race([refundCreationPromise, timeoutPromise]) as any;
+                
+                if (refundResult.success && refundResult.proposalId) {
+                  console.log('✅ Squads tie refund proposal created (solved case, BLOCKING):', refundResult.proposalId);
+                  
+                  const proposalState = buildInitialProposalState(refundResult.needsSignatures);
+
+                  // Update match with proposal information using raw SQL
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "payoutProposalId" = NULL,
+                        "tieRefundProposalId" = $1,
+                        "proposalCreatedAt" = $2,
+                        "proposalStatus" = $3,
+                        "needsSignatures" = $4,
+                        "proposalSigners" = $5,
+                        "matchStatus" = $6,
+                        "updatedAt" = $7
+                    WHERE id = $8
+                  `, [
+                    refundResult.proposalId,
+                    new Date(),
+                    'ACTIVE',
+                    proposalState.normalizedNeeds,
+                    proposalState.signersJson,
+                    'PROPOSAL_CREATED',
+                    new Date(),
+                    updatedMatch.id
+                  ]);
+                  
+                  console.log('✅ Match saved with tie refund proposal information (solved case, BLOCKING):', {
+                    matchId: updatedMatch.id,
+                    proposalId: refundResult.proposalId,
+                    proposalStatus: 'ACTIVE',
+                    needsSignatures: proposalState.normalizedNeeds,
+                  });
+                  
+                  // CRITICAL: Include proposalId in payoutResult so response includes it
+                  (payoutResult as any).tieRefundProposalId = refundResult.proposalId;
+                  (payoutResult as any).proposalId = refundResult.proposalId; // Also set proposalId for consistency
+                  (payoutResult as any).proposalStatus = 'ACTIVE';
+                  (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
+                } else {
+                  console.error('❌ Squads tie refund proposal creation failed (solved case):', refundResult?.error || 'Unknown error');
+                  // Fallback: Create in background (FINAL FALLBACK will handle it)
+                  (async () => {
+                    try {
+                      const retryResult = await squadsVaultService.proposeTieRefund(
+                        updatedMatch.squadsVaultAddress,
+                        new PublicKey(updatedMatch.player1),
+                        new PublicKey(updatedMatch.player2),
+                        refundAmount,
+                        updatedMatch.squadsVaultPda ?? undefined,
+                        tiePaymentStatus
+                      );
+                      if (retryResult.success) {
+                        const retryState = buildInitialProposalState(retryResult.needsSignatures);
+                        await matchRepository.query(`
+                          UPDATE "match"
+                          SET "tieRefundProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3,
+                              "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
+                          WHERE id = $7
+                        `, [retryResult.proposalId, new Date(), 'ACTIVE', retryState.normalizedNeeds, retryState.signersJson, new Date(), updatedMatch.id]);
+                        console.log('✅ Tie refund proposal created in background retry:', retryResult.proposalId);
+                      }
+                    } catch (retryError: any) {
+                      console.error('❌ Background retry failed:', retryError?.message);
+                    }
+                  })();
+                }
+              } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                const isTimeout = errorMessage.includes('timeout');
+                console.error(`❌ Error creating Squads tie refund proposal (solved case${isTimeout ? ', timed out' : ''}):`, errorMessage);
+                // Fallback: Create in background (FINAL FALLBACK will handle it)
+                (async () => {
+                  try {
+                    const tiePaymentStatus = {
+                      ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                      ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
+                    };
+                    const retryResult = await squadsVaultService.proposeTieRefund(
+                      updatedMatch.squadsVaultAddress,
+                      new PublicKey(updatedMatch.player1),
+                      new PublicKey(updatedMatch.player2),
+                      refundAmount,
+                      updatedMatch.squadsVaultPda ?? undefined,
+                      tiePaymentStatus
+                    );
+                    if (retryResult.success) {
+                      const retryState = buildInitialProposalState(retryResult.needsSignatures);
+                      await matchRepository.query(`
+                        UPDATE "match"
+                        SET "tieRefundProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3,
+                            "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
+                        WHERE id = $7
+                      `, [retryResult.proposalId, new Date(), 'ACTIVE', retryState.normalizedNeeds, retryState.signersJson, new Date(), updatedMatch.id]);
+                      console.log('✅ Tie refund proposal created in background after timeout:', retryResult.proposalId);
+                    }
+                  } catch (retryError: any) {
+                    console.error('❌ Background retry after timeout failed:', retryError?.message);
+                  }
+                })();
+              }
+            }
           }
         }
         // Use raw SQL to update match completion status and payout result
@@ -2650,7 +2788,7 @@ const submitResultHandler = async (req: any, res: any) => {
           player2Result: currentMatch?.player2Result || null,
           // CRITICAL: Use proposalId from payoutResult (blocking creation) or fallback to DB
           payoutProposalId: (payoutResult as any).proposalId || proposalData?.payoutProposalId || null,
-          tieRefundProposalId: proposalData?.tieRefundProposalId || null,
+          tieRefundProposalId: (payoutResult as any).tieRefundProposalId || (payoutResult as any).proposalId || proposalData?.tieRefundProposalId || null,
           proposalStatus: (payoutResult as any).proposalStatus || proposalData?.proposalStatus || null,
           needsSignatures: (payoutResult as any).needsSignatures || null,
           message: 'Game completed - winner determined'
