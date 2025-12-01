@@ -279,6 +279,23 @@ const Game: React.FC = () => {
               clearTimeout(timeoutId);
               if (fetchError.name === 'AbortError') {
                 console.warn('⚠️ Status request timed out, will retry');
+                // CRITICAL FIX: Even on timeout, try to redirect if we have both results in localStorage
+                // This handles the case where status endpoint is slow but match is actually complete
+                try {
+                  const storedData = localStorage.getItem('payoutData');
+                  if (storedData) {
+                    const data = JSON.parse(storedData);
+                    // If we have both results stored, redirect anyway
+                    // The results page will handle waiting for proposal
+                    if (data.player1Result && data.player2Result) {
+                      console.log('🔄 Timeout but have both results in localStorage, redirecting to results page');
+                      router.push(`/result?matchId=${matchId}`);
+                      return;
+                    }
+                  }
+                } catch (localStorageError) {
+                  // Ignore localStorage errors, continue polling
+                }
               } else {
                 console.error('❌ Error fetching status:', fetchError);
               }
@@ -287,8 +304,8 @@ const Game: React.FC = () => {
             console.error('❌ Error polling for completion:', error);
           }
           
-          // Continue polling if not completed
-          setTimeout(pollForCompletion, 2000);
+          // Continue polling if not completed (reduce interval to 1s for faster updates)
+          setTimeout(pollForCompletion, 1000);
         };
         
         // Start polling after a short delay
