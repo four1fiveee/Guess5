@@ -205,7 +205,7 @@ const Game: React.FC = () => {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL;
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout (status endpoint should be fast now)
             
             try {
               const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {
@@ -307,8 +307,9 @@ const Game: React.FC = () => {
             console.error('❌ Error polling for completion:', error);
           }
           
-          // Continue polling if not completed (reduce interval to 1s for faster updates)
-          setTimeout(pollForCompletion, 1000);
+          // Continue polling if not completed (reduce interval to 500ms for faster updates)
+          // CRITICAL: Fast polling ensures first player sees status change immediately when second player submits
+          setTimeout(pollForCompletion, 500);
         };
         
         // Start polling after a short delay
