@@ -2630,12 +2630,22 @@ const submitResultHandler = async (req: any, res: any) => {
         
         // Fetch current match state to include player results in response
         const currentMatch = await fetchLatestMatchState();
+        // CRITICAL: Include proposalId in response so frontend can see it immediately
+        const finalMatchRows = await matchRepository.query(`
+          SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus"
+          FROM "match"
+          WHERE id = $1
+        `, [matchId]);
+        const proposalData = finalMatchRows?.[0];
         res.json({
           status: 'completed',
           winner: (payoutResult as any).winner,
           payout: payoutResult,
           player1Result: currentMatch?.player1Result || null,
           player2Result: currentMatch?.player2Result || null,
+          payoutProposalId: proposalData?.payoutProposalId || null,
+          tieRefundProposalId: proposalData?.tieRefundProposalId || null,
+          proposalStatus: proposalData?.proposalStatus || null,
           message: 'Game completed - winner determined'
         });
       } else {
