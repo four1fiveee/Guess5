@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class RemoveUsernameUniqueAddMatchUsernames1710012345679 implements MigrationInterface {
-  name = 'RemoveUsernameUniqueAddMatchUsernames1710012345679';
+export class RemoveUsernameUniqueAddMatchUsernames1733120200000 implements MigrationInterface {
+  name = 'RemoveUsernameUniqueAddMatchUsernames1733120200000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Remove unique constraint/index on username (usernames are not unique)

@@ -81,6 +81,21 @@ export const initializeDatabase = async () => {
       } catch (migrationError) {
         console.warn('⚠️ Migration error (continuing):', migrationError);
       }
+      
+      // Ensure player1Username and player2Username columns exist (migration might have failed)
+      try {
+        await AppDataSource.query(`
+          ALTER TABLE "match" 
+          ADD COLUMN IF NOT EXISTS "player1Username" text,
+          ADD COLUMN IF NOT EXISTS "player2Username" text
+        `);
+        console.log('✅ Ensured player1Username and player2Username columns exist');
+      } catch (columnError: any) {
+        // Ignore if columns already exist or other non-critical errors
+        if (!columnError?.message?.includes('already exists') && !columnError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure match username columns:', columnError?.message);
+        }
+      }
 
       console.log('✅ Database initialization complete');
       return;
