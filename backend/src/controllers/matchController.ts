@@ -2404,7 +2404,35 @@ const submitResultHandler = async (req: any, res: any) => {
                            (player2Result && player2Result.reason === 'timeout' && !player1Result);
       
       if (shouldComplete) {
-        // Use transaction to ensure atomic winner determination with raw SQL
+        // CRITICAL FIX: Mark match as completed IMMEDIATELY so first player's polling sees it
+        // Don't wait for winner determination - that can happen in background
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "isCompleted" = $1, "updatedAt" = $2
+          WHERE id = $3 AND "isCompleted" != $1
+        `, [true, new Date(), matchId]);
+        console.log('✅ Marked match as completed immediately (both players have results)');
+        
+        // CRITICAL FIX: Return response IMMEDIATELY with both results so first player can redirect
+        // Winner determination will continue in background
+        const immediateResponse = {
+          status: 'completed',
+          isCompleted: true,
+          player1Result: player1Result,
+          player2Result: player2Result,
+          winner: null, // Will be set when winner determination completes
+          payout: null, // Will be set when winner determination completes
+          proposalStatus: 'PENDING',
+          payoutProposalId: null,
+          tieRefundProposalId: null,
+          message: 'Both players have results - winner determination in progress'
+        };
+        
+        // Send response immediately (don't await)
+        res.json(immediateResponse);
+        console.log('✅ Sent immediate response with both results - winner determination will continue in background');
+        
+        // Use transaction to ensure atomic winner determination with raw SQL (in background)
         let updatedMatch: any = null;
         const payoutResult = await AppDataSource.transaction(async (manager: any) => {
           // Get the latest match data with both results within the transaction using raw SQL
@@ -2508,6 +2536,21 @@ const submitResultHandler = async (req: any, res: any) => {
           
           return result;
         });
+        
+        // CRITICAL FIX: Return response IMMEDIATELY with both results
+        // Winner determination and proposal creation can continue in background
+        // This allows first player to see both results immediately and redirect
+        const immediateResponse = {
+          status: 'completed',
+          isCompleted: true,
+          player1Result: player1Result,
+          player2Result: player2Result,
+          winner: payoutResult?.winner || null,
+          payout: payoutResult || null,
+          proposalStatus: 'PENDING', // Will be updated when proposal is created
+          payoutProposalId: null,
+          tieRefundProposalId: null
+        };
         
         // IMPORTANT: Reload match after transaction to ensure we have the latest winner using raw SQL
         // Include all fields needed for proposal creation
