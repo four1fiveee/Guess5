@@ -3038,11 +3038,19 @@ const submitResultHandler = async (req: any, res: any) => {
       });
       
       if (bothPlayersHaveResults) {
+        const p1Result = updatedMatch.getPlayer1Result();
+        const p2Result = updatedMatch.getPlayer2Result();
+        
         console.log('🏁 COMPREHENSIVE: Both players have submitted results, determining winner...', {
           matchId,
           correlationId,
           timestamp: new Date().toISOString(),
-          action: 'starting_winner_determination'
+          action: 'starting_winner_determination',
+          player1Address: updatedMatch.player1,
+          player2Address: updatedMatch.player2,
+          player1Result: p1Result ? { won: p1Result.won, numGuesses: p1Result.numGuesses, totalTime: p1Result.totalTime } : null,
+          player2Result: p2Result ? { won: p2Result.won, numGuesses: p2Result.numGuesses, totalTime: p2Result.totalTime } : null,
+          existingWinner: updatedMatch.winner
         });
         
         // Use transaction to ensure atomic winner determination
