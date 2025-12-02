@@ -2483,9 +2483,9 @@ const submitResultHandler = async (req: any, res: any) => {
             return result;
           }
           
-          // Always recalculate winner to ensure correctness, even if one already exists
+          // CRITICAL FIX: Always recalculate winner to ensure correctness, even if one already exists
           // This prevents using an incorrectly set winner from a previous bug
-          enhancedLogger.info('🔍 Recalculating winner to ensure correctness', {
+          console.log('🔍 FORCING winner recalculation to ensure correctness:', {
             matchId,
             player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses, totalTime: player1Result.totalTime } : null,
             player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses, totalTime: player2Result.totalTime } : null,
@@ -2631,8 +2631,24 @@ const submitResultHandler = async (req: any, res: any) => {
             
             // Start proposal creation in background - don't await it
             (async () => {
+              const backgroundTaskStartTime = Date.now();
+              console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
+                matchId: updatedMatch.id,
+                timestamp: new Date().toISOString(),
+                winner,
+                winnerAmount,
+                feeAmount,
+                vaultAddress: updatedMatch.squadsVaultAddress,
+                vaultPda: updatedMatch.squadsVaultPda
+              });
+              
               try {
                 // Add timeout to prevent hanging forever
+                console.log('⏳ Calling proposeWinnerPayout service...', {
+                  matchId: updatedMatch.id,
+                  vaultAddress: updatedMatch.squadsVaultAddress
+                });
+                
                 const proposalPromise = squadsVaultService.proposeWinnerPayout(
                   updatedMatch.squadsVaultAddress,
                   new PublicKey(winner),
@@ -2646,7 +2662,20 @@ const submitResultHandler = async (req: any, res: any) => {
                   setTimeout(() => reject(new Error('Proposal creation timeout (30s)')), 30000);
                 });
                 
+                console.log('⏳ Waiting for proposal creation (with 30s timeout)...', {
+                  matchId: updatedMatch.id
+                });
+                
                 const proposalResult = await Promise.race([proposalPromise, timeoutPromise]) as any;
+                
+                const elapsedTime = Date.now() - backgroundTaskStartTime;
+                console.log('⏱️ Proposal creation completed', {
+                  matchId: updatedMatch.id,
+                  elapsedMs: elapsedTime,
+                  success: proposalResult?.success,
+                  proposalId: proposalResult?.proposalId,
+                  error: proposalResult?.error
+                });
                 
                 if (proposalResult && proposalResult.success) {
                   console.log('✅ Squads winner payout proposal created (background):', proposalResult.proposalId);
@@ -2692,9 +2721,18 @@ const submitResultHandler = async (req: any, res: any) => {
                   `, ['FAILED', new Date(), updatedMatch.id]);
                 }
               } catch (error: unknown) {
+                const elapsedTime = Date.now() - backgroundTaskStartTime;
                 const errorMessage = error instanceof Error ? error.message : String(error);
-                console.error(`❌ Error creating Squads proposal (background):`, errorMessage);
-                console.error(`❌ Full error stack:`, error instanceof Error ? error.stack : String(error));
+                const errorStack = error instanceof Error ? error.stack : String(error);
+                
+                console.error(`❌ BACKGROUND TASK ERROR: Proposal creation failed after ${elapsedTime}ms`, {
+                  matchId: updatedMatch.id,
+                  error: errorMessage,
+                  errorType: error instanceof Error ? error.constructor.name : typeof error,
+                  stack: errorStack,
+                  timestamp: new Date().toISOString()
+                });
+                
                 // Update status to indicate failure
                 try {
                   await matchRepository.query(`
@@ -2704,9 +2742,17 @@ const submitResultHandler = async (req: any, res: any) => {
                         "updatedAt" = $3
                     WHERE id = $4
                   `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                  console.log('✅ Updated match status to FAILED after proposal creation error');
+                  console.log('✅ Updated match status to FAILED after proposal creation error', {
+                    matchId: updatedMatch.id,
+                    status: 'FAILED',
+                    matchStatus: 'PROPOSAL_FAILED'
+                  });
                 } catch (updateError: any) {
-                  console.error('❌ Failed to update match status after proposal creation error:', updateError?.message);
+                  console.error('❌ Failed to update match status after proposal creation error:', {
+                    matchId: updatedMatch.id,
+                    updateError: updateError?.message,
+                    updateStack: updateError?.stack
+                  });
                 }
               }
             })();
@@ -2826,8 +2872,24 @@ const submitResultHandler = async (req: any, res: any) => {
               
               // Start proposal creation in background - don't await it
               (async () => {
+                const backgroundTaskStartTime = Date.now();
+                console.log('🚀 BACKGROUND TASK STARTED: Tie refund proposal creation', {
+                  matchId: updatedMatch.id,
+                  timestamp: new Date().toISOString(),
+                  player1: updatedMatch.player1,
+                  player2: updatedMatch.player2,
+                  refundAmount,
+                  vaultAddress: updatedMatch.squadsVaultAddress,
+                  vaultPda: updatedMatch.squadsVaultPda
+                });
+                
                 try {
                   // Add timeout to prevent hanging forever
+                  console.log('⏳ Calling proposeTieRefund service...', {
+                    matchId: updatedMatch.id,
+                    vaultAddress: updatedMatch.squadsVaultAddress
+                  });
+                  
                   const proposalPromise = squadsVaultService.proposeTieRefund(
                     updatedMatch.squadsVaultAddress,
                     new PublicKey(updatedMatch.player1),
@@ -2841,7 +2903,20 @@ const submitResultHandler = async (req: any, res: any) => {
                     setTimeout(() => reject(new Error('Tie refund proposal creation timeout (30s)')), 30000);
                   });
                   
+                  console.log('⏳ Waiting for tie refund proposal creation (with 30s timeout)...', {
+                    matchId: updatedMatch.id
+                  });
+                  
                   const refundResult = await Promise.race([proposalPromise, timeoutPromise]) as any;
+                  
+                  const elapsedTime = Date.now() - backgroundTaskStartTime;
+                  console.log('⏱️ Tie refund proposal creation completed', {
+                    matchId: updatedMatch.id,
+                    elapsedMs: elapsedTime,
+                    success: refundResult?.success,
+                    proposalId: refundResult?.proposalId,
+                    error: refundResult?.error
+                  });
                   
                   if (refundResult.success && refundResult.proposalId) {
                     console.log('✅ Squads tie refund proposal created (background):', refundResult.proposalId);
@@ -2888,9 +2963,18 @@ const submitResultHandler = async (req: any, res: any) => {
                     `, ['FAILED', new Date(), updatedMatch.id]);
                   }
                 } catch (error: unknown) {
+                  const elapsedTime = Date.now() - backgroundTaskStartTime;
                   const errorMessage = error instanceof Error ? error.message : String(error);
-                  console.error(`❌ Error creating Squads tie refund proposal (background):`, errorMessage);
-                  console.error(`❌ Full error stack:`, error instanceof Error ? error.stack : String(error));
+                  const errorStack = error instanceof Error ? error.stack : String(error);
+                  
+                  console.error(`❌ BACKGROUND TASK ERROR: Tie refund proposal creation failed after ${elapsedTime}ms`, {
+                    matchId: updatedMatch.id,
+                    error: errorMessage,
+                    errorType: error instanceof Error ? error.constructor.name : typeof error,
+                    stack: errorStack,
+                    timestamp: new Date().toISOString()
+                  });
+                  
                   // Update status to indicate failure
                   try {
                     await matchRepository.query(`
@@ -2900,9 +2984,17 @@ const submitResultHandler = async (req: any, res: any) => {
                           "updatedAt" = $3
                       WHERE id = $4
                     `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                    console.log('✅ Updated match status to FAILED after tie refund proposal creation error');
+                    console.log('✅ Updated match status to FAILED after tie refund proposal creation error', {
+                      matchId: updatedMatch.id,
+                      status: 'FAILED',
+                      matchStatus: 'PROPOSAL_FAILED'
+                    });
                   } catch (updateError: any) {
-                    console.error('❌ Failed to update match status after tie refund proposal creation error:', updateError?.message);
+                    console.error('❌ Failed to update match status after tie refund proposal creation error:', {
+                      matchId: updatedMatch.id,
+                      updateError: updateError?.message,
+                      updateStack: updateError?.stack
+                    });
                   }
                 }
               })();
