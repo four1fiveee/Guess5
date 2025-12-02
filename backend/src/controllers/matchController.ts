@@ -898,9 +898,8 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
       
-      // Get usernames for both players
-      const player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
-      const player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
+      // Usernames were already fetched earlier (lines 757-758) for database storage
+      // Reuse those values for the response
       
       return {
         status: 'matched',
