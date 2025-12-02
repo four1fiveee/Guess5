@@ -31,6 +31,7 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
 const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+const { UserService } = require('../services/userService');
 
 // Helper function to check fee wallet balance
 const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
@@ -753,7 +754,6 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       const createdAt = new Date(matchData.createdAt);
       
       // Fetch usernames at match creation time for historical accuracy
-      const { UserService } = require('../services/userService');
       const player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
       const player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
       
@@ -899,7 +899,6 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
       
       // Get usernames for both players
-      const { UserService } = require('../services/userService');
       const player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
       const player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
       
@@ -1190,7 +1189,6 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       const gameWord = getRandomWord();
       
       // Fetch usernames at match creation time for historical accuracy
-      const { UserService } = require('../services/userService');
       const player1Username = await UserService.getUsername(waitingEntry.player1).catch(() => null);
       const player2Username = await UserService.getUsername(wallet).catch(() => null);
       
@@ -1800,7 +1798,6 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   // Calculate net profit and referral earnings after match completion
   // Do this outside the transaction to avoid blocking
   try {
-    const { UserService } = require('../services/userService');
     const { ReferralService } = require('../services/referralService');
     
     // Reload match to get all financial fields
@@ -5447,7 +5444,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     // Get usernames for both players (non-blocking - fetch in background, return null if not ready)
     // CRITICAL: Don't block status response waiting for usernames
-    const { UserService } = require('../services/userService');
     let player1Username: string | null = null;
     let player2Username: string | null = null;
     
@@ -5807,7 +5803,6 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
       }
       
       // Get usernames for both players
-      const { UserService } = require('../services/userService');
       let player1Username = null;
       let player2Username = null;
       try {
@@ -9323,7 +9318,6 @@ const generateReportHandler = async (req: any, res: any) => {
     
     // Import services for referral and user data
     const { ReferralEarning } = require('../models/ReferralEarning');
-    const { UserService } = require('../services/userService');
     const referralEarningRepository = AppDataSource.getRepository(ReferralEarning);
     
     // Generate CSV rows with available data
@@ -9604,7 +9598,6 @@ const generateReportHandler = async (req: any, res: any) => {
         
         // Import services for referral and user data (fallback)
         const { ReferralEarning } = require('../models/ReferralEarning');
-        const { UserService } = require('../services/userService');
         const referralEarningRepository = AppDataSource.getRepository(ReferralEarning);
         
         // Generate CSV with fallback data (missing new columns will be empty)
