@@ -9,8 +9,8 @@ export class User {
   @Column({ type: 'text', unique: true })
   walletAddress!: string;
 
-  @Column({ type: 'text', unique: true, nullable: true })
-  username!: string | null; // Unique username chosen by player
+  @Column({ type: 'text', nullable: true })
+  username!: string | null; // Username chosen by player (not unique - wallet address is the unique identifier)
 
   @Column({ type: 'decimal', precision: 12, scale: 2, default: 0 })
   totalEntryFees!: number; // Cumulative lifetime entry fees in USD

@@ -11,6 +11,12 @@ export class Match {
   @Column({ nullable: true, type: 'varchar' })
   player2!: string;
 
+  @Column({ nullable: true, type: 'text' })
+  player1Username!: string | null; // Username at match creation time (for historical accuracy)
+
+  @Column({ nullable: true, type: 'text' })
+  player2Username!: string | null; // Username at match creation time (for historical accuracy)
+
   @Column({ type: 'decimal', precision: 10, scale: 6 })
   entryFee!: number;
 

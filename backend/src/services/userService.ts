@@ -125,7 +125,7 @@ export class UserService {
             CREATE TABLE IF NOT EXISTS "user" (
               "id" uuid PRIMARY KEY DEFAULT uuid_generate_v4(),
               "walletAddress" text UNIQUE NOT NULL,
-              "username" text UNIQUE,
+              "username" text,
               "totalEntryFees" numeric(12,2) DEFAULT 0 NOT NULL,
               "totalEntryFeesSOL" numeric(12,6) DEFAULT 0 NOT NULL,
               "exemptFromReferralMinimum" boolean DEFAULT false NOT NULL,
@@ -138,9 +138,16 @@ export class UserService {
             CREATE INDEX IF NOT EXISTS "IDX_user_walletAddress" ON "user" ("walletAddress")
           `);
           
-          await AppDataSource.query(`
-            CREATE UNIQUE INDEX IF NOT EXISTS "IDX_user_username" ON "user" ("username") WHERE "username" IS NOT NULL
-          `);
+          // Usernames are not unique - wallet address is the unique identifier
+          // Remove unique index if it exists (migration will handle this)
+          try {
+            await AppDataSource.query(`
+              DROP INDEX IF EXISTS "IDX_user_username"
+            `);
+          } catch (dropError: any) {
+            // Ignore if index doesn't exist
+            console.log('ℹ️ Unique username index already removed or never existed');
+          }
           
           await AppDataSource.query(`
             CREATE INDEX IF NOT EXISTS "IDX_user_exemptFromReferralMinimum" 
@@ -264,7 +271,8 @@ export class UserService {
   }
 
   /**
-   * Set username for a user (must be unique)
+   * Set username for a user (not unique - wallet address is the unique identifier)
+   * Usernames can be changed over time and are stored with each match for historical accuracy
    */
   static async setUsername(walletAddress: string, username: string): Promise<User> {
     const userRepository = AppDataSource.getRepository(User);
@@ -275,28 +283,31 @@ export class UserService {
       throw new Error('Username must be 3-20 characters and contain only letters, numbers, and underscores');
     }
 
-    // Check if username is already taken
-    const existingUser = await userRepository.findOne({
-      where: { username: username.toLowerCase() }
-    });
-
-    if (existingUser && existingUser.walletAddress !== walletAddress) {
-      throw new Error('Username is already taken');
-    }
-
+    // No uniqueness check - usernames are not unique, wallet address is the unique identifier
     // Get or create user
     const user = await this.getUserByWallet(walletAddress);
-    user.username = username.toLowerCase(); // Store lowercase for uniqueness
+    user.username = username.toLowerCase(); // Store lowercase for consistency
     
     return await userRepository.save(user);
   }
 
   /**
-   * Get username for a wallet address
+   * Get username for a wallet address (optimized - direct query, no user creation)
    */
   static async getUsername(walletAddress: string): Promise<string | null> {
-    const user = await this.getUserByWallet(walletAddress);
-    return user.username;
+    try {
+      // Use direct query for speed - don't create user if it doesn't exist
+      const userRepository = AppDataSource.getRepository(User);
+      const user = await userRepository.findOne({
+        where: { walletAddress },
+        select: ['username'] // Only select username field for speed
+      });
+      return user?.username || null;
+    } catch (error: any) {
+      // If query fails, return null (non-blocking)
+      console.warn('⚠️ Error getting username (non-blocking):', error?.message);
+      return null;
+    }
   }
 
   /**
@@ -310,14 +321,14 @@ export class UserService {
   }
 
   /**
-   * Check if username is available
+   * Check if username is available (always returns true - usernames are not unique)
+   * Only validates format, doesn't check database
    */
   static async isUsernameAvailable(username: string): Promise<boolean> {
-    const userRepository = AppDataSource.getRepository(User);
-    const existing = await userRepository.findOne({
-      where: { username: username.toLowerCase() }
-    });
-    return !existing;
+    // Usernames are not unique - wallet address is the unique identifier
+    // Just validate format, no database check needed
+    const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
+    return usernameRegex.test(username);
   }
 
   /**

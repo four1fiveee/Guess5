@@ -53,7 +53,7 @@ export const getUsername = async (req: Request, res: Response) => {
 };
 
 /**
- * Check if username is available
+ * Check if username is available (format validation only - usernames are not unique)
  * GET /api/user/username/check?username=<username>
  */
 export const checkUsernameAvailability = async (req: Request, res: Response) => {
@@ -61,10 +61,13 @@ export const checkUsernameAvailability = async (req: Request, res: Response) => 
     const username = req.query.username as string;
 
     if (!username) {
-      return res.status(400).json({ error: 'Username is required' });
+      return res.json({
+        available: false,
+        reason: 'Username is required'
+      });
     }
 
-    // Validate format
+    // Validate format only - usernames are not unique
     const usernameRegex = /^[a-zA-Z0-9_]{3,20}$/;
     if (!usernameRegex.test(username)) {
       return res.json({
@@ -73,10 +76,9 @@ export const checkUsernameAvailability = async (req: Request, res: Response) => 
       });
     }
 
-    const available = await UserService.isUsernameAvailable(username);
-    
+    // Always return available - no database check needed (usernames are not unique)
     return res.json({
-      available,
+      available: true,
       username: username.toLowerCase()
     });
   } catch (error: unknown) {

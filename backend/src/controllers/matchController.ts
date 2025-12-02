@@ -752,11 +752,16 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       const now = new Date();
       const createdAt = new Date(matchData.createdAt);
       
+      // Fetch usernames at match creation time for historical accuracy
+      const { UserService } = require('../services/userService');
+      const player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
+      const player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
+      
       await matchRepository.query(`
         INSERT INTO "match" (
           id, "player1", "player2", "entryFee", status, "matchStatus", word,
-          "createdAt", "updatedAt"
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+          "player1Username", "player2Username", "createdAt", "updatedAt"
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         ON CONFLICT (id) DO NOTHING
       `, [
         matchData.matchId,
@@ -766,6 +771,8 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         'payment_required',
         'PENDING',
         word,
+        player1Username,
+        player2Username,
         createdAt,
         now
       ]);
@@ -1182,17 +1189,22 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       // Generate game word
       const gameWord = getRandomWord();
       
+      // Fetch usernames at match creation time for historical accuracy
+      const { UserService } = require('../services/userService');
+      const player1Username = await UserService.getUsername(waitingEntry.player1).catch(() => null);
+      const player2Username = await UserService.getUsername(wallet).catch(() => null);
+      
       // Create new match record
       const newMatchResult = await matchRepository.query(`
         INSERT INTO "match" (
           "player1", "player2", "entryFee", "status", "word", 
-          "player1Paid", "player2Paid", "createdAt", "updatedAt"
+          "player1Paid", "player2Paid", "player1Username", "player2Username", "createdAt", "updatedAt"
         )
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
         RETURNING id, "player1", "player2", "entryFee", "status"
       `, [
         waitingEntry.player1, wallet, actualEntryFee, 'payment_required', gameWord,
-        false, false, new Date(), new Date()
+        false, false, player1Username, player2Username, new Date(), new Date()
       ]);
       
       const newMatch = newMatchResult[0];
