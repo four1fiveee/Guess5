@@ -32,8 +32,19 @@ const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
 const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
 // Import UserService - TypeScript compiles ES6 exports to CommonJS
-const userServiceModule = require('../services/userService');
-const UserService = userServiceModule.UserService || userServiceModule;
+let UserService: any;
+try {
+  const userServiceModule = require('../services/userService');
+  UserService = userServiceModule.UserService || userServiceModule.default || userServiceModule;
+  if (!UserService || typeof UserService.getUsername !== 'function') {
+    console.warn('⚠️ UserService not properly imported, username fetching will be disabled');
+    UserService = { getUsername: async () => null };
+  }
+} catch (error: any) {
+  console.error('❌ Failed to import UserService:', error?.message);
+  // Fallback: create a mock UserService that returns null
+  UserService = { getUsername: async () => null };
+}
 
 // Helper function to check fee wallet balance
 const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
@@ -5987,7 +5998,21 @@ const cancelMatchHandler = async (req: any, res: any) => {
     const { redisMatchmakingService } = require('../services/redisMatchmakingService');
 
     if (!matchId) {
+      // Cancel from queue - clean up matchmaking lock
       await redisMatchmakingService.evictPlayer(walletAddress);
+      
+      // Clean up the matchmaking lock
+      try {
+        const lockKey = `matchmaking_${walletAddress}`;
+        const { deleteMatchmakingLock } = require('../utils/redisMatchmakingLocks');
+        await deleteMatchmakingLock(lockKey);
+      } catch (lockError) {
+        console.warn('⚠️ Failed to delete matchmaking lock on cancel:', {
+          wallet: walletAddress,
+          error: lockError instanceof Error ? lockError.message : String(lockError),
+        });
+      }
+      
       return res.json({
         success: true,
         status: 'queue_cancelled',
@@ -6052,9 +6077,16 @@ const cancelMatchHandler = async (req: any, res: any) => {
       refundReason: cancellationReason,
     });
 
+    // Clean up matchmaking locks for both players
     try {
       const { deleteMatchmakingLock } = require('../utils/redisMatchmakingLocks');
-      await deleteMatchmakingLock(matchId);
+      // Delete locks for both players (lock key format is matchmaking_${wallet})
+      if (match.player1) {
+        await deleteMatchmakingLock(`matchmaking_${match.player1}`);
+      }
+      if (match.player2) {
+        await deleteMatchmakingLock(`matchmaking_${match.player2}`);
+      }
     } catch (lockError) {
       console.warn('⚠️ Failed to delete matchmaking lock for cancelled match', {
         matchId,
