@@ -293,19 +293,37 @@ export class UserService {
 
   /**
    * Get username for a wallet address (optimized - direct query, no user creation)
+   * CRITICAL FIX: Use raw SQL with timeout to prevent hanging
    */
   static async getUsername(walletAddress: string): Promise<string | null> {
     try {
-      // Use direct query for speed - don't create user if it doesn't exist
-      const userRepository = AppDataSource.getRepository(User);
-      const user = await userRepository.findOne({
-        where: { walletAddress },
-        select: ['username'] // Only select username field for speed
+      // CRITICAL FIX: Use raw SQL query with timeout to prevent hanging
+      // This avoids TypeORM repository issues with stale connections
+      if (!AppDataSource.isInitialized) {
+        console.warn('⚠️ Database not initialized, returning null for username');
+        return null;
+      }
+
+      // Use Promise.race to add a 5-second timeout
+      const queryPromise = AppDataSource.query(
+        `SELECT username FROM "user" WHERE "walletAddress" = $1 LIMIT 1`,
+        [walletAddress]
+      );
+      
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        setTimeout(() => reject(new Error('Query timeout')), 5000); // 5 second timeout
       });
-      return user?.username || null;
+
+      const result = await Promise.race([queryPromise, timeoutPromise]);
+      const rows = result as any[];
+      return rows?.[0]?.username || null;
     } catch (error: any) {
-      // If query fails, return null (non-blocking)
-      console.warn('⚠️ Error getting username (non-blocking):', error?.message);
+      // If query fails or times out, return null (non-blocking)
+      if (error?.message === 'Query timeout') {
+        console.warn('⚠️ Username query timed out after 5 seconds (non-blocking)');
+      } else {
+        console.warn('⚠️ Error getting username (non-blocking):', error?.message);
+      }
       return null;
     }
   }
