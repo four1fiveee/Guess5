@@ -2483,9 +2483,9 @@ const submitResultHandler = async (req: any, res: any) => {
             return result;
           }
           
-          // CRITICAL FIX: Always recalculate winner to ensure correctness, even if one already exists
+          // Always recalculate winner to ensure correctness, even if one already exists
           // This prevents using an incorrectly set winner from a previous bug
-          console.log('🔍 FORCING winner recalculation to ensure correctness:', {
+          enhancedLogger.info('🔍 Recalculating winner to ensure correctness', {
             matchId,
             player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses, totalTime: player1Result.totalTime } : null,
             player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses, totalTime: player2Result.totalTime } : null,
