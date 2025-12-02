@@ -31,7 +31,9 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
 const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
-const { UserService } = require('../services/userService');
+// Import UserService - TypeScript compiles ES6 exports to CommonJS
+const userServiceModule = require('../services/userService');
+const UserService = userServiceModule.UserService || userServiceModule;
 
 // Helper function to check fee wallet balance
 const checkFeeWalletBalance = async (requiredAmount: number): Promise<boolean> => {
@@ -753,9 +755,18 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       const now = new Date();
       const createdAt = new Date(matchData.createdAt);
       
-      // Fetch usernames at match creation time for historical accuracy
-      const player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
-      const player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
+      // Fetch usernames at match creation time for historical accuracy (non-blocking)
+      let player1Username: string | null = null;
+      let player2Username: string | null = null;
+      try {
+        if (UserService && typeof UserService.getUsername === 'function') {
+          player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
+          player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
+        }
+      } catch (error: any) {
+        console.warn('⚠️ Failed to fetch usernames (non-blocking):', error?.message);
+        // Continue without usernames - match creation is more important
+      }
       
       await matchRepository.query(`
         INSERT INTO "match" (
@@ -1187,9 +1198,18 @@ const findWaitingPlayer = async (matchRepository: any, wallet: string, entryFee:
       // Generate game word
       const gameWord = getRandomWord();
       
-      // Fetch usernames at match creation time for historical accuracy
-      const player1Username = await UserService.getUsername(waitingEntry.player1).catch(() => null);
-      const player2Username = await UserService.getUsername(wallet).catch(() => null);
+      // Fetch usernames at match creation time for historical accuracy (non-blocking)
+      let player1Username: string | null = null;
+      let player2Username: string | null = null;
+      try {
+        if (UserService && typeof UserService.getUsername === 'function') {
+          player1Username = await UserService.getUsername(waitingEntry.player1).catch(() => null);
+          player2Username = await UserService.getUsername(wallet).catch(() => null);
+        }
+      } catch (error: any) {
+        console.warn('⚠️ Failed to fetch usernames (non-blocking):', error?.message);
+        // Continue without usernames - match creation is more important
+      }
       
       // Create new match record
       const newMatchResult = await matchRepository.query(`
