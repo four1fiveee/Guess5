@@ -2438,130 +2438,101 @@ const submitResultHandler = async (req: any, res: any) => {
               player2: updatedMatch.player2,
             });
           } else {
-            // CRITICAL FIX: Create proposal with 20s timeout to allow completion
-            // Increased from 10s to 20s - Solana transactions can take 15-20s during network congestion
-            // This ensures frontend gets proposalId immediately instead of stuck at 95%
-            try {
-              console.log('🚀 Starting winner payout proposal creation', {
-                matchId: updatedMatch.id,
-                winner,
-                winnerAmount,
-                feeAmount,
-                vaultAddress: updatedMatch.squadsVaultAddress,
-                timeout: '20s'
-              });
-              
-              const proposalCreationPromise = squadsVaultService.proposeWinnerPayout(
-                updatedMatch.squadsVaultAddress,
-                new PublicKey(winner),
-                winnerAmount,
-                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount,
-                updatedMatch.squadsVaultPda ?? undefined
-              );
-              
-              const timeoutPromise = new Promise<never>((_, reject) => {
-                setTimeout(() => reject(new Error('Proposal creation timeout (20s)')), 20000);
-              });
-              
-              const proposalResult = await Promise.race([proposalCreationPromise, timeoutPromise]) as any;
-              
-              if (proposalResult && proposalResult.success) {
-                console.log('✅ Squads winner payout proposal created (solved case, BLOCKING):', proposalResult.proposalId);
-              
-                const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
+            // CRITICAL FIX: Make proposal creation NON-BLOCKING to prevent HTTP timeout
+            // Start proposal creation in background and return response immediately
+            // Frontend will poll for proposalId - it will appear in database when ready
+            console.log('🚀 Starting winner payout proposal creation (NON-BLOCKING)', {
+              matchId: updatedMatch.id,
+              winner,
+              winnerAmount,
+              feeAmount,
+              vaultAddress: updatedMatch.squadsVaultAddress,
+            });
+            
+            // Set status to PENDING immediately so frontend knows proposal is being created
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "proposalStatus" = $1,
+                  "matchStatus" = $2,
+                  "updatedAt" = $3
+              WHERE id = $4
+            `, ['PENDING', 'PROPOSAL_PENDING', new Date(), updatedMatch.id]);
+            
+            // Start proposal creation in background - don't await it
+            (async () => {
+              try {
+                const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                  updatedMatch.squadsVaultAddress,
+                  new PublicKey(winner),
+                  winnerAmount,
+                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                  feeAmount,
+                  updatedMatch.squadsVaultPda ?? undefined
+                );
+                
+                if (proposalResult && proposalResult.success) {
+                  console.log('✅ Squads winner payout proposal created (background):', proposalResult.proposalId);
+                  
+                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
 
-                // Update match with proposal information using raw SQL
-                await matchRepository.query(`
-                  UPDATE "match"
-                  SET "payoutProposalId" = $1,
-                      "proposalCreatedAt" = $2,
-                      "proposalStatus" = $3,
-                      "needsSignatures" = $4,
-                      "proposalSigners" = $5,
-                      "matchStatus" = $6,
-                      "updatedAt" = $7
-                  WHERE id = $8
-                `, [
-                  proposalResult.proposalId,
-                  new Date(),
-                  'ACTIVE',
-                  proposalState.normalizedNeeds,
-                  proposalState.signersJson,
-                  'PROPOSAL_CREATED',
-                  new Date(),
-                  updatedMatch.id
-                ]);
-                
-                console.log('✅ Match saved with proposal information (solved case, BLOCKING):', {
-                  matchId: updatedMatch.id,
-                  proposalId: proposalResult.proposalId,
-                  proposalStatus: 'ACTIVE',
-                  needsSignatures: proposalState.normalizedNeeds,
-                });
-                
-                // CRITICAL: Include proposalId in payoutResult so response includes it
-                (payoutResult as any).proposalId = proposalResult.proposalId;
-                (payoutResult as any).proposalStatus = 'ACTIVE';
-                (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
-              } else {
-                console.error('❌ Squads proposal creation failed (solved case):', proposalResult?.error || 'Unknown error');
-                // Fallback: Create in background (FINAL FALLBACK will handle it)
-                (async () => {
-                  try {
-                    const retryResult = await squadsVaultService.proposeWinnerPayout(
-                      updatedMatch.squadsVaultAddress,
-                      new PublicKey(winner),
-                      winnerAmount,
-                      new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                      feeAmount,
-                      updatedMatch.squadsVaultPda ?? undefined
-                    );
-                    if (retryResult.success) {
-                      const retryState = buildInitialProposalState(retryResult.needsSignatures);
-                      await matchRepository.query(`
-                        UPDATE "match"
-                        SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3,
-                            "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
-                        WHERE id = $7
-                      `, [retryResult.proposalId, new Date(), 'ACTIVE', retryState.normalizedNeeds, retryState.signersJson, new Date(), updatedMatch.id]);
-                      console.log('✅ Proposal created in background retry:', retryResult.proposalId);
-                    }
-                  } catch (retryError: any) {
-                    console.error('❌ Background retry failed:', retryError?.message);
-                  }
-                })();
-              }
-            } catch (error: unknown) {
-              const errorMessage = error instanceof Error ? error.message : String(error);
-              const isTimeout = errorMessage.includes('timeout');
-              console.error(`❌ Error creating Squads proposal (solved case${isTimeout ? ', timed out' : ''}):`, errorMessage);
-              // Fallback: Create in background (FINAL FALLBACK will handle it)
-              (async () => {
-                try {
-                  const retryResult = await squadsVaultService.proposeWinnerPayout(
-                    updatedMatch.squadsVaultAddress,
-                    new PublicKey(winner),
-                    winnerAmount,
-                    new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                    feeAmount,
-                    updatedMatch.squadsVaultPda ?? undefined
-                  );
-                  if (retryResult.success) {
-                    const retryState = buildInitialProposalState(retryResult.needsSignatures);
-                    await matchRepository.query(`
-                      UPDATE "match"
-                      SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3,
-                          "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
-                      WHERE id = $7
-                    `, [retryResult.proposalId, new Date(), 'ACTIVE', retryState.normalizedNeeds, retryState.signersJson, new Date(), updatedMatch.id]);
-                    console.log('✅ Proposal created in background after timeout:', retryResult.proposalId);
-                  }
-                } catch (retryError: any) {
-                  console.error('❌ Background retry after timeout failed:', retryError?.message);
+                  // Update match with proposal information using raw SQL
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "payoutProposalId" = $1,
+                        "proposalCreatedAt" = $2,
+                        "proposalStatus" = $3,
+                        "needsSignatures" = $4,
+                        "proposalSigners" = $5,
+                        "matchStatus" = $6,
+                        "updatedAt" = $7
+                    WHERE id = $8
+                  `, [
+                    proposalResult.proposalId,
+                    new Date(),
+                    'ACTIVE',
+                    proposalState.normalizedNeeds,
+                    proposalState.signersJson,
+                    'PROPOSAL_CREATED',
+                    new Date(),
+                    updatedMatch.id
+                  ]);
+                  
+                  console.log('✅ Match saved with proposal information (background):', {
+                    matchId: updatedMatch.id,
+                    proposalId: proposalResult.proposalId,
+                    proposalStatus: 'ACTIVE',
+                    needsSignatures: proposalState.normalizedNeeds,
+                  });
+                } else {
+                  console.error('❌ Squads proposal creation failed (background):', proposalResult?.error || 'Unknown error');
+                  // Update status to indicate failure
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "proposalStatus" = $1,
+                        "updatedAt" = $2
+                    WHERE id = $3
+                  `, ['FAILED', new Date(), updatedMatch.id]);
                 }
-              })();
-            }
+              } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error(`❌ Error creating Squads proposal (background):`, errorMessage);
+                // Update status to indicate failure
+                try {
+                  await matchRepository.query(`
+                    UPDATE "match"
+                    SET "proposalStatus" = $1,
+                        "updatedAt" = $2
+                    WHERE id = $3
+                  `, ['FAILED', new Date(), updatedMatch.id]);
+                } catch (updateError: any) {
+                  console.error('❌ Failed to update match status after proposal creation error:', updateError?.message);
+                }
+              }
+            })();
+            
+            // Set proposalStatus to PENDING in response so frontend knows to poll
+            (payoutResult as any).proposalStatus = 'PENDING';
+            (payoutResult as any).proposalId = null; // Will be populated when background process completes
             
             // Set fallback payment instructions (proposal will be created in background)
             const paymentInstructions = {
@@ -2647,143 +2618,108 @@ const submitResultHandler = async (req: any, res: any) => {
                 player2: updatedMatch.player2,
               });
             } else {
-              // CRITICAL FIX: Create tie refund proposal with 20s timeout to allow completion
-              // Increased from 10s to 20s - Solana transactions can take 15-20s during network congestion
-              // This ensures frontend gets proposalId immediately instead of stuck at 95%
-              try {
-                console.log('🚀 Starting tie refund proposal creation', {
-                  matchId: updatedMatch.id,
-                  player1: updatedMatch.player1,
-                  player2: updatedMatch.player2,
-                  refundAmount,
-                  vaultAddress: updatedMatch.squadsVaultAddress,
-                  timeout: '20s'
-                });
-                
-                const tiePaymentStatus = {
-                  ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
-                  ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
-                };
+              // CRITICAL FIX: Make tie refund proposal creation NON-BLOCKING to prevent HTTP timeout
+              // Start proposal creation in background and return response immediately
+              // Frontend will poll for proposalId - it will appear in database when ready
+              console.log('🚀 Starting tie refund proposal creation (NON-BLOCKING)', {
+                matchId: updatedMatch.id,
+                player1: updatedMatch.player1,
+                player2: updatedMatch.player2,
+                refundAmount,
+                vaultAddress: updatedMatch.squadsVaultAddress,
+              });
+              
+              const tiePaymentStatus = {
+                ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
+              };
+              
+              // Set status to PENDING immediately so frontend knows proposal is being created
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = $1,
+                    "matchStatus" = $2,
+                    "updatedAt" = $3
+                WHERE id = $4
+              `, ['PENDING', 'PROPOSAL_PENDING', new Date(), updatedMatch.id]);
+              
+              // Start proposal creation in background - don't await it
+              (async () => {
+                try {
+                  const refundResult = await squadsVaultService.proposeTieRefund(
+                    updatedMatch.squadsVaultAddress,
+                    new PublicKey(updatedMatch.player1),
+                    new PublicKey(updatedMatch.player2),
+                    refundAmount,
+                    updatedMatch.squadsVaultPda ?? undefined,
+                    tiePaymentStatus
+                  );
+                  
+                  if (refundResult.success && refundResult.proposalId) {
+                    console.log('✅ Squads tie refund proposal created (background):', refundResult.proposalId);
+                    
+                    const proposalState = buildInitialProposalState(refundResult.needsSignatures);
 
-                const refundCreationPromise = squadsVaultService.proposeTieRefund(
-                  updatedMatch.squadsVaultAddress,
-                  new PublicKey(updatedMatch.player1),
-                  new PublicKey(updatedMatch.player2),
-                  refundAmount,
-                  updatedMatch.squadsVaultPda ?? undefined,
-                  tiePaymentStatus
-                );
-                
-                // CRITICAL FIX: Increase timeout to 20 seconds to allow proposal creation to complete
-                // Solana transactions can take 15-20s during network congestion
-                const timeoutPromise = new Promise<never>((_, reject) => {
-                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (20s)')), 20000);
-                });
-                
-                const refundResult = await Promise.race([refundCreationPromise, timeoutPromise]) as any;
-                
-                if (refundResult.success && refundResult.proposalId) {
-                  console.log('✅ Squads tie refund proposal created (solved case, BLOCKING):', refundResult.proposalId);
-                  
-                  const proposalState = buildInitialProposalState(refundResult.needsSignatures);
-
-                  // Update match with proposal information using raw SQL
-                  await matchRepository.query(`
-                    UPDATE "match"
-                    SET "payoutProposalId" = NULL,
-                        "tieRefundProposalId" = $1,
-                        "proposalCreatedAt" = $2,
-                        "proposalStatus" = $3,
-                        "needsSignatures" = $4,
-                        "proposalSigners" = $5,
-                        "matchStatus" = $6,
-                        "updatedAt" = $7
-                    WHERE id = $8
-                  `, [
-                    refundResult.proposalId,
-                    new Date(),
-                    'ACTIVE',
-                    proposalState.normalizedNeeds,
-                    proposalState.signersJson,
-                    'PROPOSAL_CREATED',
-                    new Date(),
-                    updatedMatch.id
-                  ]);
-                  
-                  console.log('✅ Match saved with tie refund proposal information (solved case, BLOCKING):', {
-                    matchId: updatedMatch.id,
-                    proposalId: refundResult.proposalId,
-                    proposalStatus: 'ACTIVE',
-                    needsSignatures: proposalState.normalizedNeeds,
-                  });
-                  
-                  // CRITICAL: Include proposalId in payoutResult so response includes it
-                  (payoutResult as any).tieRefundProposalId = refundResult.proposalId;
-                  (payoutResult as any).proposalId = refundResult.proposalId; // Also set proposalId for consistency
-                  (payoutResult as any).proposalStatus = 'ACTIVE';
-                  (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
-                } else {
-                  console.error('❌ Squads tie refund proposal creation failed (solved case):', refundResult?.error || 'Unknown error');
-                  // Fallback: Create in background (FINAL FALLBACK will handle it)
-                  (async () => {
-                    try {
-                      const retryResult = await squadsVaultService.proposeTieRefund(
-                        updatedMatch.squadsVaultAddress,
-                        new PublicKey(updatedMatch.player1),
-                        new PublicKey(updatedMatch.player2),
-                        refundAmount,
-                        updatedMatch.squadsVaultPda ?? undefined,
-                        tiePaymentStatus
-                      );
-                      if (retryResult.success) {
-                        const retryState = buildInitialProposalState(retryResult.needsSignatures);
-                        await matchRepository.query(`
-                          UPDATE "match"
-                          SET "tieRefundProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3,
-                              "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
-                          WHERE id = $7
-                        `, [retryResult.proposalId, new Date(), 'ACTIVE', retryState.normalizedNeeds, retryState.signersJson, new Date(), updatedMatch.id]);
-                        console.log('✅ Tie refund proposal created in background retry:', retryResult.proposalId);
-                      }
-                    } catch (retryError: any) {
-                      console.error('❌ Background retry failed:', retryError?.message);
-                    }
-                  })();
-                }
-              } catch (error: unknown) {
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                const isTimeout = errorMessage.includes('timeout');
-                console.error(`❌ Error creating Squads tie refund proposal (solved case${isTimeout ? ', timed out' : ''}):`, errorMessage);
-                // Fallback: Create in background (FINAL FALLBACK will handle it)
-                (async () => {
-                  try {
-                    const tiePaymentStatus = {
-                      ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
-                      ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
-                    };
-                    const retryResult = await squadsVaultService.proposeTieRefund(
-                      updatedMatch.squadsVaultAddress,
-                      new PublicKey(updatedMatch.player1),
-                      new PublicKey(updatedMatch.player2),
-                      refundAmount,
-                      updatedMatch.squadsVaultPda ?? undefined,
-                      tiePaymentStatus
-                    );
-                    if (retryResult.success) {
-                      const retryState = buildInitialProposalState(retryResult.needsSignatures);
-                      await matchRepository.query(`
-                        UPDATE "match"
-                        SET "tieRefundProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3,
-                            "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
-                        WHERE id = $7
-                      `, [retryResult.proposalId, new Date(), 'ACTIVE', retryState.normalizedNeeds, retryState.signersJson, new Date(), updatedMatch.id]);
-                      console.log('✅ Tie refund proposal created in background after timeout:', retryResult.proposalId);
-                    }
-                  } catch (retryError: any) {
-                    console.error('❌ Background retry after timeout failed:', retryError?.message);
+                    // Update match with proposal information using raw SQL
+                    await matchRepository.query(`
+                      UPDATE "match"
+                      SET "payoutProposalId" = NULL,
+                          "tieRefundProposalId" = $1,
+                          "proposalCreatedAt" = $2,
+                          "proposalStatus" = $3,
+                          "needsSignatures" = $4,
+                          "proposalSigners" = $5,
+                          "matchStatus" = $6,
+                          "updatedAt" = $7
+                      WHERE id = $8
+                    `, [
+                      refundResult.proposalId,
+                      new Date(),
+                      'ACTIVE',
+                      proposalState.normalizedNeeds,
+                      proposalState.signersJson,
+                      'PROPOSAL_CREATED',
+                      new Date(),
+                      updatedMatch.id
+                    ]);
+                    
+                    console.log('✅ Match saved with tie refund proposal information (background):', {
+                      matchId: updatedMatch.id,
+                      proposalId: refundResult.proposalId,
+                      proposalStatus: 'ACTIVE',
+                      needsSignatures: proposalState.normalizedNeeds,
+                    });
+                  } else {
+                    console.error('❌ Squads tie refund proposal creation failed (background):', refundResult?.error || 'Unknown error');
+                    // Update status to indicate failure
+                    await matchRepository.query(`
+                      UPDATE "match"
+                      SET "proposalStatus" = $1,
+                          "updatedAt" = $2
+                      WHERE id = $3
+                    `, ['FAILED', new Date(), updatedMatch.id]);
                   }
-                })();
-              }
+                } catch (error: unknown) {
+                  const errorMessage = error instanceof Error ? error.message : String(error);
+                  console.error(`❌ Error creating Squads tie refund proposal (background):`, errorMessage);
+                  // Update status to indicate failure
+                  try {
+                    await matchRepository.query(`
+                      UPDATE "match"
+                      SET "proposalStatus" = $1,
+                          "updatedAt" = $2
+                      WHERE id = $3
+                    `, ['FAILED', new Date(), updatedMatch.id]);
+                  } catch (updateError: any) {
+                    console.error('❌ Failed to update match status after tie refund proposal creation error:', updateError?.message);
+                  }
+                }
+              })();
+              
+              // Set proposalStatus to PENDING in response so frontend knows to poll
+              (payoutResult as any).proposalStatus = 'PENDING';
+              (payoutResult as any).tieRefundProposalId = null; // Will be populated when background process completes
+              (payoutResult as any).proposalId = null; // Will be populated when background process completes
             }
           }
         }
