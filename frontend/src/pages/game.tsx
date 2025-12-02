@@ -248,13 +248,27 @@ const Game: React.FC = () => {
                     bothPlayersHaveResults,
                     status: matchData.status,
                     isCompleted: matchData.isCompleted,
-                    hasPayout: !!matchData.payout
+                    hasPayout: !!matchData.payout,
+                    player1Result: !!matchData.player1Result,
+                    player2Result: !!matchData.player2Result,
+                    currentPlayer: publicKey?.toString(),
+                    isPlayer1: publicKey?.toString() === matchData.player1
                   });
                   
-                  // Create payout data from match data
+                  // CRITICAL: Store both results in localStorage BEFORE redirecting
+                  // This ensures the results page has the data even if the API is slow
                   const isPlayer1 = publicKey?.toString() === matchData.player1;
                   const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
                   const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+                  
+                  // Store both results for the results page
+                  const resultsData = {
+                    player1Result: matchData.player1Result,
+                    player2Result: matchData.player2Result,
+                    winner: matchData.winner,
+                    timestamp: Date.now()
+                  };
+                  safeLocalStorage.setItem('bothPlayersResults', JSON.stringify(resultsData));
                   
                   const payoutData = {
                     won: matchData.winner === publicKey?.toString(),
@@ -311,9 +325,10 @@ const Game: React.FC = () => {
             console.error('❌ Error polling for completion:', error);
           }
           
-          // Continue polling if not completed (reduce interval to 500ms for faster updates)
-          // CRITICAL: Fast polling ensures first player sees status change immediately when second player submits
-          setTimeout(pollForCompletion, 500);
+          // Continue polling if not completed
+          // CRITICAL: Use faster polling (250ms) when waiting for opponent to ensure first player sees status change immediately
+          // This reduces the delay from up to 500ms to up to 250ms
+          setTimeout(pollForCompletion, 250);
         };
         
         // Start polling immediately (no delay) to catch status changes as fast as possible
