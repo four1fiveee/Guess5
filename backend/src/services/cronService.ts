@@ -27,17 +27,27 @@ export class CronService {
         await UserService.recomputeTotalEntryFees(user.walletAddress);
       }
 
-      // Update referral eligibility
-      const referralRepository = AppDataSource.getRepository(Referral);
-      const referrals = await referralRepository.find({
-        where: { eligible: false, active: true }
-      });
+      // Update referral eligibility (if referral table exists)
+      try {
+        const referralRepository = AppDataSource.getRepository(Referral);
+        const referrals = await referralRepository.find({
+          where: { eligible: false, active: true }
+        });
 
-      for (const referral of referrals) {
-        const isEligible = await UserService.checkReferralEligibility(referral.referrerWallet);
-        if (isEligible) {
-          referral.eligible = true;
-          await referralRepository.save(referral);
+        for (const referral of referrals) {
+          const isEligible = await UserService.checkReferralEligibility(referral.referrerWallet);
+          if (isEligible) {
+            referral.eligible = true;
+            await referralRepository.save(referral);
+          }
+        }
+      } catch (error: any) {
+        // Gracefully handle missing referral table (optional feature)
+        if (error?.code === '42P01' || error?.message?.includes('does not exist')) {
+          // Referral table doesn't exist - this is optional, just skip
+          console.log('ℹ️ Referral table not found - skipping referral eligibility update (optional feature)');
+        } else {
+          throw error; // Re-throw if it's a different error
         }
       }
 

@@ -1,6 +1,8 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class EntryTierMetadata013 implements MigrationInterface {
+export class EntryTierMetadata0131733120000000 implements MigrationInterface {
+  name = 'EntryTierMetadata0131733120000000';
+
   public async up(queryRunner: QueryRunner): Promise<void> {
     await queryRunner.query(`
       ALTER TABLE "match" ADD COLUMN IF NOT EXISTS "entryTierId" VARCHAR
