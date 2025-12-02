@@ -2384,10 +2384,19 @@ const submitResultHandler = async (req: any, res: any) => {
               player2: updatedMatch.player2,
             });
           } else {
-            // CRITICAL FIX: Create proposal with 10s timeout to allow completion
-            // Increased from 3s to prevent proposals from being created in background
+            // CRITICAL FIX: Create proposal with 20s timeout to allow completion
+            // Increased from 10s to 20s - Solana transactions can take 15-20s during network congestion
             // This ensures frontend gets proposalId immediately instead of stuck at 95%
             try {
+              console.log('🚀 Starting winner payout proposal creation', {
+                matchId: updatedMatch.id,
+                winner,
+                winnerAmount,
+                feeAmount,
+                vaultAddress: updatedMatch.squadsVaultAddress,
+                timeout: '20s'
+              });
+              
               const proposalCreationPromise = squadsVaultService.proposeWinnerPayout(
                 updatedMatch.squadsVaultAddress,
                 new PublicKey(winner),
@@ -2398,7 +2407,7 @@ const submitResultHandler = async (req: any, res: any) => {
               );
               
               const timeoutPromise = new Promise<never>((_, reject) => {
-                setTimeout(() => reject(new Error('Proposal creation timeout (10s)')), 10000);
+                setTimeout(() => reject(new Error('Proposal creation timeout (20s)')), 20000);
               });
               
               const proposalResult = await Promise.race([proposalCreationPromise, timeoutPromise]) as any;
@@ -2584,10 +2593,19 @@ const submitResultHandler = async (req: any, res: any) => {
                 player2: updatedMatch.player2,
               });
             } else {
-              // CRITICAL FIX: Create tie refund proposal with 10s timeout to allow completion
-              // Increased from 3s to prevent proposals from being created in background
+              // CRITICAL FIX: Create tie refund proposal with 20s timeout to allow completion
+              // Increased from 10s to 20s - Solana transactions can take 15-20s during network congestion
               // This ensures frontend gets proposalId immediately instead of stuck at 95%
               try {
+                console.log('🚀 Starting tie refund proposal creation', {
+                  matchId: updatedMatch.id,
+                  player1: updatedMatch.player1,
+                  player2: updatedMatch.player2,
+                  refundAmount,
+                  vaultAddress: updatedMatch.squadsVaultAddress,
+                  timeout: '20s'
+                });
+                
                 const tiePaymentStatus = {
                   ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
                   ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
@@ -2602,10 +2620,10 @@ const submitResultHandler = async (req: any, res: any) => {
                   tiePaymentStatus
                 );
                 
-                // CRITICAL FIX: Increase timeout to 10 seconds to allow proposal creation to complete
-                // 3 seconds was too short and caused proposals to be created in background, leading to 95% stuck state
+                // CRITICAL FIX: Increase timeout to 20 seconds to allow proposal creation to complete
+                // Solana transactions can take 15-20s during network congestion
                 const timeoutPromise = new Promise<never>((_, reject) => {
-                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (10s)')), 10000);
+                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (20s)')), 20000);
                 });
                 
                 const refundResult = await Promise.race([refundCreationPromise, timeoutPromise]) as any;
