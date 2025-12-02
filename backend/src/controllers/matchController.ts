@@ -3322,28 +3322,14 @@ const submitResultHandler = async (req: any, res: any) => {
           }
         }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
-        // Fetch current match state to include player results in response
-        const currentMatch = await fetchLatestMatchState();
-        // CRITICAL: Include proposalId in response so frontend can see it immediately
-        // Use proposalId from payoutResult first (from blocking creation), then fallback to DB query
-        const proposalRows = await matchRepository.query(`
-          SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus"
-          FROM "match"
-          WHERE id = $1
-        `, [matchId]);
-        const proposalData = proposalRows?.[0];
-        res.json({
-          status: 'completed',
+        // CRITICAL FIX: Response was already sent immediately above when both players had results
+        // This code now runs in background after response is sent
+        // Just log completion - don't send another response (would cause "Cannot set headers after they are sent" error)
+        console.log('✅ Winner determination completed in background:', {
+          matchId,
           winner: (payoutResult as any).winner,
-          payout: payoutResult,
-          player1Result: currentMatch?.player1Result || null,
-          player2Result: currentMatch?.player2Result || null,
-          // CRITICAL: Use proposalId from payoutResult (blocking creation) or fallback to DB
-          payoutProposalId: (payoutResult as any).proposalId || proposalData?.payoutProposalId || null,
-          tieRefundProposalId: (payoutResult as any).tieRefundProposalId || (payoutResult as any).proposalId || proposalData?.tieRefundProposalId || null,
-          proposalStatus: (payoutResult as any).proposalStatus || proposalData?.proposalStatus || null,
-          needsSignatures: (payoutResult as any).needsSignatures || null,
-          message: 'Game completed - winner determined'
+          proposalStatus: (payoutResult as any).proposalStatus,
+          note: 'Response was already sent immediately when both players had results'
         });
       } else {
         // Both players haven't finished yet - save partial result and wait using raw SQL
