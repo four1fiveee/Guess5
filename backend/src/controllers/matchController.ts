@@ -2631,6 +2631,10 @@ const submitResultHandler = async (req: any, res: any) => {
             
             // Start proposal creation in background - don't await it
             (async () => {
+              // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
+              const { AppDataSource } = require('../db/index');
+              const backgroundMatchRepository = AppDataSource.getRepository(Match);
+              
               const backgroundTaskStartTime = Date.now();
               console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
                 matchId: updatedMatch.id,
@@ -2692,7 +2696,14 @@ const submitResultHandler = async (req: any, res: any) => {
 
                   // Update match with proposal information using raw SQL
                   try {
-                    const updateResult = await matchRepository.query(`
+                    console.log('💾 Executing UPDATE query to set proposalStatus to ACTIVE', {
+                      matchId: updatedMatch.id,
+                      proposalId: proposalResult.proposalId,
+                      proposalStatus: 'ACTIVE',
+                      needsSignatures: proposalState.normalizedNeeds
+                    });
+                    
+                    const updateResult = await backgroundMatchRepository.query(`
                       UPDATE "match"
                       SET "payoutProposalId" = $1,
                           "proposalCreatedAt" = $2,
@@ -2713,39 +2724,88 @@ const submitResultHandler = async (req: any, res: any) => {
                       updatedMatch.id
                     ]);
                     
+                    // CRITICAL: Check if UPDATE actually affected rows
+                    const rowsAffected = Array.isArray(updateResult) ? updateResult[1] : (updateResult?.rowCount || 0);
+                    console.log('📊 UPDATE query result:', {
+                      matchId: updatedMatch.id,
+                      rowsAffected: rowsAffected,
+                      updateResultType: Array.isArray(updateResult) ? 'array' : typeof updateResult,
+                      updateResult: JSON.stringify(updateResult).substring(0, 200)
+                    });
+                    
+                    if (rowsAffected === 0) {
+                      console.error('❌ CRITICAL: UPDATE query affected 0 rows!', {
+                        matchId: updatedMatch.id,
+                        proposalId: proposalResult.proposalId,
+                        query: 'UPDATE match SET proposalStatus = ACTIVE WHERE id = ...'
+                      });
+                    }
+                    
                     console.log('✅ Match saved with proposal information (background):', {
                       matchId: updatedMatch.id,
                       proposalId: proposalResult.proposalId,
                       proposalStatus: 'ACTIVE',
                       needsSignatures: proposalState.normalizedNeeds,
-                      rowsAffected: updateResult?.[1] || 'unknown'
+                      rowsAffected: rowsAffected
                     });
                     
-                    // Verify the update actually worked
-                    const verifyResult = await matchRepository.query(`
-                      SELECT "proposalStatus", "payoutProposalId" 
-                      FROM "match" 
-                      WHERE id = $1
-                    `, [updatedMatch.id]);
+                    // CRITICAL: Verify the update actually worked and retry if needed
+                    let verificationAttempts = 0;
+                    const maxVerificationAttempts = 3;
+                    let statusCorrect = false;
                     
-                    if (verifyResult && verifyResult.length > 0) {
-                      const actualStatus = verifyResult[0].proposalStatus;
-                      if (actualStatus !== 'ACTIVE') {
-                        console.error('❌ CRITICAL: proposalStatus was not set correctly!', {
-                          matchId: updatedMatch.id,
-                          expected: 'ACTIVE',
-                          actual: actualStatus,
-                          payoutProposalId: verifyResult[0].payoutProposalId
-                        });
-                        // Retry the update with just the status
-                        await matchRepository.query(`
-                          UPDATE "match"
-                          SET "proposalStatus" = $1,
-                              "updatedAt" = $2
-                          WHERE id = $3 AND "payoutProposalId" = $4
-                        `, ['ACTIVE', new Date(), updatedMatch.id, proposalResult.proposalId]);
-                        console.log('🔧 Retried setting proposalStatus to ACTIVE');
+                    while (!statusCorrect && verificationAttempts < maxVerificationAttempts) {
+                      await new Promise(resolve => setTimeout(resolve, 500 * (verificationAttempts + 1))); // Wait before verification
+                      
+                      const verifyResult = await backgroundMatchRepository.query(`
+                        SELECT "proposalStatus", "payoutProposalId" 
+                        FROM "match" 
+                        WHERE id = $1
+                      `, [updatedMatch.id]);
+                      
+                      if (verifyResult && verifyResult.length > 0) {
+                        const actualStatus = verifyResult[0].proposalStatus;
+                        if (actualStatus === 'ACTIVE') {
+                          statusCorrect = true;
+                          console.log('✅ Verified proposalStatus is ACTIVE', {
+                            matchId: updatedMatch.id,
+                            attempt: verificationAttempts + 1
+                          });
+                        } else {
+                          console.error(`❌ CRITICAL: proposalStatus is ${actualStatus || 'NULL'} instead of ACTIVE (attempt ${verificationAttempts + 1}/${maxVerificationAttempts})`, {
+                            matchId: updatedMatch.id,
+                            expected: 'ACTIVE',
+                            actual: actualStatus,
+                            payoutProposalId: verifyResult[0].payoutProposalId,
+                            proposalId: proposalResult.proposalId
+                          });
+                          
+                          // Retry the update with explicit NULL check
+                          const retryResult = await backgroundMatchRepository.query(`
+                            UPDATE "match"
+                            SET "proposalStatus" = $1,
+                                "updatedAt" = $2
+                            WHERE id = $3 
+                              AND "payoutProposalId" = $4
+                              AND ("proposalStatus" IS NULL OR "proposalStatus" != $1)
+                          `, ['ACTIVE', new Date(), updatedMatch.id, proposalResult.proposalId]);
+                          
+                          console.log('🔧 Retried setting proposalStatus to ACTIVE', {
+                            matchId: updatedMatch.id,
+                            rowsAffected: retryResult?.[1] || 'unknown',
+                            attempt: verificationAttempts + 1
+                          });
+                        }
                       }
+                      verificationAttempts++;
+                    }
+                    
+                    if (!statusCorrect) {
+                      console.error('❌ CRITICAL: Failed to set proposalStatus to ACTIVE after all retries!', {
+                        matchId: updatedMatch.id,
+                        proposalId: proposalResult.proposalId,
+                        attempts: maxVerificationAttempts
+                      });
                     }
                   } catch (updateError: any) {
                     console.error('❌ Failed to update match with proposal information:', {
@@ -2758,7 +2818,9 @@ const submitResultHandler = async (req: any, res: any) => {
                 } else {
                   console.error('❌ Squads proposal creation failed (background):', proposalResult?.error || 'Unknown error');
                   // Update status to indicate failure
-                  await matchRepository.query(`
+                  const { AppDataSource: AppDataSourceForFailure } = require('../db/index');
+                  const failureMatchRepository = AppDataSourceForFailure.getRepository(Match);
+                  await failureMatchRepository.query(`
                     UPDATE "match"
                     SET "proposalStatus" = $1,
                         "updatedAt" = $2
@@ -2917,6 +2979,10 @@ const submitResultHandler = async (req: any, res: any) => {
               
               // Start proposal creation in background - don't await it
               (async () => {
+                // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
+                const { AppDataSource } = require('../db/index');
+                const backgroundMatchRepository = AppDataSource.getRepository(Match);
+                
                 const backgroundTaskStartTime = Date.now();
                 console.log('🚀 BACKGROUND TASK STARTED: Tie refund proposal creation', {
                   matchId: updatedMatch.id,
@@ -2971,7 +3037,14 @@ const submitResultHandler = async (req: any, res: any) => {
 
                     // Update match with proposal information using raw SQL
                     try {
-                      const updateResult = await matchRepository.query(`
+                      console.log('💾 Executing UPDATE query to set proposalStatus to ACTIVE (tie refund)', {
+                        matchId: updatedMatch.id,
+                        proposalId: refundResult.proposalId,
+                        proposalStatus: 'ACTIVE',
+                        needsSignatures: proposalState.normalizedNeeds
+                      });
+                      
+                      const updateResult = await backgroundMatchRepository.query(`
                         UPDATE "match"
                         SET "payoutProposalId" = NULL,
                             "tieRefundProposalId" = $1,
@@ -2993,6 +3066,21 @@ const submitResultHandler = async (req: any, res: any) => {
                         updatedMatch.id
                       ]);
                       
+                      // CRITICAL: Check if UPDATE actually affected rows
+                      const rowsAffected = Array.isArray(updateResult) ? updateResult[1] : (updateResult?.rowCount || 0);
+                      console.log('📊 UPDATE query result (tie refund):', {
+                        matchId: updatedMatch.id,
+                        rowsAffected: rowsAffected,
+                        updateResultType: Array.isArray(updateResult) ? 'array' : typeof updateResult
+                      });
+                      
+                      if (rowsAffected === 0) {
+                        console.error('❌ CRITICAL: UPDATE query affected 0 rows (tie refund)!', {
+                          matchId: updatedMatch.id,
+                          proposalId: refundResult.proposalId
+                        });
+                      }
+                      
                       console.log('✅ Match saved with tie refund proposal information (background):', {
                         matchId: updatedMatch.id,
                         proposalId: refundResult.proposalId,
@@ -3001,31 +3089,63 @@ const submitResultHandler = async (req: any, res: any) => {
                         rowsAffected: updateResult?.[1] || 'unknown'
                       });
                       
-                      // Verify the update actually worked
-                      const verifyResult = await matchRepository.query(`
-                        SELECT "proposalStatus", "tieRefundProposalId" 
-                        FROM "match" 
-                        WHERE id = $1
-                      `, [updatedMatch.id]);
+                      // CRITICAL: Verify the update actually worked and retry if needed
+                      let verificationAttempts = 0;
+                      const maxVerificationAttempts = 3;
+                      let statusCorrect = false;
                       
-                      if (verifyResult && verifyResult.length > 0) {
-                        const actualStatus = verifyResult[0].proposalStatus;
-                        if (actualStatus !== 'ACTIVE') {
-                          console.error('❌ CRITICAL: proposalStatus was not set correctly for tie refund!', {
-                            matchId: updatedMatch.id,
-                            expected: 'ACTIVE',
-                            actual: actualStatus,
-                            tieRefundProposalId: verifyResult[0].tieRefundProposalId
-                          });
-                          // Retry the update with just the status
-                          await matchRepository.query(`
-                            UPDATE "match"
-                            SET "proposalStatus" = $1,
-                                "updatedAt" = $2
-                            WHERE id = $3 AND "tieRefundProposalId" = $4
-                          `, ['ACTIVE', new Date(), updatedMatch.id, refundResult.proposalId]);
-                          console.log('🔧 Retried setting proposalStatus to ACTIVE for tie refund');
+                      while (!statusCorrect && verificationAttempts < maxVerificationAttempts) {
+                        await new Promise(resolve => setTimeout(resolve, 500 * (verificationAttempts + 1))); // Wait before verification
+                        
+                        const verifyResult = await backgroundMatchRepository.query(`
+                          SELECT "proposalStatus", "tieRefundProposalId" 
+                          FROM "match" 
+                          WHERE id = $1
+                        `, [updatedMatch.id]);
+                        
+                        if (verifyResult && verifyResult.length > 0) {
+                          const actualStatus = verifyResult[0].proposalStatus;
+                          if (actualStatus === 'ACTIVE') {
+                            statusCorrect = true;
+                            console.log('✅ Verified proposalStatus is ACTIVE (tie refund)', {
+                              matchId: updatedMatch.id,
+                              attempt: verificationAttempts + 1
+                            });
+                          } else {
+                            console.error(`❌ CRITICAL: proposalStatus is ${actualStatus || 'NULL'} instead of ACTIVE for tie refund (attempt ${verificationAttempts + 1}/${maxVerificationAttempts})`, {
+                              matchId: updatedMatch.id,
+                              expected: 'ACTIVE',
+                              actual: actualStatus,
+                              tieRefundProposalId: verifyResult[0].tieRefundProposalId,
+                              proposalId: refundResult.proposalId
+                            });
+                            
+                            // Retry the update with explicit NULL check
+                            const retryResult = await backgroundMatchRepository.query(`
+                              UPDATE "match"
+                              SET "proposalStatus" = $1,
+                                  "updatedAt" = $2
+                              WHERE id = $3 
+                                AND "tieRefundProposalId" = $4
+                                AND ("proposalStatus" IS NULL OR "proposalStatus" != $1)
+                            `, ['ACTIVE', new Date(), updatedMatch.id, refundResult.proposalId]);
+                            
+                            console.log('🔧 Retried setting proposalStatus to ACTIVE for tie refund', {
+                              matchId: updatedMatch.id,
+                              rowsAffected: retryResult?.[1] || 'unknown',
+                              attempt: verificationAttempts + 1
+                            });
+                          }
                         }
+                        verificationAttempts++;
+                      }
+                      
+                      if (!statusCorrect) {
+                        console.error('❌ CRITICAL: Failed to set proposalStatus to ACTIVE for tie refund after all retries!', {
+                          matchId: updatedMatch.id,
+                          proposalId: refundResult.proposalId,
+                          attempts: maxVerificationAttempts
+                        });
                       }
                     } catch (updateError: any) {
                       console.error('❌ Failed to update match with tie refund proposal information:', {
@@ -3038,7 +3158,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   } else {
                     console.error('❌ Squads tie refund proposal creation failed (background):', refundResult?.error || 'Unknown error');
                     // Update status to indicate failure
-                    await matchRepository.query(`
+                    await backgroundMatchRepository.query(`
                       UPDATE "match"
                       SET "proposalStatus" = $1,
                           "updatedAt" = $2
@@ -3060,7 +3180,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   
                   // Update status to indicate failure
                   try {
-                    await matchRepository.query(`
+                    await backgroundMatchRepository.query(`
                       UPDATE "match"
                       SET "proposalStatus" = $1,
                           "matchStatus" = $2,
