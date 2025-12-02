@@ -1876,7 +1876,11 @@ const Result: React.FC = () => {
                       <div className="flex items-center justify-center mb-4">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
                         <div className="text-accent text-lg font-semibold">
-                          {payoutData?.proposalId ? '⏳ Processing Payout' : '🔄 Creating Proposal'}
+                          {payoutData?.proposalId 
+                            ? '⏳ Processing Payout' 
+                            : proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000
+                            ? '⚠️ Proposal creation taking longer than expected. Please refresh the page.'
+                            : '🔄 Creating Proposal'}
                         </div>
                       </div>
                       
