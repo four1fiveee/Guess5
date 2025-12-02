@@ -5479,8 +5479,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     // Try to get usernames quickly with timeout
     try {
-      const usernamePromise1 = UserService.getUsername(match.player1).catch(() => null);
-      const usernamePromise2 = match.player2 ? UserService.getUsername(match.player2).catch(() => null) : Promise.resolve(null);
+      const usernamePromise1 = (UserService && typeof UserService.getUsername === 'function') 
+        ? UserService.getUsername(match.player1).catch(() => null)
+        : Promise.resolve(null);
+      const usernamePromise2 = (match.player2 && UserService && typeof UserService.getUsername === 'function')
+        ? UserService.getUsername(match.player2).catch(() => null)
+        : Promise.resolve(null);
       const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error('Username fetch timeout')), 500));
       
       const [result1, result2] = await Promise.allSettled([
@@ -5832,19 +5836,25 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
         message = 'Already in active match';
       }
       
-      // Get usernames for both players
+      // Get usernames for both players (non-blocking)
       let player1Username = null;
       let player2Username = null;
       try {
-        player1Username = await UserService.getUsername(activeMatch.player1);
+        if (UserService && typeof UserService.getUsername === 'function') {
+          player1Username = await UserService.getUsername(activeMatch.player1).catch(() => null);
+        }
       } catch (e) {
-        // Ignore errors
+        // Ignore errors - usernames are optional
+        console.warn('⚠️ Failed to get player1 username (non-blocking):', e instanceof Error ? e.message : String(e));
       }
       if (activeMatch.player2) {
         try {
-          player2Username = await UserService.getUsername(activeMatch.player2);
+          if (UserService && typeof UserService.getUsername === 'function') {
+            player2Username = await UserService.getUsername(activeMatch.player2).catch(() => null);
+          }
         } catch (e) {
-          // Ignore errors
+          // Ignore errors - usernames are optional
+          console.warn('⚠️ Failed to get player2 username (non-blocking):', e instanceof Error ? e.message : String(e));
         }
       }
       
@@ -9441,9 +9451,17 @@ const generateReportHandler = async (req: any, res: any) => {
           ? matchWithSignature.proposalTransactionId 
           : '';
       
-      // Fetch usernames for both players
-      const player1Username = matchWithSignature.player1 ? await UserService.getUsername(matchWithSignature.player1).catch(() => null) : null;
-      const player2Username = matchWithSignature.player2 ? await UserService.getUsername(matchWithSignature.player2).catch(() => null) : null;
+      // Fetch usernames for both players (non-blocking)
+      let player1Username = null;
+      let player2Username = null;
+      try {
+        if (UserService && typeof UserService.getUsername === 'function') {
+          player1Username = matchWithSignature.player1 ? await UserService.getUsername(matchWithSignature.player1).catch(() => null) : null;
+          player2Username = matchWithSignature.player2 ? await UserService.getUsername(matchWithSignature.player2).catch(() => null) : null;
+        }
+      } catch (error: any) {
+        console.warn('⚠️ Failed to fetch usernames (non-blocking):', error?.message);
+      }
       
       // Fetch referral earnings for this match
       const referralEarnings = await referralEarningRepository.find({
@@ -9735,9 +9753,17 @@ const generateReportHandler = async (req: any, res: any) => {
           const winner = payoutResult?.winner || match.winner || '';
           const entryFeeUSD = calculateEntryFeeUSD(match.entryFee);
           
-          // Fetch usernames for both players
-          const player1Username = match.player1 ? await UserService.getUsername(match.player1).catch(() => null) : null;
-          const player2Username = match.player2 ? await UserService.getUsername(match.player2).catch(() => null) : null;
+          // Fetch usernames for both players (non-blocking)
+          let player1Username = null;
+          let player2Username = null;
+          try {
+            if (UserService && typeof UserService.getUsername === 'function') {
+              player1Username = match.player1 ? await UserService.getUsername(match.player1).catch(() => null) : null;
+              player2Username = match.player2 ? await UserService.getUsername(match.player2).catch(() => null) : null;
+            }
+          } catch (error: any) {
+            console.warn('⚠️ Failed to fetch usernames (non-blocking):', error?.message);
+          }
           
           // Fetch referral earnings for this match
           const referralEarnings = await referralEarningRepository.find({
