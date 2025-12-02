@@ -14,6 +14,37 @@ const { enhancedLogger } = require('./utils/enhancedLogger');
 async function startServer() {
   let server: any = null;
   
+  // CRITICAL: Bind server FIRST before any initialization
+  // This ensures Render can detect the port even if initialization hangs
+  server = createServer(app);
+  const port = parseInt(String(process.env.PORT || 4000), 10);
+  
+  if (!port || isNaN(port)) {
+    enhancedLogger.error(`❌ Invalid port configuration: ${process.env.PORT}`);
+    process.exit(1);
+  }
+  
+  enhancedLogger.info(`🔌 Binding server to port ${port} IMMEDIATELY (before initialization)...`);
+  
+  // Bind server immediately - don't wait for anything
+  server.listen(port, '0.0.0.0', () => {
+    enhancedLogger.info(`🚀 Server bound to port ${port} - Render can now detect the port`);
+    enhancedLogger.info(`🚀 Server running on port ${port}`);
+    enhancedLogger.info(`🌐 Health check: http://localhost:${port}/health`);
+    enhancedLogger.info(`🔌 WebSocket endpoint: ws://localhost:${port}/ws`);
+    enhancedLogger.info(`🎮 Server is ready (services initializing in background)`);
+  });
+  
+  // Handle server errors
+  server.on('error', (error: any) => {
+    if (error.code === 'EADDRINUSE') {
+      enhancedLogger.error(`❌ Port ${port} is already in use`);
+    } else {
+      enhancedLogger.error(`❌ Server error:`, error);
+    }
+    process.exit(1);
+  });
+  
   try {
     // Validate environment variables first
     enhancedLogger.info('🔍 Validating environment configuration...');
@@ -30,9 +61,19 @@ async function startServer() {
     // when the linked Proposal reaches ExecuteReady.
     // IDL initialization for vault transaction approval is no longer needed.
 
+    // CRITICAL: Add timeout to database initialization to prevent hanging
     enhancedLogger.info('🔌 Initializing database connection...');
-    await initializeDatabase();
-    enhancedLogger.info('✅ Database connected successfully');
+    try {
+      const dbInitPromise = initializeDatabase();
+      const dbTimeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Database initialization timeout (15s)')), 15000);
+      });
+      await Promise.race([dbInitPromise, dbTimeoutPromise]);
+      enhancedLogger.info('✅ Database connected successfully');
+    } catch (error: any) {
+      enhancedLogger.warn(`⚠️ Database initialization failed or timed out (continuing):`, error?.message || error);
+      enhancedLogger.warn('⚠️ Server will start in degraded mode - database features may be unavailable');
+    }
 
     // CRITICAL: Make Redis initialization non-blocking with timeout
     // Server must bind to port even if Redis fails
@@ -106,66 +147,45 @@ async function startServer() {
       enhancedLogger.warn('⚠️ Failed to start proposal expiration scanner (optional):', error?.message || error);
     }
 
-    // CRITICAL: Create and bind server EARLY to ensure Render detects the port
-    // This must happen before any optional services that might hang
-    server = createServer(app);
-    
-    // CRITICAL: Ensure port is a number (Render provides PORT as string)
-    const port = parseInt(String(config.server.port), 10) || 4000;
-    
-    if (!port || isNaN(port)) {
-      enhancedLogger.error(`❌ Invalid port configuration: ${config.server.port}`);
-      process.exit(1);
+    // Server is already bound above - now initialize services in background
+    // All services are optional and won't prevent server from running
+    enhancedLogger.info(`🎯 Security configuration:`);
+    enhancedLogger.info(`   - Environment: ${config.security.nodeEnv}`);
+    enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
+    enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
+    enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
+    enhancedLogger.info(`   - Redis: ${process.env.REDIS_MM_HOST ? 'Enabled' : 'Disabled'} (MM: ${process.env.REDIS_MM_HOST || 'N/A'}, Ops: ${process.env.REDIS_OPS_HOST || 'N/A'})`);
+
+    // Initialize WebSocket service (optional - server is already bound)
+    try {
+      enhancedLogger.info('🔌 Initializing WebSocket service...');
+      websocketService.initialize(server);
+      enhancedLogger.info('✅ WebSocket service initialized');
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ WebSocket initialization failed (optional):', error?.message || error);
     }
-    
-    enhancedLogger.info(`🔌 Binding server to port ${port} (early binding for Render)...`);
-    
-    // Bind server immediately - don't wait for optional services
-    // CRITICAL: This must happen early so Render can detect the port
-    server.listen(port, '0.0.0.0', () => {
-      enhancedLogger.info(`🚀 Server bound to port ${port} - Render can now detect the port`);
-      enhancedLogger.info(`🚀 Server running on port ${port}`);
-      enhancedLogger.info(`🌐 Health check: http://localhost:${port}/health`);
-      enhancedLogger.info(`🔌 WebSocket endpoint: ws://localhost:${port}/ws`);
-      enhancedLogger.info(`🎮 Ready for multiplayer matchmaking!`);
-      enhancedLogger.info(`🎯 Security configuration:`);
-      enhancedLogger.info(`   - Environment: ${config.security.nodeEnv}`);
-      enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
-      enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
-      enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
-      enhancedLogger.info(`   - Redis: ${process.env.REDIS_MM_HOST ? 'Enabled' : 'Disabled'} (MM: ${process.env.REDIS_MM_HOST || 'N/A'}, Ops: ${process.env.REDIS_OPS_HOST || 'N/A'})`);
 
-      // Initialize WebSocket service (optional - server is already bound)
-      try {
-        enhancedLogger.info('🔌 Initializing WebSocket service...');
-        websocketService.initialize(server);
-        enhancedLogger.info('✅ WebSocket service initialized');
-      } catch (error: any) {
-        enhancedLogger.warn('⚠️ WebSocket initialization failed (optional):', error?.message || error);
-      }
+    // Start cron jobs (optional)
+    try {
+      const { CronService } = require('./services/cronService');
+      CronService.start();
+      enhancedLogger.info('✅ Cron jobs started');
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Failed to start cron jobs (optional):', error?.message || error);
+    }
 
-      // Start cron jobs (optional)
-      try {
-        const { CronService } = require('./services/cronService');
-        CronService.start();
-        enhancedLogger.info('✅ Cron jobs started');
-      } catch (error: any) {
-        enhancedLogger.warn('⚠️ Failed to start cron jobs (optional):', error?.message || error);
-      }
-
-      // CRITICAL FIX: Start proposal execution services (optional)
-      try {
-        const { executionRetryService } = require('./services/executionRetryService');
-        const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
-        
-        executionRetryService.start();
-        proposalOnChainSyncService.start();
-        
-        enhancedLogger.info('✅ Proposal execution services started');
-      } catch (error: any) {
-        enhancedLogger.warn('⚠️ Failed to start proposal execution services (optional):', error?.message || error);
-      }
-    });
+    // CRITICAL FIX: Start proposal execution services (optional)
+    try {
+      const { executionRetryService } = require('./services/executionRetryService');
+      const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
+      
+      executionRetryService.start();
+      proposalOnChainSyncService.start();
+      
+      enhancedLogger.info('✅ Proposal execution services started');
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Failed to start proposal execution services (optional):', error?.message || error);
+    }
     
     // CRITICAL: Handle server listen errors
     server.on('error', (error: any) => {
