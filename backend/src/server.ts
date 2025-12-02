@@ -34,14 +34,29 @@ async function startServer() {
     await initializeDatabase();
     enhancedLogger.info('✅ Database connected successfully');
 
+    // CRITICAL: Make Redis initialization non-blocking with timeout
+    // Server must bind to port even if Redis fails
     enhancedLogger.info('🔌 Initializing Redis connections...');
-    await initializeRedis();
-    enhancedLogger.info('✅ Redis initialized successfully');
+    try {
+      const redisInitPromise = initializeRedis();
+      const redisTimeoutPromise = new Promise((_, reject) => {
+        setTimeout(() => reject(new Error('Redis initialization timeout (10s)')), 10000);
+      });
+      await Promise.race([redisInitPromise, redisTimeoutPromise]);
+      enhancedLogger.info('✅ Redis initialized successfully');
+    } catch (error: any) {
+      enhancedLogger.warn(`⚠️ Redis initialization failed or timed out (continuing without Redis):`, error?.message || error);
+      enhancedLogger.warn('⚠️ Server will start in degraded mode - some features may be unavailable');
+    }
     
-    // Initialize Redis lock auto-cleanup after Redis is ready
-    const { initializeAutoCleanup } = require('./utils/proposalLocks');
-    initializeAutoCleanup();
-    enhancedLogger.info('✅ Redis lock auto-cleanup initialized');
+    // Initialize Redis lock auto-cleanup after Redis is ready (optional)
+    try {
+      const { initializeAutoCleanup } = require('./utils/proposalLocks');
+      initializeAutoCleanup();
+      enhancedLogger.info('✅ Redis lock auto-cleanup initialized');
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Redis lock auto-cleanup failed (optional):', error?.message || error);
+    }
 
     // Smart contract service is optional - matchmaking uses Squads Protocol
     // Only initialize if the file exists (it's not required for basic matchmaking)
@@ -63,35 +78,38 @@ async function startServer() {
       enhancedLogger.info('ℹ️ Smart contract features not available - matchmaking will use Squads Protocol');
     }
 
-    // Start cleanup scheduler for Redis matchmaking
-    setInterval(async () => {
-      try {
-        await redisMatchmakingService.cleanup();
-      } catch (error) {
-        enhancedLogger.error('❌ Error during Redis cleanup:', error);
-      }
-    }, 60000); // Run cleanup every minute
+    // Start cleanup scheduler for Redis matchmaking (optional)
+    try {
+      setInterval(async () => {
+        try {
+          await redisMatchmakingService.cleanup();
+        } catch (error) {
+          enhancedLogger.error('❌ Error during Redis cleanup:', error);
+        }
+      }, 60000); // Run cleanup every minute
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Failed to start Redis cleanup scheduler (optional):', error?.message || error);
+    }
 
-    // Start proposal expiration scanner
-    const { proposalExpirationService } = require('./services/proposalExpirationService');
-    setInterval(async () => {
-      try {
-        await proposalExpirationService.scanForExpiredProposals();
-      } catch (error) {
-        enhancedLogger.error('❌ Error during proposal expiration scan:', error);
-      }
-    }, 5 * 60 * 1000); // Scan every 5 minutes
-    enhancedLogger.info('✅ Proposal expiration scanner started');
+    // Start proposal expiration scanner (optional)
+    try {
+      const { proposalExpirationService } = require('./services/proposalExpirationService');
+      setInterval(async () => {
+        try {
+          await proposalExpirationService.scanForExpiredProposals();
+        } catch (error) {
+          enhancedLogger.error('❌ Error during proposal expiration scan:', error);
+        }
+      }, 5 * 60 * 1000); // Scan every 5 minutes
+      enhancedLogger.info('✅ Proposal expiration scanner started');
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Failed to start proposal expiration scanner (optional):', error?.message || error);
+    }
 
-    // Create HTTP server for WebSocket support
+    // CRITICAL: Create and bind server EARLY to ensure Render detects the port
+    // This must happen before any optional services that might hang
     server = createServer(app);
-
-    // Initialize WebSocket service
-    enhancedLogger.info('🔌 Initializing WebSocket service...');
-    websocketService.initialize(server);
-    enhancedLogger.info('✅ WebSocket service initialized');
-
-    // Start server after database and Redis are ready
+    
     // CRITICAL: Ensure port is a number (Render provides PORT as string)
     const port = parseInt(String(config.server.port), 10) || 4000;
     
@@ -100,9 +118,12 @@ async function startServer() {
       process.exit(1);
     }
     
-    enhancedLogger.info(`🔌 Attempting to bind server to port ${port}...`);
+    enhancedLogger.info(`🔌 Binding server to port ${port} (early binding for Render)...`);
     
+    // Bind server immediately - don't wait for optional services
+    // CRITICAL: This must happen early so Render can detect the port
     server.listen(port, '0.0.0.0', () => {
+      enhancedLogger.info(`🚀 Server bound to port ${port} - Render can now detect the port`);
       enhancedLogger.info(`🚀 Server running on port ${port}`);
       enhancedLogger.info(`🌐 Health check: http://localhost:${port}/health`);
       enhancedLogger.info(`🔌 WebSocket endpoint: ws://localhost:${port}/ws`);
@@ -112,18 +133,27 @@ async function startServer() {
       enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
       enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
       enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
-      enhancedLogger.info(`   - Redis: Enabled (MM: ${process.env.REDIS_MM_HOST}, Ops: ${process.env.REDIS_OPS_HOST})`);
+      enhancedLogger.info(`   - Redis: ${process.env.REDIS_MM_HOST ? 'Enabled' : 'Disabled'} (MM: ${process.env.REDIS_MM_HOST || 'N/A'}, Ops: ${process.env.REDIS_OPS_HOST || 'N/A'})`);
 
-      // Start cron jobs
+      // Initialize WebSocket service (optional - server is already bound)
+      try {
+        enhancedLogger.info('🔌 Initializing WebSocket service...');
+        websocketService.initialize(server);
+        enhancedLogger.info('✅ WebSocket service initialized');
+      } catch (error: any) {
+        enhancedLogger.warn('⚠️ WebSocket initialization failed (optional):', error?.message || error);
+      }
+
+      // Start cron jobs (optional)
       try {
         const { CronService } = require('./services/cronService');
         CronService.start();
         enhancedLogger.info('✅ Cron jobs started');
-      } catch (error) {
-        enhancedLogger.warn('⚠️ Failed to start cron jobs:', error);
+      } catch (error: any) {
+        enhancedLogger.warn('⚠️ Failed to start cron jobs (optional):', error?.message || error);
       }
 
-      // CRITICAL FIX: Start proposal execution services
+      // CRITICAL FIX: Start proposal execution services (optional)
       try {
         const { executionRetryService } = require('./services/executionRetryService');
         const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
@@ -132,8 +162,8 @@ async function startServer() {
         proposalOnChainSyncService.start();
         
         enhancedLogger.info('✅ Proposal execution services started');
-      } catch (error) {
-        enhancedLogger.warn('⚠️ Failed to start proposal execution services:', error);
+      } catch (error: any) {
+        enhancedLogger.warn('⚠️ Failed to start proposal execution services (optional):', error?.message || error);
       }
     });
     
