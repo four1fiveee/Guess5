@@ -2683,33 +2683,70 @@ const submitResultHandler = async (req: any, res: any) => {
                   const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
 
                   // Update match with proposal information using raw SQL
-                  await matchRepository.query(`
-                    UPDATE "match"
-                    SET "payoutProposalId" = $1,
-                        "proposalCreatedAt" = $2,
-                        "proposalStatus" = $3,
-                        "needsSignatures" = $4,
-                        "proposalSigners" = $5,
-                        "matchStatus" = $6,
-                        "updatedAt" = $7
-                    WHERE id = $8
-                  `, [
-                    proposalResult.proposalId,
-                    new Date(),
-                    'ACTIVE',
-                    proposalState.normalizedNeeds,
-                    proposalState.signersJson,
-                    'PROPOSAL_CREATED',
-                    new Date(),
-                    updatedMatch.id
-                  ]);
-                  
-                  console.log('✅ Match saved with proposal information (background):', {
-                    matchId: updatedMatch.id,
-                    proposalId: proposalResult.proposalId,
-                    proposalStatus: 'ACTIVE',
-                    needsSignatures: proposalState.normalizedNeeds,
-                  });
+                  try {
+                    const updateResult = await matchRepository.query(`
+                      UPDATE "match"
+                      SET "payoutProposalId" = $1,
+                          "proposalCreatedAt" = $2,
+                          "proposalStatus" = $3,
+                          "needsSignatures" = $4,
+                          "proposalSigners" = $5,
+                          "matchStatus" = $6,
+                          "updatedAt" = $7
+                      WHERE id = $8
+                    `, [
+                      proposalResult.proposalId,
+                      new Date(),
+                      'ACTIVE',
+                      proposalState.normalizedNeeds,
+                      proposalState.signersJson,
+                      'PROPOSAL_CREATED',
+                      new Date(),
+                      updatedMatch.id
+                    ]);
+                    
+                    console.log('✅ Match saved with proposal information (background):', {
+                      matchId: updatedMatch.id,
+                      proposalId: proposalResult.proposalId,
+                      proposalStatus: 'ACTIVE',
+                      needsSignatures: proposalState.normalizedNeeds,
+                      rowsAffected: updateResult?.[1] || 'unknown'
+                    });
+                    
+                    // Verify the update actually worked
+                    const verifyResult = await matchRepository.query(`
+                      SELECT "proposalStatus", "payoutProposalId" 
+                      FROM "match" 
+                      WHERE id = $1
+                    `, [updatedMatch.id]);
+                    
+                    if (verifyResult && verifyResult.length > 0) {
+                      const actualStatus = verifyResult[0].proposalStatus;
+                      if (actualStatus !== 'ACTIVE') {
+                        console.error('❌ CRITICAL: proposalStatus was not set correctly!', {
+                          matchId: updatedMatch.id,
+                          expected: 'ACTIVE',
+                          actual: actualStatus,
+                          payoutProposalId: verifyResult[0].payoutProposalId
+                        });
+                        // Retry the update with just the status
+                        await matchRepository.query(`
+                          UPDATE "match"
+                          SET "proposalStatus" = $1,
+                              "updatedAt" = $2
+                          WHERE id = $3 AND "payoutProposalId" = $4
+                        `, ['ACTIVE', new Date(), updatedMatch.id, proposalResult.proposalId]);
+                        console.log('🔧 Retried setting proposalStatus to ACTIVE');
+                      }
+                    }
+                  } catch (updateError: any) {
+                    console.error('❌ Failed to update match with proposal information:', {
+                      matchId: updatedMatch.id,
+                      error: updateError?.message,
+                      stack: updateError?.stack
+                    });
+                    throw updateError; // Re-throw to be caught by outer catch
+                  }
                 } else {
                   console.error('❌ Squads proposal creation failed (background):', proposalResult?.error || 'Unknown error');
                   // Update status to indicate failure
@@ -2924,34 +2961,71 @@ const submitResultHandler = async (req: any, res: any) => {
                     const proposalState = buildInitialProposalState(refundResult.needsSignatures);
 
                     // Update match with proposal information using raw SQL
-                    await matchRepository.query(`
-                      UPDATE "match"
-                      SET "payoutProposalId" = NULL,
-                          "tieRefundProposalId" = $1,
-                          "proposalCreatedAt" = $2,
-                          "proposalStatus" = $3,
-                          "needsSignatures" = $4,
-                          "proposalSigners" = $5,
-                          "matchStatus" = $6,
-                          "updatedAt" = $7
-                      WHERE id = $8
-                    `, [
-                      refundResult.proposalId,
-                      new Date(),
-                      'ACTIVE',
-                      proposalState.normalizedNeeds,
-                      proposalState.signersJson,
-                      'PROPOSAL_CREATED',
-                      new Date(),
-                      updatedMatch.id
-                    ]);
-                    
-                    console.log('✅ Match saved with tie refund proposal information (background):', {
-                      matchId: updatedMatch.id,
-                      proposalId: refundResult.proposalId,
-                      proposalStatus: 'ACTIVE',
-                      needsSignatures: proposalState.normalizedNeeds,
-                    });
+                    try {
+                      const updateResult = await matchRepository.query(`
+                        UPDATE "match"
+                        SET "payoutProposalId" = NULL,
+                            "tieRefundProposalId" = $1,
+                            "proposalCreatedAt" = $2,
+                            "proposalStatus" = $3,
+                            "needsSignatures" = $4,
+                            "proposalSigners" = $5,
+                            "matchStatus" = $6,
+                            "updatedAt" = $7
+                        WHERE id = $8
+                      `, [
+                        refundResult.proposalId,
+                        new Date(),
+                        'ACTIVE',
+                        proposalState.normalizedNeeds,
+                        proposalState.signersJson,
+                        'PROPOSAL_CREATED',
+                        new Date(),
+                        updatedMatch.id
+                      ]);
+                      
+                      console.log('✅ Match saved with tie refund proposal information (background):', {
+                        matchId: updatedMatch.id,
+                        proposalId: refundResult.proposalId,
+                        proposalStatus: 'ACTIVE',
+                        needsSignatures: proposalState.normalizedNeeds,
+                        rowsAffected: updateResult?.[1] || 'unknown'
+                      });
+                      
+                      // Verify the update actually worked
+                      const verifyResult = await matchRepository.query(`
+                        SELECT "proposalStatus", "tieRefundProposalId" 
+                        FROM "match" 
+                        WHERE id = $1
+                      `, [updatedMatch.id]);
+                      
+                      if (verifyResult && verifyResult.length > 0) {
+                        const actualStatus = verifyResult[0].proposalStatus;
+                        if (actualStatus !== 'ACTIVE') {
+                          console.error('❌ CRITICAL: proposalStatus was not set correctly for tie refund!', {
+                            matchId: updatedMatch.id,
+                            expected: 'ACTIVE',
+                            actual: actualStatus,
+                            tieRefundProposalId: verifyResult[0].tieRefundProposalId
+                          });
+                          // Retry the update with just the status
+                          await matchRepository.query(`
+                            UPDATE "match"
+                            SET "proposalStatus" = $1,
+                                "updatedAt" = $2
+                            WHERE id = $3 AND "tieRefundProposalId" = $4
+                          `, ['ACTIVE', new Date(), updatedMatch.id, refundResult.proposalId]);
+                          console.log('🔧 Retried setting proposalStatus to ACTIVE for tie refund');
+                        }
+                      }
+                    } catch (updateError: any) {
+                      console.error('❌ Failed to update match with tie refund proposal information:', {
+                        matchId: updatedMatch.id,
+                        error: updateError?.message,
+                        stack: updateError?.stack
+                      });
+                      throw updateError; // Re-throw to be caught by outer catch
+                    }
                   } else {
                     console.error('❌ Squads tie refund proposal creation failed (background):', refundResult?.error || 'Unknown error');
                     // Update status to indicate failure
