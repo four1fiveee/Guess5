@@ -205,9 +205,10 @@ const Game: React.FC = () => {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL;
             const controller = new AbortController();
-            // CRITICAL FIX: Increase timeout to 25 seconds to match backend proposal creation timeout (20s + buffer)
-            // This prevents 408 errors when proposal creation is in progress
-            const timeoutId = setTimeout(() => controller.abort(), 25000); // 25 second timeout (20s backend + 5s buffer)
+            // CRITICAL FIX: Increase timeout to 35 seconds to account for backend proposal creation
+            // Backend proposal creation can take up to 90s, but status endpoint should respond within 30s
+            // This prevents premature timeouts when proposal creation is in progress
+            const timeoutId = setTimeout(() => controller.abort(), 35000); // 35 second timeout
             
             try {
               const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {

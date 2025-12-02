@@ -2658,8 +2658,16 @@ const submitResultHandler = async (req: any, res: any) => {
                   updatedMatch.squadsVaultPda ?? undefined
                 );
                 
+                // CRITICAL: Increase timeout to 90 seconds to account for:
+                // - vaultTransactionCreate: ~5-10s
+                // - Account availability wait: ~2-5s
+                // - Transaction index verification: ~2-5s
+                // - proposalCreate: ~5-10s
+                // - Proposal confirmation: ~2-5s
+                // - Proposal verification (up to 5 retries with delays): ~30s
+                // Total: ~50-65s, so 90s provides a safe buffer
                 const timeoutPromise = new Promise((_, reject) => {
-                  setTimeout(() => reject(new Error('Proposal creation timeout (30s)')), 30000);
+                  setTimeout(() => reject(new Error('Proposal creation timeout (90s)')), 90000);
                 });
                 
                 console.log('⏳ Waiting for proposal creation (with 30s timeout)...', {
@@ -2936,8 +2944,9 @@ const submitResultHandler = async (req: any, res: any) => {
                     tiePaymentStatus
                   );
                   
+                  // CRITICAL: Increase timeout to 90 seconds (same as winner payout)
                   const timeoutPromise = new Promise((_, reject) => {
-                    setTimeout(() => reject(new Error('Tie refund proposal creation timeout (30s)')), 30000);
+                    setTimeout(() => reject(new Error('Tie refund proposal creation timeout (90s)')), 90000);
                   });
                   
                   console.log('⏳ Waiting for tie refund proposal creation (with 30s timeout)...', {
