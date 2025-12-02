@@ -200,6 +200,7 @@ const Game: React.FC = () => {
         console.log('⏳ Waiting for other player to finish...');
         setGameState('waiting');
         
+        // CRITICAL FIX: Start polling IMMEDIATELY with no delay to catch second player's submission instantly
         // Start polling for game completion
         const pollForCompletion = async () => {
           try {
@@ -326,9 +327,9 @@ const Game: React.FC = () => {
           }
           
           // Continue polling if not completed
-          // CRITICAL: Use faster polling (250ms) when waiting for opponent to ensure first player sees status change immediately
-          // This reduces the delay from up to 500ms to up to 250ms
-          setTimeout(pollForCompletion, 250);
+          // CRITICAL: Use very fast polling (100ms) when waiting for opponent to ensure first player sees status change immediately
+          // This ensures both players redirect within 100ms of each other when second player submits
+          setTimeout(pollForCompletion, 100);
         };
         
         // Start polling immediately (no delay) to catch status changes as fast as possible
