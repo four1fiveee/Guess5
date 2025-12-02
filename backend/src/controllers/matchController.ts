@@ -31,18 +31,25 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
 const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
-// Import UserService - TypeScript compiles ES6 exports to CommonJS
-let UserService: any;
+// Import UserService - completely fail-safe, never throw
+let UserService: any = { getUsername: async () => null }; // Default fallback
 try {
   const userServiceModule = require('../services/userService');
-  UserService = userServiceModule.UserService || userServiceModule.default || userServiceModule;
+  // TypeScript compiles export class to { UserService: class }
+  if (userServiceModule?.UserService) {
+    UserService = userServiceModule.UserService;
+  } else if (userServiceModule?.default) {
+    UserService = userServiceModule.default;
+  } else if (userServiceModule && typeof userServiceModule.getUsername === 'function') {
+    UserService = userServiceModule;
+  }
+  
+  // Verify it has the method we need
   if (!UserService || typeof UserService.getUsername !== 'function') {
-    console.warn('⚠️ UserService not properly imported, username fetching will be disabled');
     UserService = { getUsername: async () => null };
   }
 } catch (error: any) {
-  console.error('❌ Failed to import UserService:', error?.message);
-  // Fallback: create a mock UserService that returns null
+  // Silently fail - username fetching is optional
   UserService = { getUsername: async () => null };
 }
 
@@ -766,18 +773,26 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       const now = new Date();
       const createdAt = new Date(matchData.createdAt);
       
-      // Fetch usernames at match creation time for historical accuracy (non-blocking)
+      // Fetch usernames at match creation time for historical accuracy (completely non-blocking)
       let player1Username: string | null = null;
       let player2Username: string | null = null;
-      try {
-        if (UserService && typeof UserService.getUsername === 'function') {
-          player1Username = await UserService.getUsername(matchData.player1).catch(() => null);
-          player2Username = matchData.player2 ? await UserService.getUsername(matchData.player2).catch(() => null) : null;
+      // Use Promise.resolve to ensure this never throws
+      await Promise.resolve().then(async () => {
+        try {
+          if (UserService && typeof UserService.getUsername === 'function') {
+            const p1 = UserService.getUsername(matchData.player1).catch(() => null);
+            const p2 = matchData.player2 ? UserService.getUsername(matchData.player2).catch(() => null) : Promise.resolve(null);
+            [player1Username, player2Username] = await Promise.allSettled([p1, p2]).then(results => [
+              results[0].status === 'fulfilled' ? results[0].value : null,
+              results[1].status === 'fulfilled' ? results[1].value : null
+            ]);
+          }
+        } catch (error: any) {
+          // Silently ignore - usernames are optional
         }
-      } catch (error: any) {
-        console.warn('⚠️ Failed to fetch usernames (non-blocking):', error?.message);
-        // Continue without usernames - match creation is more important
-      }
+      }).catch(() => {
+        // Double safety - if anything fails, just use null
+      });
       
       await matchRepository.query(`
         INSERT INTO "match" (

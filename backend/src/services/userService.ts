@@ -367,9 +367,3 @@ export class UserService {
   }
 }
 
-// CommonJS export for compatibility with require()
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { UserService };
-  module.exports.UserService = UserService;
-}
-
