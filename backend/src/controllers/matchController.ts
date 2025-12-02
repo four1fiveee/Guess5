@@ -1694,30 +1694,104 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
         }
       }
       
+      console.log('🏆 Winner determined BEFORE validation:', {
+        winner: winner,
+        player1Address: match.player1,
+        player1Guesses: player1Result?.numGuesses,
+        player1Won: player1Result?.won,
+        player2Address: match.player2,
+        player2Guesses: player2Result?.numGuesses,
+        player2Won: player2Result?.won
+      });
+      
       // CRITICAL VALIDATION: Ensure winner determination is correct
       // If both players solved, the one with fewer guesses MUST win (or faster time if same guesses)
       if (player1Result.won && player2Result.won && winner !== 'tie') {
         const winnerResult = winner === match.player1 ? player1Result : player2Result;
         const loserResult = winner === match.player1 ? player2Result : player1Result;
         
+        console.log('🔍 VALIDATION CHECK:', {
+          winner: winner,
+          winnerAddress: winner === match.player1 ? match.player1 : match.player2,
+          winnerGuesses: winnerResult.numGuesses,
+          winnerTime: winnerResult.totalTime,
+          loserAddress: winner === match.player1 ? match.player2 : match.player1,
+          loserGuesses: loserResult.numGuesses,
+          loserTime: loserResult.totalTime,
+          player1Address: match.player1,
+          player1Guesses: player1Result.numGuesses,
+          player1Time: player1Result.totalTime,
+          player2Address: match.player2,
+          player2Guesses: player2Result.numGuesses,
+          player2Time: player2Result.totalTime
+        });
+        
+        let needsCorrection = false;
+        let correctionReason = '';
+        
         if (winnerResult.numGuesses > loserResult.numGuesses) {
-          console.error('❌ CRITICAL BUG: Winner has MORE guesses than loser!', {
+          needsCorrection = true;
+          correctionReason = `Winner has MORE guesses (${winnerResult.numGuesses}) than loser (${loserResult.numGuesses})`;
+        } else if (winnerResult.numGuesses === loserResult.numGuesses && winnerResult.totalTime > loserResult.totalTime) {
+          needsCorrection = true;
+          correctionReason = `Winner has same guesses but SLOWER time (${winnerResult.totalTime}ms) than loser (${loserResult.totalTime}ms)`;
+        } else if (!winnerResult.won && loserResult.won) {
+          needsCorrection = true;
+          correctionReason = `Winner did NOT solve but loser did`;
+        }
+        
+        if (needsCorrection) {
+          console.error('❌ CRITICAL BUG DETECTED:', {
+            reason: correctionReason,
             winner: winner,
-            winnerGuesses: winnerResult.numGuesses,
-            loserGuesses: loserResult.numGuesses,
+            winnerAddress: winner === match.player1 ? match.player1 : match.player2,
+            winnerResult: winnerResult,
+            loserAddress: winner === match.player1 ? match.player2 : match.player1,
+            loserResult: loserResult,
             player1Result: player1Result,
             player2Result: player2Result
           });
-          // Fix the bug by recalculating
+          
+          // Fix the bug by recalculating based on actual game rules
           if (player1Result.numGuesses < player2Result.numGuesses) {
             winner = match.player1;
-            console.log('🔧 FIXED: Player 1 should win with fewer guesses');
+            console.log('🔧 FIXED: Player 1 should win with fewer guesses', {
+              player1Guesses: player1Result.numGuesses,
+              player2Guesses: player2Result.numGuesses
+            });
           } else if (player2Result.numGuesses < player1Result.numGuesses) {
             winner = match.player2;
-            console.log('🔧 FIXED: Player 2 should win with fewer guesses');
+            console.log('🔧 FIXED: Player 2 should win with fewer guesses', {
+              player1Guesses: player1Result.numGuesses,
+              player2Guesses: player2Result.numGuesses
+            });
+          } else if (player1Result.numGuesses === player2Result.numGuesses) {
+            // Same guesses - time decides
+            if (player1Result.totalTime < player2Result.totalTime) {
+              winner = match.player1;
+              console.log('🔧 FIXED: Player 1 should win by time', {
+                player1Time: player1Result.totalTime,
+                player2Time: player2Result.totalTime
+              });
+            } else if (player2Result.totalTime < player1Result.totalTime) {
+              winner = match.player2;
+              console.log('🔧 FIXED: Player 2 should win by time', {
+                player1Time: player1Result.totalTime,
+                player2Time: player2Result.totalTime
+              });
+            } else {
+              winner = 'tie';
+              console.log('🔧 FIXED: Tie - same guesses and same time');
+            }
           }
         }
       }
+      
+      console.log('🏆 Winner determined AFTER validation:', {
+        winner: winner,
+        player1Address: match.player1,
+        player2Address: match.player2
+      });
     } else {
       // Both didn't solve - both lose
       winner = 'tie';
