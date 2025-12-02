@@ -1639,10 +1639,14 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     } else if (player1Result.won && player2Result.won) {
       // Both solved - fewest moves wins
       console.log('🏆 Both solved - comparing moves:', {
-        player1Moves: player1Result.numGuesses,
-        player2Moves: player2Result.numGuesses,
         player1Address: match.player1,
-        player2Address: match.player2
+        player1Moves: player1Result.numGuesses,
+        player1Time: player1Result.totalTime,
+        player2Address: match.player2,
+        player2Moves: player2Result.numGuesses,
+        player2Time: player2Result.totalTime,
+        comparison: `${player1Result.numGuesses} < ${player2Result.numGuesses} = ${player1Result.numGuesses < player2Result.numGuesses}`,
+        comparison2: `${player2Result.numGuesses} < ${player1Result.numGuesses} = ${player2Result.numGuesses < player1Result.numGuesses}`
       });
       
       if (player1Result.numGuesses < player2Result.numGuesses) {
