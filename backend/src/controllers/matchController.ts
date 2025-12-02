@@ -1742,15 +1742,21 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
           player2Time: player2Result.totalTime
         });
         
+        // CRITICAL FIX: Ensure we're comparing numbers, not strings
+        const winnerGuesses = Number(winnerResult.numGuesses);
+        const loserGuesses = Number(loserResult.numGuesses);
+        const winnerTime = Number(winnerResult.totalTime);
+        const loserTime = Number(loserResult.totalTime);
+        
         let needsCorrection = false;
         let correctionReason = '';
         
-        if (winnerResult.numGuesses > loserResult.numGuesses) {
+        if (winnerGuesses > loserGuesses) {
           needsCorrection = true;
-          correctionReason = `Winner has MORE guesses (${winnerResult.numGuesses}) than loser (${loserResult.numGuesses})`;
-        } else if (winnerResult.numGuesses === loserResult.numGuesses && winnerResult.totalTime > loserResult.totalTime) {
+          correctionReason = `Winner has MORE guesses (${winnerGuesses}) than loser (${loserGuesses})`;
+        } else if (winnerGuesses === loserGuesses && winnerTime > loserTime) {
           needsCorrection = true;
-          correctionReason = `Winner has same guesses but SLOWER time (${winnerResult.totalTime}ms) than loser (${loserResult.totalTime}ms)`;
+          correctionReason = `Winner has same guesses but SLOWER time (${winnerTime}ms) than loser (${loserTime}ms)`;
         } else if (!winnerResult.won && loserResult.won) {
           needsCorrection = true;
           correctionReason = `Winner did NOT solve but loser did`;
@@ -1769,31 +1775,37 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
           });
           
           // Fix the bug by recalculating based on actual game rules
-          if (player1Result.numGuesses < player2Result.numGuesses) {
+          // Use the same numeric conversion as the main logic
+          const p1Guesses = Number(player1Result.numGuesses);
+          const p2Guesses = Number(player2Result.numGuesses);
+          const p1Time = Number(player1Result.totalTime);
+          const p2Time = Number(player2Result.totalTime);
+          
+          if (p1Guesses < p2Guesses) {
             winner = match.player1;
             console.log('🔧 FIXED: Player 1 should win with fewer guesses', {
-              player1Guesses: player1Result.numGuesses,
-              player2Guesses: player2Result.numGuesses
+              player1Guesses: p1Guesses,
+              player2Guesses: p2Guesses
             });
-          } else if (player2Result.numGuesses < player1Result.numGuesses) {
+          } else if (p2Guesses < p1Guesses) {
             winner = match.player2;
             console.log('🔧 FIXED: Player 2 should win with fewer guesses', {
-              player1Guesses: player1Result.numGuesses,
-              player2Guesses: player2Result.numGuesses
+              player1Guesses: p1Guesses,
+              player2Guesses: p2Guesses
             });
-          } else if (player1Result.numGuesses === player2Result.numGuesses) {
+          } else if (p1Guesses === p2Guesses) {
             // Same guesses - time decides
-            if (player1Result.totalTime < player2Result.totalTime) {
+            if (p1Time < p2Time) {
               winner = match.player1;
               console.log('🔧 FIXED: Player 1 should win by time', {
-                player1Time: player1Result.totalTime,
-                player2Time: player2Result.totalTime
+                player1Time: p1Time,
+                player2Time: p2Time
               });
-            } else if (player2Result.totalTime < player1Result.totalTime) {
+            } else if (p2Time < p1Time) {
               winner = match.player2;
               console.log('🔧 FIXED: Player 2 should win by time', {
-                player1Time: player1Result.totalTime,
-                player2Time: player2Result.totalTime
+                player1Time: p1Time,
+                player2Time: p2Time
               });
             } else {
               winner = 'tie';
