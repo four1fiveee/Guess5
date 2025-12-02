@@ -1611,8 +1611,10 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   }
 
   console.log('🏆 Determining winner for match:', matchId);
-  console.log('Player 1 result:', player1Result);
-  console.log('Player 2 result:', player2Result);
+  console.log('🔍 CRITICAL DEBUG - Player 1 result:', JSON.stringify(player1Result, null, 2));
+  console.log('🔍 CRITICAL DEBUG - Player 2 result:', JSON.stringify(player2Result, null, 2));
+  console.log('🔍 CRITICAL DEBUG - Player 1 address:', match.player1);
+  console.log('🔍 CRITICAL DEBUG - Player 2 address:', match.player2);
 
   let winner = null;
   let payoutResult = null;
@@ -1638,22 +1640,34 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       // Both solved - fewest moves wins
       console.log('🏆 Both solved - comparing moves:', {
         player1Moves: player1Result.numGuesses,
-        player2Moves: player2Result.numGuesses
+        player2Moves: player2Result.numGuesses,
+        player1Address: match.player1,
+        player2Address: match.player2
       });
       
       if (player1Result.numGuesses < player2Result.numGuesses) {
         // Player 1 wins with fewer moves
         winner = match.player1;
-        console.log('🏆 Player 1 wins with fewer moves');
+        console.log('🏆 Player 1 wins with fewer moves:', {
+          player1Guesses: player1Result.numGuesses,
+          player2Guesses: player2Result.numGuesses,
+          winner: match.player1
+        });
       } else if (player2Result.numGuesses < player1Result.numGuesses) {
         // Player 2 wins with fewer moves
         winner = match.player2;
-        console.log('🏆 Player 2 wins with fewer moves');
+        console.log('🏆 Player 2 wins with fewer moves:', {
+          player1Guesses: player1Result.numGuesses,
+          player2Guesses: player2Result.numGuesses,
+          winner: match.player2
+        });
       } else {
         // Same number of moves - tie breaker by time
         console.log('⚖️ Same moves - tie breaker by time:', {
           player1Time: player1Result.totalTime,
-          player2Time: player2Result.totalTime
+          player2Time: player2Result.totalTime,
+          player1Address: match.player1,
+          player2Address: match.player2
         });
         
         const timeDiff = Math.abs(player1Result.totalTime - player2Result.totalTime);
@@ -1665,10 +1679,43 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
           console.log('🤝 Winning tie: Both solved with same moves AND same time (within 1ms tolerance)');
         } else if (player1Result.totalTime < player2Result.totalTime) {
           winner = match.player1;
-          console.log('🏆 Player 1 wins by time');
+          console.log('🏆 Player 1 wins by time:', {
+            player1Time: player1Result.totalTime,
+            player2Time: player2Result.totalTime,
+            winner: match.player1
+          });
         } else {
           winner = match.player2;
-          console.log('🏆 Player 2 wins by time');
+          console.log('🏆 Player 2 wins by time:', {
+            player1Time: player1Result.totalTime,
+            player2Time: player2Result.totalTime,
+            winner: match.player2
+          });
+        }
+      }
+      
+      // CRITICAL VALIDATION: Ensure winner determination is correct
+      // If both players solved, the one with fewer guesses MUST win (or faster time if same guesses)
+      if (player1Result.won && player2Result.won && winner !== 'tie') {
+        const winnerResult = winner === match.player1 ? player1Result : player2Result;
+        const loserResult = winner === match.player1 ? player2Result : player1Result;
+        
+        if (winnerResult.numGuesses > loserResult.numGuesses) {
+          console.error('❌ CRITICAL BUG: Winner has MORE guesses than loser!', {
+            winner: winner,
+            winnerGuesses: winnerResult.numGuesses,
+            loserGuesses: loserResult.numGuesses,
+            player1Result: player1Result,
+            player2Result: player2Result
+          });
+          // Fix the bug by recalculating
+          if (player1Result.numGuesses < player2Result.numGuesses) {
+            winner = match.player1;
+            console.log('🔧 FIXED: Player 1 should win with fewer guesses');
+          } else if (player2Result.numGuesses < player1Result.numGuesses) {
+            winner = match.player2;
+            console.log('🔧 FIXED: Player 2 should win with fewer guesses');
+          }
         }
       }
     } else {
@@ -2461,7 +2508,8 @@ const submitResultHandler = async (req: any, res: any) => {
             // Start proposal creation in background - don't await it
             (async () => {
               try {
-                const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                // Add timeout to prevent hanging forever
+                const proposalPromise = squadsVaultService.proposeWinnerPayout(
                   updatedMatch.squadsVaultAddress,
                   new PublicKey(winner),
                   winnerAmount,
@@ -2469,6 +2517,12 @@ const submitResultHandler = async (req: any, res: any) => {
                   feeAmount,
                   updatedMatch.squadsVaultPda ?? undefined
                 );
+                
+                const timeoutPromise = new Promise((_, reject) => {
+                  setTimeout(() => reject(new Error('Proposal creation timeout (30s)')), 30000);
+                });
+                
+                const proposalResult = await Promise.race([proposalPromise, timeoutPromise]) as any;
                 
                 if (proposalResult && proposalResult.success) {
                   console.log('✅ Squads winner payout proposal created (background):', proposalResult.proposalId);
@@ -2516,14 +2570,17 @@ const submitResultHandler = async (req: any, res: any) => {
               } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error(`❌ Error creating Squads proposal (background):`, errorMessage);
+                console.error(`❌ Full error stack:`, error instanceof Error ? error.stack : String(error));
                 // Update status to indicate failure
                 try {
                   await matchRepository.query(`
                     UPDATE "match"
                     SET "proposalStatus" = $1,
-                        "updatedAt" = $2
-                    WHERE id = $3
-                  `, ['FAILED', new Date(), updatedMatch.id]);
+                        "matchStatus" = $2,
+                        "updatedAt" = $3
+                    WHERE id = $4
+                  `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                  console.log('✅ Updated match status to FAILED after proposal creation error');
                 } catch (updateError: any) {
                   console.error('❌ Failed to update match status after proposal creation error:', updateError?.message);
                 }
@@ -2646,7 +2703,8 @@ const submitResultHandler = async (req: any, res: any) => {
               // Start proposal creation in background - don't await it
               (async () => {
                 try {
-                  const refundResult = await squadsVaultService.proposeTieRefund(
+                  // Add timeout to prevent hanging forever
+                  const proposalPromise = squadsVaultService.proposeTieRefund(
                     updatedMatch.squadsVaultAddress,
                     new PublicKey(updatedMatch.player1),
                     new PublicKey(updatedMatch.player2),
@@ -2654,6 +2712,12 @@ const submitResultHandler = async (req: any, res: any) => {
                     updatedMatch.squadsVaultPda ?? undefined,
                     tiePaymentStatus
                   );
+                  
+                  const timeoutPromise = new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error('Tie refund proposal creation timeout (30s)')), 30000);
+                  });
+                  
+                  const refundResult = await Promise.race([proposalPromise, timeoutPromise]) as any;
                   
                   if (refundResult.success && refundResult.proposalId) {
                     console.log('✅ Squads tie refund proposal created (background):', refundResult.proposalId);
@@ -2702,14 +2766,17 @@ const submitResultHandler = async (req: any, res: any) => {
                 } catch (error: unknown) {
                   const errorMessage = error instanceof Error ? error.message : String(error);
                   console.error(`❌ Error creating Squads tie refund proposal (background):`, errorMessage);
+                  console.error(`❌ Full error stack:`, error instanceof Error ? error.stack : String(error));
                   // Update status to indicate failure
                   try {
                     await matchRepository.query(`
                       UPDATE "match"
                       SET "proposalStatus" = $1,
-                          "updatedAt" = $2
-                      WHERE id = $3
-                    `, ['FAILED', new Date(), updatedMatch.id]);
+                          "matchStatus" = $2,
+                          "updatedAt" = $3
+                      WHERE id = $4
+                    `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                    console.log('✅ Updated match status to FAILED after tie refund proposal creation error');
                   } catch (updateError: any) {
                     console.error('❌ Failed to update match status after tie refund proposal creation error:', updateError?.message);
                   }
