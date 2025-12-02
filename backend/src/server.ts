@@ -12,6 +12,8 @@ const { enhancedLogger } = require('./utils/enhancedLogger');
 
 // Initialize database and Redis before starting server
 async function startServer() {
+  let server: any = null;
+  
   try {
     // Validate environment variables first
     enhancedLogger.info('🔍 Validating environment configuration...');
@@ -82,7 +84,7 @@ async function startServer() {
     enhancedLogger.info('✅ Proposal expiration scanner started');
 
     // Create HTTP server for WebSocket support
-    const server = createServer(app);
+    server = createServer(app);
 
     // Initialize WebSocket service
     enhancedLogger.info('🔌 Initializing WebSocket service...');
@@ -90,8 +92,17 @@ async function startServer() {
     enhancedLogger.info('✅ WebSocket service initialized');
 
     // Start server after database and Redis are ready
-    const port = config.server.port;
-    server.listen(port, () => {
+    // CRITICAL: Ensure port is a number (Render provides PORT as string)
+    const port = parseInt(String(config.server.port), 10) || 4000;
+    
+    if (!port || isNaN(port)) {
+      enhancedLogger.error(`❌ Invalid port configuration: ${config.server.port}`);
+      process.exit(1);
+    }
+    
+    enhancedLogger.info(`🔌 Attempting to bind server to port ${port}...`);
+    
+    server.listen(port, '0.0.0.0', () => {
       enhancedLogger.info(`🚀 Server running on port ${port}`);
       enhancedLogger.info(`🌐 Health check: http://localhost:${port}/health`);
       enhancedLogger.info(`🔌 WebSocket endpoint: ws://localhost:${port}/ws`);
@@ -124,6 +135,16 @@ async function startServer() {
       } catch (error) {
         enhancedLogger.warn('⚠️ Failed to start proposal execution services:', error);
       }
+    });
+    
+    // CRITICAL: Handle server listen errors
+    server.on('error', (error: any) => {
+      if (error.code === 'EADDRINUSE') {
+        enhancedLogger.error(`❌ Port ${port} is already in use`);
+      } else {
+        enhancedLogger.error(`❌ Server error:`, error);
+      }
+      process.exit(1);
     });
 
     // Graceful shutdown
@@ -177,7 +198,31 @@ async function startServer() {
     process.on('SIGINT', () => gracefulShutdown('SIGINT'));
   } catch (error) {
     enhancedLogger.error('❌ Failed to start server:', error);
-    process.exit(1);
+    
+    // CRITICAL: Even if initialization fails, try to start server on a port
+    // This ensures Render can detect the port binding
+    if (!server) {
+      server = createServer((req: any, res: any) => {
+        res.statusCode = 503;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ error: 'Service temporarily unavailable - initialization failed' }));
+      });
+    }
+    
+    const port = parseInt(String(process.env.PORT || 4000), 10);
+    enhancedLogger.error(`⚠️ Starting server in degraded mode on port ${port} due to initialization failure`);
+    
+    server.listen(port, '0.0.0.0', () => {
+      enhancedLogger.info(`🚀 Server running in degraded mode on port ${port}`);
+    });
+    
+    server.on('error', (err: any) => {
+      enhancedLogger.error('❌ Server error:', err);
+      process.exit(1);
+    });
+    
+    // Don't exit - let the server run so Render can detect the port
+    // process.exit(1);
   }
 }
 startServer(); 
