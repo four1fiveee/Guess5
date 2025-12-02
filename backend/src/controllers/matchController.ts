@@ -1611,10 +1611,11 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   }
 
   console.log('🏆 Determining winner for match:', matchId);
-  console.log('🔍 CRITICAL DEBUG - Player 1 result:', JSON.stringify(player1Result, null, 2));
-  console.log('🔍 CRITICAL DEBUG - Player 2 result:', JSON.stringify(player2Result, null, 2));
   console.log('🔍 CRITICAL DEBUG - Player 1 address:', match.player1);
   console.log('🔍 CRITICAL DEBUG - Player 2 address:', match.player2);
+  console.log('🔍 CRITICAL DEBUG - Player 1 result:', JSON.stringify(player1Result, null, 2));
+  console.log('🔍 CRITICAL DEBUG - Player 2 result:', JSON.stringify(player2Result, null, 2));
+  console.log('🔍 CRITICAL DEBUG - VERIFICATION: player1Result.numGuesses =', player1Result?.numGuesses, ', player2Result.numGuesses =', player2Result?.numGuesses);
 
   let winner = null;
   let payoutResult = null;
@@ -2098,7 +2099,7 @@ const submitResultHandler = async (req: any, res: any) => {
     // as long as they haven't submitted yet (handles race conditions)
     if (match.isCompleted) {
       // Match is completed - check if player already submitted
-      const existingResultRaw = wallet === match.player1 ? match.player1Result : match.player2Result;
+      const existingResultRaw = wallet.toLowerCase() === match.player1.toLowerCase() ? match.player1Result : match.player2Result;
       if (existingResultRaw) {
         const existingResult = typeof existingResultRaw === 'string' ? JSON.parse(existingResultRaw) : existingResultRaw;
         return res.json({
@@ -2113,7 +2114,7 @@ const submitResultHandler = async (req: any, res: any) => {
       console.log('⚠️ Match marked as completed but player has not submitted yet, allowing submission', {
         matchId,
         wallet,
-        isPlayer1: wallet === match.player1,
+        isPlayer1: wallet.toLowerCase() === match.player1.toLowerCase(),
         player1HasResult: !!match.player1Result,
         player2HasResult: !!match.player2Result,
         note: 'This may indicate a race condition - allowing submission to proceed'
@@ -2153,14 +2154,26 @@ const submitResultHandler = async (req: any, res: any) => {
       };
     }
 
-    if (wallet !== match.player1 && wallet !== match.player2) {
+    // CRITICAL FIX: Use case-insensitive comparison for Solana addresses
+    if (wallet.toLowerCase() !== match.player1.toLowerCase() && wallet.toLowerCase() !== match.player2.toLowerCase()) {
       return res.status(403).json({ error: 'Wallet not part of this match' });
     }
 
     // SERVER-SIDE VALIDATION: Determine which player this is
-    const isPlayer1 = wallet === match.player1;
+    // CRITICAL FIX: Use case-insensitive comparison for Solana addresses
+    const isPlayer1 = wallet.toLowerCase() === match.player1.toLowerCase();
     const playerKey = isPlayer1 ? 'player1' : 'player2';
     const opponentKey = isPlayer1 ? 'player2' : 'player1';
+    
+    console.log('🔍 CRITICAL: Determining player identity in submit-result:', {
+      wallet: wallet,
+      matchPlayer1: match.player1,
+      matchPlayer2: match.player2,
+      isPlayer1: isPlayer1,
+      walletLower: wallet.toLowerCase(),
+      player1Lower: match.player1.toLowerCase(),
+      player2Lower: match.player2.toLowerCase()
+    });
 
     // SERVER-SIDE VALIDATION: Check if player already submitted
     // Make idempotent - if already submitted, return success (prevents duplicate submission errors)
