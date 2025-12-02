@@ -1638,61 +1638,73 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       console.log('🏆 Player 2 wins - only one solved');
     } else if (player1Result.won && player2Result.won) {
       // Both solved - fewest moves wins
+      // CRITICAL FIX: Ensure numGuesses are numbers, not strings
+      const p1Guesses = Number(player1Result.numGuesses);
+      const p2Guesses = Number(player2Result.numGuesses);
+      
       console.log('🏆 Both solved - comparing moves:', {
         player1Address: match.player1,
-        player1Moves: player1Result.numGuesses,
+        player1Moves: p1Guesses,
+        player1MovesType: typeof p1Guesses,
         player1Time: player1Result.totalTime,
         player2Address: match.player2,
-        player2Moves: player2Result.numGuesses,
+        player2Moves: p2Guesses,
+        player2MovesType: typeof p2Guesses,
         player2Time: player2Result.totalTime,
-        comparison: `${player1Result.numGuesses} < ${player2Result.numGuesses} = ${player1Result.numGuesses < player2Result.numGuesses}`,
-        comparison2: `${player2Result.numGuesses} < ${player1Result.numGuesses} = ${player2Result.numGuesses < player1Result.numGuesses}`
+        comparison: `${p1Guesses} < ${p2Guesses} = ${p1Guesses < p2Guesses}`,
+        comparison2: `${p2Guesses} < ${p1Guesses} = ${p2Guesses < p1Guesses}`
       });
       
-      if (player1Result.numGuesses < player2Result.numGuesses) {
+      if (p1Guesses < p2Guesses) {
         // Player 1 wins with fewer moves
         winner = match.player1;
         console.log('🏆 Player 1 wins with fewer moves:', {
-          player1Guesses: player1Result.numGuesses,
-          player2Guesses: player2Result.numGuesses,
+          player1Guesses: p1Guesses,
+          player2Guesses: p2Guesses,
           winner: match.player1
         });
-      } else if (player2Result.numGuesses < player1Result.numGuesses) {
+      } else if (p2Guesses < p1Guesses) {
         // Player 2 wins with fewer moves
         winner = match.player2;
         console.log('🏆 Player 2 wins with fewer moves:', {
-          player1Guesses: player1Result.numGuesses,
-          player2Guesses: player2Result.numGuesses,
+          player1Guesses: p1Guesses,
+          player2Guesses: p2Guesses,
           winner: match.player2
         });
       } else {
         // Same number of moves - tie breaker by time
+        // CRITICAL FIX: Ensure totalTime are numbers, not strings
+        const p1Time = Number(player1Result.totalTime);
+        const p2Time = Number(player2Result.totalTime);
+        
         console.log('⚖️ Same moves - tie breaker by time:', {
-          player1Time: player1Result.totalTime,
-          player2Time: player2Result.totalTime,
+          player1Time: p1Time,
+          player1TimeType: typeof p1Time,
+          player2Time: p2Time,
+          player2TimeType: typeof p2Time,
           player1Address: match.player1,
           player2Address: match.player2
         });
         
-        const timeDiff = Math.abs(player1Result.totalTime - player2Result.totalTime);
+        const timeDiff = Math.abs(p1Time - p2Time);
         const tolerance = 0.001; // 1 millisecond tolerance for "exact" ties (smallest reasonable unit for web app)
         
         if (timeDiff < tolerance) {
           // Winning tie: Both solved with same moves AND same time (within 1ms tolerance)
           winner = 'tie';
           console.log('🤝 Winning tie: Both solved with same moves AND same time (within 1ms tolerance)');
-        } else if (player1Result.totalTime < player2Result.totalTime) {
+        } else if (p1Time < p2Time) {
           winner = match.player1;
           console.log('🏆 Player 1 wins by time:', {
-            player1Time: player1Result.totalTime,
-            player2Time: player2Result.totalTime,
+            player1Time: p1Time,
+            player2Time: p2Time,
             winner: match.player1
           });
         } else {
           winner = match.player2;
           console.log('🏆 Player 2 wins by time:', {
-            player1Time: player1Result.totalTime,
-            player2Time: player2Result.totalTime,
+            player1Time: p1Time,
+            player2Time: p2Time,
             winner: match.player2
           });
         }
