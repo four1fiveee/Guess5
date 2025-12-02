@@ -2691,7 +2691,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 
                 if (proposalResult && proposalResult.success) {
                   console.log('✅ Squads winner payout proposal created (background):', proposalResult.proposalId);
-                  
+                
                   const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
 
                   // Update match with proposal information using raw SQL
@@ -2704,26 +2704,26 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                     
                     const updateResult = await backgroundMatchRepository.query(`
-                      UPDATE "match"
-                      SET "payoutProposalId" = $1,
-                          "proposalCreatedAt" = $2,
-                          "proposalStatus" = $3,
-                          "needsSignatures" = $4,
-                          "proposalSigners" = $5,
-                          "matchStatus" = $6,
-                          "updatedAt" = $7
-                      WHERE id = $8
-                    `, [
-                      proposalResult.proposalId,
-                      new Date(),
-                      'ACTIVE',
-                      proposalState.normalizedNeeds,
-                      proposalState.signersJson,
-                      'PROPOSAL_CREATED',
-                      new Date(),
-                      updatedMatch.id
-                    ]);
-                    
+                    UPDATE "match"
+                    SET "payoutProposalId" = $1,
+                        "proposalCreatedAt" = $2,
+                        "proposalStatus" = $3,
+                        "needsSignatures" = $4,
+                        "proposalSigners" = $5,
+                        "matchStatus" = $6,
+                        "updatedAt" = $7
+                    WHERE id = $8
+                  `, [
+                    proposalResult.proposalId,
+                    new Date(),
+                    'ACTIVE',
+                    proposalState.normalizedNeeds,
+                    proposalState.signersJson,
+                    'PROPOSAL_CREATED',
+                    new Date(),
+                    updatedMatch.id
+                  ]);
+                  
                     // CRITICAL: Check if UPDATE actually affected rows
                     const rowsAffected = Array.isArray(updateResult) ? updateResult[1] : (updateResult?.rowCount || 0);
                     console.log('📊 UPDATE query result:', {
@@ -2742,10 +2742,10 @@ const submitResultHandler = async (req: any, res: any) => {
                     }
                     
                     console.log('✅ Match saved with proposal information (background):', {
-                      matchId: updatedMatch.id,
-                      proposalId: proposalResult.proposalId,
-                      proposalStatus: 'ACTIVE',
-                      needsSignatures: proposalState.normalizedNeeds,
+                    matchId: updatedMatch.id,
+                    proposalId: proposalResult.proposalId,
+                    proposalStatus: 'ACTIVE',
+                    needsSignatures: proposalState.normalizedNeeds,
                       rowsAffected: rowsAffected
                     });
                     
@@ -2770,8 +2770,8 @@ const submitResultHandler = async (req: any, res: any) => {
                           console.log('✅ Verified proposalStatus is ACTIVE', {
                             matchId: updatedMatch.id,
                             attempt: verificationAttempts + 1
-                          });
-                        } else {
+                  });
+                } else {
                           console.error(`❌ CRITICAL: proposalStatus is ${actualStatus || 'NULL'} instead of ACTIVE (attempt ${verificationAttempts + 1}/${maxVerificationAttempts})`, {
                             matchId: updatedMatch.id,
                             expected: 'ACTIVE',
@@ -2817,15 +2817,25 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 } else {
                   console.error('❌ Squads proposal creation failed (background):', proposalResult?.error || 'Unknown error');
-                  // Update status to indicate failure
-                  const { AppDataSource: AppDataSourceForFailure } = require('../db/index');
-                  const failureMatchRepository = AppDataSourceForFailure.getRepository(Match);
-                  await failureMatchRepository.query(`
-                    UPDATE "match"
-                    SET "proposalStatus" = $1,
-                        "updatedAt" = $2
-                    WHERE id = $3
-                  `, ['FAILED', new Date(), updatedMatch.id]);
+                  // Update status to indicate failure - CRITICAL: Use backgroundMatchRepository (fresh instance)
+                  try {
+                    await backgroundMatchRepository.query(`
+                      UPDATE "match"
+                      SET "proposalStatus" = $1,
+                          "matchStatus" = $2,
+                          "updatedAt" = $3
+                      WHERE id = $4
+                    `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                    console.log('✅ Updated match status to FAILED after proposal creation failure', {
+                      matchId: updatedMatch.id,
+                      error: proposalResult?.error
+                    });
+                  } catch (updateError: any) {
+                    console.error('❌ Failed to update match status after proposal creation failure:', {
+                      matchId: updatedMatch.id,
+                      updateError: updateError?.message
+                    });
+                  }
                 }
               } catch (error: unknown) {
                 const elapsedTime = Date.now() - backgroundTaskStartTime;
@@ -2840,9 +2850,9 @@ const submitResultHandler = async (req: any, res: any) => {
                   timestamp: new Date().toISOString()
                 });
                 
-                // Update status to indicate failure
+                // Update status to indicate failure - CRITICAL: Use backgroundMatchRepository (fresh instance)
                 try {
-                  await matchRepository.query(`
+                  await backgroundMatchRepository.query(`
                     UPDATE "match"
                     SET "proposalStatus" = $1,
                         "matchStatus" = $2,
@@ -4313,107 +4323,107 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (match && (match as any).squadsVaultAddress && !(match as any).squadsVaultPda) {
       // Fire and forget - don't await, don't block the response
       (async () => {
-        try {
-          const { getSquadsVaultService } = require('../services/squadsVaultService');
-          const squadsVaultService = getSquadsVaultService();
-          const derivedVaultPda = squadsVaultService?.deriveVaultPda?.((match as any).squadsVaultAddress);
+      try {
+        const { getSquadsVaultService } = require('../services/squadsVaultService');
+        const squadsVaultService = getSquadsVaultService();
+        const derivedVaultPda = squadsVaultService?.deriveVaultPda?.((match as any).squadsVaultAddress);
 
-          if (derivedVaultPda) {
-            (match as any).squadsVaultPda = derivedVaultPda;
-            if (matchRepository) {
-              try {
-                await matchRepository.update(
-                  { id: match.id },
-                  { squadsVaultPda: derivedVaultPda }
-                );
-              } catch (updateError: unknown) {
-                enhancedLogger.warn('⚠️ Failed to persist derived vault PDA (non-blocking)', {
-                  matchId: match.id,
-                  vaultAddress: (match as any).squadsVaultAddress,
-                  error: updateError instanceof Error ? updateError.message : String(updateError),
-                });
-              }
+        if (derivedVaultPda) {
+          (match as any).squadsVaultPda = derivedVaultPda;
+          if (matchRepository) {
+            try {
+              await matchRepository.update(
+                { id: match.id },
+                { squadsVaultPda: derivedVaultPda }
+              );
+            } catch (updateError: unknown) {
+              enhancedLogger.warn('⚠️ Failed to persist derived vault PDA (non-blocking)', {
+                matchId: match.id,
+                vaultAddress: (match as any).squadsVaultAddress,
+                error: updateError instanceof Error ? updateError.message : String(updateError),
+              });
             }
-          } else {
-            enhancedLogger.warn('⚠️ Unable to derive vault PDA', {
-              matchId: match.id,
-              vaultAddress: (match as any).squadsVaultAddress,
-            });
           }
-        } catch (deriveErr: unknown) {
-          enhancedLogger.warn('⚠️ Vault PDA derivation failed (non-blocking)', {
-            matchId: match?.id,
-            vaultAddress: (match as any)?.squadsVaultAddress,
-            error: deriveErr instanceof Error ? deriveErr.message : String(deriveErr),
+        } else {
+          enhancedLogger.warn('⚠️ Unable to derive vault PDA', {
+            matchId: match.id,
+            vaultAddress: (match as any).squadsVaultAddress,
           });
         }
+      } catch (deriveErr: unknown) {
+        enhancedLogger.warn('⚠️ Vault PDA derivation failed (non-blocking)', {
+          matchId: match?.id,
+          vaultAddress: (match as any)?.squadsVaultAddress,
+          error: deriveErr instanceof Error ? deriveErr.message : String(deriveErr),
+        });
+      }
       })();
     }
 
     // Auto-create Squads vault if missing and match requires escrow (NON-BLOCKING)
     // CRITICAL: This is a heavy operation (on-chain transaction) - must not block status response
-    if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
+      if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
       // Fire and forget - don't await, don't block the response
       (async () => {
         try {
-          // Rate limit vault creation attempts - only try once per 5 seconds per match
-          const vaultCreationKey = `vault_creation_${match.id}`;
-          const { getRedisMM } = require('../config/redis');
-          const redis = getRedisMM();
-          const lastAttempt = await redis.get(vaultCreationKey);
-          const now = Date.now();
-          const cooldownPeriod = 5000; // 5 seconds (reduced from 30s for faster retries)
-          
-          if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
+        // Rate limit vault creation attempts - only try once per 5 seconds per match
+        const vaultCreationKey = `vault_creation_${match.id}`;
+        const { getRedisMM } = require('../config/redis');
+        const redis = getRedisMM();
+        const lastAttempt = await redis.get(vaultCreationKey);
+        const now = Date.now();
+        const cooldownPeriod = 5000; // 5 seconds (reduced from 30s for faster retries)
+        
+        if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
             console.log('🏦 No vault on match yet; attempting on-demand creation (background)...', { matchId: match.id });
-            // Mark that we're attempting vault creation
-            await redis.set(vaultCreationKey, now.toString(), 'EX', 60); // Expire after 60 seconds
-            
-            try {
-              const creation = await squadsVaultService.createMatchVault(
-                match.id,
-                new PublicKey(match.player1),
-                new PublicKey(match.player2),
-                match.entryFee
-              );
-              if (creation?.success && creation.vaultAddress) {
-                const { AppDataSource } = require('../db/index');
-                const matchRepository = AppDataSource.getRepository(Match);
-                (match as any).squadsVaultAddress = creation.vaultAddress;
-                (match as any).squadsVaultPda = creation.vaultPda ?? null;
-                await matchRepository.update(
-                  { id: match.id },
-                  { 
-                    squadsVaultAddress: creation.vaultAddress,
-                    squadsVaultPda: creation.vaultPda ?? null,
-                    matchStatus: 'VAULT_CREATED'
-                  }
-                );
+          // Mark that we're attempting vault creation
+          await redis.set(vaultCreationKey, now.toString(), 'EX', 60); // Expire after 60 seconds
+          
+          try {
+        const creation = await squadsVaultService.createMatchVault(
+          match.id,
+          new PublicKey(match.player1),
+          new PublicKey(match.player2),
+          match.entryFee
+        );
+        if (creation?.success && creation.vaultAddress) {
+          const { AppDataSource } = require('../db/index');
+          const matchRepository = AppDataSource.getRepository(Match);
+          (match as any).squadsVaultAddress = creation.vaultAddress;
+          (match as any).squadsVaultPda = creation.vaultPda ?? null;
+          await matchRepository.update(
+            { id: match.id },
+            { 
+              squadsVaultAddress: creation.vaultAddress,
+              squadsVaultPda: creation.vaultPda ?? null,
+              matchStatus: 'VAULT_CREATED'
+            }
+          );
                 console.log('✅ Vault created on-demand for match (background)', { matchId: match.id, vault: creation.vaultAddress, vaultPda: creation.vaultPda });
-                // Clear the rate limit key on success
-                await redis.del(vaultCreationKey);
-              } else {
+              // Clear the rate limit key on success
+              await redis.del(vaultCreationKey);
+            } else {
                 console.warn('⚠️ On-demand vault creation failed (background)', {
-                  matchId: match.id,
-                  error: creation?.error || 'Unknown error'
-                });
-              }
-            } catch (creationErr) {
-              console.warn('⚠️ On-demand vault creation exception (background)', {
                 matchId: match.id,
-                error: creationErr instanceof Error ? creationErr.message : String(creationErr)
+                error: creation?.error || 'Unknown error'
               });
             }
-          } else {
-            const timeSinceLastAttempt = now - parseInt(lastAttempt);
-            const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
-            console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
+          } catch (creationErr) {
+              console.warn('⚠️ On-demand vault creation exception (background)', {
+              matchId: match.id,
+              error: creationErr instanceof Error ? creationErr.message : String(creationErr)
+            });
           }
-        } catch (onDemandErr) {
-          console.warn('⚠️ On-demand vault creation check failed (non-blocking)', {
-            matchId: match?.id,
-            error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr)
-          });
+        } else {
+          const timeSinceLastAttempt = now - parseInt(lastAttempt);
+          const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
+          console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
+      }
+    } catch (onDemandErr) {
+      console.warn('⚠️ On-demand vault creation check failed (non-blocking)', {
+        matchId: match?.id,
+        error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr)
+      });
         }
       })();
     }
@@ -4504,14 +4514,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (match && matchRepository) {
       // Fire and forget - don't await, don't block the response
       (async () => {
-        try {
-          await attemptAutoExecuteIfReady(match, matchRepository, 'status_poll');
-        } catch (autoExecuteError: unknown) {
+      try {
+        await attemptAutoExecuteIfReady(match, matchRepository, 'status_poll');
+      } catch (autoExecuteError: unknown) {
           enhancedLogger.error('❌ Auto-execute readiness check errored during status poll (non-blocking)', {
-            matchId: match?.id,
-            error: autoExecuteError instanceof Error ? autoExecuteError.message : String(autoExecuteError),
-          });
-        }
+          matchId: match?.id,
+          error: autoExecuteError instanceof Error ? autoExecuteError.message : String(autoExecuteError),
+        });
+      }
       })();
     }
 
