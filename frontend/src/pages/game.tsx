@@ -205,7 +205,9 @@ const Game: React.FC = () => {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL;
             const controller = new AbortController();
-            const timeoutId = setTimeout(() => controller.abort(), 3000); // 3 second timeout (status endpoint should be fast now)
+            // CRITICAL FIX: Increase timeout to 10 seconds to match backend proposal creation timeout
+            // This prevents 408 errors when proposal creation is in progress
+            const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
             
             try {
               const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {
@@ -734,9 +736,11 @@ const Game: React.FC = () => {
 
   // Timer countdown
   useEffect(() => {
-    if (!timerActive || gameState !== 'playing') {
-      if (timerActive && gameState !== 'playing') {
-        console.log('⏰ Timer stopped - game state changed to:', gameState);
+    // CRITICAL FIX: Stop timer immediately if player has submitted result or game state is not playing
+    // This prevents timer from continuing to run after player submits, which could cause race conditions
+    if (!timerActive || gameState !== 'playing' || isSubmittingResult || playerResult) {
+      if (timerActive && (gameState !== 'playing' || isSubmittingResult || playerResult)) {
+        console.log('⏰ Timer stopped - game state changed or player submitted:', { gameState, isSubmittingResult, hasPlayerResult: !!playerResult });
         setTimerActive(false);
       }
       return;
@@ -744,15 +748,18 @@ const Game: React.FC = () => {
 
     const timer = setInterval(() => {
       setTimeRemaining(prev => {
+        // CRITICAL: Double-check conditions before submitting timeout
+        // This prevents race conditions where timer fires after player submits
         if (prev <= 0) {
           clearInterval(timer);
           setTimerActive(false);
           console.log('⏰ Timer reached zero, submitting timeout result');
-          if (!isSubmittingResult && !playerResult) {
+          // CRITICAL: Only submit timeout if player hasn't submitted and game is still playing
+          if (!isSubmittingResult && !playerResult && gameState === 'playing') {
             console.log('⏰ Calling handleGameEnd with timeout reason');
             handleGameEndRef.current?.(false, 'timeout');
           } else {
-            console.log('⏰ Skipping timeout submission - already submitting or has result:', { isSubmittingResult, hasPlayerResult: !!playerResult });
+            console.log('⏰ Skipping timeout submission - already submitted or game ended:', { isSubmittingResult, hasPlayerResult: !!playerResult, gameState });
           }
           return 0;
         }

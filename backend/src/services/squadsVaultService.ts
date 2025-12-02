@@ -3701,13 +3701,13 @@ export class SquadsVaultService {
         }
 
         enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (proven approach)', {
-          vaultAddress,
-          proposalId,
+                vaultAddress,
+                proposalId,
           transactionIndex: transactionIndexNumber,
           executor: executor.publicKey.toString(),
           programId: this.programId.toString(),
           multisigPda: multisigAddress.toString(),
-        });
+              });
 
         // Build the execution instruction
         const executionIx = instructions.vaultTransactionExecute({
@@ -3718,10 +3718,10 @@ export class SquadsVaultService {
         });
 
         enhancedLogger.info('✅ Execution instruction created', {
-          vaultAddress,
-          proposalId,
+              vaultAddress,
+              proposalId,
           transactionIndex: transactionIndexNumber,
-        });
+            });
 
         // Get latest blockhash
         const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
@@ -3739,13 +3739,13 @@ export class SquadsVaultService {
 
         // Sign the transaction
         transaction.sign([executor]);
-
+            
         // Send and confirm the transaction
         const executionSignature = await this.connection.sendTransaction(transaction, {
           skipPreflight: false,
           maxRetries: 3,
         });
-
+            
         enhancedLogger.info('✅ Proposal execution transaction sent', {
               vaultAddress,
               proposalId,
@@ -3766,8 +3766,8 @@ export class SquadsVaultService {
         if (txDetails?.meta?.err) {
           const error = `Transaction failed on-chain: ${JSON.stringify(txDetails.meta.err)}`;
           enhancedLogger.error('❌ Execution transaction failed on-chain', {
-              vaultAddress,
-              proposalId,
+                vaultAddress,
+                proposalId,
             signature: executionSignature,
             error: txDetails.meta.err,
             logs: txDetails.meta.logMessages?.slice(-10),
@@ -3779,7 +3779,7 @@ export class SquadsVaultService {
             signature: executionSignature,
             correlationId,
           };
-        }
+          }
 
         // Verify vault balance decreased (funds were transferred)
         if (derivedVaultPda) {

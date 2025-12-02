@@ -2384,9 +2384,9 @@ const submitResultHandler = async (req: any, res: any) => {
               player2: updatedMatch.player2,
             });
           } else {
-            // CRITICAL FIX: Create proposal with SHORT timeout (3s) to return response quickly
-            // If it times out, FINAL FALLBACK will create it in background
-            // This prevents submit-result endpoint from timing out
+            // CRITICAL FIX: Create proposal with 10s timeout to allow completion
+            // Increased from 3s to prevent proposals from being created in background
+            // This ensures frontend gets proposalId immediately instead of stuck at 95%
             try {
               const proposalCreationPromise = squadsVaultService.proposeWinnerPayout(
                 updatedMatch.squadsVaultAddress,
@@ -2398,7 +2398,7 @@ const submitResultHandler = async (req: any, res: any) => {
               );
               
               const timeoutPromise = new Promise<never>((_, reject) => {
-                setTimeout(() => reject(new Error('Proposal creation timeout (3s)')), 3000);
+                setTimeout(() => reject(new Error('Proposal creation timeout (10s)')), 10000);
               });
               
               const proposalResult = await Promise.race([proposalCreationPromise, timeoutPromise]) as any;
@@ -2584,9 +2584,9 @@ const submitResultHandler = async (req: any, res: any) => {
                 player2: updatedMatch.player2,
               });
             } else {
-              // CRITICAL FIX: Create tie refund proposal with SHORT timeout (3s) to return response quickly
-              // If it times out, FINAL FALLBACK will create it in background
-              // This prevents submit-result endpoint from timing out
+              // CRITICAL FIX: Create tie refund proposal with 10s timeout to allow completion
+              // Increased from 3s to prevent proposals from being created in background
+              // This ensures frontend gets proposalId immediately instead of stuck at 95%
               try {
                 const tiePaymentStatus = {
                   ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
@@ -2602,8 +2602,10 @@ const submitResultHandler = async (req: any, res: any) => {
                   tiePaymentStatus
                 );
                 
+                // CRITICAL FIX: Increase timeout to 10 seconds to allow proposal creation to complete
+                // 3 seconds was too short and caused proposals to be created in background, leading to 95% stuck state
                 const timeoutPromise = new Promise<never>((_, reject) => {
-                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (3s)')), 3000);
+                  setTimeout(() => reject(new Error('Tie refund proposal creation timeout (10s)')), 10000);
                 });
                 
                 const refundResult = await Promise.race([refundCreationPromise, timeoutPromise]) as any;
