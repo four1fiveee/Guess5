@@ -2537,21 +2537,8 @@ const submitResultHandler = async (req: any, res: any) => {
           return result;
         });
         
-        // CRITICAL FIX: Return response IMMEDIATELY with both results
-        // Winner determination and proposal creation can continue in background
-        // This allows first player to see both results immediately and redirect
-        const immediateResponse = {
-          status: 'completed',
-          isCompleted: true,
-          player1Result: player1Result,
-          player2Result: player2Result,
-          winner: payoutResult?.winner || null,
-          payout: payoutResult || null,
-          proposalStatus: 'PENDING', // Will be updated when proposal is created
-          payoutProposalId: null,
-          tieRefundProposalId: null
-        };
-        
+        // CRITICAL FIX: Response was already sent immediately above (line 2432)
+        // Winner determination completed in background - just continue with proposal creation
         // IMPORTANT: Reload match after transaction to ensure we have the latest winner using raw SQL
         // Include all fields needed for proposal creation
         const matchRepository = AppDataSource.getRepository(Match);
