@@ -641,8 +641,15 @@ const Result: React.FC = () => {
 
   // Track proposal creation progress
   useEffect(() => {
-    if (!proposalCreationStartTime || payoutData?.proposalId) {
-      setProposalCreationProgress(100); // Complete if we have a proposal
+    if (!proposalCreationStartTime) {
+      setProposalCreationProgress(0);
+      return;
+    }
+
+    // CRITICAL FIX: Show progress even when proposalStatus is 'PENDING'
+    // Only hide progress when we have a proposal AND it's not PENDING
+    if (payoutData?.proposalId && payoutData?.proposalStatus !== 'PENDING') {
+      setProposalCreationProgress(100); // Complete if we have a proposal and it's not pending
       return;
     }
 
@@ -654,7 +661,7 @@ const Result: React.FC = () => {
     }, 500);
 
     return () => clearInterval(progressInterval);
-  }, [proposalCreationStartTime, payoutData?.proposalId]);
+  }, [proposalCreationStartTime, payoutData?.proposalId, payoutData?.proposalStatus]);
 
   // Poll for proposal updates when polling is active
   // Expert recommendation: More aggressive polling when game is active
@@ -1109,6 +1116,11 @@ const Result: React.FC = () => {
             // If needsSignatures becomes 0, set status to EXECUTING
             if (updatedPayoutData.needsSignatures === 0 && updatedPayoutData.proposalStatus !== 'EXECUTED') {
               updatedPayoutData.proposalStatus = 'EXECUTING';
+            }
+            
+            // CRITICAL FIX: Ensure proposalStatus is set to prevent showing "Creating Proposal" after signing
+            if (!updatedPayoutData.proposalStatus && updatedPayoutData.proposalId) {
+              updatedPayoutData.proposalStatus = 'ACTIVE'; // Default to ACTIVE if status is missing
             }
             
             setPayoutData(updatedPayoutData);
@@ -2151,7 +2163,9 @@ const Result: React.FC = () => {
                         <div className="text-accent text-lg font-semibold">
                           {payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt)
                             ? '⏳ Executing Transaction'
-                            : payoutData?.proposalId 
+                            : payoutData?.proposalStatus === 'EXECUTED'
+                            ? '✅ Transaction Executed'
+                            : payoutData?.proposalId && payoutData?.proposalStatus && payoutData?.proposalStatus !== 'PENDING'
                             ? '⏳ Processing Payout' 
                             : proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000
                             ? '⚠️ Proposal creation taking longer than expected. Please refresh the page.'
@@ -2159,8 +2173,8 @@ const Result: React.FC = () => {
                         </div>
                       </div>
                       
-                      {/* Progress bar for proposal creation - only show if proposal doesn't exist yet */}
-                      {!payoutData?.proposalId && !payoutData?.proposalStatus && (
+                      {/* Progress bar for proposal creation - show when proposal doesn't exist yet OR status is PENDING */}
+                      {(!payoutData?.proposalId || payoutData?.proposalStatus === 'PENDING') && (
                         <div className="mb-4">
                           <div className="w-full bg-white/10 rounded-full h-2 mb-2">
                             <div 

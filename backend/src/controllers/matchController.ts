@@ -2197,7 +2197,16 @@ const submitResultHandler = async (req: any, res: any) => {
     }
 
     // Stricter guess validation while maintaining race condition tolerance
-    const serverGuesses = isPlayer1 ? serverGameState.player1Guesses : serverGameState.player2Guesses;
+    // CRITICAL FIX: Ensure serverGameState exists and has guesses arrays
+    if (!serverGameState) {
+      console.error('❌ CRITICAL: serverGameState is null/undefined after initialization check', {
+        matchId,
+        wallet,
+        matchStatus: match.status
+      });
+      return res.status(500).json({ error: 'Game state not available. Please try again.' });
+    }
+    const serverGuesses = isPlayer1 ? (serverGameState.player1Guesses || []) : (serverGameState.player2Guesses || []);
     
     // Reject if guess count is more than 2 ahead (allows +1 for race conditions, +2 for safety margin)
     if (result.guesses.length > serverGuesses.length + 2) {
