@@ -1072,7 +1072,7 @@ const Result: React.FC = () => {
             const currentSigners = Array.isArray(updatedPayoutData.proposalSigners) 
               ? updatedPayoutData.proposalSigners 
               : [];
-            if (!currentSigners.some(s => s?.toLowerCase() === userWallet.toLowerCase())) {
+            if (!currentSigners.some((s: string) => s?.toLowerCase() === userWallet.toLowerCase())) {
               updatedPayoutData.proposalSigners = [...currentSigners, userWallet];
             }
             // Optimistically update needsSignatures (will be corrected by next poll)

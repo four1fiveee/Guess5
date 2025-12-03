@@ -12406,13 +12406,47 @@ const signProposalHandler = async (req: any, res: any) => {
       const persistedNeedsSignatures = Math.max(0, newNeedsSignatures);
       
       // Update database using raw SQL
-      await matchRepository.query(`
+      const updateResult = await matchRepository.query(`
         UPDATE "match" 
         SET "proposalSigners" = $1,
             "needsSignatures" = $2,
-            "proposalStatus" = $3
+            "proposalStatus" = $3,
+            "updatedAt" = NOW()
         WHERE id = $4
+        RETURNING id, "proposalSigners", "needsSignatures", "proposalStatus"
       `, [updatedSignersJson, persistedNeedsSignatures, newProposalStatus, matchId]);
+    
+      // CRITICAL: Verify the update actually succeeded
+      if (!updateResult || updateResult.length === 0) {
+        throw new Error(`Database update failed: No rows affected for match ${matchId}`);
+      }
+      
+      const updatedRow = updateResult[0];
+      console.log('✅ Database update verified:', {
+        matchId,
+        proposalId: proposalIdString,
+        updatedSigners: updatedRow.proposalSigners,
+        updatedNeedsSignatures: updatedRow.needsSignatures,
+        updatedProposalStatus: updatedRow.proposalStatus,
+      });
+      
+      // Verify the user's signature was actually recorded
+      const recordedSigners = typeof updatedRow.proposalSigners === 'string' 
+        ? JSON.parse(updatedRow.proposalSigners) 
+        : updatedRow.proposalSigners;
+      const userSignatureRecorded = recordedSigners.some((s: string) => 
+        s && s.toLowerCase() === wallet.toLowerCase()
+      );
+      
+      if (!userSignatureRecorded) {
+        console.error('❌ CRITICAL: User signature was not recorded in database!', {
+          matchId,
+          wallet,
+          recordedSigners,
+          expectedSigners: uniqueSigners.map(s => s.toString()),
+        });
+        throw new Error(`Failed to record user signature: ${wallet}`);
+      }
     
       const finalSigners = uniqueSigners;
       matchRow.proposalSigners = updatedSignersJson;
@@ -12425,6 +12459,7 @@ const signProposalHandler = async (req: any, res: any) => {
         newNeedsSignatures,
         persistedNeedsSignatures,
         newProposalStatus,
+        userSignatureRecorded,
       });
 
       // CRITICAL: Execute proposal in background (non-blocking) so we can return response immediately
@@ -12886,14 +12921,21 @@ const signProposalHandler = async (req: any, res: any) => {
         console.warn('⚠️ Failed to send SSE notification:', sseError?.message);
       }
     } catch (dbError: any) {
-      console.error('❌ Failed to update match in database:', {
+      console.error('❌ CRITICAL: Failed to update match in database:', {
         error: dbError?.message,
         stack: dbError?.stack,
         matchId,
         wallet,
+        proposalId: proposalIdString,
       });
-      // Don't fail the request if DB update fails - transaction was already submitted
-      console.warn('⚠️ Transaction was submitted but database update failed');
+      // CRITICAL: Fail the request if database update fails - we need to ensure signature is recorded
+      // The on-chain transaction might have succeeded, but we need database consistency
+      res.status(500).json({ 
+        error: 'Failed to record signature in database', 
+        details: dbError?.message || 'Database update failed',
+        note: 'Your signature transaction may have succeeded on-chain, but database update failed. Please check match status.'
+      });
+      return;
     }
 
     // Get final signers list for response
