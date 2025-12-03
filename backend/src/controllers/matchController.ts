@@ -4636,8 +4636,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           });
           const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
           console.log('✅ determineWinnerAndPayout completed in background, payoutResult:', recalculatedPayout ? { winner: recalculatedPayout.winner } : null);
-        // Reload match to get the updated winner and all fields using raw SQL
-        const { AppDataSource } = require('../db/index');
+          // Reload match to get the updated winner and all fields using raw SQL
+          const { AppDataSource } = require('../db/index');
         const matchRepository = AppDataSource.getRepository(Match);
         const reloadedRows = await matchRepository.query(`
           SELECT 
@@ -4794,20 +4794,20 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
           }
         }
-        } catch (error: unknown) {
-          const errorMessage = error instanceof Error ? error.message : String(error);
-          console.error('❌ Error recalculating winner (background):', errorMessage);
-        }
-      } else {
-        console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
-          matchId: match.id,
-          isCompleted: match.isCompleted,
-          hasPlayer1Result: !!player1Result,
-          hasPlayer2Result: !!player2Result,
-          player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-          player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
-        });
+      } catch (error: unknown) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('❌ Error recalculating winner (background):', errorMessage);
       }
+    } else {
+      console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
+        matchId: match.id,
+        isCompleted: match.isCompleted,
+        hasPlayer1Result: !!player1Result,
+        hasPlayer2Result: !!player2Result,
+        player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+        player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+      });
+    }
     })(); // End background winner calculation
   }
 
