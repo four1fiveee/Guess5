@@ -4794,19 +4794,19 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
           }
         }
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('❌ Error recalculating winner (background):', errorMessage);
+      } else {
+        console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
+          matchId: match.id,
+          isCompleted: match.isCompleted,
+          hasPlayer1Result: !!player1Result,
+          hasPlayer2Result: !!player2Result,
+          player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+          player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+        });
       }
-    } else {
-      console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
-        matchId: match.id,
-        isCompleted: match.isCompleted,
-        hasPlayer1Result: !!player1Result,
-        hasPlayer2Result: !!player2Result,
-        player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-        player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
-      });
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('❌ Error recalculating winner (background):', errorMessage);
     }
     })(); // End background winner calculation
   }
