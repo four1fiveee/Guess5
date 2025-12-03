@@ -4600,7 +4600,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       match.isCompleted = true;
     }
 
+  // CRITICAL FIX: Make winner calculation non-blocking in status endpoint
   // If match is completed but winner is missing, OR both players have results but match isn't marked completed, recalculate and save it
+  // BUT: Do this in the background to prevent blocking the status response
   const player1Result = match.getPlayer1Result();
   const player2Result = match.getPlayer2Result();
   const bothHaveResults = !!player1Result && !!player2Result;
@@ -4608,7 +4610,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   const shouldRecalculate = (match.isCompleted && !match.winner) || (bothHaveResults && (!match.isCompleted || !match.winner));
   
   if (shouldRecalculate) {
-    console.log('⚠️ Match needs winner calculation - recalculating...', { 
+    console.log('⚠️ Match needs winner calculation - recalculating in background...', { 
       matchId: match.id,
       isCompleted: match.isCompleted,
       hasWinner: !!match.winner,
@@ -4620,17 +4622,20 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
     });
     
-    // determineWinnerAndPayout can handle cases where only one player has results
-    // It will determine winner based on who has results and whether they won
-    if (atLeastOneHasResult) {
+    // CRITICAL: Run winner calculation in background - don't block status response
+    // This ensures first player sees both results immediately
+    (async () => {
       try {
-        console.log('🔄 Calling determineWinnerAndPayout with:', {
-          matchId: match.id,
-          player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-          player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
-        });
-        const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
-        console.log('✅ determineWinnerAndPayout completed, payoutResult:', recalculatedPayout ? { winner: recalculatedPayout.winner } : null);
+        // determineWinnerAndPayout can handle cases where only one player has results
+        // It will determine winner based on who has results and whether they won
+        if (atLeastOneHasResult) {
+          console.log('🔄 Calling determineWinnerAndPayout in background with:', {
+            matchId: match.id,
+            player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+            player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+          });
+          const recalculatedPayout = await determineWinnerAndPayout(match.id, player1Result, player2Result);
+          console.log('✅ determineWinnerAndPayout completed in background, payoutResult:', recalculatedPayout ? { winner: recalculatedPayout.winner } : null);
         // Reload match to get the updated winner and all fields using raw SQL
         const { AppDataSource } = require('../db/index');
         const matchRepository = AppDataSource.getRepository(Match);
@@ -4789,20 +4794,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
           }
         }
-      } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
-        console.error('❌ Error recalculating winner:', errorMessage);
+        } catch (error: unknown) {
+          const errorMessage = error instanceof Error ? error.message : String(error);
+          console.error('❌ Error recalculating winner (background):', errorMessage);
+        }
+      } else {
+        console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
+          matchId: match.id,
+          isCompleted: match.isCompleted,
+          hasPlayer1Result: !!player1Result,
+          hasPlayer2Result: !!player2Result,
+          player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+          player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+        });
       }
-    } else {
-      console.warn('⚠️ Cannot recalculate winner: no player results found', {
-        matchId: match.id,
-        isCompleted: match.isCompleted,
-        hasPlayer1Result: !!player1Result,
-        hasPlayer2Result: !!player2Result,
-        player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-        player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
-      });
-    }
+    })(); // End background winner calculation
   }
 
   // Get payout result and ensure refund signatures are included
