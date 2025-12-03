@@ -60,6 +60,31 @@ app.use(express.json({ limit: '1mb' })); // Reduced from 10mb
 app.use(express.urlencoded({ extended: true, limit: '1mb' })); // Reduced from 10mb
 
 // Apply CORS with restricted origins
+app.use((req: any, res: any, next: any) => {
+  // CRITICAL: Handle OPTIONS requests BEFORE CORS middleware to ensure they always get CORS headers
+  if (req.method === 'OPTIONS') {
+    const origin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(origin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Max-Age', '86400');
+    
+    console.log('✅ OPTIONS preflight handled early:', {
+      url: req.url,
+      origin: originToUse,
+      requestedOrigin: origin
+    });
+    
+    return res.status(200).end();
+  }
+  next();
+});
+
 app.use(cors({
   origin: function (origin: any, callback: any) {
     // Allow requests with no origin (like mobile apps or curl requests)
@@ -80,16 +105,33 @@ app.use(cors({
 }));
 
 // Handle preflight requests with explicit CORS headers
+// CRITICAL: This must be registered BEFORE route-specific OPTIONS handlers
+// to ensure it catches all OPTIONS requests that aren't handled by routes
 app.options('*', (req: any, res: any) => {
   const origin = req.headers.origin;
+  console.log('🔍 OPTIONS preflight request received:', {
+    url: req.url,
+    origin: origin,
+    method: req.method,
+    timestamp: new Date().toISOString()
+  });
+  
   const corsOrigin = resolveCorsOrigin(origin);
-  if (corsOrigin) {
-    res.header('Access-Control-Allow-Origin', corsOrigin);
-  }
+  const originToUse = corsOrigin || 'https://guess5.io';
+  
+  res.header('Access-Control-Allow-Origin', originToUse);
   res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
+  
+  console.log('✅ OPTIONS preflight response sent:', {
+    url: req.url,
+    origin: originToUse,
+    allowedOrigin: originToUse
+  });
+  
   res.status(200).end();
 });
 
