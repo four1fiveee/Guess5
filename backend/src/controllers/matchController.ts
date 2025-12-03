@@ -10358,6 +10358,83 @@ const generateReportHandler = async (req: any, res: any) => {
   }
 };
 
+// Verify proposal execution transaction on-chain
+const verifyProposalExecutionHandler = async (req: any, res: any) => {
+  try {
+    const { matchId } = req.params;
+    const { transactionSignature } = req.body;
+    
+    // Set CORS headers
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    if (!transactionSignature) {
+      return res.status(400).json({ error: 'Transaction signature is required' });
+    }
+    
+    console.log(`🔍 Verifying proposal execution transaction: ${transactionSignature}`);
+    
+    const { Connection } = require('@solana/web3.js');
+    const connection = new Connection(
+      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+    
+    const transaction = await connection.getTransaction(transactionSignature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
+    
+    if (!transaction) {
+      return res.status(404).json({ 
+        verified: false,
+        error: 'Transaction not found on blockchain' 
+      });
+    }
+    
+    // Check if transaction succeeded
+    const succeeded = transaction.meta?.err === null;
+    const slot = transaction.slot;
+    const blockTime = transaction.blockTime;
+    const transactionDate = blockTime ? new Date(blockTime * 1000) : null;
+    
+    // Get network for explorer link
+    const network = process.env.SOLANA_NETWORK?.includes('devnet') ? 'devnet' : 
+                    process.env.SOLANA_NETWORK?.includes('testnet') ? 'testnet' : 'mainnet-beta';
+    const explorerLink = `https://explorer.solana.com/tx/${transactionSignature}?cluster=${network}`;
+    
+    res.json({
+      verified: succeeded,
+      signature: transactionSignature,
+      slot,
+      blockTime: transactionDate?.toISOString() || null,
+      explorerLink,
+      error: transaction.meta?.err || null
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error verifying proposal execution:', errorMessage);
+    
+    // Set CORS headers even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    res.status(500).json({ 
+      verified: false,
+      error: 'Failed to verify transaction',
+      details: errorMessage 
+    });
+  }
+};
+
 // Blockchain verification endpoint
 const verifyBlockchainDataHandler = async (req: any, res: any) => {
   try {
@@ -12883,6 +12960,7 @@ module.exports = {
   runMigrationHandler,
   generateReportHandler,
   verifyBlockchainDataHandler,
+  verifyProposalExecutionHandler,
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,

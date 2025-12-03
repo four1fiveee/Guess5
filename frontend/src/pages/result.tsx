@@ -150,6 +150,9 @@ const Result: React.FC = () => {
   const [proposalCreationStartTime, setProposalCreationStartTime] = useState<number | null>(null);
   const [actualBonusAmount, setActualBonusAmount] = useState<number | null>(null);
   const [solPrice, setSolPrice] = useState<number | null>(null);
+  const [onChainVerified, setOnChainVerified] = useState<boolean | null>(null);
+  const [verificationError, setVerificationError] = useState<string | null>(null);
+  const [explorerLink, setExplorerLink] = useState<string | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -456,10 +459,22 @@ const Result: React.FC = () => {
               setIsPolling(true);
             }
 
-            // CRITICAL FIX: Auto-refresh when proposal becomes available to sign
-            // This fixes the issue where users need to manually refresh to see the sign button
-            const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
-            const proposalReadyToSign = payoutData.proposalId && !userHasSigned && payoutData.proposalStatus !== 'EXECUTED' && !payoutData.proposalExecutedAt;
+            // CRITICAL FIX: Check if user has signed (case-insensitive comparison)
+            // Also check raw proposalSigners in case normalization missed it
+            const userWallet = publicKey?.toString() || '';
+            const userHasSigned = playerProposalSigners.some(s => s?.toLowerCase() === userWallet.toLowerCase()) ||
+                                  normalizedProposalSigners.some(s => s?.toLowerCase() === userWallet.toLowerCase());
+            
+            // Don't show "user hasn't signed" message if:
+            // 1. Proposal is EXECUTING (already has all signatures)
+            // 2. needsSignatures is 0 (all signatures collected)
+            // 3. User has actually signed
+            const proposalReadyToSign = payoutData.proposalId && 
+                                        !userHasSigned && 
+                                        payoutData.proposalStatus !== 'EXECUTED' && 
+                                        payoutData.proposalStatus !== 'EXECUTING' &&
+                                        payoutData.needsSignatures !== 0 &&
+                                        !payoutData.proposalExecutedAt;
             
             if (proposalReadyToSign) {
               console.log('🔄 Proposal is available but user hasn\'t signed yet - triggering page refresh', {
@@ -467,6 +482,9 @@ const Result: React.FC = () => {
                 needsSignatures: payoutData.needsSignatures,
                 proposalStatus: payoutData.proposalStatus,
                 userHasSigned,
+                userWallet,
+                playerProposalSigners,
+                normalizedProposalSigners,
                 proposalExecutedAt: payoutData.proposalExecutedAt,
               });
               
@@ -709,6 +727,49 @@ const Result: React.FC = () => {
     };
     fetchPrice();
   }, []);
+
+  // Verify proposal execution on-chain when status is EXECUTED
+  useEffect(() => {
+    const verifyOnChain = async () => {
+      if (
+        payoutData?.proposalStatus === 'EXECUTED' &&
+        (payoutData?.proposalTransactionId || payoutData?.payoutSignature) &&
+        onChainVerified === null
+      ) {
+        const transactionSignature = payoutData.proposalTransactionId || payoutData.payoutSignature;
+        if (!transactionSignature) return;
+        
+        try {
+          const apiUrl = process.env.NEXT_PUBLIC_API_URL;
+          const matchId = router.query.matchId as string;
+          const response = await fetch(`${apiUrl}/api/match/verify-proposal-execution/${matchId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'include',
+            body: JSON.stringify({ transactionSignature }),
+          });
+          
+          if (response.ok) {
+            const result = await response.json();
+            setOnChainVerified(result.verified);
+            setExplorerLink(result.explorerLink || null);
+            if (!result.verified) {
+              setVerificationError(result.error || 'Transaction verification failed');
+            }
+          } else {
+            setOnChainVerified(false);
+            setVerificationError('Failed to verify transaction');
+          }
+        } catch (error: any) {
+          console.error('❌ Error verifying on-chain:', error);
+          setOnChainVerified(false);
+          setVerificationError(error?.message || 'Verification error');
+        }
+      }
+    };
+    
+    verifyOnChain();
+  }, [payoutData?.proposalStatus, payoutData?.proposalTransactionId, payoutData?.payoutSignature, onChainVerified, router.query.matchId]);
 
   // Fetch actual bonus amount from blockchain when proposal is executed
   useEffect(() => {
@@ -1422,8 +1483,47 @@ const Result: React.FC = () => {
                             </div>
                           )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
-                            <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
-                              ✅ Refund returned to your wallet!
+                            <div className="mb-3">
+                              <div className="text-green-400 text-xl font-semibold animate-pulse mb-2">
+                                ✅ Refund returned to your wallet!
+                              </div>
+                              {/* On-chain verification status */}
+                              {onChainVerified === true && (
+                                <div className="flex items-center gap-2 text-green-300 text-sm mb-2">
+                                  <span>✓</span>
+                                  <span>Confirmed on blockchain</span>
+                                  {explorerLink && (
+                                    <a
+                                      href={explorerLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-accent underline hover:text-yellow-300 ml-2"
+                                    >
+                                      View transaction ↗
+                                    </a>
+                                  )}
+                                </div>
+                              )}
+                              {onChainVerified === false && (
+                                <div className="text-yellow-400 text-sm mb-2">
+                                  ⚠️ {verificationError || 'Unable to verify on blockchain'}
+                                </div>
+                              )}
+                              {onChainVerified === null && (payoutData.proposalTransactionId || payoutData.payoutSignature) && (
+                                <div className="text-white/60 text-sm mb-2">
+                                  🔍 Verifying on blockchain...
+                                </div>
+                              )}
+                            </div>
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                            <div className="mb-3">
+                              <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
+                                <span>Refund Executing...</span>
+                              </div>
+                              <p className="text-sm text-white/70">
+                                All signatures collected. The refund transaction is being processed on the blockchain. This usually takes 10-30 seconds.
+                              </p>
                             </div>
                           ) : hasRefundProposal ? (
                             <p className="text-sm text-white/80 mb-3">
@@ -1561,14 +1661,53 @@ const Result: React.FC = () => {
                             </div>
                           )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
-                            <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
-                              ✅ Payment Sent to Your Wallet!
-                              {payoutData.bonus?.eligible && actualBonusAmount !== null && (
-                                <div className="text-green-300 text-sm mt-2">
-                                  Bonus: +{actualBonusAmount.toFixed(4)} SOL
-                                  {solPrice && ` (+$${(actualBonusAmount * solPrice).toFixed(2)} USD)`}
+                            <div className="mb-3">
+                              <div className="text-green-400 text-xl font-semibold animate-pulse mb-2">
+                                ✅ Payment Sent to Your Wallet!
+                                {payoutData.bonus?.eligible && actualBonusAmount !== null && (
+                                  <div className="text-green-300 text-sm mt-2">
+                                    Bonus: +{actualBonusAmount.toFixed(4)} SOL
+                                    {solPrice && ` (+$${(actualBonusAmount * solPrice).toFixed(2)} USD)`}
+                                  </div>
+                                )}
+                              </div>
+                              {/* On-chain verification status */}
+                              {onChainVerified === true && (
+                                <div className="flex items-center gap-2 text-green-300 text-sm mb-2">
+                                  <span>✓</span>
+                                  <span>Confirmed on blockchain</span>
+                                  {explorerLink && (
+                                    <a
+                                      href={explorerLink}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                      className="text-accent underline hover:text-yellow-300 ml-2"
+                                    >
+                                      View transaction ↗
+                                    </a>
+                                  )}
                                 </div>
                               )}
+                              {onChainVerified === false && (
+                                <div className="text-yellow-400 text-sm mb-2">
+                                  ⚠️ {verificationError || 'Unable to verify on blockchain'}
+                                </div>
+                              )}
+                              {onChainVerified === null && (payoutData.proposalTransactionId || payoutData.payoutSignature) && (
+                                <div className="text-white/60 text-sm mb-2">
+                                  🔍 Verifying on blockchain...
+                                </div>
+                              )}
+                            </div>
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                            <div className="mb-3">
+                              <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
+                                <span>Proposal Executing...</span>
+                              </div>
+                              <p className="text-sm text-white/70">
+                                All signatures collected. The transaction is being processed on the blockchain. This usually takes 10-30 seconds.
+                              </p>
                             </div>
                           ) : (
                           <p className="text-sm text-white/80 mb-3">

@@ -65,9 +65,9 @@ router.get('/sol-price',
 // OPTIONS handler for status endpoint to handle CORS preflight
 router.options('/status/:matchId', (req: any, res: any) => {
   const origin = resolveCorsOrigin(req.headers.origin);
-  if (origin) {
-    res.header('Access-Control-Allow-Origin', origin);
-  }
+  // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
   res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
@@ -243,6 +243,9 @@ router.get('/generate-report', asyncHandlerWrapper(matchController.generateRepor
 
 // Blockchain verification endpoint
 router.post('/verify-blockchain/:matchId', asyncHandlerWrapper(matchController.verifyBlockchainDataHandler));
+
+// Proposal execution verification endpoint
+router.post('/verify-proposal-execution/:matchId', asyncHandlerWrapper(matchController.verifyProposalExecutionHandler));
 
 // WebSocket stats endpoint
 router.get('/websocket-stats', asyncHandlerWrapper(matchController.websocketStatsHandler));
