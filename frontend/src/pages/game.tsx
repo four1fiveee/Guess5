@@ -224,14 +224,14 @@ const Game: React.FC = () => {
                 setTimeout(pollForCompletion, 2000);
                 return;
               }
+            
+            if (response.ok) {
+              const matchData = await response.json();
               
-              if (response.ok) {
-                const matchData = await response.json();
+              // Check if both players have results (more reliable than just isCompleted)
+              const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+              const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
               
-                // Check if both players have results (more reliable than just isCompleted)
-                const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
-                const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
-                
                 // CRITICAL FIX: Redirect if status is 'completed' OR both players have results
                 // This ensures both players redirect together when the second player submits
                 const matchCompleted = matchData.status === 'completed' || matchData.isCompleted || bothPlayersHaveResults;
@@ -244,23 +244,23 @@ const Game: React.FC = () => {
                 // This ensures the first player redirects immediately when the second player submits
                 // Only require currentPlayerHasResult if we're checking status='completed' without bothPlayersHaveResults
                 if (bothPlayersHaveResults || (matchCompleted && currentPlayerHasResult)) {
-                  console.log('🏆 Game completed via polling:', {
-                    matchCompleted,
-                    bothPlayersHaveResults,
-                    status: matchData.status,
-                    isCompleted: matchData.isCompleted,
+            console.log('🏆 Game completed via polling:', {
+              matchCompleted,
+              bothPlayersHaveResults,
+              status: matchData.status,
+              isCompleted: matchData.isCompleted,
                     hasPayout: !!matchData.payout,
                     player1Result: !!matchData.player1Result,
                     player2Result: !!matchData.player2Result,
                     currentPlayer: publicKey?.toString(),
                     isPlayer1: publicKey?.toString() === matchData.player1
-                  });
-                  
+            });
+                
                   // CRITICAL: Store both results in localStorage BEFORE redirecting
                   // This ensures the results page has the data even if the API is slow
-                  const isPlayer1 = publicKey?.toString() === matchData.player1;
-                  const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
-                  const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+                const isPlayer1 = publicKey?.toString() === matchData.player1;
+                const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+                const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
                   
                   // Store both results for the results page
                   const resultsData = {
@@ -270,31 +270,31 @@ const Game: React.FC = () => {
                     timestamp: Date.now()
                   };
                   safeLocalStorage.setItem('bothPlayersResults', JSON.stringify(resultsData));
-                  
-                  const payoutData = {
-                    won: matchData.winner === publicKey?.toString(),
-                    isTie: matchData.winner === 'tie',
-                    winner: matchData.winner,
-                    numGuesses: playerResult?.numGuesses || result.numGuesses,
-                    entryFee: matchData.entryFee || entryFee,
-                    timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
-                    opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
-                    opponentGuesses: opponentResult?.numGuesses || 0,
-                    winnerAmount: matchData.payout?.winnerAmount || 0,
-                    feeAmount: matchData.payout?.feeAmount || 0,
-                    refundAmount: matchData.payout?.refundAmount || 0,
-                    isWinningTie: matchData.payout?.isWinningTie || false,
-                    feeWallet: matchData.payout?.feeWallet || '',
-                    transactions: matchData.payout?.transactions || [],
-                    automatedPayout: matchData.payout?.paymentSuccess || false,
-                    payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
-                  };
-                  
-                  safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
-          
-                  
-                  router.push(`/result?matchId=${matchId}`);
-                  return;
+                
+                const payoutData = {
+                  won: matchData.winner === publicKey?.toString(),
+                  isTie: matchData.winner === 'tie',
+                  winner: matchData.winner,
+                  numGuesses: playerResult?.numGuesses || result.numGuesses,
+                  entryFee: matchData.entryFee || entryFee,
+                  timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
+                  opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+                  opponentGuesses: opponentResult?.numGuesses || 0,
+                  winnerAmount: matchData.payout?.winnerAmount || 0,
+                  feeAmount: matchData.payout?.feeAmount || 0,
+                  refundAmount: matchData.payout?.refundAmount || 0,
+                  isWinningTie: matchData.payout?.isWinningTie || false,
+                  feeWallet: matchData.payout?.feeWallet || '',
+                  transactions: matchData.payout?.transactions || [],
+                  automatedPayout: matchData.payout?.paymentSuccess || false,
+                  payoutSignature: matchData.payout?.transactions?.[0]?.signature || null
+                };
+                
+                safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
+        
+                
+                router.push(`/result?matchId=${matchId}`);
+                return;
                 }
               }
             } catch (fetchError: any) {
@@ -415,7 +415,7 @@ const Game: React.FC = () => {
               const matchData = await matchResponse.json();
               
               // CRITICAL: Only redirect if current player has finished
-              const isPlayer1 = publicKey?.toString() === matchData.player1;
+                const isPlayer1 = publicKey?.toString() === matchData.player1;
               const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
               const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
               
@@ -456,9 +456,9 @@ const Game: React.FC = () => {
                   proposalStatus: matchData.proposalStatus
                 };
                 
-                // Store payout data in localStorage
-                safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
-                
+                        // Store payout data in localStorage
+        safeLocalStorage.setItem('payoutData', JSON.stringify(payoutData));
+        
                 console.log('✅ Both players finished, redirecting to results page');
                 router.push(`/result?matchId=${matchId}`);
               }

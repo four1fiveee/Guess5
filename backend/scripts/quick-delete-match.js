@@ -1,42 +1,6 @@
-require('dotenv').config({ path: require('path').resolve(__dirname, '../.env') });
-const { AppDataSource } = require('../src/db/index');
-const { Match } = require('../src/models/Match');
-
-async function deleteMatch(matchId) {
-  try {
-    console.log('🔗 Initializing database connection...');
-    if (!AppDataSource.isInitialized) {
-      await AppDataSource.initialize();
-    }
-    console.log('✅ Database connected');
-
-    const matchRepository = AppDataSource.getRepository(Match);
-    
-    console.log('🔍 Checking if match exists...', matchId);
-    const match = await matchRepository.findOne({ where: { id: matchId } });
-    
-    if (!match) {
-      console.log('⚠️ Match not found:', matchId);
-      return;
-    }
-    
-    console.log('✅ Match found, deleting...');
-    await matchRepository.remove(match);
-    
-    console.log('✅ Match deleted successfully:', matchId);
-    
-    await AppDataSource.destroy();
-    console.log('✅ Database connection closed');
-    process.exit(0);
-  } catch (error) {
-    console.error('❌ Failed to delete match:', error?.message || String(error));
-    console.error(error?.stack);
-    if (AppDataSource.isInitialized) {
-      await AppDataSource.destroy();
-    }
-    process.exit(1);
-  }
-}
+// Quick delete script - uses DATABASE_URL from environment
+require('dotenv').config({ path: require('path').resolve(__dirname, '../../.env') });
+const { Pool } = require('pg');
 
 const matchId = process.argv[2];
 if (!matchId) {
@@ -44,5 +8,27 @@ if (!matchId) {
   process.exit(1);
 }
 
-deleteMatch(matchId);
+if (!process.env.DATABASE_URL) {
+  console.error('❌ DATABASE_URL not set');
+  process.exit(1);
+}
 
+async function deleteMatch() {
+  const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+    ssl: { rejectUnauthorized: false }
+  });
+  
+  try {
+    const result = await pool.query('DELETE FROM "match" WHERE id = $1', [matchId]);
+    console.log(`✅ Deleted ${result.rowCount} match(es): ${matchId}`);
+    process.exit(0);
+  } catch (error) {
+    console.error('❌ Error:', error.message);
+    process.exit(1);
+  } finally {
+    await pool.end();
+  }
+}
+
+deleteMatch();

@@ -1,4 +1,7 @@
-require('dotenv').config();
+// Load .env from project root (two levels up from backend/scripts)
+const path = require('path');
+const envPath = path.resolve(__dirname, '../../.env');
+require('dotenv').config({ path: envPath });
 const { Pool } = require('pg');
 
 async function deleteMatch(matchId) {
