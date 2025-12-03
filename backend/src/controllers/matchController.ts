@@ -4135,8 +4135,27 @@ const submitResultHandler = async (req: any, res: any) => {
             }
           }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
         
-        // Fetch current match state to include player results in response
+        // CRITICAL FIX: Only send completed response if both players have results
+        // This prevents sending incorrect winner data when only one player has submitted
         const currentMatchForResponse = await fetchLatestMatchState();
+        const hasBothResults = currentMatchForResponse?.player1Result && currentMatchForResponse?.player2Result;
+        
+        if (!hasBothResults) {
+          console.warn('⚠️ Cannot send completed response: missing player results', {
+            matchId,
+            hasPlayer1Result: !!currentMatchForResponse?.player1Result,
+            hasPlayer2Result: !!currentMatchForResponse?.player2Result
+          });
+          res.json({
+            status: 'waiting',
+            player1Result: currentMatchForResponse?.player1Result || null,
+            player2Result: currentMatchForResponse?.player2Result || null,
+            message: 'Waiting for other player to finish'
+          });
+          return;
+        }
+        
+        // Fetch current match state to include player results in response
         res.json({
           status: 'completed',
           winner: (payoutResult as any).winner,
