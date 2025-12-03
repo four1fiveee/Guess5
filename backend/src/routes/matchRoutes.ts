@@ -56,6 +56,18 @@ router.post('/confirm-payment',
   asyncHandlerWrapper(matchController.confirmPaymentHandler)
 );
 
+// OPTIONS handler for sol-price endpoint to handle CORS preflight
+router.options('/sol-price', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
 // SOL price endpoint to avoid CORS issues
 router.get('/sol-price', 
   asyncHandlerWrapper(getSolPriceHandler)
@@ -80,15 +92,51 @@ router.get('/status/:matchId',
   asyncHandlerWrapper(matchController.getMatchStatusHandler)
 );
 
+// OPTIONS handler for check-player-match endpoint
+router.options('/check-player-match/:walletAddress', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
 router.get('/check-player-match/:walletAddress', 
   // Check if player has an active match
   asyncHandlerWrapper(matchController.checkPlayerMatchHandler)
 );
 
+// OPTIONS handler for check-pending-claims endpoint
+router.options('/check-pending-claims/:wallet', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
 router.get('/check-pending-claims/:wallet', 
   // Check if player has pending winnings/refunds that need to be claimed
   asyncHandlerWrapper(matchController.checkPendingClaimsHandler)
 );
+
+// OPTIONS handler for check-match endpoint
+router.options('/check-match/:wallet', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
+  res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
 
 router.get('/check-match/:wallet', 
   // No rate limiting for polling endpoint to avoid 429 errors
