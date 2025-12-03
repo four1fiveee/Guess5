@@ -2403,7 +2403,9 @@ const submitResultHandler = async (req: any, res: any) => {
                            (player1Result && player1Result.reason === 'timeout' && !player2Result) ||
                            (player2Result && player2Result.reason === 'timeout' && !player1Result);
       
-      if (shouldComplete) {
+      // CRITICAL FIX: Only send immediate response when BOTH players have actually submitted results
+      // This prevents showing incorrect winner data when only one player has submitted
+      if (bothHaveResults) {
         // CRITICAL FIX: Mark match as completed IMMEDIATELY so first player's polling sees it
         // Don't wait for winner determination - that can happen in background
         await matchRepository.query(`
@@ -2511,6 +2513,19 @@ const submitResultHandler = async (req: any, res: any) => {
             return result;
           }
           
+          // CRITICAL FIX: Only determine winner when BOTH players have results
+          // This prevents incorrect winner determination when only one player has submitted
+          if (!player1Result || !player2Result) {
+            console.warn('⚠️ Cannot determine winner: missing player results', {
+              matchId,
+              hasPlayer1Result: !!player1Result,
+              hasPlayer2Result: !!player2Result,
+              player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+              player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+            });
+            return null; // Return null - winner will be determined when second player submits
+          }
+          
           // CRITICAL FIX: Always recalculate winner to ensure correctness, even if one already exists
           // This prevents using an incorrectly set winner from a previous bug
           console.log('🔍 FORCING winner recalculation to ensure correctness:', {
@@ -2539,6 +2554,16 @@ const submitResultHandler = async (req: any, res: any) => {
         
         // CRITICAL FIX: Response was already sent immediately above (line 2432)
         // Winner determination completed in background - just continue with proposal creation
+        // IMPORTANT: Only proceed with proposal creation if winner was determined (both players had results)
+        if (!payoutResult || !payoutResult.winner) {
+          console.log('⚠️ Winner not determined yet - waiting for second player to submit', {
+            matchId,
+            hasPayoutResult: !!payoutResult,
+            winner: payoutResult?.winner
+          });
+          return; // Exit - proposal will be created when second player submits
+        }
+        
         // IMPORTANT: Reload match after transaction to ensure we have the latest winner using raw SQL
         // Include all fields needed for proposal creation
         const matchRepository = AppDataSource.getRepository(Match);
