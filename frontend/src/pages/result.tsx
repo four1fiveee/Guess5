@@ -498,21 +498,34 @@ const Result: React.FC = () => {
             console.log('⏳ Game not yet completed, falling back to localStorage');
           }
         } else {
-          console.error('❌ Failed to fetch match data from backend, falling back to localStorage', {
+          console.error('❌ Failed to fetch match data from backend', {
             status: response.status,
             statusText: response.statusText,
+            matchId,
           });
           // If it's a CORS error or network error, don't fail completely - try localStorage
           // The polling will retry later
         }
       } catch (error) {
-        console.error('❌ Error fetching match data, falling back to localStorage:', error);
+        console.error('❌ Error fetching match data:', error);
         // CORS/network errors are non-fatal - continue with localStorage and polling will retry
         // Don't set error state for network issues
       }
     }
 
     // Fallback to localStorage if no matchId or backend fetch failed
+    // CRITICAL: Only use localStorage if we don't already have EXECUTING status in current state
+    // Check current state before falling back to avoid overwriting EXECUTING status
+    const currentState = payoutData;
+    if (currentState?.proposalStatus === 'EXECUTING' || (currentState?.needsSignatures === 0 && !currentState?.proposalExecutedAt)) {
+      console.log('✅ Skipping localStorage fallback - already have EXECUTING status in state', {
+        proposalStatus: currentState.proposalStatus,
+        needsSignatures: currentState.needsSignatures,
+        proposalId: currentState.proposalId,
+      });
+      return; // Don't overwrite with stale localStorage data
+    }
+    
     const storedPayoutData = localStorage.getItem('payoutData');
     if (storedPayoutData) {
       try {
@@ -2161,15 +2174,28 @@ const Result: React.FC = () => {
                       <div className="flex items-center justify-center mb-4">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
                         <div className="text-accent text-lg font-semibold">
-                          {payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt)
-                            ? '⏳ Executing Transaction'
-                            : payoutData?.proposalStatus === 'EXECUTED'
-                            ? '✅ Transaction Executed'
-                            : payoutData?.proposalId && payoutData?.proposalStatus && payoutData?.proposalStatus !== 'PENDING'
-                            ? '⏳ Processing Payout' 
-                            : proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000
-                            ? '⚠️ Proposal creation taking longer than expected. Please refresh the page.'
-                            : '🔄 Creating Proposal'}
+                          {(() => {
+                            // CRITICAL: Check EXECUTING status first - highest priority
+                            const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || 
+                                               (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+                            if (isExecuting) {
+                              return '⏳ Executing Transaction';
+                            }
+                            // Check EXECUTED status
+                            if (payoutData?.proposalStatus === 'EXECUTED') {
+                              return '✅ Transaction Executed';
+                            }
+                            // Check if proposal exists and has a valid status (not PENDING)
+                            if (payoutData?.proposalId && payoutData?.proposalStatus && payoutData?.proposalStatus !== 'PENDING') {
+                              return '⏳ Processing Payout';
+                            }
+                            // Check for stuck proposal creation
+                            if (proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000) {
+                              return '⚠️ Proposal creation taking longer than expected. Please refresh the page.';
+                            }
+                            // Default: Creating Proposal
+                            return '🔄 Creating Proposal';
+                          })()}
                         </div>
                       </div>
                       
