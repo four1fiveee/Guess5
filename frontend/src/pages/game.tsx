@@ -228,24 +228,14 @@ const Game: React.FC = () => {
             if (response.ok) {
               const matchData = await response.json();
               
-              // Check if both players have results (more reliable than just isCompleted)
+              // CRITICAL FIX: ONLY redirect if BOTH players have submitted results
+              // This prevents showing results when only one player has finished
               const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
-              const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
               
-                // CRITICAL FIX: Redirect if status is 'completed' OR both players have results
-                // This ensures both players redirect together when the second player submits
-                const matchCompleted = matchData.status === 'completed' || matchData.isCompleted || bothPlayersHaveResults;
-                
-                // Check if current player has finished (but don't require it if both players have results)
-                const isPlayer1 = publicKey?.toString() === matchData.player1;
-                const currentPlayerHasResult = isPlayer1 ? !!matchData.player1Result : !!matchData.player2Result;
-                
-                // CRITICAL: If both players have results, redirect immediately (don't require currentPlayerHasResult check)
-                // This ensures the first player redirects immediately when the second player submits
-                // Only require currentPlayerHasResult if we're checking status='completed' without bothPlayersHaveResults
-                if (bothPlayersHaveResults || (matchCompleted && currentPlayerHasResult)) {
+              // CRITICAL: Only redirect if both players have results - no exceptions
+              // This ensures we never show results until both players have actually submitted
+              if (bothPlayersHaveResults) {
             console.log('🏆 Game completed via polling:', {
-              matchCompleted,
               bothPlayersHaveResults,
               status: matchData.status,
               isCompleted: matchData.isCompleted,
