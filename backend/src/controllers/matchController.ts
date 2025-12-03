@@ -1811,7 +1811,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     } else {
       winner = 'tie';
               console.log('🔧 FIXED: Tie - same guesses and same time');
-            }
+    }
           }
         }
       }

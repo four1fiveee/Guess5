@@ -498,6 +498,14 @@ const Result: React.FC = () => {
       try {
         const data = JSON.parse(storedPayoutData);
         
+        // CRITICAL: Warn user if using localStorage fallback - data may be stale
+        console.warn('⚠️ Using localStorage fallback - data may be stale. API call failed or matchId missing.', {
+          matchId: router.query.matchId,
+          hasProposalId: !!data.proposalId,
+          proposalStatus: data.proposalStatus,
+          proposalSigners: data.proposalSigners,
+        });
+        
         // Ensure isWinningTie flag exists (fallback for old localStorage data)
         if (data.isTie && data.isWinningTie === undefined) {
           // If it's a tie but isWinningTie is missing, assume losing tie (more common)
@@ -526,6 +534,9 @@ const Result: React.FC = () => {
         if (typeof data.refundReason === 'undefined') {
           data.refundReason = null;
         }
+        
+        // CRITICAL: Mark data as potentially stale when using localStorage fallback
+        data._isStaleFallback = true;
         
         setPayoutData(data);
         setLoading(false);
@@ -1597,27 +1608,56 @@ const Result: React.FC = () => {
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
                               {(() => {
                                 const hasProposalId = !!payoutData.proposalId;
-                                const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
-                                const shouldShowButton = hasProposalId && !userHasSigned;
+                                // CRITICAL: Check both normalized signers and raw signers array
+                                const normalizedUserSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+                                const rawSigners = Array.isArray(payoutData.proposalSigners) 
+                                  ? payoutData.proposalSigners 
+                                  : (typeof payoutData.proposalSigners === 'string' 
+                                      ? JSON.parse(payoutData.proposalSigners || '[]') 
+                                      : []);
+                                const rawUserSigned = rawSigners.some((s: string) => 
+                                  s && s.toLowerCase() === (publicKey?.toString() || '').toLowerCase()
+                                );
+                                const userHasSigned = normalizedUserSigned || rawUserSigned;
+                                
+                                // CRITICAL: Don't show sign button if proposal is executing or executed
+                                const isExecutingOrExecuted = payoutData.proposalStatus === 'EXECUTING' || 
+                                                               payoutData.proposalStatus === 'EXECUTED' ||
+                                                               !!payoutData.proposalExecutedAt;
+                                
+                                const shouldShowButton = hasProposalId && !userHasSigned && !isExecutingOrExecuted;
                                 
                                 console.log('🔍 WINNER Sign Button Debug:', {
                                   hasProposalId,
                                   proposalId: payoutData.proposalId,
                                   userHasSigned,
+                                  normalizedUserSigned,
+                                  rawUserSigned,
                                   playerProposalSigners,
+                                  rawSigners,
                                   publicKey: publicKey?.toString(),
                                   shouldShowButton,
                                   proposalStatus: payoutData.proposalStatus,
                                   needsSignatures: payoutData.needsSignatures,
+                                  isExecutingOrExecuted,
                                   isPlayer1: publicKey?.toString() === payoutData.player1,
                                   isPlayer2: publicKey?.toString() === payoutData.player2,
                                   winner: payoutData.winner,
                                   rawProposalSigners: payoutData.proposalSigners,
-                                  normalizedSigners: playerProposalSigners
+                                  normalizedSigners: playerProposalSigners,
+                                  isStaleFallback: (payoutData as any)._isStaleFallback
                                 });
                                 
                                 // Show Proposal sign button if user hasn't signed Proposal yet
                                 if (!shouldShowButton) {
+                                  // Show warning if using stale data and button would be hidden
+                                  if ((payoutData as any)._isStaleFallback && !userHasSigned && hasProposalId) {
+                                    return (
+                                      <div className="text-yellow-500 text-sm mt-2">
+                                        ⚠️ Unable to verify signature status. Please refresh the page.
+                                      </div>
+                                    );
+                                  }
                                   return null;
                                 }
 
@@ -1762,27 +1802,56 @@ const Result: React.FC = () => {
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
                               {(() => {
                                 const hasProposalId = !!payoutData.proposalId;
-                                const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
-                                const shouldShowButton = hasProposalId && !userHasSigned;
+                                // CRITICAL: Check both normalized signers and raw signers array
+                                const normalizedUserSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+                                const rawSigners = Array.isArray(payoutData.proposalSigners) 
+                                  ? payoutData.proposalSigners 
+                                  : (typeof payoutData.proposalSigners === 'string' 
+                                      ? JSON.parse(payoutData.proposalSigners || '[]') 
+                                      : []);
+                                const rawUserSigned = rawSigners.some((s: string) => 
+                                  s && s.toLowerCase() === (publicKey?.toString() || '').toLowerCase()
+                                );
+                                const userHasSigned = normalizedUserSigned || rawUserSigned;
+                                
+                                // CRITICAL: Don't show sign button if proposal is executing or executed
+                                const isExecutingOrExecuted = payoutData.proposalStatus === 'EXECUTING' || 
+                                                               payoutData.proposalStatus === 'EXECUTED' ||
+                                                               !!payoutData.proposalExecutedAt;
+                                
+                                const shouldShowButton = hasProposalId && !userHasSigned && !isExecutingOrExecuted;
                                 
                                 console.log('🔍 TIE Sign Button Debug:', {
                                   hasProposalId,
                                   proposalId: payoutData.proposalId,
                                   userHasSigned,
+                                  normalizedUserSigned,
+                                  rawUserSigned,
                                   playerProposalSigners,
+                                  rawSigners,
                                   publicKey: publicKey?.toString(),
                                   shouldShowButton,
                                   proposalStatus: payoutData.proposalStatus,
                                   needsSignatures: payoutData.needsSignatures,
+                                  isExecutingOrExecuted,
                                   isPlayer1: publicKey?.toString() === payoutData.player1,
                                   isPlayer2: publicKey?.toString() === payoutData.player2,
                                   winner: payoutData.winner,
                                   rawProposalSigners: payoutData.proposalSigners,
-                                  normalizedSigners: playerProposalSigners
+                                  normalizedSigners: playerProposalSigners,
+                                  isStaleFallback: (payoutData as any)._isStaleFallback
                                 });
                                 
                                 // Show Proposal sign button if user hasn't signed Proposal yet
                                 if (!shouldShowButton) {
+                                  // Show warning if using stale data and button would be hidden
+                                  if ((payoutData as any)._isStaleFallback && !userHasSigned && hasProposalId) {
+                                    return (
+                                      <div className="text-yellow-500 text-sm mt-2">
+                                        ⚠️ Unable to verify signature status. Please refresh the page.
+                                      </div>
+                                    );
+                                  }
                                   return null;
                                 }
 
