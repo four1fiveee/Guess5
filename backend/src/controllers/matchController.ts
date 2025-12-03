@@ -4149,21 +4149,18 @@ const submitResultHandler = async (req: any, res: any) => {
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
     } else {
-      // Both players haven't finished yet - save partial result and wait using raw SQL
-      console.log('⏳ COMPREHENSIVE: Not all players have submitted results yet, waiting for other player to submit', {
+      // Player didn't solve and both players haven't submitted - save partial result and wait
+      console.log('⏳ Player did not solve and both players have not submitted - waiting for other player', {
         matchId,
-        correlationId,
-        player1HasResult: !!currentMatch?.player1Result,
-        player2HasResult: !!currentMatch?.player2Result,
-        timestamp: new Date().toISOString(),
-        action: 'waiting_for_other_player_submit'
+        player1HasResult: !!player1Result,
+        player2HasResult: !!player2Result,
+        currentPlayerWon: result.won
       });
-      // Result was already saved in the transaction above, no need to save again
       
       res.json({
         status: 'waiting',
-        player1Result: currentMatch?.player1Result || null,
-        player2Result: currentMatch?.player2Result || null,
+        player1Result: player1Result,
+        player2Result: player2Result,
         message: 'Waiting for other player to finish'
       });
     }
