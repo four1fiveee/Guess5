@@ -153,6 +153,8 @@ const Result: React.FC = () => {
   const [onChainVerified, setOnChainVerified] = useState<boolean | null>(null);
   const [verificationError, setVerificationError] = useState<string | null>(null);
   const [explorerLink, setExplorerLink] = useState<string | null>(null);
+  const [executionStartTime, setExecutionStartTime] = useState<number | null>(null);
+  const [verificationStartTime, setVerificationStartTime] = useState<number | null>(null);
   const refreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const refreshTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -727,6 +729,31 @@ const Result: React.FC = () => {
     };
     fetchPrice();
   }, []);
+
+  // Track execution start time
+  useEffect(() => {
+    if ((payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt)) && !executionStartTime) {
+      setExecutionStartTime(Date.now());
+    } else if (payoutData?.proposalExecutedAt && executionStartTime) {
+      // Reset when execution completes
+      setExecutionStartTime(null);
+    }
+  }, [payoutData?.proposalStatus, payoutData?.needsSignatures, payoutData?.proposalExecutedAt, executionStartTime]);
+
+  // Track verification start time
+  useEffect(() => {
+    if (
+      payoutData?.proposalStatus === 'EXECUTED' &&
+      (payoutData?.proposalTransactionId || payoutData?.payoutSignature) &&
+      onChainVerified === null &&
+      !verificationStartTime
+    ) {
+      setVerificationStartTime(Date.now());
+    } else if (onChainVerified !== null && verificationStartTime) {
+      // Reset when verification completes
+      setVerificationStartTime(null);
+    }
+  }, [payoutData?.proposalStatus, payoutData?.proposalTransactionId, payoutData?.payoutSignature, onChainVerified, verificationStartTime]);
 
   // Verify proposal execution on-chain when status is EXECUTED
   useEffect(() => {
@@ -1530,6 +1557,11 @@ const Result: React.FC = () => {
                               {onChainVerified === null && (payoutData.proposalTransactionId || payoutData.payoutSignature) && (
                                 <div className="text-white/60 text-sm mb-2">
                                   🔍 Verifying on blockchain...
+                                  {verificationStartTime && (
+                                    <span className="ml-2 text-white/40 text-xs">
+                                      ({Math.floor((Date.now() - verificationStartTime) / 1000)}s)
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1541,6 +1573,11 @@ const Result: React.FC = () => {
                               </div>
                               <p className="text-sm text-white/70">
                                 All signatures collected. The refund transaction is being processed on the blockchain. This usually takes 10-30 seconds.
+                                {executionStartTime && (
+                                  <span className="ml-2 text-white/50 text-xs">
+                                    ({Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed)
+                                  </span>
+                                )}
                               </p>
                             </div>
                           ) : hasRefundProposal ? (
@@ -1714,6 +1751,11 @@ const Result: React.FC = () => {
                               {onChainVerified === null && (payoutData.proposalTransactionId || payoutData.payoutSignature) && (
                                 <div className="text-white/60 text-sm mb-2">
                                   🔍 Verifying on blockchain...
+                                  {verificationStartTime && (
+                                    <span className="ml-2 text-white/40 text-xs">
+                                      ({Math.floor((Date.now() - verificationStartTime) / 1000)}s)
+                                    </span>
+                                  )}
                                 </div>
                               )}
                             </div>
@@ -1725,6 +1767,11 @@ const Result: React.FC = () => {
                               </div>
                               <p className="text-sm text-white/70">
                                 All signatures collected. The transaction is being processed on the blockchain. This usually takes 10-30 seconds.
+                                {executionStartTime && (
+                                  <span className="ml-2 text-white/50 text-xs">
+                                    ({Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed)
+                                  </span>
+                                )}
                               </p>
                             </div>
                           ) : (
@@ -2123,6 +2170,11 @@ const Result: React.FC = () => {
                           </div>
                           <p className="text-white/60 text-xs">
                             Creating secure blockchain proposal... {Math.round(proposalCreationProgress)}%
+                            {proposalCreationStartTime && (
+                              <span className="ml-2 text-white/40">
+                                ({Math.floor((Date.now() - proposalCreationStartTime) / 1000)}s)
+                              </span>
+                            )}
                           </p>
                         </div>
                       )}
