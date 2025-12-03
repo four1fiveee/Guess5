@@ -4149,54 +4149,23 @@ const submitResultHandler = async (req: any, res: any) => {
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
     } else {
-        // CRITICAL FIX: Only send completed response if both players have results
-        // This prevents sending incorrect winner data when only one player has submitted
-        const currentMatchForResponse = await fetchLatestMatchState();
-        const hasBothResults = currentMatchForResponse?.player1Result && currentMatchForResponse?.player2Result;
-        
-        if (!hasBothResults) {
-          console.warn('⚠️ Cannot send completed response: missing player results', {
-            matchId,
-            hasPlayer1Result: !!currentMatchForResponse?.player1Result,
-            hasPlayer2Result: !!currentMatchForResponse?.player2Result
-          });
-          res.json({
-            status: 'waiting',
-            player1Result: currentMatchForResponse?.player1Result || null,
-            player2Result: currentMatchForResponse?.player2Result || null,
-            message: 'Waiting for other player to finish'
-          });
-          return;
-        }
-        
-        // Fetch current match state to include player results in response
-        res.json({
-          status: 'completed',
-          winner: (payoutResult as any).winner,
-          payout: payoutResult,
-          player1Result: currentMatchForResponse?.player1Result || null,
-          player2Result: currentMatchForResponse?.player2Result || null,
-          message: 'Game completed - winner determined'
-        });
-      } else {
-        // Both players haven't finished yet - save partial result and wait using raw SQL
-        console.log('⏳ COMPREHENSIVE: Not all players have submitted results yet, waiting for other player to submit', {
-          matchId,
-          correlationId,
-          player1HasResult: !!currentMatch?.player1Result,
-          player2HasResult: !!currentMatch?.player2Result,
-          timestamp: new Date().toISOString(),
-          action: 'waiting_for_other_player_submit'
-        });
-        // Result was already saved in the transaction above, no need to save again
-        
-        res.json({
-          status: 'waiting',
-          player1Result: currentMatch?.player1Result || null,
-          player2Result: currentMatch?.player2Result || null,
-          message: 'Waiting for other player to finish'
-        });
-      }
+      // Both players haven't finished yet - save partial result and wait using raw SQL
+      console.log('⏳ COMPREHENSIVE: Not all players have submitted results yet, waiting for other player to submit', {
+        matchId,
+        correlationId,
+        player1HasResult: !!currentMatch?.player1Result,
+        player2HasResult: !!currentMatch?.player2Result,
+        timestamp: new Date().toISOString(),
+        action: 'waiting_for_other_player_submit'
+      });
+      // Result was already saved in the transaction above, no need to save again
+      
+      res.json({
+        status: 'waiting',
+        player1Result: currentMatch?.player1Result || null,
+        player2Result: currentMatch?.player2Result || null,
+        message: 'Waiting for other player to finish'
+      });
     }
 
   } catch (error: unknown) {
