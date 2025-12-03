@@ -2429,24 +2429,6 @@ const submitResultHandler = async (req: any, res: any) => {
         // Send response immediately (don't await)
         res.json(immediateResponse);
         console.log('✅ Sent immediate response with both results - winner determination will continue in background');
-      } else {
-        // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
-        // Do NOT continue to winner determination or proposal creation
-        console.log('⏳ Only one player has submitted - waiting for other player', {
-          matchId,
-          hasPlayer1Result: !!player1Result,
-          hasPlayer2Result: !!player2Result,
-          currentPlayerWon: result.won
-        });
-        
-        res.json({
-          status: 'waiting',
-          player1Result: player1Result,
-          player2Result: player2Result,
-          message: 'Waiting for other player to finish'
-        });
-        return; // CRITICAL: Exit early - don't continue to winner determination
-      }
         
         // Use transaction to ensure atomic winner determination with raw SQL (in background)
         let updatedMatch: any = null;
@@ -2566,7 +2548,7 @@ const submitResultHandler = async (req: any, res: any) => {
           return result;
         });
         
-        // CRITICAL FIX: Response was already sent immediately above (line 2432)
+        // CRITICAL FIX: Response was already sent immediately above (line 2430)
         // Winner determination completed in background - just continue with proposal creation
         // IMPORTANT: Only proceed with proposal creation if winner was determined (both players had results)
         if (!payoutResult || !payoutResult.winner) {
@@ -4148,7 +4130,25 @@ const submitResultHandler = async (req: any, res: any) => {
               console.warn('⚠️ Error in delayed cleanup:', error);
             }
           }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
+      } else {
+        // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
+        // Do NOT continue to winner determination or proposal creation
+        console.log('⏳ Only one player has submitted - waiting for other player', {
+          matchId,
+          hasPlayer1Result: !!player1Result,
+          hasPlayer2Result: !!player2Result,
+          currentPlayerWon: result.won
+        });
         
+        res.json({
+          status: 'waiting',
+          player1Result: player1Result,
+          player2Result: player2Result,
+          message: 'Waiting for other player to finish'
+        });
+        return; // CRITICAL: Exit early - don't continue to winner determination
+      }
+    } else {
         // CRITICAL FIX: Only send completed response if both players have results
         // This prevents sending incorrect winner data when only one player has submitted
         const currentMatchForResponse = await fetchLatestMatchState();
