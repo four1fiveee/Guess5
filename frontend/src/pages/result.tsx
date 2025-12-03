@@ -1066,6 +1066,24 @@ const Result: React.FC = () => {
               rawStatus: matchData.status || null
             };
             
+            // CRITICAL: Immediately update local state to reflect user has signed
+            // This prevents UI from reverting to "Creating Proposal" while waiting for backend update
+            const userWallet = publicKey.toString();
+            const currentSigners = Array.isArray(updatedPayoutData.proposalSigners) 
+              ? updatedPayoutData.proposalSigners 
+              : [];
+            if (!currentSigners.some(s => s?.toLowerCase() === userWallet.toLowerCase())) {
+              updatedPayoutData.proposalSigners = [...currentSigners, userWallet];
+            }
+            // Optimistically update needsSignatures (will be corrected by next poll)
+            if (updatedPayoutData.needsSignatures > 0) {
+              updatedPayoutData.needsSignatures = Math.max(0, updatedPayoutData.needsSignatures - 1);
+            }
+            // If needsSignatures becomes 0, set status to EXECUTING
+            if (updatedPayoutData.needsSignatures === 0 && updatedPayoutData.proposalStatus !== 'EXECUTED') {
+              updatedPayoutData.proposalStatus = 'EXECUTING';
+            }
+            
             setPayoutData(updatedPayoutData);
             
             // CRITICAL: Start aggressive polling after signing (expert recommendation)
@@ -2084,7 +2102,9 @@ const Result: React.FC = () => {
                       <div className="flex items-center justify-center mb-4">
                         <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
                         <div className="text-accent text-lg font-semibold">
-                          {payoutData?.proposalId 
+                          {payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt)
+                            ? '⏳ Executing Transaction'
+                            : payoutData?.proposalId 
                             ? '⏳ Processing Payout' 
                             : proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000
                             ? '⚠️ Proposal creation taking longer than expected. Please refresh the page.'
@@ -2092,8 +2112,8 @@ const Result: React.FC = () => {
                         </div>
                       </div>
                       
-                      {/* Progress bar for proposal creation */}
-                      {!payoutData?.proposalId && (
+                      {/* Progress bar for proposal creation - only show if proposal doesn't exist yet */}
+                      {!payoutData?.proposalId && !payoutData?.proposalStatus && (
                         <div className="mb-4">
                           <div className="w-full bg-white/10 rounded-full h-2 mb-2">
                             <div 
