@@ -4148,21 +4148,6 @@ const submitResultHandler = async (req: any, res: any) => {
         });
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
-    } else {
-      // Player didn't solve and both players haven't submitted - save partial result and wait
-      console.log('⏳ Player did not solve and both players have not submitted - waiting for other player', {
-        matchId,
-        player1HasResult: !!player1Result,
-        player2HasResult: !!player2Result,
-        currentPlayerWon: result.won
-      });
-      
-      res.json({
-        status: 'waiting',
-        player1Result: player1Result,
-        player2Result: player2Result,
-        message: 'Waiting for other player to finish'
-      });
     }
 
   } catch (error: unknown) {
