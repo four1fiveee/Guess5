@@ -3304,7 +3304,8 @@ export class SquadsVaultService {
           if (txAccountInfo) {
             // CRITICAL: Verify transaction account contents (check inner instructions)
             try {
-              const transactionAccount = await accounts.Transaction.fromAccountAddress(
+              // In Squads v4, use VaultTransaction, not Transaction
+              const transactionAccount = await accounts.VaultTransaction.fromAccountAddress(
                 this.connection,
                 transactionPda,
                 'confirmed'
