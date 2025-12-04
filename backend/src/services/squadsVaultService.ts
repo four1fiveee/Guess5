@@ -2869,6 +2869,20 @@ export class SquadsVaultService {
         }
       }
 
+      // Enhanced PDA derivation logging (for debugging)
+      enhancedLogger.info('📐 PDA Derivation Details (Approval)', {
+        vaultAddress,
+        proposalId,
+        multisigPda: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        programId: this.programId.toString(),
+        proposalPda: proposalPda.toString(),
+        derivationSeeds: {
+          proposal: `[multisig: ${multisigAddress.toString()}, transactionIndex: ${transactionIndex.toString()}]`,
+        },
+        signer: signer.publicKey.toString(),
+      });
+      
       enhancedLogger.info('📝 Approving Squads proposal using official SDK method', {
         vaultAddress,
         proposalId,
@@ -2970,6 +2984,62 @@ export class SquadsVaultService {
 
       // Sign the transaction
       transaction.sign([signer]);
+
+      // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
+      const serializedSize = transaction.serialize().length;
+      const maxTransactionSize = 1232; // Solana transaction size limit
+      
+      enhancedLogger.info('📏 Transaction Size Validation (Approval)', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        serializedSize,
+        maxSize: maxTransactionSize,
+        sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
+        signer: signer.publicKey.toString(),
+      });
+      
+      if (serializedSize > maxTransactionSize) {
+        const error = `Transaction size ${serializedSize} bytes exceeds Solana limit of ${maxTransactionSize} bytes`;
+        enhancedLogger.error('❌ Approval transaction too large - cannot send', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndex.toString(),
+          serializedSize,
+          maxSize: maxTransactionSize,
+          excessBytes: serializedSize - maxTransactionSize,
+          signer: signer.publicKey.toString(),
+          note: 'Transaction must be split or instructions reduced to fit within size limit',
+        });
+        
+        return {
+          success: false,
+          error,
+        };
+      }
+      
+      if (serializedSize > maxTransactionSize * 0.9) {
+        enhancedLogger.warn('⚠️ Approval transaction size is close to limit', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndex.toString(),
+          serializedSize,
+          maxSize: maxTransactionSize,
+          remainingBytes: maxTransactionSize - serializedSize,
+          signer: signer.publicKey.toString(),
+          note: 'Transaction is large but within limits - monitor for future growth',
+        });
+      } else {
+        enhancedLogger.info('✅ Approval transaction size is well within limits', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndex.toString(),
+          serializedSize,
+          maxSize: maxTransactionSize,
+          remainingBytes: maxTransactionSize - serializedSize,
+          signer: signer.publicKey.toString(),
+        });
+      }
 
       // Send and confirm the transaction
       const signature = await this.connection.sendTransaction(transaction, {
@@ -3206,6 +3276,22 @@ export class SquadsVaultService {
         programId: this.programId,
       });
       
+      // Enhanced PDA derivation logging (for debugging)
+      enhancedLogger.info('📐 PDA Derivation Details', {
+        vaultAddress,
+        proposalId,
+        multisigPda: multisigAddress.toString(),
+        transactionIndex: transactionIndex.toString(),
+        programId: this.programId.toString(),
+        proposalPda: proposalPda.toString(),
+        transactionPda: transactionPda.toString(),
+        derivationSeeds: {
+          proposal: `[multisig: ${multisigAddress.toString()}, transactionIndex: ${transactionIndex.toString()}]`,
+          transaction: `[multisig: ${multisigAddress.toString()}, index: ${transactionIndex.toString()}]`,
+        },
+        correlationId,
+      });
+      
       logExecutionStep(correlationId, 'derive-pdas', statusCheckStartTime, {
         proposalPda: proposalPda.toString(),
         transactionPda: transactionPda.toString(),
@@ -3216,6 +3302,51 @@ export class SquadsVaultService {
         try {
           const txAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
           if (txAccountInfo) {
+            // CRITICAL: Verify transaction account contents (check inner instructions)
+            try {
+              const transactionAccount = await accounts.Transaction.fromAccountAddress(
+                this.connection,
+                transactionPda,
+                'confirmed'
+              );
+              
+              // Log transaction account details for debugging
+              const transactionData = transactionAccount as any;
+              enhancedLogger.info('📋 Transaction Account Contents Verified', {
+                vaultAddress,
+                proposalId,
+                transactionPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                accountOwner: transactionAccount.owner?.toString() || 'unknown',
+                accountDataLength: txAccountInfo.data.length,
+                // Log any available instruction data
+                hasMessage: !!transactionData.message,
+                hasAuthorityIndex: transactionData.authorityIndex !== undefined,
+                hasVaultIndex: transactionData.vaultIndex !== undefined,
+                correlationId,
+                note: 'Transaction account contains the proposal instructions that will execute',
+              });
+              
+              // Check if transaction account has any special requirements
+              if (transactionData.authorityIndex !== undefined) {
+                enhancedLogger.info('🔑 Transaction requires authority index', {
+                  vaultAddress,
+                  proposalId,
+                  authorityIndex: transactionData.authorityIndex,
+                  correlationId,
+                });
+              }
+            } catch (txAccountError: unknown) {
+              enhancedLogger.warn('⚠️ Could not parse Transaction account (continuing)', {
+                vaultAddress,
+                proposalId,
+                transactionPda: transactionPda.toString(),
+                error: txAccountError instanceof Error ? txAccountError.message : String(txAccountError),
+                correlationId,
+                note: 'Transaction account may be in a different format or already closed',
+              });
+            }
+            
             enhancedLogger.info('🔎 VaultTransaction PDA located', {
             vaultAddress,
             proposalId,
@@ -3436,11 +3567,26 @@ export class SquadsVaultService {
           programId: this.programId,
         } as any);
         derivedVaultPda = vaultPda;
+        
+        // Enhanced PDA derivation logging (for debugging)
+        enhancedLogger.info('📐 Vault PDA Derivation Details', {
+          vaultAddress,
+          proposalId,
+          multisigPda: multisigAddress.toString(),
+          vaultIndex: 0,
+          programId: this.programId.toString(),
+          vaultPda: vaultPda.toString(),
+          derivationSeeds: {
+            vault: `[multisig: ${multisigAddress.toString()}, index: 0]`,
+          },
+          correlationId,
+        });
       } catch (derivationError: unknown) {
         enhancedLogger.warn('⚠️ Unable to derive vault PDA for balance pre-check', {
           vaultAddress,
           proposalId,
           error: derivationError instanceof Error ? derivationError.message : String(derivationError),
+          correlationId,
         });
       }
     }
@@ -3739,6 +3885,63 @@ export class SquadsVaultService {
 
         // Sign the transaction
         transaction.sign([executor]);
+
+        // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
+        const serializedSize = transaction.serialize().length;
+        const maxTransactionSize = 1232; // Solana transaction size limit
+        
+        enhancedLogger.info('📏 Transaction Size Validation', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          serializedSize,
+          maxSize: maxTransactionSize,
+          sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
+          correlationId,
+        });
+        
+        if (serializedSize > maxTransactionSize) {
+          const error = `Transaction size ${serializedSize} bytes exceeds Solana limit of ${maxTransactionSize} bytes`;
+          enhancedLogger.error('❌ Transaction too large - cannot send', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            serializedSize,
+            maxSize: maxTransactionSize,
+            excessBytes: serializedSize - maxTransactionSize,
+            correlationId,
+            note: 'Transaction must be split or instructions reduced to fit within size limit',
+          });
+          
+          return {
+            success: false,
+            error,
+            correlationId,
+          };
+        }
+        
+        if (serializedSize > maxTransactionSize * 0.9) {
+          enhancedLogger.warn('⚠️ Transaction size is close to limit', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            serializedSize,
+            maxSize: maxTransactionSize,
+            remainingBytes: maxTransactionSize - serializedSize,
+            correlationId,
+            note: 'Transaction is large but within limits - monitor for future growth',
+          });
+        } else {
+          enhancedLogger.info('✅ Transaction size is well within limits', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            serializedSize,
+            maxSize: maxTransactionSize,
+            remainingBytes: maxTransactionSize - serializedSize,
+            correlationId,
+          });
+        }
 
         // CRITICAL: Simulate transaction before sending (expert recommendation)
         // This catches errors before wasting fees and provides better error messages
