@@ -3739,6 +3739,67 @@ export class SquadsVaultService {
 
         // Sign the transaction
         transaction.sign([executor]);
+
+        // CRITICAL: Simulate transaction before sending (expert recommendation)
+        // This catches errors before wasting fees and provides better error messages
+        const simulationStartTime = Date.now();
+        logExecutionStep(correlationId, 'simulate-start', execStartTime);
+        
+        try {
+          const simulation = await this.connection.simulateTransaction(transaction, {
+            replaceRecentBlockhash: true,
+            sigVerify: false,
+          });
+
+          logExecutionStep(correlationId, 'simulate-complete', simulationStartTime, {
+            err: simulation.value.err,
+            unitsConsumed: simulation.value.unitsConsumed,
+            logCount: simulation.value.logs?.length || 0,
+          });
+
+          if (simulation.value.err) {
+            const simError = JSON.stringify(simulation.value.err);
+            enhancedLogger.error('❌ Simulation failed before execution - transaction would fail', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              error: simError,
+              logs: simulation.value.logs?.slice(-20),
+              computeUnitsConsumed: simulation.value.unitsConsumed,
+              correlationId,
+              note: 'Execution aborted - simulation shows transaction would fail on-chain',
+            });
+            
+            return {
+              success: false,
+              error: `Simulation failed: ${simError}`,
+              logs: simulation.value.logs,
+              correlationId,
+            };
+          }
+
+          enhancedLogger.info('✅ Simulation passed - transaction will succeed', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            computeUnitsConsumed: simulation.value.unitsConsumed,
+            logCount: simulation.value.logs?.length || 0,
+            lastLogs: simulation.value.logs?.slice(-5),
+            correlationId,
+            note: 'Proceeding with execution - simulation confirms transaction will succeed',
+          });
+        } catch (simulationError: unknown) {
+          const simErrorMsg = simulationError instanceof Error ? simulationError.message : String(simulationError);
+          enhancedLogger.warn('⚠️ Simulation failed (continuing with execution anyway)', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            error: simErrorMsg,
+            correlationId,
+            note: 'Simulation error may be transient - proceeding with execution attempt',
+          });
+          // Continue with execution - simulation errors can be transient
+        }
             
         // Send and confirm the transaction
         const executionSignature = await this.connection.sendTransaction(transaction, {
