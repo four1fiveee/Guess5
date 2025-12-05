@@ -31,6 +31,23 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
 const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+
+// 🔧 Soft TTL cache for proposal lookups to prevent repeating expensive operations
+// Cache key: <multisigPda>:<matchId>
+// Cache TTL: 30 seconds
+const CACHE_TTL_MS = 30000;
+const proposalDiscoveryCache: Map<string, { transactionIndex: bigint; proposalPda: string; timestamp: number }> = new Map();
+
+// Clean up expired cache entries periodically
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, value] of proposalDiscoveryCache.entries()) {
+    if (now - value.timestamp > CACHE_TTL_MS) {
+      proposalDiscoveryCache.delete(key);
+    }
+  }
+}, 60000); // Clean up every minute
+
 // Import UserService - completely fail-safe, never throw
 let UserService: any = { getUsername: async () => null }; // Default fallback
 try {
@@ -11526,70 +11543,162 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       proposalPda = new PublicKey(proposalIdString); // proposalId is now a PDA address
       memberPublicKey = new PublicKey(wallet);
       
-      // Query the proposal account to get the transactionIndex
-      // CRITICAL: Add timeout to prevent hanging on slow RPC calls
-      const { accounts } = require('@sqds/multisig');
-      let proposalAccount;
-      const queryTimeoutMs = 5000; // 5 seconds for proposal account query
+      // 🔧 Check cache first to avoid repeating expensive operations
+      const cacheKey = `${multisigAddress.toString()}:${matchId}`;
+      const cached = proposalDiscoveryCache.get(cacheKey);
+      const now = Date.now();
       
-      try {
-        // Wrap the query in a timeout to prevent hanging
-        const queryPromise = accounts.Proposal.fromAccountAddress(
-          connection,
-          proposalPda
-        );
-        
-        const timeoutPromise = new Promise((_, reject) => {
-          setTimeout(() => reject(new Error('Proposal account query timeout')), queryTimeoutMs);
+      if (cached && (now - cached.timestamp) < CACHE_TTL_MS) {
+        // Cache hit - use cached transactionIndex
+        transactionIndex = cached.transactionIndex;
+        console.log('✅ Using cached transactionIndex:', {
+          cacheKey,
+          transactionIndex: transactionIndex.toString(),
+          proposalPda: proposalPda.toString(),
+          cacheAge: now - cached.timestamp,
         });
-        
-        proposalAccount = await Promise.race([queryPromise, timeoutPromise]) as any;
-        
-        // The Proposal account has a transactionIndex field
-        // Extract it from the proposal account
-        const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
-        if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
-          transactionIndex = BigInt(proposalTransactionIndex.toString());
-          console.log('✅ Extracted transactionIndex from proposal account:', {
-            proposalPda: proposalPda.toString(),
-            transactionIndex: transactionIndex.toString(),
-          });
-        } else {
-          throw new Error('Proposal account does not have transactionIndex field');
-        }
-      } catch (queryError: any) {
-        // Fallback: Try to derive transactionIndex from proposal PDA by testing common values
-        // This is a workaround - ideally we should store transactionIndex in the database
-        console.warn('⚠️ Failed to query proposal account, attempting to derive transactionIndex from PDA:', {
-          error: queryError?.message,
+      } else {
+        // Cache miss - perform lookup
+        console.log('🔍 Cache miss, performing proposal lookup:', {
+          cacheKey,
           proposalPda: proposalPda.toString(),
         });
         
-        // Try transaction indices 0-50 (increased range to handle more proposals)
-        // This is fast since it's just PDA derivation, no network calls
+        // Query the proposal account to get the transactionIndex
+        // CRITICAL: Add timeout to prevent hanging on slow RPC calls
+        const { accounts } = require('@sqds/multisig');
+        let proposalAccount;
+        const queryTimeoutMs = 5000; // 5 seconds for proposal account query
         let foundIndex: bigint | null = null;
-        const { getProposalPda } = require('@sqds/multisig');
-        for (let i = 0; i <= 50; i++) {
-          const [testPda] = getProposalPda({
-            multisigPda: multisigAddress,
-            transactionIndex: BigInt(i),
-            programId: programId,
+        
+        try {
+          // Wrap the query in a timeout to prevent hanging
+          const queryPromise = accounts.Proposal.fromAccountAddress(
+            connection,
+            proposalPda
+          );
+          
+          const timeoutPromise = new Promise((_, reject) => {
+            setTimeout(() => reject(new Error('Proposal account query timeout')), queryTimeoutMs);
           });
-          if (testPda.toString() === proposalPda.toString()) {
-            foundIndex = BigInt(i);
-            break;
+          
+          proposalAccount = await Promise.race([queryPromise, timeoutPromise]) as any;
+          
+          // The Proposal account has a transactionIndex field
+          // Extract it from the proposal account
+          const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
+          if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+            foundIndex = BigInt(proposalTransactionIndex.toString());
+            console.log('✅ Extracted transactionIndex from proposal account:', {
+              proposalPda: proposalPda.toString(),
+              transactionIndex: foundIndex.toString(),
+            });
+          } else {
+            throw new Error('Proposal account does not have transactionIndex field');
+          }
+        } catch (queryError: any) {
+          // Fallback 1: Try to derive transactionIndex from proposal PDA by testing common values
+          console.warn('⚠️ Failed to query proposal account, attempting to derive transactionIndex from PDA:', {
+            error: queryError?.message,
+            proposalPda: proposalPda.toString(),
+          });
+          
+          // Try transaction indices 0-50 (increased range to handle more proposals)
+          // This is fast since it's just PDA derivation, no network calls
+          const { getProposalPda } = require('@sqds/multisig');
+          for (let i = 0; i <= 50; i++) {
+            const [testPda] = getProposalPda({
+              multisigPda: multisigAddress,
+              transactionIndex: BigInt(i),
+              programId: programId,
+            });
+            if (testPda.toString() === proposalPda.toString()) {
+              foundIndex = BigInt(i);
+              break;
+            }
+          }
+          
+          // Fallback 2: Use getProgramAccounts with filters if PDA derivation fails
+          if (foundIndex === null) {
+            console.warn('⚠️ PDA derivation failed, attempting getProgramAccounts fallback:', {
+              proposalPda: proposalPda.toString(),
+              multisigAddress: multisigAddress.toString(),
+            });
+            
+            try {
+              // Get Proposal accounts using getProgramAccounts with data size filter
+              // Proposal account size is typically around 200-300 bytes
+              // We'll use a reasonable range to catch all proposals
+              const proposalAccounts = await Promise.race([
+                connection.getProgramAccounts(programId, {
+                  filters: [
+                    // Filter by data size range (Proposal accounts are typically 200-400 bytes)
+                    { dataSize: 200 }, // Minimum size
+                  ],
+                }),
+                new Promise((_, reject) => {
+                  setTimeout(() => reject(new Error('getProgramAccounts timeout')), 8000); // 8 second timeout
+                }),
+              ]) as Array<{ pubkey: PublicKey; account: any }>;
+              
+              console.log(`🔍 Found ${proposalAccounts.length} proposal accounts, searching for matching PDA`);
+              
+              // Find the proposal account that matches our PDA
+              // Since we have the exact PDA, we can check directly
+              const matchingAccount = proposalAccounts.find(
+                (accountInfo) => accountInfo.pubkey.toString() === proposalPda.toString()
+              );
+              
+              if (matchingAccount) {
+                // Parse the account to get transactionIndex
+                try {
+                  const parsedAccount = await Promise.race([
+                    accounts.Proposal.fromAccountAddress(connection, matchingAccount.pubkey),
+                    new Promise((_, reject) => {
+                      setTimeout(() => reject(new Error('Proposal parsing timeout')), 3000);
+                    }),
+                  ]) as any;
+                  
+                  const proposalTransactionIndex = (parsedAccount as any).transactionIndex;
+                  if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
+                    foundIndex = BigInt(proposalTransactionIndex.toString());
+                    console.log('✅ Found transactionIndex via getProgramAccounts:', {
+                      proposalPda: proposalPda.toString(),
+                      transactionIndex: foundIndex.toString(),
+                      totalAccountsScanned: proposalAccounts.length,
+                    });
+                  }
+                } catch (parseError: any) {
+                  console.warn('⚠️ Failed to parse proposal account from getProgramAccounts:', parseError?.message);
+                }
+              } else {
+                console.warn('⚠️ Proposal PDA not found in getProgramAccounts results:', {
+                  proposalPda: proposalPda.toString(),
+                  totalAccountsScanned: proposalAccounts.length,
+                });
+              }
+            } catch (programAccountsError: any) {
+              console.error('❌ getProgramAccounts fallback failed:', programAccountsError?.message);
+            }
+          }
+          
+          if (foundIndex === null) {
+            throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-50 and getProgramAccounts fallback.`);
           }
         }
         
-        if (foundIndex !== null) {
-          transactionIndex = foundIndex;
-          console.log('✅ Derived transactionIndex from proposal PDA:', {
-            proposalPda: proposalPda.toString(),
-            transactionIndex: transactionIndex.toString(),
-          });
-        } else {
-          throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-50.`);
-        }
+        // Store in cache
+        transactionIndex = foundIndex;
+        proposalDiscoveryCache.set(cacheKey, {
+          transactionIndex,
+          proposalPda: proposalPda.toString(),
+          timestamp: now,
+        });
+        
+        console.log('✅ Cached transactionIndex for future lookups:', {
+          cacheKey,
+          transactionIndex: transactionIndex.toString(),
+        });
       }
       
       console.log('✅ Created PublicKey instances and extracted transactionIndex:', {
