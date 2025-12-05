@@ -4481,96 +4481,151 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       })();
     }
 
-    // Auto-create Squads vault if missing and match requires escrow (NON-BLOCKING)
-    // CRITICAL: This is a heavy operation (on-chain transaction) - must not block status response
-      if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
-      // Fire and forget - don't await, don't block the response
-      (async () => {
-        try {
-        // Rate limit vault creation attempts - only try once per 5 seconds per match
+    // Auto-create Squads vault if missing and match requires escrow
+    // CRITICAL FIX: Try synchronous creation first (with timeout) for faster user experience
+    // If it times out or fails, fall back to background creation
+    if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
+      try {
         const vaultCreationKey = `vault_creation_${match.id}`;
         const { getRedisMM } = require('../config/redis');
         const redis = getRedisMM();
         const lastAttempt = await redis.get(vaultCreationKey);
         const now = Date.now();
-        const cooldownPeriod = 5000; // 5 seconds (reduced from 30s for faster retries)
+        const cooldownPeriod = 5000; // 5 seconds
         
+        // Only attempt if not in cooldown
         if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
-            console.log('🏦 No vault on match yet; attempting on-demand creation (background)...', { matchId: match.id });
+          console.log('🏦 No vault on match yet; attempting on-demand creation (synchronous with timeout)...', { matchId: match.id });
+          
           // Mark that we're attempting vault creation
-          await redis.set(vaultCreationKey, now.toString(), 'EX', 60); // Expire after 60 seconds
+          await redis.set(vaultCreationKey, now.toString(), 'EX', 60);
           
+          // Try synchronous creation with 15 second timeout
           try {
-        const creation = await squadsVaultService.createMatchVault(
-          match.id,
-          new PublicKey(match.player1),
-          new PublicKey(match.player2),
-          match.entryFee
-        );
-        if (creation?.success && creation.vaultAddress) {
-          const { AppDataSource } = require('../db/index');
-          const matchRepository = AppDataSource.getRepository(Match);
-          // CRITICAL FIX: createMatchVault already saves to DB, but we update here to ensure consistency
-          // Also ensure vaultPda is set if it wasn't returned
-          const vaultPdaToSave = creation.vaultPda ?? null;
-          if (!vaultPdaToSave && creation.vaultAddress) {
-            // Derive vaultPda if not returned
-            try {
-              const { getSquadsVaultService } = require('../services/squadsVaultService');
-              const squadsService = getSquadsVaultService();
-              const derivedVaultPda = squadsService?.deriveVaultPda?.(creation.vaultAddress);
-              if (derivedVaultPda) {
-                (match as any).squadsVaultPda = derivedVaultPda;
-              }
-            } catch (deriveErr) {
-              console.warn('⚠️ Could not derive vaultPda', { matchId: match.id, error: deriveErr });
-            }
-          }
-          (match as any).squadsVaultAddress = creation.vaultAddress;
-          (match as any).squadsVaultPda = vaultPdaToSave ?? (match as any).squadsVaultPda;
-          
-          // Update DB to ensure consistency (createMatchVault already saves, but this ensures it's up to date)
-          await matchRepository.update(
-            { id: match.id },
-            { 
-              squadsVaultAddress: creation.vaultAddress,
-              squadsVaultPda: vaultPdaToSave ?? (match as any).squadsVaultPda,
-              matchStatus: 'VAULT_CREATED'
-            }
-          );
-                console.log('✅ Vault created on-demand for match (background)', { 
+            const creationPromise = squadsVaultService.createMatchVault(
+              match.id,
+              new PublicKey(match.player1),
+              new PublicKey(match.player2),
+              match.entryFee
+            );
+            
+            const timeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Vault creation timeout')), 15000)
+            );
+            
+            const creation = await Promise.race([creationPromise, timeoutPromise]) as any;
+            
+            if (creation?.success && creation.vaultAddress) {
+              // Reload match from DB to get fresh vault data (createMatchVault saves it)
+              const { AppDataSource } = require('../db/index');
+              const matchRepository = AppDataSource.getRepository(Match);
+              const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
+              
+              if (freshMatch) {
+                (match as any).squadsVaultAddress = freshMatch.squadsVaultAddress || creation.vaultAddress;
+                (match as any).squadsVaultPda = freshMatch.squadsVaultPda || creation.vaultPda || null;
+                
+                // Ensure vaultPda is set
+                if (!(match as any).squadsVaultPda && (match as any).squadsVaultAddress) {
+                  try {
+                    const { getSquadsVaultService } = require('../services/squadsVaultService');
+                    const squadsService = getSquadsVaultService();
+                    const derivedVaultPda = squadsService?.deriveVaultPda?.((match as any).squadsVaultAddress);
+                    if (derivedVaultPda) {
+                      (match as any).squadsVaultPda = derivedVaultPda;
+                    }
+                  } catch (deriveErr) {
+                    console.warn('⚠️ Could not derive vaultPda', { matchId: match.id, error: deriveErr });
+                  }
+                }
+                
+                console.log('✅ Vault created on-demand for match (synchronous)', { 
                   matchId: match.id, 
-                  vault: creation.vaultAddress, 
-                  vaultPda: vaultPdaToSave ?? (match as any).squadsVaultPda 
+                  vault: (match as any).squadsVaultAddress, 
+                  vaultPda: (match as any).squadsVaultPda 
                 });
-              // Clear the rate limit key on success
-              await redis.del(vaultCreationKey);
+                
+                // Clear the rate limit key on success
+                await redis.del(vaultCreationKey);
+              }
             } else {
-                console.error('❌ On-demand vault creation failed (background)', {
+              console.error('❌ On-demand vault creation failed (synchronous)', {
                 matchId: match.id,
                 success: creation?.success,
                 error: creation?.error || 'Unknown error',
                 hasVaultAddress: !!creation?.vaultAddress
               });
+              // Fall through to background retry
             }
-          } catch (creationErr) {
-              console.error('❌ On-demand vault creation exception (background)', {
-              matchId: match.id,
-              error: creationErr instanceof Error ? creationErr.message : String(creationErr),
-              stack: creationErr instanceof Error ? creationErr.stack : undefined
-            });
+          } catch (creationErr: any) {
+            const isTimeout = creationErr?.message?.includes('timeout');
+            if (isTimeout) {
+              console.warn('⏳ Vault creation timed out, continuing in background...', { matchId: match.id });
+            } else {
+              console.error('❌ On-demand vault creation exception (synchronous)', {
+                matchId: match.id,
+                error: creationErr instanceof Error ? creationErr.message : String(creationErr),
+                stack: creationErr instanceof Error ? creationErr.stack : undefined
+              });
+            }
+            // Fall through to background retry
           }
         } else {
           const timeSinceLastAttempt = now - parseInt(lastAttempt);
           const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
           console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
+        }
+      } catch (onDemandErr) {
+        console.error('❌ On-demand vault creation check failed', {
+          matchId: match?.id,
+          error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr),
+          stack: onDemandErr instanceof Error ? onDemandErr.stack : undefined
+        });
       }
-    } catch (onDemandErr) {
-      console.error('❌ On-demand vault creation check failed (non-blocking)', {
-        matchId: match?.id,
-        error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr),
-        stack: onDemandErr instanceof Error ? onDemandErr.stack : undefined
-      });
+      
+      // CRITICAL: Also start background process in case synchronous attempt failed or timed out
+      // This ensures vault creation continues even if synchronous attempt didn't complete
+      (async () => {
+        try {
+          const vaultCreationKey = `vault_creation_${match.id}`;
+          const { getRedisMM } = require('../config/redis');
+          const redis = getRedisMM();
+          const inProgress = await redis.get(vaultCreationKey);
+          
+          // Only run background if synchronous attempt didn't succeed (check if vault still missing)
+          if (inProgress && !(match as any).squadsVaultAddress) {
+            console.log('🔄 Continuing vault creation in background...', { matchId: match.id });
+            
+            try {
+              const creation = await squadsVaultService.createMatchVault(
+                match.id,
+                new PublicKey(match.player1),
+                new PublicKey(match.player2),
+                match.entryFee
+              );
+              
+              if (creation?.success && creation.vaultAddress) {
+                console.log('✅ Vault created in background', { 
+                  matchId: match.id, 
+                  vault: creation.vaultAddress, 
+                  vaultPda: creation.vaultPda 
+                });
+                await redis.del(vaultCreationKey);
+              } else {
+                console.error('❌ Background vault creation failed', {
+                  matchId: match.id,
+                  error: creation?.error || 'Unknown error'
+                });
+              }
+            } catch (bgErr) {
+              console.error('❌ Background vault creation exception', {
+                matchId: match.id,
+                error: bgErr instanceof Error ? bgErr.message : String(bgErr)
+              });
+            }
+          }
+        } catch (bgCheckErr) {
+          // Ignore background check errors
         }
       })();
     }
