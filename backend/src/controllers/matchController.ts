@@ -11635,14 +11635,36 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
 // Handler for getting VaultTransaction approval transaction (step 2 of two-step approval)
 const signProposalHandler = async (req: any, res: any) => {
+  // CRITICAL: Log incoming request for debugging CORS issues
+  console.log('🔥 POST /sign-proposal received in handler', {
+    url: req.url,
+    method: req.method,
+    origin: req.headers.origin,
+    contentType: req.headers['content-type'],
+    contentLength: req.headers['content-length'],
+    hasBody: !!req.body,
+    timestamp: new Date().toISOString(),
+  });
+  
   // Set CORS headers explicitly to ensure they're always present
   const requestOrigin = req.headers.origin;
   const corsOrigin = resolveCorsOrigin(requestOrigin);
-  if (corsOrigin) {
-    res.header('Access-Control-Allow-Origin', corsOrigin);
-    res.header('Vary', 'Origin');
-    res.header('Access-Control-Allow-Credentials', 'true');
-  }
+  const originToUse = corsOrigin || 'https://guess5.io';
+  
+  // CRITICAL: Always set CORS headers, even if origin is not in allowed list
+  // This ensures the response includes CORS headers for debugging
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');
+  
+  console.log('✅ CORS headers set for sign-proposal', {
+    requestOrigin,
+    corsOrigin,
+    originToUse,
+    headersSet: true,
+  });
   
   try {
     const { matchId, wallet, signedTransaction } = req.body;

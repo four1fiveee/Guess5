@@ -352,53 +352,111 @@ const Result: React.FC = () => {
               winner: matchData.winner
             });
             
-            const payoutData = {
+            // CRITICAL: Merge new data with existing state to prevent UI flashing
+            // Preserve valid states like EXECUTING, signed status, etc.
+            const currentPayoutData = payoutData || {};
+            const userWallet = publicKey?.toString() || '';
+            const currentSigners = Array.isArray(currentPayoutData.proposalSigners) 
+              ? currentPayoutData.proposalSigners 
+              : [];
+            const newSigners = normalizeProposalSigners(matchData.proposalSigners);
+            
+            // CRITICAL: Preserve user's signature if they've signed (even if backend hasn't updated yet)
+            // This prevents UI from reverting to "needs signature" after user signs
+            const mergedSigners = [...new Set([
+              ...currentSigners.filter((s: string) => s?.toLowerCase() === userWallet.toLowerCase()),
+              ...newSigners,
+              ...currentSigners.filter((s: string) => s?.toLowerCase() !== userWallet.toLowerCase())
+            ])];
+            
+            // CRITICAL: Preserve EXECUTING status if it exists in current state
+            // Don't overwrite with null/undefined from backend
+            const preservedStatus = 
+              currentPayoutData.proposalStatus === 'EXECUTING' && !matchData.proposalStatus
+                ? 'EXECUTING'
+                : (matchData.proposalStatus || currentPayoutData.proposalStatus);
+            
+            // CRITICAL: Preserve needsSignatures if it's 0 in current state and backend hasn't updated yet
+            const preservedNeedsSignatures = 
+              currentPayoutData.needsSignatures === 0 && 
+              (matchData.needsSignatures === null || matchData.needsSignatures === undefined)
+                ? 0
+                : (matchData.needsSignatures ?? currentPayoutData.needsSignatures ?? 0);
+            
+            const updatedPayoutData = {
+              ...currentPayoutData, // Preserve existing state
               won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
               isTie: matchData.winner === 'tie',
               winner: matchData.winner,
-              numGuesses: playerResult?.numGuesses || 0,
-              entryFee: matchData.entryFee || 0,
-              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
-              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
-              opponentGuesses: opponentResult?.numGuesses || 0,
-              winnerAmount: matchData.payout?.winnerAmount || 0,
-              feeAmount: matchData.payout?.feeAmount || 0,
-              refundAmount: matchData.payout?.refundAmount || 0,
-              isWinningTie: matchData.payout?.isWinningTie || false,
-              feeWallet: matchData.payout?.feeWallet || '',
-              transactions: matchData.payout?.transactions || [],
-              vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress,
-              vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || null,
-              proposalId: extractedProposalId,
-              proposalStatus: matchData.proposalStatus,
-              proposalSigners: normalizeProposalSigners(matchData.proposalSigners),
-              needsSignatures: matchData.needsSignatures || 0,
-              proposalExecutedAt: matchData.proposalExecutedAt,
-              proposalTransactionId: matchData.proposalTransactionId,
-              automatedPayout: matchData.payout?.paymentSuccess || false,
-              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null,
+              numGuesses: playerResult?.numGuesses || currentPayoutData.numGuesses || 0,
+              entryFee: matchData.entryFee || currentPayoutData.entryFee || 0,
+              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : (currentPayoutData.timeElapsed || 'N/A'),
+              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : (currentPayoutData.opponentTimeElapsed || 'N/A'),
+              opponentGuesses: opponentResult?.numGuesses || currentPayoutData.opponentGuesses || 0,
+              winnerAmount: matchData.payout?.winnerAmount || currentPayoutData.winnerAmount || 0,
+              feeAmount: matchData.payout?.feeAmount || currentPayoutData.feeAmount || 0,
+              refundAmount: matchData.payout?.refundAmount || currentPayoutData.refundAmount || 0,
+              isWinningTie: matchData.payout?.isWinningTie ?? currentPayoutData.isWinningTie ?? false,
+              feeWallet: matchData.payout?.feeWallet || currentPayoutData.feeWallet || '',
+              transactions: matchData.payout?.transactions || currentPayoutData.transactions || [],
+              vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress || currentPayoutData.vaultAddress,
+              vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || currentPayoutData.vaultDepositAddress || null,
+              proposalId: extractedProposalId || currentPayoutData.proposalId,
+              proposalStatus: preservedStatus,
+              proposalSigners: mergedSigners,
+              needsSignatures: preservedNeedsSignatures,
+              proposalExecutedAt: matchData.proposalExecutedAt || currentPayoutData.proposalExecutedAt,
+              proposalTransactionId: matchData.proposalTransactionId || currentPayoutData.proposalTransactionId,
+              automatedPayout: matchData.payout?.paymentSuccess ?? currentPayoutData.automatedPayout ?? false,
+              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || currentPayoutData.payoutSignature || null,
               bonus: {
-                eligible: expectedBonusUsd > 0,
-                paid: !!bonusInfo.paid,
-                amountSol: bonusAmountSol,
-                amountUSD: bonusAmountUsd,
-                percent: bonusInfo.percent ? Number(bonusInfo.percent) : 0,
-                tier: bonusInfo.tier || null,
-                signature: bonusInfo.signature || null,
-                paidAt: bonusInfo.paidAt ? new Date(bonusInfo.paidAt) : null,
-                expectedUSD: expectedBonusUsd || 0,
-                expectedSol: expectedBonusSol || 0
+                eligible: expectedBonusUsd > 0 || currentPayoutData.bonus?.eligible || false,
+                paid: !!bonusInfo.paid || currentPayoutData.bonus?.paid || false,
+                amountSol: bonusAmountSol || currentPayoutData.bonus?.amountSol || 0,
+                amountUSD: bonusAmountUsd || currentPayoutData.bonus?.amountUSD || 0,
+                percent: bonusInfo.percent ? Number(bonusInfo.percent) : (currentPayoutData.bonus?.percent || 0),
+                tier: bonusInfo.tier || currentPayoutData.bonus?.tier || null,
+                signature: bonusInfo.signature || currentPayoutData.bonus?.signature || null,
+                paidAt: bonusInfo.paidAt ? new Date(bonusInfo.paidAt) : (currentPayoutData.bonus?.paidAt || null),
+                expectedUSD: expectedBonusUsd || currentPayoutData.bonus?.expectedUSD || 0,
+                expectedSol: expectedBonusSol || currentPayoutData.bonus?.expectedSol || 0
               },
               totalPayoutSol:
                 matchData.winner === publicKey?.toString() && matchData.winner !== 'tie'
                   ? (matchData.payout?.winnerAmount || 0) + bonusAmountSol
-                  : matchData.payout?.winnerAmount || 0,
-              refundReason: matchData.refundReason || null,
-              matchOutcome: matchData.matchOutcome || matchData.status || null,
-              rawStatus: matchData.status || null
+                  : matchData.payout?.winnerAmount || currentPayoutData.totalPayoutSol || 0,
+              refundReason: matchData.refundReason || currentPayoutData.refundReason || null,
+              matchOutcome: matchData.matchOutcome || matchData.status || currentPayoutData.matchOutcome || null,
+              rawStatus: matchData.status || currentPayoutData.rawStatus || null
             };
             
-            setPayoutData(payoutData);
+            // CRITICAL: Only update state if there are meaningful changes
+            // This prevents UI flashing from unnecessary state updates
+            const hasMeaningfulChanges = 
+              updatedPayoutData.proposalId !== currentPayoutData.proposalId ||
+              updatedPayoutData.proposalStatus !== currentPayoutData.proposalStatus ||
+              updatedPayoutData.needsSignatures !== currentPayoutData.needsSignatures ||
+              updatedPayoutData.proposalExecutedAt !== currentPayoutData.proposalExecutedAt ||
+              updatedPayoutData.proposalTransactionId !== currentPayoutData.proposalTransactionId ||
+              JSON.stringify(updatedPayoutData.proposalSigners) !== JSON.stringify(currentPayoutData.proposalSigners);
+            
+            if (hasMeaningfulChanges) {
+              console.log('✅ Updating payout data with meaningful changes', {
+                proposalId: updatedPayoutData.proposalId !== currentPayoutData.proposalId,
+                proposalStatus: updatedPayoutData.proposalStatus !== currentPayoutData.proposalStatus,
+                needsSignatures: updatedPayoutData.needsSignatures !== currentPayoutData.needsSignatures,
+                proposalExecutedAt: updatedPayoutData.proposalExecutedAt !== currentPayoutData.proposalExecutedAt,
+                proposalTransactionId: updatedPayoutData.proposalTransactionId !== currentPayoutData.proposalTransactionId,
+                proposalSigners: JSON.stringify(updatedPayoutData.proposalSigners) !== JSON.stringify(currentPayoutData.proposalSigners),
+              });
+              setPayoutData(updatedPayoutData);
+            } else {
+              console.log('⏸️ Skipping state update - no meaningful changes', {
+                proposalId: updatedPayoutData.proposalId,
+                proposalStatus: updatedPayoutData.proposalStatus,
+                needsSignatures: updatedPayoutData.needsSignatures,
+              });
+            }
             setLoading(false);
             
             // CRITICAL FIX: Set proposal creation start time based on when match was completed or proposal was created
@@ -441,12 +499,12 @@ const Result: React.FC = () => {
             // CRITICAL: Always stop loading even if proposal doesn't exist yet
             // This prevents the spinning wheel from blocking the UI
             // CRITICAL FIX: Continue polling until proposal is executed or user has signed
-            const keepPolling = shouldContinuePolling(payoutData);
+            const keepPolling = shouldContinuePolling(updatedPayoutData);
             console.log('🔄 Polling Decision (API):', {
               matchId: router.query.matchId,
               keepPolling,
-              proposalId: payoutData.proposalId,
-              proposalStatus: payoutData.proposalStatus,
+              proposalId: updatedPayoutData.proposalId,
+              proposalStatus: updatedPayoutData.proposalStatus,
               bothPlayersHaveResults,
               isPolling: isPolling,
               extractedProposalId
@@ -455,7 +513,7 @@ const Result: React.FC = () => {
             setIsPolling(keepPolling);
             if (!keepPolling) {
               stopRefreshLoops();
-            } else if (!payoutData.proposalId) {
+            } else if (!updatedPayoutData.proposalId) {
               // CRITICAL: If no proposalId yet, ensure polling is active
               // This ensures both players see the signing button as soon as proposal is created
               setIsPolling(true);
@@ -702,9 +760,24 @@ const Result: React.FC = () => {
 
     let pollCount = 0;
     
+    // CRITICAL: Debounce loadPayoutData to prevent rapid state updates
+    let lastLoadTime = 0;
+    const minLoadInterval = 1000; // Minimum 1 second between loads
+    
     const pollInterval = setInterval(() => {
       pollCount++;
       const currentInterval = hasProposal ? 3000 : 1000; // Consistent with base interval
+      
+      // CRITICAL: Debounce to prevent rapid state updates that cause UI flashing
+      const now = Date.now();
+      if (now - lastLoadTime < minLoadInterval) {
+        console.log('⏸️ Skipping poll - too soon since last load', {
+          timeSinceLastLoad: now - lastLoadTime,
+          minInterval: minLoadInterval,
+        });
+        return;
+      }
+      lastLoadTime = now;
       
       console.log('🔄 Smart polling for proposal updates...', {
         matchId: router.query.matchId,
@@ -1012,7 +1085,7 @@ const Result: React.FC = () => {
       // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
       // when the linked Proposal reaches ExecuteReady.
       
-      // Step 3: Send signed proposal transaction to backend
+      // Step 3: Send signed proposal transaction to backend with retry logic
       console.log('📤 Submitting signed proposal transaction to backend', {
         matchId,
         wallet: publicKey.toString(),
@@ -1020,42 +1093,138 @@ const Result: React.FC = () => {
         hasProposalTx: !!base64ProposalTx,
       });
       
-      const response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        credentials: 'include',
-        body: JSON.stringify({
-          matchId,
-          wallet: publicKey.toString(),
-          signedTransaction: base64ProposalTx, // Proposal approval only
-        }),
-      });
+      // CRITICAL: Retry logic with exponential backoff for network/CORS errors
+      const maxRetries = 3;
+      let lastError: Error | null = null;
+      let response: Response | null = null;
+      let result: any = null;
       
-      // CRITICAL: Log detailed error information if request fails (expert recommendation)
-      if (!response.ok) {
-        const errorText = await response.text();
-        let errorData;
+      for (let attempt = 0; attempt < maxRetries; attempt++) {
         try {
-          errorData = JSON.parse(errorText);
-        } catch {
-          errorData = { error: errorText || 'Unknown error' };
+          if (attempt > 0) {
+            const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
+            console.log(`🔄 Retrying sign-proposal request (attempt ${attempt + 1}/${maxRetries}) after ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            credentials: 'include',
+            body: JSON.stringify({
+              matchId,
+              wallet: publicKey.toString(),
+              signedTransaction: base64ProposalTx, // Proposal approval only
+            }),
+          });
+          
+          // CRITICAL: Check if response is ok before parsing
+          if (!response.ok) {
+            const errorText = await response.text();
+            let errorData;
+            try {
+              errorData = JSON.parse(errorText);
+            } catch {
+              errorData = { error: errorText || 'Unknown error' };
+            }
+            
+            const errorMessage = errorData.error || `Failed to sign proposal: ${response.status} ${response.statusText}`;
+            
+            // Don't retry on 4xx errors (client errors) - these won't succeed on retry
+            if (response.status >= 400 && response.status < 500) {
+              console.error('❌ Backend sign-proposal failed (client error, not retrying)', {
+                matchId,
+                wallet: publicKey.toString(),
+                status: response.status,
+                statusText: response.statusText,
+                error: errorMessage,
+                attempt: attempt + 1,
+                responseHeaders: Object.fromEntries(response.headers.entries()),
+              });
+              throw new Error(errorMessage);
+            }
+            
+            // Retry on 5xx errors (server errors)
+            if (response.status >= 500 && attempt < maxRetries - 1) {
+              console.warn(`⚠️ Backend sign-proposal failed (server error, will retry)`, {
+                matchId,
+                wallet: publicKey.toString(),
+                status: response.status,
+                statusText: response.statusText,
+                error: errorMessage,
+                attempt: attempt + 1,
+                maxRetries,
+              });
+              lastError = new Error(errorMessage);
+              continue; // Retry
+            }
+            
+            // Non-retryable error
+            console.error('❌ Backend sign-proposal failed', {
+              matchId,
+              wallet: publicKey.toString(),
+              status: response.status,
+              statusText: response.statusText,
+              error: errorMessage,
+              attempt: attempt + 1,
+              responseHeaders: Object.fromEntries(response.headers.entries()),
+            });
+            throw new Error(errorMessage);
+          }
+          
+          // Success - parse response
+          result = await response.json();
+          break; // Exit retry loop on success
+          
+        } catch (fetchError: any) {
+          lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+          
+          // Check if it's a network/CORS error
+          const isNetworkError = 
+            fetchError instanceof TypeError || 
+            fetchError.message?.includes('Failed to fetch') ||
+            fetchError.message?.includes('NetworkError') ||
+            fetchError.message?.includes('CORS') ||
+            !fetchError.message; // No message often indicates network error
+          
+          if (isNetworkError) {
+            console.error(`❌ Network/CORS error on sign-proposal (attempt ${attempt + 1}/${maxRetries})`, {
+              matchId,
+              wallet: publicKey.toString(),
+              error: fetchError.message || 'Network request failed',
+              errorType: fetchError.constructor?.name,
+              attempt: attempt + 1,
+              maxRetries,
+            });
+            
+            // Retry network errors
+            if (attempt < maxRetries - 1) {
+              continue; // Retry
+            } else {
+              // Final attempt failed
+              throw new Error(`Network error: Failed to send signed transaction to backend. Please check your connection and try again.`);
+            }
+          } else {
+            // Non-network error - don't retry
+            console.error('❌ Non-network error on sign-proposal (not retrying)', {
+              matchId,
+              wallet: publicKey.toString(),
+              error: fetchError.message,
+              errorType: fetchError.constructor?.name,
+              attempt: attempt + 1,
+            });
+            throw fetchError;
+          }
         }
-        
-        console.error('❌ Backend sign-proposal failed', {
-          matchId,
-          wallet: publicKey.toString(),
-          status: response.status,
-          statusText: response.statusText,
-          error: errorData.error || errorData,
-          responseHeaders: Object.fromEntries(response.headers.entries()),
-        });
-        
-        throw new Error(errorData.error || `Failed to sign proposal: ${response.status} ${response.statusText}`);
       }
       
-      const result = await response.json();
+      // CRITICAL: Verify we got a successful response
+      if (!response || !result) {
+        throw lastError || new Error('Failed to get response from backend after retries');
+      }
+      
       // CRITICAL: Only log success after backend confirms (expert recommendation)
       console.log('✅ Proposal signed & backend confirmed', {
         matchId,
@@ -1065,118 +1234,122 @@ const Result: React.FC = () => {
         backendStatus: response.status,
       });
       
-      // Refresh payout data (non-critical - if this fails, signing was still successful)
+      // CRITICAL: Only update UI optimistically AFTER backend confirms success
+      // This prevents UI from showing success when the request actually failed
+      const userWallet = publicKey.toString();
+      const currentSigners = Array.isArray(payoutData.proposalSigners) 
+        ? payoutData.proposalSigners 
+        : [];
+      
+      // Update local state to reflect user has signed (only after backend confirms)
+      const updatedPayoutData = {
+        ...payoutData,
+        proposalSigners: currentSigners.some((s: string) => s?.toLowerCase() === userWallet.toLowerCase())
+          ? currentSigners
+          : [...currentSigners, userWallet],
+        needsSignatures: Math.max(0, (payoutData.needsSignatures || 0) - 1),
+      };
+      
+      // If needsSignatures becomes 0, set status to EXECUTING
+      if (updatedPayoutData.needsSignatures === 0 && updatedPayoutData.proposalStatus !== 'EXECUTED') {
+        updatedPayoutData.proposalStatus = 'EXECUTING';
+      }
+      
+      // CRITICAL FIX: Ensure proposalStatus is set to prevent showing "Creating Proposal" after signing
+      if (!updatedPayoutData.proposalStatus && updatedPayoutData.proposalId) {
+        updatedPayoutData.proposalStatus = 'ACTIVE'; // Default to ACTIVE if status is missing
+      }
+      
+      // Update state immediately after backend confirms
+      setPayoutData(updatedPayoutData);
+      
+      // Refresh payout data from backend to get latest state
+      // This is non-critical - if it fails, we've already updated state optimistically
       if (matchId && publicKey) {
         try {
           const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey.toString()}`);
           if (statusResponse.ok) {
             const matchData = await statusResponse.json();
-          // Check if both players have results (more reliable indicator of completion)
-          const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
-          const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
-          
-          if (isCompleted) {
-            const isPlayer1 = publicKey.toString() === matchData.player1;
-            const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
-            const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+            // Check if both players have results (more reliable indicator of completion)
+            const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
+            const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
             
-            const updatedPayoutData = {
-              ...payoutData,
-              won: matchData.winner === publicKey.toString() && matchData.winner !== 'tie',
-              isTie: matchData.winner === 'tie',
-              winner: matchData.winner,
-              numGuesses: playerResult?.numGuesses || 0,
-              entryFee: matchData.entryFee || (() => {
-                // Try to get from localStorage as fallback
-                const storedFee = localStorage.getItem('entryFee');
-                return storedFee ? Number(storedFee) : 0;
-              })(),
-              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
-              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
-              opponentGuesses: opponentResult?.numGuesses || 0,
-              winnerAmount: matchData.payout?.winnerAmount || 0,
-              feeAmount: matchData.payout?.feeAmount || 0,
-              refundAmount: matchData.payout?.refundAmount || 0,
-              isWinningTie: matchData.payout?.isWinningTie || false,
-              feeWallet: matchData.payout?.feeWallet || '',
-              transactions: matchData.payout?.transactions || [],
-              proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId,
-              proposalStatus: matchData.proposalStatus,
-              proposalSigners: normalizeProposalSigners(matchData.proposalSigners),
-              needsSignatures: matchData.needsSignatures || 0,
-              proposalExecutedAt: matchData.proposalExecutedAt,
-              proposalTransactionId: matchData.proposalTransactionId,
-              automatedPayout: matchData.payout?.paymentSuccess || false,
-              payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null,
-              refundReason: matchData.refundReason || null,
-              matchOutcome: matchData.matchOutcome || matchData.status || null,
-              rawStatus: matchData.status || null
-            };
-            
-            // CRITICAL: Immediately update local state to reflect user has signed
-            // This prevents UI from reverting to "Creating Proposal" while waiting for backend update
-            const userWallet = publicKey.toString();
-            const currentSigners = Array.isArray(updatedPayoutData.proposalSigners) 
-              ? updatedPayoutData.proposalSigners 
-              : [];
-            if (!currentSigners.some((s: string) => s?.toLowerCase() === userWallet.toLowerCase())) {
-              updatedPayoutData.proposalSigners = [...currentSigners, userWallet];
+            if (isCompleted) {
+              const isPlayer1 = publicKey.toString() === matchData.player1;
+              const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+              const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+              
+              const refreshedPayoutData = {
+                ...updatedPayoutData,
+                won: matchData.winner === publicKey.toString() && matchData.winner !== 'tie',
+                isTie: matchData.winner === 'tie',
+                winner: matchData.winner,
+                numGuesses: playerResult?.numGuesses || 0,
+                entryFee: matchData.entryFee || updatedPayoutData.entryFee || 0,
+                timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : 'N/A',
+                opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
+                opponentGuesses: opponentResult?.numGuesses || 0,
+                winnerAmount: matchData.payout?.winnerAmount || 0,
+                feeAmount: matchData.payout?.feeAmount || 0,
+                refundAmount: matchData.payout?.refundAmount || 0,
+                isWinningTie: matchData.payout?.isWinningTie || false,
+                feeWallet: matchData.payout?.feeWallet || '',
+                transactions: matchData.payout?.transactions || [],
+                proposalId: matchData.payoutProposalId || matchData.tieRefundProposalId || updatedPayoutData.proposalId,
+                proposalStatus: matchData.proposalStatus || updatedPayoutData.proposalStatus,
+                proposalSigners: normalizeProposalSigners(matchData.proposalSigners) || updatedPayoutData.proposalSigners,
+                needsSignatures: matchData.needsSignatures ?? updatedPayoutData.needsSignatures,
+                proposalExecutedAt: matchData.proposalExecutedAt,
+                proposalTransactionId: matchData.proposalTransactionId,
+                automatedPayout: matchData.payout?.paymentSuccess || false,
+                payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || null,
+                refundReason: matchData.refundReason || null,
+                matchOutcome: matchData.matchOutcome || matchData.status || null,
+                rawStatus: matchData.status || null
+              };
+              
+              setPayoutData(refreshedPayoutData);
             }
-            // Optimistically update needsSignatures (will be corrected by next poll)
-            if (updatedPayoutData.needsSignatures > 0) {
-              updatedPayoutData.needsSignatures = Math.max(0, updatedPayoutData.needsSignatures - 1);
-            }
-            // If needsSignatures becomes 0, set status to EXECUTING
-            if (updatedPayoutData.needsSignatures === 0 && updatedPayoutData.proposalStatus !== 'EXECUTED') {
-              updatedPayoutData.proposalStatus = 'EXECUTING';
-            }
-            
-            // CRITICAL FIX: Ensure proposalStatus is set to prevent showing "Creating Proposal" after signing
-            if (!updatedPayoutData.proposalStatus && updatedPayoutData.proposalId) {
-              updatedPayoutData.proposalStatus = 'ACTIVE'; // Default to ACTIVE if status is missing
-            }
-            
-            setPayoutData(updatedPayoutData);
-            
-            // CRITICAL: Start aggressive polling after signing (expert recommendation)
-            console.log('🚀 Starting aggressive polling (1s interval) for 10 seconds after signing...');
-            let aggressivePollCount = 0;
-            const aggressiveInterval = setInterval(() => {
-              aggressivePollCount++;
-              if (aggressivePollCount >= 10) {
-                clearInterval(aggressiveInterval);
-                console.log('✅ Aggressive polling complete, returning to normal polling');
-              } else {
-                loadPayoutData();
-              }
-            }, 1000); // 1 second intervals for first 10 seconds
-            
-            // Fallback: stop aggressive polling after 10 seconds
-            setTimeout(() => {
-              clearInterval(aggressiveInterval);
-            }, 10000);
           }
-        } else {
-          console.warn('⚠️ Failed to refresh status after signing (non-critical)', {
-            status: statusResponse.status,
-            statusText: statusResponse.statusText,
-          });
-        }
         } catch (statusError) {
-          // Status refresh failure is non-critical - signing was successful
+          // Status refresh failure is non-critical - signing was successful and state already updated
           console.warn('⚠️ Error refreshing status after signing (non-critical):', statusError);
-          // Don't set error - signing was successful, status refresh is just for UI update
         }
       }
+      
+      // CRITICAL: Start aggressive polling after signing (expert recommendation)
+      console.log('🚀 Starting aggressive polling (1s interval) for 10 seconds after signing...');
+      let aggressivePollCount = 0;
+      const aggressiveInterval = setInterval(() => {
+        aggressivePollCount++;
+        if (aggressivePollCount >= 10) {
+          clearInterval(aggressiveInterval);
+          console.log('✅ Aggressive polling complete, returning to normal polling');
+        } else {
+          loadPayoutData();
+        }
+      }, 1000); // 1 second intervals for first 10 seconds
+      
+      // Fallback: stop aggressive polling after 10 seconds
+      setTimeout(() => {
+        clearInterval(aggressiveInterval);
+      }, 10000);
     } catch (err) {
       console.error('❌ Error signing proposal:', err);
-      // Only set error if it's actually a signing error, not a status refresh error
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign proposal';
-      // Check if it's a CORS or network error (likely status refresh issue)
-      if (errorMessage.includes('Failed to fetch') || errorMessage.includes('CORS')) {
-        console.warn('⚠️ Network/CORS error after signing - signing may have succeeded, check status');
-        // Don't show error to user - signing likely succeeded, just status refresh failed
+      
+      // CRITICAL: Check if it's a network/CORS error that we retried
+      const isNetworkError = 
+        errorMessage.includes('Network error') ||
+        errorMessage.includes('Failed to fetch') ||
+        errorMessage.includes('CORS') ||
+        errorMessage.includes('Network request failed');
+      
+      if (isNetworkError) {
+        // Network errors after retries - show user-friendly error
+        setError('Network error: Could not send signed transaction to backend. Please check your connection and try again. If the problem persists, the transaction may have been signed in your wallet but not confirmed by the server.');
       } else {
+        // Other errors (validation, server errors, etc.)
         setError(errorMessage);
       }
     } finally {
