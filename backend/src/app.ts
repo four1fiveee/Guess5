@@ -104,6 +104,33 @@ app.use(cors({
   optionsSuccessStatus: 200
 }));
 
+// CRITICAL: Ensure CORS headers are ALWAYS set for all responses (including GET requests)
+// This middleware runs AFTER the cors middleware to guarantee headers are present
+app.use((req: any, res: any, next: any) => {
+  // Only set CORS headers for actual requests (not OPTIONS, which are already handled)
+  if (req.method !== 'OPTIONS') {
+    const origin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(origin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    
+    // Always set CORS headers for all responses
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
+    // Log for debugging
+    if (req.url.includes('/api/match/status/')) {
+      console.log('✅ CORS headers set for GET request:', {
+        url: req.url,
+        origin: origin,
+        corsOrigin: corsOrigin,
+        originToUse: originToUse
+      });
+    }
+  }
+  next();
+});
+
 // Handle preflight requests with explicit CORS headers
 // CRITICAL: This must be registered BEFORE route-specific OPTIONS handlers
 // to ensure it catches all OPTIONS requests that aren't handled by routes
