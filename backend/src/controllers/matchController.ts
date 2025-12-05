@@ -3869,10 +3869,12 @@ const submitResultHandler = async (req: any, res: any) => {
                 
                 try {
                   // Double-check proposal still doesn't exist after acquiring lock
+                  // Use SELECT FOR UPDATE to lock the row and prevent concurrent proposal creation
                   const checkRows = await matchRepository.query(`
                     SELECT "payoutProposalId", "tieRefundProposalId"
                     FROM "match"
                     WHERE id = $1
+                    FOR UPDATE
                     LIMIT 1
                   `, [finalMatch.id]);
                   if (checkRows && checkRows.length > 0 && (checkRows[0].payoutProposalId || checkRows[0].tieRefundProposalId)) {
@@ -4989,13 +4991,18 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   const hasWinner = freshMatch.winner && freshMatch.winner !== 'tie';
   // CRITICAL FIX: Always re-check proposal existence from database before creating
   // This prevents race conditions where proposals are created after user signs
+  // Use SELECT FOR UPDATE to lock the row and prevent concurrent proposal creation
   // Note: matchRepository from line 4948 is scoped to the try block, so we need to get it again
   const { AppDataSource } = require('../db/index');
   const proposalCheckRepository = AppDataSource.getRepository(Match);
+  
+  // Use SELECT FOR UPDATE to acquire a row-level lock, preventing duplicate proposals
+  // This ensures only one process can create a proposal for this match at a time
   const latestProposalCheck = await proposalCheckRepository.query(`
     SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners"
     FROM "match"
     WHERE id = $1
+    FOR UPDATE
     LIMIT 1
   `, [freshMatch.id]);
   
@@ -5084,12 +5091,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         
         // CRITICAL: If match is completed and no proposal exists, force release lock regardless of age
         // This prevents stuck locks from blocking proposal creation indefinitely
+        // Use SELECT FOR UPDATE to lock the row and prevent concurrent proposal creation
         const { AppDataSource } = require('../db/index');
         const matchRepository = AppDataSource.getRepository(Match);
         const checkProposalRows = await matchRepository.query(`
           SELECT "payoutProposalId", "tieRefundProposalId"
           FROM "match"
           WHERE id = $1
+          FOR UPDATE
           LIMIT 1
         `, [freshMatch.id]);
         const hasProposal = checkProposalRows && checkProposalRows.length > 0 && 
