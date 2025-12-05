@@ -4644,13 +4644,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           }
             // Fall through to background retry
           }
-            } // Close else block for hasEnoughBalance check
-          } else {
-            const timeSinceLastAttempt = now - parseInt(lastAttempt);
-            const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
-            console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
-          } // Close else block for cooldown check
-        }
+          } // Close else block for hasEnoughBalance check
+        } else {
+          const timeSinceLastAttempt = now - parseInt(lastAttempt);
+          const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
+          console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
+        } // Close else block for cooldown check
       } catch (onDemandErr) {
         console.error('❌ On-demand vault creation check failed', {
         matchId: match?.id,
