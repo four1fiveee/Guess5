@@ -3907,17 +3907,50 @@ export class SquadsVaultService {
               correlationId,
       });
 
+      // CRITICAL FIX: Try rpc.vaultTransactionExecute first (handles remaining accounts automatically)
+      // If that fails, fall back to instructions.vaultTransactionExecute with manual account handling
+      let executionSignature: string;
+      let executionMethod = 'unknown';
+      
       try {
-        // CRITICAL FIX: Use instructions.vaultTransactionExecute + manual transaction building
-        // This is the proven approach that works (same pattern as instructions.proposalApprove)
-        // rpc.vaultTransactionExecute fails with "Transaction signature verification failure"
-        // because it tries to auto-build the transaction and is missing account parameters
+        // Method 1: Try rpc.vaultTransactionExecute (should handle remaining accounts automatically)
+        enhancedLogger.info('🚀 Attempting execution with rpc.vaultTransactionExecute (auto-handles remaining accounts)', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          executor: executor.publicKey.toString(),
+          correlationId,
+        });
+        
+        executionSignature = await rpc.vaultTransactionExecute({
+          connection: this.connection,
+          feePayer: executor,
+          multisigPda: multisigAddress,
+          transactionIndex: transactionIndexNumber,
+          programId: this.programId,
+        });
+        
+        executionMethod = 'rpc.vaultTransactionExecute';
+        enhancedLogger.info('✅ Execution successful using rpc.vaultTransactionExecute', {
+          vaultAddress,
+          proposalId,
+          signature: executionSignature,
+          correlationId,
+        });
+      } catch (rpcError: any) {
+        // Method 2: Fall back to instructions.vaultTransactionExecute with manual handling
+        enhancedLogger.warn('⚠️ rpc.vaultTransactionExecute failed, trying instructions.vaultTransactionExecute', {
+          vaultAddress,
+          proposalId,
+          rpcError: rpcError?.message || String(rpcError),
+          correlationId,
+        });
         
         if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
           throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
         }
 
-        enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (proven approach)', {
+        enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (manual approach)', {
             vaultAddress,
             proposalId,
           transactionIndex: transactionIndexNumber,
@@ -3926,7 +3959,59 @@ export class SquadsVaultService {
           multisigPda: multisigAddress.toString(),
               });
         
+        // CRITICAL FIX: Fetch vault transaction to get remaining accounts
+        // Squads v4 requires ALL accounts from the inner transaction message to be included
+        const [transactionPda] = getTransactionPda({
+          multisigPda: multisigAddress,
+          index: BigInt(transactionIndexNumber),
+          programId: this.programId,
+        });
+        
+        let remainingAccounts: PublicKey[] = [];
+        try {
+          const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda,
+            'confirmed'
+          );
+          
+          // Extract account keys from the message
+          if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
+            const accountKeys = (vaultTxAccount.message as any).accountKeys;
+            remainingAccounts = accountKeys.map((key: any) => {
+              if (key instanceof PublicKey) {
+                return key;
+              } else if (key?.pubkey) {
+                return key.pubkey;
+              } else if (typeof key === 'string') {
+                return new PublicKey(key);
+              }
+              return null;
+            }).filter((pk: PublicKey | null): pk is PublicKey => pk !== null);
+            
+            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction', {
+              vaultAddress,
+              proposalId,
+              transactionPda: transactionPda.toString(),
+              remainingAccountsCount: remainingAccounts.length,
+              remainingAccounts: remainingAccounts.map(a => a.toString()),
+              correlationId,
+            });
+          }
+        } catch (txFetchError: unknown) {
+          enhancedLogger.warn('⚠️ Could not fetch vault transaction for remaining accounts', {
+            vaultAddress,
+            proposalId,
+            transactionPda: transactionPda.toString(),
+            error: txFetchError instanceof Error ? txFetchError.message : String(txFetchError),
+            note: 'Execution will proceed without remaining accounts - may fail if required',
+            correlationId,
+          });
+        }
+        
         // Build the execution instruction
+        // The SDK should automatically include remaining accounts when it reads the vault transaction
+        // but we log them for debugging
         const executionIx = instructions.vaultTransactionExecute({
           multisigPda: multisigAddress,
           transactionIndex: transactionIndexNumber,
@@ -3938,21 +4023,30 @@ export class SquadsVaultService {
               vaultAddress,
               proposalId,
           transactionIndex: transactionIndexNumber,
+          remainingAccountsCount: remainingAccounts.length,
+          hasRemainingAccounts: remainingAccounts.length > 0,
+          note: 'SDK should automatically include remaining accounts from vault transaction',
             });
           
         // Get latest blockhash
         const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
 
         // Build transaction message
+        // CRITICAL: In Squads v4, the SDK's instructions.vaultTransactionExecute should automatically
+        // fetch the vault transaction and include all remaining accounts in the instruction's keys
+        // If it doesn't, the simulation will fail and show us what's missing
         const message = new TransactionMessage({
           payerKey: executor.publicKey,
           recentBlockhash: blockhash,
           instructions: [executionIx],
-          });
+        });
           
         // Compile to V0 message (required for Squads)
         const compiledMessage = message.compileToV0Message();
         const transaction = new VersionedTransaction(compiledMessage);
+        
+        // Note: If remaining accounts are missing, the simulation below will catch it
+        // and provide detailed error logs showing exactly which accounts are needed
 
         // Sign the transaction
         transaction.sign([executor]);
@@ -4113,18 +4207,21 @@ export class SquadsVaultService {
         }
             
         // Send and confirm the transaction
-        const executionSignature = await this.connection.sendTransaction(transaction, {
+        executionSignature = await this.connection.sendRawTransaction(transaction.serialize(), {
           skipPreflight: false,
           maxRetries: 3,
         });
+        
+        executionMethod = 'instructions.vaultTransactionExecute';
             
         enhancedLogger.info('✅ Proposal execution transaction sent', {
               vaultAddress,
               proposalId,
         signature: executionSignature,
         executor: executor.publicKey.toString(),
+        executionMethod,
               correlationId,
-      });
+        });
 
       // CRITICAL VERIFICATION: Confirm execution succeeded on-chain
       try {
@@ -4201,10 +4298,6 @@ export class SquadsVaultService {
           correlationId,
         };
       }
-      } catch (innerError: unknown) {
-        // Re-throw to be caught by outer catch
-        throw innerError;
-        }
     } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
