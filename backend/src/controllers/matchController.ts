@@ -6045,6 +6045,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       console.warn('⚠️ Username fetch failed or timed out (non-blocking)', { matchId: match.id });
     }
     
+    // CRITICAL: Ensure CORS headers are set right before sending response
+    // This prevents any middleware or code from clearing them
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    applyNoCacheHeaders();
+    
     res.json({
     status: playerSpecificStatus,
       player1: match.player1,

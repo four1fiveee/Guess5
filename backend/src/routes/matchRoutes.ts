@@ -75,15 +75,27 @@ router.get('/sol-price',
 
 // Less critical endpoints (still rate limited but no ReCaptcha for testing)
 // OPTIONS handler for status endpoint to handle CORS preflight
+// CRITICAL: This must handle preflight requests for GET /api/match/status/:matchId
 router.options('/status/:matchId', (req: any, res: any) => {
-  const origin = resolveCorsOrigin(req.headers.origin);
+  const origin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(origin);
   // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
-  const originToUse = origin || 'https://guess5.io';
+  const originToUse = corsOrigin || 'https://guess5.io';
+  
+  console.log('✅ OPTIONS preflight for /status/:matchId', {
+    url: req.url,
+    origin: origin,
+    corsOrigin: corsOrigin,
+    originToUse: originToUse,
+    timestamp: new Date().toISOString()
+  });
+  
   res.header('Access-Control-Allow-Origin', originToUse);
   res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Headers', 'Cache-Control, Content-Type');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With');
   res.header('Access-Control-Allow-Methods', 'GET, OPTIONS');
   res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Max-Age', '86400'); // Cache preflight for 24 hours
   res.status(200).end();
 });
 
