@@ -4492,7 +4492,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       shouldCreate: !!(match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status))
     });
     
-      if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
+    if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
       console.log('🏦 Vault creation needed - starting synchronous attempt', {
         matchId: match.id,
         player1: match.player1,
