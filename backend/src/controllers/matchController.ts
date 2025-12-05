@@ -4987,7 +4987,44 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   const hasResults = !!finalPlayer1Result && !!finalPlayer2Result;
   const isTieMatch = freshMatch.winner === 'tie';
   const hasWinner = freshMatch.winner && freshMatch.winner !== 'tie';
-  const needsProposal = !(freshMatch as any).payoutProposalId && !(freshMatch as any).tieRefundProposalId;
+  // CRITICAL FIX: Always re-check proposal existence from database before creating
+  // This prevents race conditions where proposals are created after user signs
+  const { AppDataSource } = require('../db/index');
+  const matchRepository = AppDataSource.getRepository(Match);
+  const latestProposalCheck = await matchRepository.query(`
+    SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners"
+    FROM "match"
+    WHERE id = $1
+    LIMIT 1
+  `, [freshMatch.id]);
+  
+  const latestProposalData = latestProposalCheck && latestProposalCheck.length > 0 ? latestProposalCheck[0] : null;
+  const hasExistingProposal = latestProposalData && (latestProposalData.payoutProposalId || latestProposalData.tieRefundProposalId);
+  
+  // CRITICAL: If proposal exists, update match object with latest data
+  if (hasExistingProposal) {
+    (match as any).payoutProposalId = latestProposalData.payoutProposalId || (match as any).payoutProposalId;
+    (match as any).tieRefundProposalId = latestProposalData.tieRefundProposalId || (match as any).tieRefundProposalId;
+    (match as any).proposalStatus = latestProposalData.proposalStatus || (match as any).proposalStatus;
+    if (latestProposalData.proposalSigners) {
+      try {
+        (match as any).proposalSigners = typeof latestProposalData.proposalSigners === 'string' 
+          ? JSON.parse(latestProposalData.proposalSigners) 
+          : latestProposalData.proposalSigners;
+      } catch {
+        (match as any).proposalSigners = [];
+      }
+    }
+    console.log('✅ FINAL FALLBACK: Found existing proposal, skipping creation', {
+      matchId: freshMatch.id,
+      payoutProposalId: latestProposalData.payoutProposalId,
+      tieRefundProposalId: latestProposalData.tieRefundProposalId,
+      proposalStatus: latestProposalData.proposalStatus,
+      note: 'This prevents duplicate proposal creation after user signs'
+    });
+  }
+  
+  const needsProposal = !hasExistingProposal && !(freshMatch as any).payoutProposalId && !(freshMatch as any).tieRefundProposalId;
   const hasVault = !!(freshMatch as any).squadsVaultAddress;
   
   console.log('🔍 FINAL FALLBACK CHECK:', {
@@ -4996,6 +5033,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     winner: freshMatch.winner,
     hasPayoutProposalId: !!(freshMatch as any).payoutProposalId,
     hasTieRefundProposalId: !!(freshMatch as any).tieRefundProposalId,
+    hasExistingProposalFromDB: hasExistingProposal,
+    latestPayoutProposalId: latestProposalData?.payoutProposalId,
+    latestTieRefundProposalId: latestProposalData?.tieRefundProposalId,
     hasSquadsVaultAddress: hasVault,
     squadsVaultAddress: (freshMatch as any).squadsVaultAddress,
     squadsVaultPda: (freshMatch as any).squadsVaultPda,
@@ -5012,7 +5052,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   // Create proposal for winner payout (non-tie matches)
   // CRITICAL FIX: Make this non-blocking to prevent status endpoint timeouts
   // The response will be sent with current match state, and proposal creation happens in background
-  if (hasResults && hasWinner && needsProposal && hasVault) {
+  // CRITICAL: Only create if no proposal exists (checked from database above)
+  if (hasResults && hasWinner && needsProposal && hasVault && !hasExistingProposal) {
     // Fire and forget - don't await, don't block the response
     (async () => {
     console.log('🔄 FINAL FALLBACK: Creating missing winner payout proposal BEFORE response (synchronous)', {
