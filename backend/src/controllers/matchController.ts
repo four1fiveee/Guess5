@@ -4641,8 +4641,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 errorCode: creationErr?.code,
                 stack: creationErr instanceof Error ? creationErr.stack : undefined
             });
-          }
+            }
             // Fall through to background retry
+          } // Close catch block
           } // Close else block for hasEnoughBalance check
         } else {
           const timeSinceLastAttempt = now - parseInt(lastAttempt);
