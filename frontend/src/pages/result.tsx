@@ -363,11 +363,11 @@ const Result: React.FC = () => {
             
             // CRITICAL: Preserve user's signature if they've signed (even if backend hasn't updated yet)
             // This prevents UI from reverting to "needs signature" after user signs
-            const mergedSigners = [...new Set([
+            const mergedSigners = Array.from(new Set([
               ...currentSigners.filter((s: string) => s?.toLowerCase() === currentUserWallet.toLowerCase()),
               ...newSigners,
               ...currentSigners.filter((s: string) => s?.toLowerCase() !== currentUserWallet.toLowerCase())
-            ])];
+            ]));
             
             // CRITICAL: Preserve EXECUTING status if it exists in current state
             // Don't overwrite with null/undefined from backend
