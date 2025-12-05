@@ -4510,29 +4510,54 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         if (creation?.success && creation.vaultAddress) {
           const { AppDataSource } = require('../db/index');
           const matchRepository = AppDataSource.getRepository(Match);
+          // CRITICAL FIX: createMatchVault already saves to DB, but we update here to ensure consistency
+          // Also ensure vaultPda is set if it wasn't returned
+          const vaultPdaToSave = creation.vaultPda ?? null;
+          if (!vaultPdaToSave && creation.vaultAddress) {
+            // Derive vaultPda if not returned
+            try {
+              const { getSquadsVaultService } = require('../services/squadsVaultService');
+              const squadsService = getSquadsVaultService();
+              const derivedVaultPda = squadsService?.deriveVaultPda?.(creation.vaultAddress);
+              if (derivedVaultPda) {
+                (match as any).squadsVaultPda = derivedVaultPda;
+              }
+            } catch (deriveErr) {
+              console.warn('⚠️ Could not derive vaultPda', { matchId: match.id, error: deriveErr });
+            }
+          }
           (match as any).squadsVaultAddress = creation.vaultAddress;
-          (match as any).squadsVaultPda = creation.vaultPda ?? null;
+          (match as any).squadsVaultPda = vaultPdaToSave ?? (match as any).squadsVaultPda;
+          
+          // Update DB to ensure consistency (createMatchVault already saves, but this ensures it's up to date)
           await matchRepository.update(
             { id: match.id },
             { 
               squadsVaultAddress: creation.vaultAddress,
-              squadsVaultPda: creation.vaultPda ?? null,
+              squadsVaultPda: vaultPdaToSave ?? (match as any).squadsVaultPda,
               matchStatus: 'VAULT_CREATED'
             }
           );
-                console.log('✅ Vault created on-demand for match (background)', { matchId: match.id, vault: creation.vaultAddress, vaultPda: creation.vaultPda });
+                console.log('✅ Vault created on-demand for match (background)', { 
+                  matchId: match.id, 
+                  vault: creation.vaultAddress, 
+                  vaultPda: vaultPdaToSave ?? (match as any).squadsVaultPda 
+                });
               // Clear the rate limit key on success
               await redis.del(vaultCreationKey);
             } else {
-                console.warn('⚠️ On-demand vault creation failed (background)', {
+                console.error('❌ On-demand vault creation failed (background)', {
                 matchId: match.id,
-                error: creation?.error || 'Unknown error'
+                success: creation?.success,
+                error: creation?.error || 'Unknown error',
+                hasVaultAddress: !!creation?.vaultAddress
               });
             }
           } catch (creationErr) {
-              console.warn('⚠️ On-demand vault creation exception (background)', {
+              console.error('❌ On-demand vault creation exception (background)', {
               matchId: match.id,
-              error: creationErr instanceof Error ? creationErr.message : String(creationErr)
+              error: creationErr instanceof Error ? creationErr.message : String(creationErr),
+              stack: creationErr instanceof Error ? creationErr.stack : undefined
             });
           }
         } else {
@@ -4541,9 +4566,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
       }
     } catch (onDemandErr) {
-      console.warn('⚠️ On-demand vault creation check failed (non-blocking)', {
+      console.error('❌ On-demand vault creation check failed (non-blocking)', {
         matchId: match?.id,
-        error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr)
+        error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr),
+        stack: onDemandErr instanceof Error ? onDemandErr.stack : undefined
       });
         }
       })();
