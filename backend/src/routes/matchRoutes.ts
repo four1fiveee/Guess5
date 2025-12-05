@@ -220,6 +220,18 @@ router.get('/get-proposal-approval-transaction',
   asyncHandlerWrapper(matchController.getProposalApprovalTransactionHandler)
 );
 
+// OPTIONS handler for sign-proposal endpoint to handle CORS preflight
+router.options('/sign-proposal', (req: any, res: any) => {
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');
+  res.header('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.status(200).end();
+});
+
 router.post('/sign-proposal',
   validateVercelBotProtection,
   asyncHandlerWrapper(matchController.signProposalHandler)
