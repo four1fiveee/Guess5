@@ -1809,19 +1809,19 @@ const Result: React.FC = () => {
                               )}
                             </div>
                           ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
-                            <div className="mb-3">
+                            <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
-                                <span>Refund Executing...</span>
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
+                                <span>Processing Refund...</span>
                               </div>
-                              <p className="text-sm text-white/70">
-                                All signatures collected. The refund transaction is being processed on the blockchain. This usually takes 10-30 seconds.
-                                {executionStartTime && (
-                                  <span className="ml-2 text-white/50 text-xs">
-                                    ({Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed)
-                                  </span>
-                                )}
+                              <p className="text-sm text-white/80 mb-1">
+                                Your refund is being sent to your wallet. This usually takes 10-30 seconds.
                               </p>
+                              {executionStartTime && (
+                                <p className="text-xs text-white/50">
+                                  {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                </p>
+                              )}
                             </div>
                           ) : hasRefundProposal ? (
                             <p className="text-sm text-white/80 mb-3">
@@ -1833,35 +1833,27 @@ const Result: React.FC = () => {
                               Reason: {readableRefundReason}
                             </div>
                           )}
-                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && 
+                           (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && (
                             <div className="mt-4">
-                              <p
-                                className={`text-sm mb-2 ${
-                                  (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                    ? playerProposalSigners.includes(publicKey?.toString() || '')
-                                      ? 'text-green-400 font-semibold'
-                                      : playerProposalSigners.length > 0
-                                      ? 'text-green-400 font-semibold'
-                                      : 'text-green-400 font-semibold'
-                                    : playerProposalSigners.includes(publicKey?.toString() || '')
-                                    ? 'text-yellow-400'
-                                    : playerProposalSigners.length > 0
-                                    ? 'text-green-400 font-semibold'
-                                    : 'text-white/60'
-                                }`}
-                              >
-                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? playerProposalSigners.includes(publicKey?.toString() || '')
-                                    ? '✓ You have signed. Waiting for refund execution...'
-                                    : playerProposalSigners.length > 0
-                                    ? '🎉 Other player has signed! Refund is executing shortly.'
-                                    : '✅ Refund proposal is ready to execute - waiting for processing...'
-                                  : playerProposalSigners.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for refund execution...'
-                                  : playerProposalSigners.length > 0
-                                  ? '🎉 Other player has signed! Refund will execute soon. No action needed.'
-                                  : '⏳ Waiting for either player to sign the refund (only one signature needed)...'}
-                              </p>
+                              {playerProposalSigners.length > 0 && !playerProposalSigners.includes(publicKey?.toString() || '') ? (
+                                <div className="mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                  <p className="text-green-400 text-sm font-semibold mb-1">
+                                    ✅ Other player has signed
+                                  </p>
+                                  <p className="text-xs text-white/70">
+                                    Refund is executing automatically. No action needed.
+                                  </p>
+                                </div>
+                              ) : playerProposalSigners.includes(publicKey?.toString() || '') ? (
+                                <p className="text-sm text-yellow-400 mb-2">
+                                  ✓ You have signed. Waiting for execution...
+                                </p>
+                              ) : (
+                                <p className="text-sm text-white/60 mb-2">
+                                  ⏳ Sign the refund proposal to release your SOL
+                                </p>
+                              )}
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
                               {payoutData.proposalId && 
                                !playerProposalSigners.includes(publicKey?.toString() || '') && (
@@ -2003,54 +1995,53 @@ const Result: React.FC = () => {
                               )}
                             </div>
                           ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
-                            <div className="mb-3">
+                            <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
-                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
-                                <span>Proposal Executing...</span>
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
+                                <span>Processing Payout...</span>
                               </div>
-                              <p className="text-sm text-white/70">
-                                All signatures collected. The transaction is being processed on the blockchain. This usually takes 10-30 seconds.
-                                {executionStartTime && (
-                                  <span className="ml-2 text-white/50 text-xs">
-                                    ({Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed)
-                                  </span>
-                                )}
+                              <p className="text-sm text-white/80 mb-1">
+                                Your winnings are being sent to your wallet. This usually takes 10-30 seconds.
                               </p>
+                              {executionStartTime && (
+                                <p className="text-xs text-white/50">
+                                  {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                </p>
+                              )}
                             </div>
                           ) : (
                           <p className="text-sm text-white/80 mb-3">
-                              You must sign to claim your winnings before starting a new game. Sign the proposal below to receive your payout.
+                              Sign the proposal below to claim your winnings.
                               {payoutData.bonus?.eligible && payoutData.bonus?.expectedSol && (
                                 <span className="block mt-1 text-yellow-300">
                                   Bonus: +{payoutData.bonus.expectedSol.toFixed(4)} SOL
-                                  {solPrice && ` (+$${(payoutData.bonus.expectedSol * solPrice).toFixed(2)} USD)`} will be sent when proposal executes.
+                                  {solPrice && ` (+$${(payoutData.bonus.expectedSol * solPrice).toFixed(2)} USD)`}
                                 </span>
                               )}
                           </p>
                           )}
                           
-                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && 
+                           (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) && (
                             <div className="mt-4">
-                              <p className={`text-sm mb-2 ${
-                                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? 'text-green-400 font-semibold'
-                                  : playerProposalSigners.includes(publicKey?.toString() || '')
-                                  ? 'text-yellow-400'
-                                  : playerProposalSigners.length > 0
-                                  ? 'text-green-400 font-semibold'
-                                  : 'text-white/60'
-                              }`}>
-                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? playerProposalSigners.includes(publicKey?.toString() || '')
-                                    ? '✓ You have signed. Waiting for proposal execution...'
-                                    : playerProposalSigners.length > 0
-                                      ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
-                                      : '✅ Proposal is ready to execute - waiting for processing...'
-                                  : playerProposalSigners.includes(publicKey?.toString() || '')
-                                    ? '✓ You have signed. Waiting for proposal execution...'
-                                    : '⏳ Waiting for either player to sign (only 1 signature needed)...'
-                                }
-                              </p>
+                              {playerProposalSigners.length > 0 && !playerProposalSigners.includes(publicKey?.toString() || '') ? (
+                                <div className="mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                  <p className="text-green-400 text-sm font-semibold mb-1">
+                                    ✅ Other player has signed
+                                  </p>
+                                  <p className="text-xs text-white/70">
+                                    Proposal is executing automatically. No action needed.
+                                  </p>
+                                </div>
+                              ) : playerProposalSigners.includes(publicKey?.toString() || '') ? (
+                                <p className="text-sm text-yellow-400 mb-2">
+                                  ✓ You have signed. Waiting for execution...
+                                </p>
+                              ) : (
+                                <p className="text-sm text-white/60 mb-2">
+                                  ⏳ Sign the proposal to claim your winnings
+                                </p>
+                              )}
                               
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
                               {(() => {
@@ -2168,9 +2159,24 @@ const Result: React.FC = () => {
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ Full Refund Sent to Your Wallet!
                                 </div>
+                              ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                                <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                  <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
+                                    <span>Processing Refund...</span>
+                                  </div>
+                                  <p className="text-sm text-white/80 mb-1">
+                                    Your refund is being sent to your wallet. This usually takes 10-30 seconds.
+                                  </p>
+                                  {executionStartTime && (
+                                    <p className="text-xs text-white/50">
+                                      {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                    </p>
+                                  )}
+                                </div>
                               ) : (
                                 <p className="text-sm text-white/80 mb-3">
-                                  You must sign to receive your refund. Full refund: Sign proposal to claim your funds back.
+                                  Sign the proposal below to receive your refund.
                             </p>
                               )}
                           </>
@@ -2211,9 +2217,24 @@ const Result: React.FC = () => {
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ 95% Refund Sent to Your Wallet!
                                 </div>
+                              ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                                <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                  <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
+                                    <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
+                                    <span>Processing Refund...</span>
+                                  </div>
+                                  <p className="text-sm text-white/80 mb-1">
+                                    Your refund is being sent to your wallet. This usually takes 10-30 seconds.
+                                  </p>
+                                  {executionStartTime && (
+                                    <p className="text-xs text-white/50">
+                                      {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                    </p>
+                                  )}
+                                </div>
                               ) : (
                                 <p className="text-sm text-white/80 mb-3">
-                                  You must sign to receive your refund. 95% refund: Sign proposal to claim your funds back.
+                                  Sign the proposal below to receive your refund.
                             </p>
                               )}
                           </>
@@ -2327,133 +2348,155 @@ const Result: React.FC = () => {
                             </div>
                           )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
-                            <div className="text-green-400 text-lg font-semibold mb-3">
-                              ✅ Winner has been paid. You can play again!
+                            <div className="mb-3">
+                              <div className="text-green-400 text-lg font-semibold mb-2">
+                                ✅ Winner has been paid
+                              </div>
+                              {(payoutData.proposalTransactionId || payoutData.payoutSignature) && (
+                                <a
+                                  href={`https://explorer.solana.com/tx/${payoutData.proposalTransactionId || payoutData.payoutSignature}?cluster=devnet`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="text-accent hover:text-yellow-300 text-sm underline inline-flex items-center gap-1"
+                                >
+                                  View Execution Transaction ↗
+                                </a>
+                              )}
+                            </div>
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                            <div className="mb-3">
+                              <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>
+                                <span>Payout Executing...</span>
+                              </div>
+                              <p className="text-sm text-white/70 mb-2">
+                                The winner's payout is being processed on the blockchain. This usually takes 10-30 seconds.
+                                {executionStartTime && (
+                                  <span className="ml-2 text-white/50 text-xs">
+                                    ({Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed)
+                                  </span>
+                                )}
+                              </p>
+                              <p className="text-xs text-white/50 italic">
+                                No action needed from you - the transaction is executing automatically.
+                              </p>
+                            </div>
+                          ) : playerProposalSigners.length > 0 && !playerProposalSigners.includes(publicKey?.toString() || '') ? (
+                            <div className="mb-3">
+                              <div className="text-green-400 text-sm font-semibold mb-2">
+                                ✅ Other player has signed
+                              </div>
+                              <p className="text-sm text-white/70">
+                                The payout proposal is ready to execute. No action needed from you.
+                              </p>
                             </div>
                           ) : (
                             <p className="text-sm text-white/80 mb-3">
-                              You must sign to finalize the payout before starting a new game. Sign the proposal to help process the payout and get back to playing faster.
-                          </p>
+                              Waiting for the winner to sign the payout proposal...
+                            </p>
                           )}
                           
-                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures >= 0) && (
+                          {(payoutData.proposalStatus === 'ACTIVE' || payoutData.proposalStatus === 'PROPOSAL_CREATED' || !payoutData.proposalStatus || payoutData.proposalStatus === 'PENDING') && 
+                           (payoutData.needsSignatures === undefined || payoutData.needsSignatures === null || payoutData.needsSignatures > 0) &&
+                           playerProposalSigners.length === 0 && (
                             <div className="mt-4">
-                              <p className={`text-sm mb-2 ${
-                                (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? 'text-green-400 font-semibold'
-                                  : playerProposalSigners.includes(publicKey?.toString() || '')
-                                  ? 'text-yellow-400'
-                                  : playerProposalSigners.length > 0
-                                  ? 'text-green-400 font-semibold'
-                                  : 'text-white/60'
-                              }`}>
-                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? '✅ Proposal is ready to execute - waiting for processing...'
-                                  : playerProposalSigners.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for proposal execution...'
-                                  : playerProposalSigners.length > 0
-                                  ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
-                                  : '⏳ Waiting for either player to sign (only 1 signature needed)...'
-                                }
+                              <p className="text-sm text-white/60 mb-2">
+                                ⏳ Waiting for winner to sign the payout proposal...
                               </p>
-                              
-                              {/* Show sign button if proposal exists AND user hasn't signed yet */}
-                              {payoutData.proposalId && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
-                                <button
-                                  onClick={handleSignProposal}
-                                  disabled={signingProposal}
-                                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
-                                >
-                                  {signingProposal ? 'Signing...' : 'Sign Proposal'}
-                                </button>
-                              )}
                             </div>
                           )}
                         </div>
-                    )}
-                    {payoutData.payoutSignature && (
-                      <div className="mt-3">
-                        <a 
-                          href={`https://explorer.solana.com/tx/${payoutData.payoutSignature}?cluster=devnet`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                            className="text-accent hover:text-yellow-400 text-sm underline"
-                        >
-                          View Transaction on Explorer
-                        </a>
-                      </div>
                     )}
                   </div>
                 </div>
                 ) : (
                   <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-6">
                     <div className="text-center">
-                      <div className="flex items-center justify-center mb-4">
-                        <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-accent mr-3"></div>
-                        <div className="text-accent text-lg font-semibold">
-                          {(() => {
-                            // CRITICAL: Check EXECUTING status first - highest priority
-                            const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || 
-                                               (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
-                            if (isExecuting) {
-                              return '⏳ Executing Transaction';
-                            }
-                            // Check EXECUTED status
-                            if (payoutData?.proposalStatus === 'EXECUTED') {
-                              return '✅ Transaction Executed';
-                            }
-                            // Check if proposal exists and has a valid status (not PENDING)
-                            if (payoutData?.proposalId && payoutData?.proposalStatus && payoutData?.proposalStatus !== 'PENDING') {
-                              return '⏳ Processing Payout';
-                            }
-                            // Check for stuck proposal creation
-                            if (proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000) {
-                              return '⚠️ Proposal creation taking longer than expected. Please refresh the page.';
-                            }
-                            // Default: Creating Proposal
-                            return '🔄 Creating Proposal';
-                          })()}
-                        </div>
-                      </div>
-                      
-                      {/* Progress bar for proposal creation - show when proposal doesn't exist yet OR status is PENDING */}
-                      {(!payoutData?.proposalId || payoutData?.proposalStatus === 'PENDING') && (
-                        <div className="mb-4">
-                          <div className="w-full bg-white/10 rounded-full h-2 mb-2">
-                            <div 
-                              className="bg-accent h-2 rounded-full transition-all duration-500 ease-out"
-                              style={{ width: `${proposalCreationProgress}%` }}
-                            ></div>
-                          </div>
-                          <p className="text-white/60 text-xs">
-                            Creating secure blockchain proposal... {Math.round(proposalCreationProgress)}%
-                            {proposalCreationStartTime && (
-                              <span className="ml-2 text-white/40">
-                                ({Math.floor((Date.now() - proposalCreationStartTime) / 1000)}s)
-                              </span>
+                      {(() => {
+                        // CRITICAL: Check EXECUTING status first - highest priority
+                        const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || 
+                                           (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+                        if (isExecuting) {
+                          return (
+                            <div className="p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                              <div className="flex items-center justify-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
+                                <span>Processing Transaction...</span>
+                              </div>
+                              <p className="text-sm text-white/80 mb-1">
+                                The payout transaction is being processed on the blockchain.
+                              </p>
+                              {executionStartTime && (
+                                <p className="text-xs text-white/50">
+                                  {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+                        // Check EXECUTED status
+                        if (payoutData?.proposalStatus === 'EXECUTED') {
+                          return (
+                            <div className="text-green-400 text-lg font-semibold">
+                              ✅ Transaction Executed
+                            </div>
+                          );
+                        }
+                        // Check if proposal exists and has a valid status (not PENDING)
+                        if (payoutData?.proposalId && payoutData?.proposalStatus && payoutData?.proposalStatus !== 'PENDING') {
+                          return (
+                            <div>
+                              <div className="flex items-center justify-center mb-3">
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-accent border-t-transparent mr-2"></div>
+                                <div className="text-accent text-lg font-semibold">
+                                  ⏳ Waiting for Signature
+                                </div>
+                              </div>
+                              <p className="text-white/70 text-sm">
+                                {payoutData.needsSignatures > 0 
+                                  ? `Waiting for ${payoutData.needsSignatures} signature${payoutData.needsSignatures !== 1 ? 's' : ''}...`
+                                  : 'Proposal ready for execution...'}
+                              </p>
+                            </div>
+                          );
+                        }
+                        // Default: Creating Proposal
+                        return (
+                          <div>
+                            <div className="flex items-center justify-center mb-4">
+                              <div className="animate-spin rounded-full h-6 w-6 border-2 border-accent border-t-transparent mr-3"></div>
+                              <div className="text-accent text-lg font-semibold">
+                                Creating Secure Proposal
+                              </div>
+                            </div>
+                            {/* Progress bar for proposal creation */}
+                            <div className="mb-4">
+                              <div className="w-full bg-white/10 rounded-full h-2 mb-2">
+                                <div 
+                                  className="bg-accent h-2 rounded-full transition-all duration-500 ease-out"
+                                  style={{ width: `${proposalCreationProgress}%` }}
+                                ></div>
+                              </div>
+                              <p className="text-white/60 text-xs">
+                                {Math.round(proposalCreationProgress)}% complete
+                                {proposalCreationStartTime && (
+                                  <span className="ml-2 text-white/40">
+                                    ({Math.floor((Date.now() - proposalCreationStartTime) / 1000)}s)
+                                  </span>
+                                )}
+                              </p>
+                            </div>
+                            <p className="text-white/70 text-sm">
+                              Setting up your secure payout on the blockchain. This usually takes 15-30 seconds.
+                            </p>
+                            {proposalCreationProgress >= 95 && proposalCreationStartTime && (Date.now() - proposalCreationStartTime) > 90000 && (
+                              <p className="text-yellow-400 text-xs mt-2">
+                                ⚠️ Taking longer than expected. Please refresh if this persists.
+                              </p>
                             )}
-                          </p>
-                        </div>
-                      )}
-                      
-                      <p className="text-white/80 text-sm">
-                        {payoutData?.proposalId 
-                          ? (payoutData.needsSignatures > 0 
-                              ? `Waiting for ${payoutData.needsSignatures} signature${payoutData.needsSignatures !== 1 ? 's' : ''}...`
-                              : 'Proposal ready for execution...')
-                          : 'Please wait while we create your secure payout proposal on the blockchain. This usually takes 15-30 seconds.'}
-                      </p>
-                      {isPolling && (
-                        <p className="text-white/60 text-xs mt-2">
-                          Checking for updates...
-                        </p>
-                      )}
-                      {payoutData?.proposalId && payoutData?.needsSignatures > 0 && (
-                        <p className="text-white/60 text-xs mt-2">
-                          {payoutData.needsSignatures} signature{payoutData.needsSignatures !== 1 ? 's' : ''} needed
-                        </p>
-                      )}
+                          </div>
+                        );
+                      })()}
                     </div>
                   </div>
                 )}
@@ -2463,9 +2506,22 @@ const Result: React.FC = () => {
               <div className="flex flex-col gap-4 items-center">
                 <button
                   onClick={handlePlayAgain}
-                  className="bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center"
+                  disabled={
+                    !payoutData?.proposalExecutedAt || 
+                    payoutData?.proposalStatus !== 'EXECUTED' ||
+                    onChainVerified !== true
+                  }
+                  className={`
+                    ${!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
+                      ? 'bg-gray-600 cursor-not-allowed opacity-50'
+                      : 'bg-accent hover:bg-yellow-400 hover:shadow-lg'
+                    } text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center
+                  `}
                 >
-                  Play Again
+                  {!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
+                    ? (onChainVerified === null ? 'Verifying Transaction...' : 'Waiting for Execution...')
+                    : 'Play Again'
+                  }
                 </button>
                 
                 {/* Social Links */}
