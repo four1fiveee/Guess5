@@ -11527,13 +11527,23 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       memberPublicKey = new PublicKey(wallet);
       
       // Query the proposal account to get the transactionIndex
+      // CRITICAL: Add timeout to prevent hanging on slow RPC calls
       const { accounts } = require('@sqds/multisig');
       let proposalAccount;
+      const queryTimeoutMs = 5000; // 5 seconds for proposal account query
+      
       try {
-        proposalAccount = await accounts.Proposal.fromAccountAddress(
+        // Wrap the query in a timeout to prevent hanging
+        const queryPromise = accounts.Proposal.fromAccountAddress(
           connection,
           proposalPda
         );
+        
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Proposal account query timeout')), queryTimeoutMs);
+        });
+        
+        proposalAccount = await Promise.race([queryPromise, timeoutPromise]) as any;
         
         // The Proposal account has a transactionIndex field
         // Extract it from the proposal account
@@ -11555,10 +11565,11 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
           proposalPda: proposalPda.toString(),
         });
         
-        // Try transaction indices 0-10 (most proposals will be in this range)
+        // Try transaction indices 0-50 (increased range to handle more proposals)
+        // This is fast since it's just PDA derivation, no network calls
         let foundIndex: bigint | null = null;
         const { getProposalPda } = require('@sqds/multisig');
-        for (let i = 0; i <= 10; i++) {
+        for (let i = 0; i <= 50; i++) {
           const [testPda] = getProposalPda({
             multisigPda: multisigAddress,
             transactionIndex: BigInt(i),
@@ -11577,7 +11588,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
             transactionIndex: transactionIndex.toString(),
           });
         } else {
-          throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-10.`);
+          throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-50.`);
         }
       }
       
