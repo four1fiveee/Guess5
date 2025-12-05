@@ -4516,12 +4516,33 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             entryFee: match.entryFee
           });
           
-          // Mark that we're attempting vault creation
-          await redis.set(vaultCreationKey, now.toString(), 'EX', 60);
-          
-          // Try synchronous creation with 20 second timeout (increased from 15s)
-          try {
-            console.log('⏳ Calling createMatchVault...', { matchId: match.id });
+          // CRITICAL: Check fee wallet balance BEFORE attempting vault creation
+          const minRequiredBalance = 0.1; // 0.1 SOL minimum
+          const hasEnoughBalance = await checkFeeWalletBalance(minRequiredBalance * 1000000000); // Convert to lamports
+          if (!hasEnoughBalance) {
+            const { Connection, PublicKey } = require('@solana/web3.js');
+            const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com');
+            const feeWalletPublicKey = new PublicKey(FEE_WALLET_ADDRESS);
+            const balance = await connection.getBalance(feeWalletPublicKey);
+            const balanceSOL = balance / 1000000000;
+            
+            console.error('❌ Fee wallet has insufficient balance - cannot create vault', {
+              matchId: match.id,
+              feeWallet: FEE_WALLET_ADDRESS,
+              balance: balanceSOL,
+              required: minRequiredBalance,
+              shortfall: minRequiredBalance - balanceSOL
+            });
+            
+            // Don't throw - let it fall through to background retry, but log the issue clearly
+            // The background process will also fail, but at least we've logged it
+          } else {
+            // Mark that we're attempting vault creation
+            await redis.set(vaultCreationKey, now.toString(), 'EX', 60);
+            
+            // Try synchronous creation with 20 second timeout (increased from 15s)
+            try {
+              console.log('⏳ Calling createMatchVault...', { matchId: match.id });
             const creationPromise = squadsVaultService.createMatchVault(
               match.id,
               new PublicKey(match.player1),
@@ -4600,7 +4621,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
           } catch (creationErr: any) {
             const isTimeout = creationErr?.message?.includes('timeout');
-            if (isTimeout) {
+            const isInsufficientBalance = creationErr?.message?.includes('insufficient balance');
+            
+            if (isInsufficientBalance) {
+              console.error('❌ Vault creation failed due to insufficient fee wallet balance', {
+                matchId: match.id,
+                error: creationErr?.message,
+                feeWallet: FEE_WALLET_ADDRESS
+              });
+              // Don't retry in background if it's a balance issue - it will keep failing
+            } else if (isTimeout) {
               console.warn('⏳ Vault creation timed out, continuing in background...', { matchId: match.id });
             } else {
               console.error('❌ On-demand vault creation exception (synchronous)', {
@@ -4613,6 +4643,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
             // Fall through to background retry
           }
+            } // Close else block for hasEnoughBalance check
+          } // Close else block for cooldown check
         } else {
           const timeSinceLastAttempt = now - parseInt(lastAttempt);
           const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
