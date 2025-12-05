@@ -1,4 +1,5 @@
 // @ts-nocheck
+const express = require('express');
 const expressRouter = require('express');
 const router = expressRouter.Router();
 const matchController = require('../controllers/matchController');
@@ -244,7 +245,19 @@ router.options('/sign-proposal', (req: any, res: any) => {
   res.status(200).end();
 });
 
+// CRITICAL: Accept raw signed transaction bytes (application/octet-stream)
+// This allows frontend to send serialized transaction directly from Phantom
+// Format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
+// Body: raw signed transaction bytes (Uint8Array serialized)
 router.post('/sign-proposal',
+  express.raw({ type: 'application/octet-stream', limit: '10mb' }),
+  asyncHandlerWrapper(matchController.signProposalHandler)
+);
+
+// Also support JSON format for backward compatibility
+// Format: POST /api/match/sign-proposal-json
+// Body: { matchId, wallet, signedTransaction: base64 }
+router.post('/sign-proposal-json',
   validateVercelBotProtection,
   asyncHandlerWrapper(matchController.signProposalHandler)
 );

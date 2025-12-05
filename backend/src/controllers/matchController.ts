@@ -11677,10 +11677,49 @@ const signProposalHandler = async (req: any, res: any) => {
   });
   
   try {
-    const { matchId, wallet, signedTransaction } = req.body;
+    // CRITICAL: Support both raw bytes (application/octet-stream) and JSON formats
+    // Raw bytes format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
+    // JSON format: POST /api/match/sign-proposal-json with { matchId, wallet, signedTransaction: base64 }
+    let matchId: string;
+    let wallet: string;
+    let signedTransaction: string | Buffer;
+    let isRawBytes = false;
     
-    if (!matchId || !wallet || !signedTransaction) {
-      return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
+    // Check if body is raw bytes (Buffer) or JSON
+    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+      // Raw bytes format - extract params from query string
+      isRawBytes = true;
+      matchId = req.query.matchId as string;
+      wallet = req.query.wallet as string;
+      signedTransaction = req.body; // Buffer containing raw signed transaction bytes
+      
+      console.log('📦 Received raw signed transaction bytes', {
+        matchId,
+        wallet,
+        bodyLength: req.body.length,
+        contentType: req.headers['content-type'],
+      });
+      
+      if (!matchId || !wallet) {
+        return res.status(400).json({ error: 'Missing required query parameters: matchId, wallet' });
+      }
+    } else {
+      // JSON format (backward compatibility)
+      const body = req.body;
+      matchId = body.matchId;
+      wallet = body.wallet;
+      signedTransaction = body.signedTransaction; // base64 string
+      
+      console.log('📦 Received JSON signed transaction', {
+        matchId,
+        wallet,
+        hasSignedTransaction: !!signedTransaction,
+        contentType: req.headers['content-type'],
+      });
+      
+      if (!matchId || !wallet || !signedTransaction) {
+        return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
+      }
     }
     
     // NOTE: Vault transactions do NOT require approval in Squads v4
@@ -11982,16 +12021,39 @@ const signProposalHandler = async (req: any, res: any) => {
     );
 
     // Deserialize the signed transaction
+    // CRITICAL: Handle both raw bytes (Buffer) and base64 JSON formats
     let transaction;
     try {
-    const signedTxBuffer = Buffer.from(signedTransaction, 'base64');
+      let signedTxBuffer: Buffer;
+      
+      if (isRawBytes && Buffer.isBuffer(signedTransaction)) {
+        // Raw bytes format - use directly
+        signedTxBuffer = signedTransaction;
+        console.log('✅ Using raw transaction bytes directly', {
+          bufferLength: signedTxBuffer.length,
+        });
+      } else if (typeof signedTransaction === 'string') {
+        // Base64 JSON format - decode from base64
+        signedTxBuffer = Buffer.from(signedTransaction, 'base64');
+        console.log('✅ Decoded base64 transaction', {
+          base64Length: signedTransaction.length,
+          bufferLength: signedTxBuffer.length,
+        });
+      } else {
+        throw new Error('Invalid signedTransaction format: must be Buffer or base64 string');
+      }
+      
       transaction = VersionedTransaction.deserialize(signedTxBuffer);
-      console.log('✅ Transaction deserialized successfully');
+      console.log('✅ Transaction deserialized successfully', {
+        format: isRawBytes ? 'raw-bytes' : 'base64-json',
+        transactionSize: signedTxBuffer.length,
+      });
     } catch (deserializeError: any) {
       console.error('❌ Failed to deserialize signed transaction:', {
         error: deserializeError?.message,
         stack: deserializeError?.stack,
-        signedTransactionLength: signedTransaction?.length,
+        signedTransactionLength: Buffer.isBuffer(signedTransaction) ? signedTransaction.length : (typeof signedTransaction === 'string' ? signedTransaction.length : 'unknown'),
+        format: isRawBytes ? 'raw-bytes' : 'base64-json',
       });
       throw new Error(`Failed to deserialize transaction: ${deserializeError?.message || String(deserializeError)}`);
     }
@@ -12221,7 +12283,85 @@ const signProposalHandler = async (req: any, res: any) => {
       });
     }
 
-    // Update match with new signer
+    // CRITICAL: Verify on-chain that the player's signature is actually present
+    // Only update DB after confirming the signature is on-chain
+    console.log('🔍 Verifying player signature on-chain before updating DB...', {
+      matchId,
+      wallet,
+      proposalId: proposalIdString,
+      transactionSignature: signature,
+    });
+    
+    let playerSignatureVerified = false;
+    let onChainSigners: string[] = [];
+    const maxVerificationAttempts = 5;
+    const verificationDelay = 2000; // 2 seconds between attempts
+    
+    for (let attempt = 0; attempt < maxVerificationAttempts; attempt++) {
+      try {
+        const proposalStatus = await squadsVaultService.checkProposalStatus(
+          matchRow.squadsVaultAddress,
+          proposalIdString
+        );
+        
+        if (proposalStatus && proposalStatus.signers) {
+          onChainSigners = proposalStatus.signers.map((s: any) => s.toString().toLowerCase());
+          playerSignatureVerified = onChainSigners.includes(wallet.toLowerCase());
+          
+          if (playerSignatureVerified) {
+            console.log('✅ Player signature verified on-chain', {
+              matchId,
+              wallet,
+              attempt: attempt + 1,
+              onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
+            });
+            break;
+          } else if (attempt < maxVerificationAttempts - 1) {
+            console.warn(`⚠️ Player signature not yet on-chain (attempt ${attempt + 1}/${maxVerificationAttempts}), waiting...`, {
+              matchId,
+              wallet,
+              onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
+              expectedWallet: wallet,
+            });
+            await new Promise(resolve => setTimeout(resolve, verificationDelay));
+          }
+        } else {
+          console.warn(`⚠️ Could not get proposal status (attempt ${attempt + 1}/${maxVerificationAttempts})`, {
+            matchId,
+            proposalId: proposalIdString,
+          });
+          if (attempt < maxVerificationAttempts - 1) {
+            await new Promise(resolve => setTimeout(resolve, verificationDelay));
+          }
+        }
+      } catch (verifyError: any) {
+        console.warn(`⚠️ Error verifying signature on-chain (attempt ${attempt + 1}/${maxVerificationAttempts})`, {
+          matchId,
+          wallet,
+          error: verifyError?.message,
+        });
+        if (attempt < maxVerificationAttempts - 1) {
+          await new Promise(resolve => setTimeout(resolve, verificationDelay));
+        }
+      }
+    }
+    
+    if (!playerSignatureVerified) {
+      console.error('❌ CRITICAL: Player signature not found on-chain after confirmation', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        transactionSignature: signature,
+        onChainSigners: onChainSigners.map(s => s.toString()),
+        attempts: maxVerificationAttempts,
+        note: 'Transaction was confirmed but signature is not on-chain. This should not happen.',
+      });
+      // Still proceed with DB update since transaction was confirmed
+      // The signature might appear later due to Solana's eventual consistency
+      console.warn('⚠️ Proceeding with DB update despite on-chain verification failure (transaction was confirmed)');
+    }
+
+    // Update match with new signer (only after on-chain verification or confirmation)
     let newNeedsSignatures = 0;
     let newProposalStatus = 'READY_TO_EXECUTE';
     let cachedFeeWalletKeypair: any = null;

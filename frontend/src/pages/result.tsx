@@ -1072,13 +1072,13 @@ const Result: React.FC = () => {
       const bytes = base64ToUint8Array(txData.transaction);
       const approveTx = VersionedTransaction.deserialize(bytes);
       const signedProposalTx = await signTransaction(approveTx);
-      const proposalSerialized = signedProposalTx.serialize();
-      const base64ProposalTx = uint8ArrayToBase64(proposalSerialized);
+      const proposalSerialized = signedProposalTx.serialize(); // Uint8Array
       
       console.log('✅ Proposal transaction signed', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
+        transactionSize: proposalSerialized.length,
       });
       
       // NOTE: Vault transactions do NOT require approval in Squads v4
@@ -1086,11 +1086,16 @@ const Result: React.FC = () => {
       // when the linked Proposal reaches ExecuteReady.
       
       // Step 3: Send signed proposal transaction to backend with retry logic
-      console.log('📤 Submitting signed proposal transaction to backend', {
+      // CRITICAL: Send raw transaction bytes (application/octet-stream) instead of base64 JSON
+      // This ensures the backend receives the exact bytes from Phantom and can broadcast directly
+      // Format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
+      // Body: raw signed transaction bytes (Uint8Array)
+      console.log('📤 Submitting signed proposal transaction to backend (raw bytes format)', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
-        hasProposalTx: !!base64ProposalTx,
+        transactionSize: proposalSerialized.length,
+        format: 'raw-bytes',
       });
       
       // CRITICAL: Retry logic with exponential backoff for network/CORS errors
@@ -1107,17 +1112,15 @@ const Result: React.FC = () => {
             await new Promise(resolve => setTimeout(resolve, delay));
           }
           
-          response = await fetch(`${apiUrl}/api/match/sign-proposal`, {
+          // CRITICAL: Send raw bytes with application/octet-stream content type
+          // Backend will broadcast, confirm, then update DB
+          response = await fetch(`${apiUrl}/api/match/sign-proposal?matchId=${encodeURIComponent(matchId)}&wallet=${encodeURIComponent(publicKey.toString())}`, {
             method: 'POST',
             headers: {
-              'Content-Type': 'application/json',
+              'Content-Type': 'application/octet-stream',
             },
             credentials: 'include',
-            body: JSON.stringify({
-              matchId,
-              wallet: publicKey.toString(),
-              signedTransaction: base64ProposalTx, // Proposal approval only
-            }),
+            body: proposalSerialized, // Raw Uint8Array bytes
           });
           
           // CRITICAL: Check if response is ok before parsing
