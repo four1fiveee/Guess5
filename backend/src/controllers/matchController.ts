@@ -3611,6 +3611,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 console.error('❌ Squads proposal creation failed:', proposalResult.error);
                 // Continue with fallback payment instructions
               }
+              }
             } catch (error: unknown) {
               const errorMessage = error instanceof Error ? error.message : String(error);
               console.error('❌ Error creating Squads proposal (CRITICAL):', errorMessage);
@@ -4174,14 +4175,13 @@ const submitResultHandler = async (req: any, res: any) => {
                         `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                     }
-                    }
                   }
+                }
                 } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
                 }
-              }
             } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
               console.error('❌ Failed to create proposals for fallback save:', errorMessage);
@@ -4908,6 +4908,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               console.error('❌ Error creating payout proposal:', errorMessage);
             }
           }
+        }
     } else {
         console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
         matchId: match.id,
