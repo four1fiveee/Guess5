@@ -6364,7 +6364,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         paidAt: (match as any).bonusPaidAt || null
       }
     });
-
   } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
     // Ensure CORS headers are set even on error
