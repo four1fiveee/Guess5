@@ -3937,6 +3937,7 @@ export class SquadsVaultService {
           signature: executionSignature,
           correlationId,
         });
+        // Continue to verification below (don't return here)
       } catch (rpcError: any) {
         // Method 2: Fall back to instructions.vaultTransactionExecute with manual handling
         enhancedLogger.warn('⚠️ rpc.vaultTransactionExecute failed, trying instructions.vaultTransactionExecute', {
@@ -4222,8 +4223,9 @@ export class SquadsVaultService {
         executionMethod,
               correlationId,
         });
+      } // End of catch (rpcError) block - fallback path complete
 
-      // CRITICAL VERIFICATION: Confirm execution succeeded on-chain
+      // CRITICAL VERIFICATION: Confirm execution succeeded on-chain (for both rpc and instructions paths)
       try {
         await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s for confirmation
         
@@ -4303,9 +4305,9 @@ export class SquadsVaultService {
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
       
       // Enhanced error logging to identify what's undefined
-      enhancedLogger.error('❌ rpc.vaultTransactionExecute failed', {
-      vaultAddress,
-      proposalId,
+      enhancedLogger.error('❌ Execution failed', {
+        vaultAddress,
+        proposalId,
         transactionIndex: Number(transactionIndex),
         executor: executor?.publicKey?.toString() || 'undefined',
         executorType: typeof executor,
@@ -4319,13 +4321,13 @@ export class SquadsVaultService {
         multisigPda: multisigAddress?.toString() || 'undefined',
         programId: this.programId?.toString() || 'undefined',
         correlationId,
-    });
+      });
 
-    return {
-      success: false,
+      return {
+        success: false,
         error: errorMessage,
         correlationId,
-    };
+      };
     }
   }
 
