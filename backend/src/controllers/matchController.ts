@@ -4484,7 +4484,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     // Auto-create Squads vault if missing and match requires escrow
     // CRITICAL FIX: Try synchronous creation first (with timeout) for faster user experience
     // If it times out or fails, fall back to background creation
+    console.log('🔍 Checking if vault creation needed', {
+      matchId: match?.id,
+      hasVaultAddress: !!(match as any)?.squadsVaultAddress,
+      matchStatus: match?.status,
+      shouldCreate: !!(match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status))
+    });
+    
     if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
+      console.log('🏦 Vault creation needed - starting synchronous attempt', {
+        matchId: match.id,
+        player1: match.player1,
+        player2: match.player2,
+        entryFee: match.entryFee
+      });
+      
       try {
         const vaultCreationKey = `vault_creation_${match.id}`;
         const { getRedisMM } = require('../config/redis');
@@ -4495,13 +4509,19 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         
         // Only attempt if not in cooldown
         if (!lastAttempt || (now - parseInt(lastAttempt)) > cooldownPeriod) {
-          console.log('🏦 No vault on match yet; attempting on-demand creation (synchronous with timeout)...', { matchId: match.id });
+          console.log('🏦 No vault on match yet; attempting on-demand creation (synchronous with timeout)...', { 
+            matchId: match.id,
+            player1: match.player1,
+            player2: match.player2,
+            entryFee: match.entryFee
+          });
           
           // Mark that we're attempting vault creation
           await redis.set(vaultCreationKey, now.toString(), 'EX', 60);
           
-          // Try synchronous creation with 15 second timeout
+          // Try synchronous creation with 20 second timeout (increased from 15s)
           try {
+            console.log('⏳ Calling createMatchVault...', { matchId: match.id });
             const creationPromise = squadsVaultService.createMatchVault(
               match.id,
               new PublicKey(match.player1),
@@ -4510,13 +4530,22 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             );
             
             const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Vault creation timeout')), 15000)
+              setTimeout(() => reject(new Error('Vault creation timeout')), 20000)
             );
             
+            console.log('⏳ Waiting for vault creation (max 20s)...', { matchId: match.id });
             const creation = await Promise.race([creationPromise, timeoutPromise]) as any;
+            console.log('📦 Vault creation result received', {
+              matchId: match.id,
+              success: creation?.success,
+              hasVaultAddress: !!creation?.vaultAddress,
+              hasVaultPda: !!creation?.vaultPda,
+              error: creation?.error
+            });
             
             if (creation?.success && creation.vaultAddress) {
               // Reload match from DB to get fresh vault data (createMatchVault saves it)
+              console.log('🔄 Reloading match from DB to get vault addresses...', { matchId: match.id });
               const { AppDataSource } = require('../db/index');
               const matchRepository = AppDataSource.getRepository(Match);
               const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
@@ -4524,6 +4553,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               if (freshMatch) {
                 (match as any).squadsVaultAddress = freshMatch.squadsVaultAddress || creation.vaultAddress;
                 (match as any).squadsVaultPda = freshMatch.squadsVaultPda || creation.vaultPda || null;
+                
+                console.log('📋 Fresh match data loaded', {
+                  matchId: match.id,
+                  dbVaultAddress: freshMatch.squadsVaultAddress,
+                  dbVaultPda: freshMatch.squadsVaultPda,
+                  resultVaultAddress: creation.vaultAddress,
+                  resultVaultPda: creation.vaultPda
+                });
                 
                 // Ensure vaultPda is set
                 if (!(match as any).squadsVaultPda && (match as any).squadsVaultAddress) {
@@ -4533,6 +4570,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     const derivedVaultPda = squadsService?.deriveVaultPda?.((match as any).squadsVaultAddress);
                     if (derivedVaultPda) {
                       (match as any).squadsVaultPda = derivedVaultPda;
+                      console.log('✅ Derived vaultPda', { matchId: match.id, vaultPda: derivedVaultPda });
                     }
                   } catch (deriveErr) {
                     console.warn('⚠️ Could not derive vaultPda', { matchId: match.id, error: deriveErr });
@@ -4547,13 +4585,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 
                 // Clear the rate limit key on success
                 await redis.del(vaultCreationKey);
+              } else {
+                console.error('❌ Could not reload match from DB after vault creation', { matchId: match.id });
               }
             } else {
               console.error('❌ On-demand vault creation failed (synchronous)', {
                 matchId: match.id,
                 success: creation?.success,
                 error: creation?.error || 'Unknown error',
-                hasVaultAddress: !!creation?.vaultAddress
+                hasVaultAddress: !!creation?.vaultAddress,
+                creationResult: creation
               });
               // Fall through to background retry
             }
@@ -4565,6 +4606,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               console.error('❌ On-demand vault creation exception (synchronous)', {
                 matchId: match.id,
                 error: creationErr instanceof Error ? creationErr.message : String(creationErr),
+                errorName: creationErr?.name,
+                errorCode: creationErr?.code,
                 stack: creationErr instanceof Error ? creationErr.stack : undefined
               });
             }
