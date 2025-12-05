@@ -3612,10 +3612,6 @@ const submitResultHandler = async (req: any, res: any) => {
                 // Continue with fallback payment instructions
               }
             } catch (error: unknown) {
-                console.error('❌ Squads proposal creation failed:', proposalResult.error);
-                // Continue with fallback payment instructions
-              }
-            } catch (error: unknown) {
               const errorMessage = error instanceof Error ? error.message : String(error);
               console.error('❌ Error creating Squads proposal (CRITICAL):', errorMessage);
               // Continue with fallback payment instructions
@@ -4825,7 +4821,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     await matchRepository.save(match);
                     console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId, signers: proposalState.signers, needsSignatures: proposalState.normalizedNeeds });
                   }
-                }
                 } else {
                   // Tie refund proposal
                   const player1Result = match.getPlayer1Result();
@@ -4913,7 +4908,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               console.error('❌ Error creating payout proposal:', errorMessage);
             }
           }
-      }
     } else {
         console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
         matchId: match.id,
