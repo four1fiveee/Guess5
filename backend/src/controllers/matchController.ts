@@ -4989,9 +4989,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   const hasWinner = freshMatch.winner && freshMatch.winner !== 'tie';
   // CRITICAL FIX: Always re-check proposal existence from database before creating
   // This prevents race conditions where proposals are created after user signs
+  // Note: matchRepository from line 4948 is scoped to the try block, so we need to get it again
   const { AppDataSource } = require('../db/index');
-  const matchRepository = AppDataSource.getRepository(Match);
-  const latestProposalCheck = await matchRepository.query(`
+  const proposalCheckRepository = AppDataSource.getRepository(Match);
+  const latestProposalCheck = await proposalCheckRepository.query(`
     SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners"
     FROM "match"
     WHERE id = $1
