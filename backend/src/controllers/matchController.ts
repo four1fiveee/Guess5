@@ -12635,8 +12635,13 @@ const signProposalHandler = async (req: any, res: any) => {
     
     let playerSignatureVerified = false;
     let onChainSigners: string[] = [];
-    const maxVerificationAttempts = 5;
-    const verificationDelay = 2000; // 2 seconds between attempts
+    const maxVerificationAttempts = 10; // Increased from 5 to 10 for Solana eventual consistency
+    const verificationDelay = 3000; // Increased from 2s to 3s between attempts
+    
+    // CRITICAL: Add initial delay before first verification attempt
+    // Solana's eventual consistency means signatures may take a few seconds to appear
+    console.log('⏳ Waiting 3 seconds before first on-chain verification (Solana eventual consistency)...');
+    await new Promise(resolve => setTimeout(resolve, 3000));
     
     for (let attempt = 0; attempt < maxVerificationAttempts; attempt++) {
       try {
