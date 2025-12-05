@@ -2707,6 +2707,27 @@ const submitResultHandler = async (req: any, res: any) => {
               });
               
               try {
+                // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
+                const proposalCheckRows = await backgroundMatchRepository.query(`
+                  SELECT "payoutProposalId", "tieRefundProposalId"
+                  FROM "match"
+                  WHERE id = $1
+                  FOR UPDATE
+                  LIMIT 1
+                `, [updatedMatch.id]);
+                
+                const hasExistingProposal = proposalCheckRows && proposalCheckRows.length > 0 && 
+                                            (proposalCheckRows[0].payoutProposalId || proposalCheckRows[0].tieRefundProposalId);
+                
+                if (hasExistingProposal) {
+                  console.log('✅ Proposal already exists (submitResultHandler background), skipping creation', {
+                    matchId: updatedMatch.id,
+                    payoutProposalId: proposalCheckRows[0].payoutProposalId,
+                    tieRefundProposalId: proposalCheckRows[0].tieRefundProposalId,
+                  });
+                  return; // Proposal already exists, don't create another one
+                }
+                
                 // Add timeout to prevent hanging forever
                 console.log('⏳ Calling proposeWinnerPayout service...', {
                   matchId: updatedMatch.id,
@@ -3065,6 +3086,27 @@ const submitResultHandler = async (req: any, res: any) => {
                 });
                 
                 try {
+                  // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
+                  const proposalCheckRows = await backgroundMatchRepository.query(`
+                    SELECT "payoutProposalId", "tieRefundProposalId"
+                    FROM "match"
+                    WHERE id = $1
+                    FOR UPDATE
+                    LIMIT 1
+                  `, [updatedMatch.id]);
+                  
+                  const hasExistingProposal = proposalCheckRows && proposalCheckRows.length > 0 && 
+                                              (proposalCheckRows[0].payoutProposalId || proposalCheckRows[0].tieRefundProposalId);
+                  
+                  if (hasExistingProposal) {
+                    console.log('✅ Proposal already exists (submitResultHandler tie refund background), skipping creation', {
+                      matchId: updatedMatch.id,
+                      payoutProposalId: proposalCheckRows[0].payoutProposalId,
+                      tieRefundProposalId: proposalCheckRows[0].tieRefundProposalId,
+                    });
+                    return; // Proposal already exists, don't create another one
+                  }
+                  
                   // Add timeout to prevent hanging forever
                   console.log('⏳ Calling proposeTieRefund service...', {
                     matchId: updatedMatch.id,
@@ -3478,8 +3520,33 @@ const submitResultHandler = async (req: any, res: any) => {
             // CRITICAL FIX: Create proposal synchronously to ensure database consistency
             // This ensures the proposal is created and saved before response is sent
             try {
-              console.log('🔄 Creating winner payout proposal synchronously...');
-              const proposalResult = await squadsVaultService.proposeWinnerPayout(
+              // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
+              const proposalCheckRows = await matchRepository.query(`
+                SELECT "payoutProposalId", "tieRefundProposalId"
+                FROM "match"
+                WHERE id = $1
+                FOR UPDATE
+                LIMIT 1
+              `, [updatedMatch.id]);
+              
+              const hasExistingProposal = proposalCheckRows && proposalCheckRows.length > 0 && 
+                                          (proposalCheckRows[0].payoutProposalId || proposalCheckRows[0].tieRefundProposalId);
+              
+              if (hasExistingProposal) {
+                console.log('✅ Proposal already exists (determineWinnerAndPayout), skipping creation', {
+                  matchId: updatedMatch.id,
+                  payoutProposalId: proposalCheckRows[0].payoutProposalId,
+                  tieRefundProposalId: proposalCheckRows[0].tieRefundProposalId,
+                });
+                // Update payoutResult with existing proposal ID
+                if (proposalCheckRows[0].payoutProposalId) {
+                  (payoutResult as any).proposalId = proposalCheckRows[0].payoutProposalId;
+                } else if (proposalCheckRows[0].tieRefundProposalId) {
+                  (payoutResult as any).proposalId = proposalCheckRows[0].tieRefundProposalId;
+                }
+              } else {
+                console.log('🔄 Creating winner payout proposal synchronously...');
+                const proposalResult = await squadsVaultService.proposeWinnerPayout(
                 updatedMatch.squadsVaultAddress,
                 new PublicKey(winner),
                 winnerAmount,
@@ -3541,6 +3608,10 @@ const submitResultHandler = async (req: any, res: any) => {
                 (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
                 
               } else {
+                console.error('❌ Squads proposal creation failed:', proposalResult.error);
+                // Continue with fallback payment instructions
+              }
+            } catch (error: unknown) {
                 console.error('❌ Squads proposal creation failed:', proposalResult.error);
                 // Continue with fallback payment instructions
               }
