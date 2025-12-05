@@ -355,7 +355,7 @@ const Result: React.FC = () => {
             // CRITICAL: Merge new data with existing state to prevent UI flashing
             // Preserve valid states like EXECUTING, signed status, etc.
             const currentPayoutData = payoutData || {};
-            const userWallet = publicKey?.toString() || '';
+            const currentUserWallet = publicKey?.toString() || '';
             const currentSigners = Array.isArray(currentPayoutData.proposalSigners) 
               ? currentPayoutData.proposalSigners 
               : [];
@@ -364,9 +364,9 @@ const Result: React.FC = () => {
             // CRITICAL: Preserve user's signature if they've signed (even if backend hasn't updated yet)
             // This prevents UI from reverting to "needs signature" after user signs
             const mergedSigners = [...new Set([
-              ...currentSigners.filter((s: string) => s?.toLowerCase() === userWallet.toLowerCase()),
+              ...currentSigners.filter((s: string) => s?.toLowerCase() === currentUserWallet.toLowerCase()),
               ...newSigners,
-              ...currentSigners.filter((s: string) => s?.toLowerCase() !== userWallet.toLowerCase())
+              ...currentSigners.filter((s: string) => s?.toLowerCase() !== currentUserWallet.toLowerCase())
             ])];
             
             // CRITICAL: Preserve EXECUTING status if it exists in current state
@@ -521,9 +521,9 @@ const Result: React.FC = () => {
 
             // CRITICAL FIX: Check if user has signed (case-insensitive comparison)
             // Also check raw proposalSigners in case normalization missed it
-            const userWallet = publicKey?.toString() || '';
-            const userHasSigned = playerProposalSigners.some(s => s?.toLowerCase() === userWallet.toLowerCase()) ||
-                                  normalizedProposalSigners.some(s => s?.toLowerCase() === userWallet.toLowerCase());
+            const checkUserWallet = publicKey?.toString() || '';
+            const userHasSigned = playerProposalSigners.some(s => s?.toLowerCase() === checkUserWallet.toLowerCase()) ||
+                                  normalizedProposalSigners.some(s => s?.toLowerCase() === checkUserWallet.toLowerCase());
             
             // Don't show "user hasn't signed" message if:
             // 1. Proposal is EXECUTING (already has all signatures)
@@ -542,7 +542,7 @@ const Result: React.FC = () => {
                 needsSignatures: payoutData.needsSignatures,
                 proposalStatus: payoutData.proposalStatus,
                 userHasSigned,
-                userWallet,
+                userWallet: checkUserWallet,
                 playerProposalSigners,
                 normalizedProposalSigners,
                 proposalExecutedAt: payoutData.proposalExecutedAt,
