@@ -4259,14 +4259,15 @@ const submitResultHandler = async (req: any, res: any) => {
   }
 };
 const getMatchStatusHandler = async (req: any, res: any) => {
-  // Set CORS headers explicitly to ensure they're always present
-  const requestOrigin = req.headers.origin;
-  const corsOrigin = resolveCorsOrigin(requestOrigin);
-  // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
-  const originToUse = corsOrigin || 'https://guess5.io';
-  res.header('Access-Control-Allow-Origin', originToUse);
-  res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  try {
+    // Set CORS headers explicitly to ensure they're always present
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
   
   try {
     const { matchId } = req.params;
@@ -4644,13 +4645,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             // Fall through to background retry
           }
             } // Close else block for hasEnoughBalance check
+          } else {
+            const timeSinceLastAttempt = now - parseInt(lastAttempt);
+            const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
+            console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
           } // Close else block for cooldown check
-        } else {
-          const timeSinceLastAttempt = now - parseInt(lastAttempt);
-          const remainingCooldown = Math.ceil((cooldownPeriod - timeSinceLastAttempt) / 1000);
-          console.log(`⏳ Vault creation cooldown active for match ${match.id} (${remainingCooldown}s remaining)`);
-      }
-    } catch (onDemandErr) {
+        }
+      } catch (onDemandErr) {
         console.error('❌ On-demand vault creation check failed', {
         matchId: match?.id,
           error: onDemandErr instanceof Error ? onDemandErr.message : String(onDemandErr),
