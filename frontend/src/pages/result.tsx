@@ -1046,15 +1046,56 @@ const Result: React.FC = () => {
       const matchId = router.query.matchId as string;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       
+      // CRITICAL: Re-fetch latest match status to ensure we have the latest proposal ID
+      // This prevents signing a stale proposal if a new one was created
+      console.log('🔍 Re-fetching latest match status to get current proposal ID...', {
+        matchId,
+        currentProposalId: payoutData.proposalId,
+      });
+      
+      const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}`, {
+        credentials: 'include',
+      });
+      
+      if (!statusResponse.ok) {
+        throw new Error(`Failed to fetch match status: ${statusResponse.status}`);
+      }
+      
+      const latestMatchData = await statusResponse.json();
+      const latestProposalId = latestMatchData.payoutProposalId || latestMatchData.tieRefundProposalId;
+      
+      if (!latestProposalId) {
+        throw new Error('No proposal ID found in latest match status');
+      }
+      
+      // CRITICAL: If proposal ID changed, update payoutData and warn user
+      if (latestProposalId !== payoutData.proposalId) {
+        console.warn('⚠️ Proposal ID changed! Updating to latest proposal', {
+          matchId,
+          oldProposalId: payoutData.proposalId,
+          newProposalId: latestProposalId,
+          note: 'This can happen if a new proposal was created after the page loaded',
+        });
+        
+        // Update payoutData with latest proposal ID
+        setPayoutData((prev: any) => ({
+          ...prev,
+          proposalId: latestProposalId,
+          proposalStatus: latestMatchData.proposalStatus || prev.proposalStatus,
+          proposalSigners: latestMatchData.proposalSigners || prev.proposalSigners,
+          needsSignatures: latestMatchData.needsSignatures ?? prev.needsSignatures,
+        }));
+      }
+      
       console.log('🖊️ Preparing to sign proposal', {
         matchId,
         wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
+        proposalId: latestProposalId,
         vaultAddress: payoutData.vaultAddress,
         vaultDepositAddress: payoutData.vaultDepositAddress,
       });
       
-      // Step 1: Get the transaction from backend
+      // Step 1: Get the transaction from backend (using latest proposal ID)
       const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${matchId}&wallet=${publicKey.toString()}`);
       
       if (!getTxResponse.ok) {
