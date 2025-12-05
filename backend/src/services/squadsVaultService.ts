@@ -3302,51 +3302,121 @@ export class SquadsVaultService {
         try {
           const txAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
           if (txAccountInfo) {
-            // CRITICAL: Verify transaction account contents (check inner instructions)
-            try {
-              // In Squads v4, use VaultTransaction, not Transaction
-              const transactionAccount = await accounts.VaultTransaction.fromAccountAddress(
-                this.connection,
-                transactionPda,
-                'confirmed'
-              );
-              
-              // Log transaction account details for debugging
-              const transactionData = transactionAccount as any;
-              enhancedLogger.info('📋 Transaction Account Contents Verified', {
-                vaultAddress,
-                proposalId,
-                transactionPda: transactionPda.toString(),
-                transactionIndex: transactionIndex.toString(),
-                accountOwner: transactionAccount.owner?.toString() || 'unknown',
-                accountDataLength: txAccountInfo.data.length,
-                // Log any available instruction data
-                hasMessage: !!transactionData.message,
-                hasAuthorityIndex: transactionData.authorityIndex !== undefined,
-                hasVaultIndex: transactionData.vaultIndex !== undefined,
-                correlationId,
-                note: 'Transaction account contains the proposal instructions that will execute',
-              });
-              
-              // Check if transaction account has any special requirements
-              if (transactionData.authorityIndex !== undefined) {
-                enhancedLogger.info('🔑 Transaction requires authority index', {
+              // CRITICAL: Verify transaction account contents (check inner instructions)
+              try {
+                // In Squads v4, use VaultTransaction, not Transaction
+                const transactionAccount = await accounts.VaultTransaction.fromAccountAddress(
+                  this.connection,
+                  transactionPda,
+                  'confirmed'
+                );
+                
+                // Log transaction account details for debugging
+                const transactionData = transactionAccount as any;
+                
+                // CRITICAL: Check VaultTransaction status - this determines if validation passed
+                const vtStatus = (transactionData as any).status;
+                const vtStatusKind = vtStatus?.__kind || vtStatus;
+                
+                enhancedLogger.info('📋 Transaction Account Contents Verified', {
                   vaultAddress,
                   proposalId,
-                  authorityIndex: transactionData.authorityIndex,
+                  transactionPda: transactionPda.toString(),
+                  transactionIndex: transactionIndex.toString(),
+                  accountOwner: transactionAccount.owner?.toString() || 'unknown',
+                  accountDataLength: txAccountInfo.data.length,
+                  // Log any available instruction data
+                  hasMessage: !!transactionData.message,
+                  hasAuthorityIndex: transactionData.authorityIndex !== undefined,
+                  hasVaultIndex: transactionData.vaultIndex !== undefined,
+                  vaultTransactionStatus: vtStatusKind,
+                  vaultTransactionStatusFull: vtStatus,
                   correlationId,
+                  note: 'Transaction account contains the proposal instructions that will execute',
+                });
+                
+                // CRITICAL: Log the message field which contains the instructions
+                if (transactionData.message) {
+                  try {
+                    const message = transactionData.message;
+                    enhancedLogger.info('📨 VaultTransaction Message (Instructions)', {
+                      vaultAddress,
+                      proposalId,
+                      transactionPda: transactionPda.toString(),
+                      messageType: typeof message,
+                      messageKeys: message ? Object.keys(message) : [],
+                      hasInstructions: !!(message as any)?.instructions,
+                      instructionCount: Array.isArray((message as any)?.instructions) ? (message as any).instructions.length : 0,
+                      correlationId,
+                      note: 'This contains the inner instructions that will execute',
+                    });
+                    
+                    // Try to extract instruction details
+                    if ((message as any)?.instructions && Array.isArray((message as any).instructions)) {
+                      const instructions = (message as any).instructions;
+                      enhancedLogger.info('🔍 VaultTransaction Inner Instructions', {
+                        vaultAddress,
+                        proposalId,
+                        instructionCount: instructions.length,
+                        instructions: instructions.map((ix: any, idx: number) => ({
+                          index: idx,
+                          programId: ix?.programId?.toString?.() || 'unknown',
+                          keys: ix?.keys?.length || 0,
+                          dataLength: ix?.data?.length || 0,
+                        })),
+                        correlationId,
+                      });
+                    }
+                  } catch (msgError: unknown) {
+                    enhancedLogger.warn('⚠️ Could not parse VaultTransaction message', {
+                      vaultAddress,
+                      proposalId,
+                      error: msgError instanceof Error ? msgError.message : String(msgError),
+                      correlationId,
+                    });
+                  }
+                }
+                
+                // Check if transaction account has any special requirements
+                if (transactionData.authorityIndex !== undefined) {
+                  enhancedLogger.info('🔑 Transaction requires authority index', {
+                    vaultAddress,
+                    proposalId,
+                    authorityIndex: transactionData.authorityIndex,
+                    correlationId,
+                  });
+                }
+                
+                // CRITICAL DIAGNOSIS: Check if VaultTransaction status is ExecuteReady
+                if (vtStatusKind !== 'ExecuteReady' && vtStatusKind !== 'Executed') {
+                  enhancedLogger.error('❌ CRITICAL: VaultTransaction is NOT in ExecuteReady state', {
+                    vaultAddress,
+                    proposalId,
+                    transactionPda: transactionPda.toString(),
+                    currentStatus: vtStatusKind,
+                    expectedStatus: 'ExecuteReady',
+                    correlationId,
+                    note: 'This is why the proposal cannot execute. Validation stage must pass first.',
+                  });
+                } else {
+                  enhancedLogger.info('✅ VaultTransaction is in ExecuteReady state', {
+                    vaultAddress,
+                    proposalId,
+                    transactionPda: transactionPda.toString(),
+                    status: vtStatusKind,
+                    correlationId,
+                  });
+                }
+              } catch (txAccountError: unknown) {
+                enhancedLogger.warn('⚠️ Could not parse Transaction account (continuing)', {
+                  vaultAddress,
+                  proposalId,
+                  transactionPda: transactionPda.toString(),
+                  error: txAccountError instanceof Error ? txAccountError.message : String(txAccountError),
+                  correlationId,
+                  note: 'Transaction account may be in a different format or already closed',
                 });
               }
-            } catch (txAccountError: unknown) {
-              enhancedLogger.warn('⚠️ Could not parse Transaction account (continuing)', {
-                vaultAddress,
-                proposalId,
-                transactionPda: transactionPda.toString(),
-                error: txAccountError instanceof Error ? txAccountError.message : String(txAccountError),
-                correlationId,
-                note: 'Transaction account may be in a different format or already closed',
-              });
-            }
             
             enhancedLogger.info('🔎 VaultTransaction PDA located', {
             vaultAddress,
@@ -3963,21 +4033,58 @@ export class SquadsVaultService {
 
           if (simulation.value.err) {
             const simError = JSON.stringify(simulation.value.err);
+            
+            // CRITICAL DIAGNOSIS: Extract detailed error information
+            const errorDetails: any = {
+              rawError: simulation.value.err,
+              errorString: simError,
+              errorType: typeof simulation.value.err,
+            };
+            
+            // Check for common Squads v4 validation errors
+            const logs = simulation.value.logs || [];
+            const errorLogs = logs.filter((log: string) => 
+              log.includes('vault transaction not in ExecuteReady') ||
+              log.includes('invalid remaining accounts') ||
+              log.includes('missing signer index') ||
+              log.includes('constraint violation') ||
+              log.includes('AnchorError') ||
+              log.includes('Program log: Error:') ||
+              log.includes('Program log: AnchorError')
+            );
+            
             enhancedLogger.error('❌ Simulation failed before execution - transaction would fail', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
+              transactionPda: transactionPda.toString(),
+              multisigPda: multisigAddress.toString(),
               error: simError,
-              logs: simulation.value.logs?.slice(-20),
+              errorDetails,
+              allLogs: logs,
+              errorLogs,
               computeUnitsConsumed: simulation.value.unitsConsumed,
               correlationId,
-              note: 'Execution aborted - simulation shows transaction would fail on-chain',
+              note: 'Execution aborted - simulation shows transaction would fail on-chain. Check errorLogs for specific validation failures.',
             });
+            
+            // Log specific validation error patterns
+            if (errorLogs.length > 0) {
+              enhancedLogger.error('🔍 VALIDATION ERROR DETECTED - This is why proposal cannot transition to ExecuteReady', {
+                vaultAddress,
+                proposalId,
+                transactionPda: transactionPda.toString(),
+                validationErrors: errorLogs,
+                correlationId,
+                note: 'These errors indicate why the validation stage fails. Fix these to allow ExecuteReady transition.',
+              });
+            }
             
             return {
               success: false,
               error: `Simulation failed: ${simError}`,
-              logs: simulation.value.logs,
+              logs: logs,
+              errorLogs: errorLogs,
               correlationId,
             };
           }
