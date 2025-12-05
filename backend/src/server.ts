@@ -69,7 +69,7 @@ async function startServer() {
         setTimeout(() => reject(new Error('Database initialization timeout (15s)')), 15000);
       });
       await Promise.race([dbInitPromise, dbTimeoutPromise]);
-      enhancedLogger.info('✅ Database connected successfully');
+    enhancedLogger.info('✅ Database connected successfully');
     } catch (error: any) {
       enhancedLogger.warn(`⚠️ Database initialization failed or timed out (continuing):`, error?.message || error);
       enhancedLogger.warn('⚠️ Server will start in degraded mode - database features may be unavailable');
@@ -84,7 +84,7 @@ async function startServer() {
         setTimeout(() => reject(new Error('Redis initialization timeout (10s)')), 10000);
       });
       await Promise.race([redisInitPromise, redisTimeoutPromise]);
-      enhancedLogger.info('✅ Redis initialized successfully');
+    enhancedLogger.info('✅ Redis initialized successfully');
     } catch (error: any) {
       enhancedLogger.warn(`⚠️ Redis initialization failed or timed out (continuing without Redis):`, error?.message || error);
       enhancedLogger.warn('⚠️ Server will start in degraded mode - some features may be unavailable');
@@ -92,9 +92,9 @@ async function startServer() {
     
     // Initialize Redis lock auto-cleanup after Redis is ready (optional)
     try {
-      const { initializeAutoCleanup } = require('./utils/proposalLocks');
-      initializeAutoCleanup();
-      enhancedLogger.info('✅ Redis lock auto-cleanup initialized');
+    const { initializeAutoCleanup } = require('./utils/proposalLocks');
+    initializeAutoCleanup();
+    enhancedLogger.info('✅ Redis lock auto-cleanup initialized');
     } catch (error: any) {
       enhancedLogger.warn('⚠️ Redis lock auto-cleanup failed (optional):', error?.message || error);
     }
@@ -121,39 +121,39 @@ async function startServer() {
 
     // Start cleanup scheduler for Redis matchmaking (optional)
     try {
-      setInterval(async () => {
-        try {
-          await redisMatchmakingService.cleanup();
-        } catch (error) {
-          enhancedLogger.error('❌ Error during Redis cleanup:', error);
-        }
-      }, 60000); // Run cleanup every minute
+    setInterval(async () => {
+      try {
+        await redisMatchmakingService.cleanup();
+      } catch (error) {
+        enhancedLogger.error('❌ Error during Redis cleanup:', error);
+      }
+    }, 60000); // Run cleanup every minute
     } catch (error: any) {
       enhancedLogger.warn('⚠️ Failed to start Redis cleanup scheduler (optional):', error?.message || error);
     }
 
     // Start proposal expiration scanner (optional)
     try {
-      const { proposalExpirationService } = require('./services/proposalExpirationService');
-      setInterval(async () => {
-        try {
-          await proposalExpirationService.scanForExpiredProposals();
-        } catch (error) {
-          enhancedLogger.error('❌ Error during proposal expiration scan:', error);
-        }
-      }, 5 * 60 * 1000); // Scan every 5 minutes
-      enhancedLogger.info('✅ Proposal expiration scanner started');
+    const { proposalExpirationService } = require('./services/proposalExpirationService');
+    setInterval(async () => {
+      try {
+        await proposalExpirationService.scanForExpiredProposals();
+      } catch (error) {
+        enhancedLogger.error('❌ Error during proposal expiration scan:', error);
+      }
+    }, 5 * 60 * 1000); // Scan every 5 minutes
+    enhancedLogger.info('✅ Proposal expiration scanner started');
     } catch (error: any) {
       enhancedLogger.warn('⚠️ Failed to start proposal expiration scanner (optional):', error?.message || error);
     }
 
     // Server is already bound above - now initialize services in background
     // All services are optional and won't prevent server from running
-    enhancedLogger.info(`🎯 Security configuration:`);
-    enhancedLogger.info(`   - Environment: ${config.security.nodeEnv}`);
-    enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
-    enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
-    enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
+      enhancedLogger.info(`🎯 Security configuration:`);
+      enhancedLogger.info(`   - Environment: ${config.security.nodeEnv}`);
+      enhancedLogger.info(`   - ReCaptcha: ${config.security.recaptchaSecret ? 'Enabled' : 'Disabled'}`);
+      enhancedLogger.info(`   - Memory limits: ${config.limits.maxActiveGames} active games`);
+      enhancedLogger.info(`   - WebSocket: Enabled with real-time events`);
     enhancedLogger.info(`   - Redis: ${process.env.REDIS_MM_HOST ? 'Enabled' : 'Disabled'} (MM: ${process.env.REDIS_MM_HOST || 'N/A'}, Ops: ${process.env.REDIS_OPS_HOST || 'N/A'})`);
 
     // Initialize WebSocket service (optional - server is already bound)
@@ -166,23 +166,23 @@ async function startServer() {
     }
 
     // Start cron jobs (optional)
-    try {
-      const { CronService } = require('./services/cronService');
-      CronService.start();
-      enhancedLogger.info('✅ Cron jobs started');
+      try {
+        const { CronService } = require('./services/cronService');
+        CronService.start();
+        enhancedLogger.info('✅ Cron jobs started');
     } catch (error: any) {
       enhancedLogger.warn('⚠️ Failed to start cron jobs (optional):', error?.message || error);
-    }
+      }
 
     // CRITICAL FIX: Start proposal execution services (optional)
-    try {
-      const { executionRetryService } = require('./services/executionRetryService');
-      const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
-      
-      executionRetryService.start();
-      proposalOnChainSyncService.start();
-      
-      enhancedLogger.info('✅ Proposal execution services started');
+      try {
+        const { executionRetryService } = require('./services/executionRetryService');
+        const { proposalOnChainSyncService } = require('./services/proposalOnChainSyncService');
+        
+        executionRetryService.start();
+        proposalOnChainSyncService.start();
+        
+        enhancedLogger.info('✅ Proposal execution services started');
     } catch (error: any) {
       enhancedLogger.warn('⚠️ Failed to start proposal execution services (optional):', error?.message || error);
     }
@@ -268,7 +268,7 @@ async function startServer() {
     
     server.on('error', (err: any) => {
       enhancedLogger.error('❌ Server error:', err);
-      process.exit(1);
+    process.exit(1);
     });
     
     // Don't exit - let the server run so Render can detect the port

@@ -130,7 +130,7 @@ async function diagnoseProposal(vaultAddress, proposalId, transactionIndex = nul
           });
         }
       }
-    } catch (txError: any) {
+    } catch (txError) {
       console.error('❌ Error fetching VaultTransaction account:', txError.message);
       console.error('  This might indicate the transaction account is missing or invalid');
     }
@@ -174,7 +174,7 @@ async function diagnoseProposal(vaultAddress, proposalId, transactionIndex = nul
         console.log('  Error:', JSON.stringify(simulation.value.err, null, 2));
         if (simulation.value.logs && simulation.value.logs.length > 0) {
           console.log('\n  Logs (last 20):');
-          simulation.value.logs.slice(-20).forEach((log: string) => {
+          simulation.value.logs.slice(-20).forEach((log) => {
             console.log(`    ${log}`);
           });
         }
@@ -182,7 +182,7 @@ async function diagnoseProposal(vaultAddress, proposalId, transactionIndex = nul
         console.log('\n✅ SIMULATION PASSED - Proposal should be executable');
         if (simulation.value.logs && simulation.value.logs.length > 0) {
           console.log('\n  Logs (last 10):');
-          simulation.value.logs.slice(-10).forEach((log: string) => {
+          simulation.value.logs.slice(-10).forEach((log) => {
             console.log(`    ${log}`);
           });
         }

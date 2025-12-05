@@ -81,7 +81,7 @@ export const initializeDatabase = async () => {
       } catch (migrationError) {
         console.warn('⚠️ Migration error (continuing):', migrationError);
       }
-      
+
       // Ensure player1Username and player2Username columns exist (migration might have failed)
       try {
         await AppDataSource.query(`

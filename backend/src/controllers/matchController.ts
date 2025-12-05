@@ -10618,6 +10618,129 @@ const verifyProposalExecutionHandler = async (req: any, res: any) => {
   }
 };
 
+// Admin endpoint: Check proposal mismatches (DB vs on-chain)
+const checkProposalMismatchesHandler = async (req: any, res: any) => {
+  try {
+    const { Connection, PublicKey } = require('@solana/web3.js');
+    const { accounts } = require('@sqds/multisig');
+    const connection = new Connection(
+      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+      'confirmed'
+    );
+
+    // Find suspicious proposals
+    const suspiciousMatches = await matchRepository.query(`
+      SELECT 
+        id,
+        "squadsVaultAddress",
+        "payoutProposalId",
+        "tieRefundProposalId",
+        "proposalStatus",
+        "proposalSigners",
+        "needsSignatures",
+        "proposalExecutedAt",
+        "proposalTransactionId",
+        "createdAt",
+        "updatedAt"
+      FROM "match"
+      WHERE 
+        ("proposalStatus" IN ('EXECUTING', 'ACTIVE', 'READY_TO_EXECUTE', 'APPROVED') OR "proposalStatus" IS NULL)
+        AND ("payoutProposalId" IS NOT NULL OR "tieRefundProposalId" IS NOT NULL)
+        AND "proposalSigners" IS NOT NULL
+        AND "proposalExecutedAt" IS NULL
+        AND "updatedAt" > NOW() - INTERVAL '7 days'
+      ORDER BY "updatedAt" DESC
+      LIMIT 50
+    `);
+
+    const mismatches = [];
+    const checked = [];
+
+    for (const match of suspiciousMatches) {
+      const proposalId = match.payoutProposalId || match.tieRefundProposalId;
+      if (!proposalId) continue;
+
+      try {
+        const proposalPda = new PublicKey(proposalId);
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          connection,
+          proposalPda
+        );
+
+        const onChainSigners = Array.isArray(proposalAccount.approved)
+          ? proposalAccount.approved.map(s => s.toString().toLowerCase())
+          : [];
+
+        const dbSigners = match.proposalSigners
+          ? (typeof match.proposalSigners === 'string'
+              ? JSON.parse(match.proposalSigners)
+              : match.proposalSigners)
+              .map(s => s.toString().toLowerCase())
+          : [];
+
+        const missingOnChain = dbSigners.filter(s => !onChainSigners.includes(s));
+        const missingInDB = onChainSigners.filter(s => !dbSigners.includes(s));
+
+        const statusKind = proposalAccount.status?.__kind || 'Unknown';
+        const threshold = proposalAccount.threshold ? Number(proposalAccount.threshold) : 'N/A';
+
+        checked.push({
+          matchId: match.id,
+          proposalId,
+          dbStatus: match.proposalStatus,
+          onChainStatus: statusKind,
+          dbSigners: dbSigners.length,
+          onChainSigners: onChainSigners.length,
+          threshold,
+          inSync: missingOnChain.length === 0 && missingInDB.length === 0,
+        });
+
+        if (missingOnChain.length > 0 || missingInDB.length > 0) {
+          mismatches.push({
+            matchId: match.id,
+            proposalId,
+            dbStatus: match.proposalStatus,
+            onChainStatus: statusKind,
+            dbSigners,
+            onChainSigners,
+            missingOnChain,
+            missingInDB,
+            needsSignatures: match.needsSignatures,
+            threshold,
+            proposalTransactionId: match.proposalTransactionId,
+            updatedAt: match.updatedAt,
+            createdAt: match.createdAt,
+          });
+        }
+      } catch (error: any) {
+        checked.push({
+          matchId: match.id,
+          proposalId,
+          error: error.message,
+          inSync: false,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      totalChecked: suspiciousMatches.length,
+      mismatchesFound: mismatches.length,
+      mismatches,
+      allChecked: checked,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error checking proposal mismatches:', errorMessage);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to check proposal mismatches',
+      details: errorMessage 
+    });
+  }
+};
+
 // Blockchain verification endpoint
 const verifyBlockchainDataHandler = async (req: any, res: any) => {
   try {
@@ -12574,9 +12697,19 @@ const signProposalHandler = async (req: any, res: any) => {
         attempts: maxVerificationAttempts,
         note: 'Transaction was confirmed but signature is not on-chain. This should not happen.',
       });
-      // Still proceed with DB update since transaction was confirmed
-      // The signature might appear later due to Solana's eventual consistency
-      console.warn('⚠️ Proceeding with DB update despite on-chain verification failure (transaction was confirmed)');
+      // CRITICAL FIX: DO NOT update DB if signature is not verified on-chain
+      // This prevents DB/chain divergence bugs
+      // The signature might appear later due to Solana's eventual consistency, but we should wait
+      const errorDetails = {
+        message: `Player signature not verified on-chain after ${maxVerificationAttempts} attempts`,
+        transactionSignature: signature,
+        onChainSigners: onChainSigners.map(s => s.toString()),
+        expectedWallet: wallet,
+        proposalId: proposalIdString,
+        note: 'Transaction was confirmed but signature is not yet visible on-chain. This may be due to Solana\'s eventual consistency. Please wait a few seconds and try again.',
+      };
+      console.error('❌ CRITICAL: Throwing error to prevent DB update', errorDetails);
+      throw new Error(JSON.stringify(errorDetails));
     }
 
     // Update match with new signer (only after on-chain verification or confirmation)
@@ -12856,15 +12989,17 @@ const signProposalHandler = async (req: any, res: any) => {
       const persistedNeedsSignatures = Math.max(0, newNeedsSignatures);
       
       // Update database using raw SQL
+      // CRITICAL: Store transaction signature for monitoring and re-broadcast capability
       const updateResult = await matchRepository.query(`
         UPDATE "match" 
         SET "proposalSigners" = $1,
             "needsSignatures" = $2,
             "proposalStatus" = $3,
+            "proposalTransactionId" = COALESCE("proposalTransactionId", $4),
             "updatedAt" = NOW()
-        WHERE id = $4
-        RETURNING id, "proposalSigners", "needsSignatures", "proposalStatus"
-      `, [updatedSignersJson, persistedNeedsSignatures, newProposalStatus, matchId]);
+        WHERE id = $5
+        RETURNING id, "proposalSigners", "needsSignatures", "proposalStatus", "proposalTransactionId"
+      `, [updatedSignersJson, persistedNeedsSignatures, newProposalStatus, signature, matchId]);
     
       // CRITICAL: Verify the update actually succeeded
       if (!updateResult || updateResult.length === 0) {
@@ -13180,12 +13315,54 @@ const signProposalHandler = async (req: any, res: any) => {
                 });
                 
                 const executionStartTime = Date.now();
-              const executeResult = await squadsVaultService.executeProposal(
-                matchRow.squadsVaultAddress,
-                proposalIdString,
-                feeWalletKeypair,
-                matchRow.squadsVaultPda ?? undefined
-              );
+                
+                // CRITICAL: Add timeout to execution attempt to prevent hanging forever
+                // If execution takes longer than 60 seconds, it's likely stuck or failing
+                const executionTimeoutMs = 60000; // 60 seconds
+                const executionPromise = squadsVaultService.executeProposal(
+                  matchRow.squadsVaultAddress,
+                  proposalIdString,
+                  feeWalletKeypair,
+                  matchRow.squadsVaultPda ?? undefined
+                );
+                
+                const timeoutPromise = new Promise((_, reject) => {
+                  setTimeout(() => reject(new Error('Execution timeout after 60s')), executionTimeoutMs);
+                });
+                
+                let executeResult;
+                try {
+                  executeResult = await Promise.race([executionPromise, timeoutPromise]);
+                } catch (timeoutError: any) {
+                  console.error('❌ CRITICAL: Execution attempt timed out after 60 seconds', {
+                    matchId,
+                    proposalId: proposalIdString,
+                    error: timeoutError?.message || String(timeoutError),
+                    elapsedMs: Date.now() - executionStartTime,
+                    note: 'Execution may still be in progress on-chain, but we cannot wait longer. Status will be reset to READY_TO_EXECUTE for retry.',
+                  });
+                  
+                  // Reset status to allow retry
+                  try {
+                    await matchRepository.query(`
+                      UPDATE "match"
+                      SET "proposalStatus" = 'READY_TO_EXECUTE'
+                      WHERE id = $1 AND "proposalExecutedAt" IS NULL
+                    `, [matchId]);
+                    console.log('🔄 Reset proposal status to READY_TO_EXECUTE after execution timeout', {
+                      matchId,
+                      proposalId: proposalIdString,
+                    });
+                  } catch (resetError: any) {
+                    console.error('❌ Failed to reset status after timeout', {
+                      matchId,
+                      error: resetError?.message,
+                    });
+                  }
+                  
+                  // Return early - don't continue with success handling
+                  return;
+                }
               
               const executionDuration = Date.now() - executionStartTime;
               console.log('📊 Execution attempt completed', {
@@ -13354,14 +13531,17 @@ const signProposalHandler = async (req: any, res: any) => {
             `, [matchId]);
           }
         } catch (executeError: any) {
-          console.error('❌ Error executing proposal', {
+          console.error('❌ CRITICAL: Unhandled error in background execution task', {
             matchId,
             proposalId: proposalIdString,
             error: executeError?.message || String(executeError),
+            stack: executeError?.stack,
+            note: 'This error occurred in the background execution task - execution may not have been attempted',
           });
           
           // CRITICAL: If execution error occurred but proposal is ready, mark it as READY_TO_EXECUTE
           // so the fallback execution in getMatchStatusHandler can retry it
+          // Also reset from EXECUTING to READY_TO_EXECUTE if execution failed
           if (newNeedsSignatures === 0 && newProposalStatus !== 'EXECUTED') {
             try {
               await matchRepository.query(`
@@ -13570,6 +13750,7 @@ module.exports = {
   generateReportHandler,
   verifyBlockchainDataHandler,
   verifyProposalExecutionHandler,
+  checkProposalMismatchesHandler,
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,

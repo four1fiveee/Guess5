@@ -332,6 +332,9 @@ router.post('/verify-blockchain/:matchId', asyncHandlerWrapper(matchController.v
 // Proposal execution verification endpoint
 router.post('/verify-proposal-execution/:matchId', asyncHandlerWrapper(matchController.verifyProposalExecutionHandler));
 
+// Admin endpoint: Check proposal mismatches (DB vs on-chain)
+router.get('/admin/check-proposal-mismatches', asyncHandlerWrapper(matchController.checkProposalMismatchesHandler));
+
 // WebSocket stats endpoint
 router.get('/websocket-stats', asyncHandlerWrapper(matchController.websocketStatsHandler));
 

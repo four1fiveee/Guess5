@@ -24,23 +24,23 @@ async function deleteMatch(matchId) {
     
     const client = await pool.connect();
     console.log('✅ Database connection established');
-    
+
     try {
       // Check if match exists
       console.log('🔍 Checking if match exists...');
       const checkResult = await client.query('SELECT id FROM "match" WHERE id = $1', [matchId]);
-      
-      if (checkResult.rows.length === 0) {
+
+    if (checkResult.rows.length === 0) {
         console.log('⚠️ Match not found in database:', matchId);
         console.log('✅ Match may have already been deleted or never existed');
         return;
-      }
-      
+    }
+
       console.log('✅ Match found, deleting...');
-      
-      // Delete the match
+
+    // Delete the match
       const deleteResult = await client.query('DELETE FROM "match" WHERE id = $1', [matchId]);
-      
+
       console.log('✅ Match deleted successfully from database:', matchId);
       console.log('   Rows affected:', deleteResult.rowCount);
       

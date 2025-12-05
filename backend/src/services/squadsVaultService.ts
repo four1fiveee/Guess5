@@ -2882,7 +2882,7 @@ export class SquadsVaultService {
         },
         signer: signer.publicKey.toString(),
       });
-      
+
       enhancedLogger.info('📝 Approving Squads proposal using official SDK method', {
         vaultAddress,
         proposalId,
@@ -3303,25 +3303,25 @@ export class SquadsVaultService {
           const txAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
           if (txAccountInfo) {
               // CRITICAL: Verify transaction account contents (check inner instructions)
-              try {
+      try {
                 // In Squads v4, use VaultTransaction, not Transaction
                 const transactionAccount = await accounts.VaultTransaction.fromAccountAddress(
-                  this.connection,
-                  transactionPda,
-                  'confirmed'
-                );
-                
+            this.connection,
+            transactionPda,
+            'confirmed'
+          );
+          
                 // Log transaction account details for debugging
                 const transactionData = transactionAccount as any;
                 
                 // CRITICAL: Check VaultTransaction status - this determines if validation passed
                 const vtStatus = (transactionData as any).status;
                 const vtStatusKind = vtStatus?.__kind || vtStatus;
-                
+          
                 enhancedLogger.info('📋 Transaction Account Contents Verified', {
-                  vaultAddress,
-                  proposalId,
-                  transactionPda: transactionPda.toString(),
+            vaultAddress,
+            proposalId,
+            transactionPda: transactionPda.toString(),
                   transactionIndex: transactionIndex.toString(),
                   accountOwner: transactionAccount.owner?.toString() || 'unknown',
                   accountDataLength: txAccountInfo.data.length,
@@ -3423,7 +3423,7 @@ export class SquadsVaultService {
             proposalId,
             transactionPda: transactionPda.toString(),
               note: 'Squads v4 stores approvals on the Proposal account; VaultTransaction PDA simply holds the message',
-            });
+          });
           } else {
             enhancedLogger.warn('⚠️ VaultTransaction PDA not found (may already be closed)', {
               vaultAddress,
@@ -3860,18 +3860,18 @@ export class SquadsVaultService {
     if (!executor || !executor.publicKey || !executor.secretKey) {
       const error = 'Executor keypair is invalid';
       enhancedLogger.error('❌ Invalid executor keypair for execution', {
-              vaultAddress,
-              proposalId,
+          vaultAddress,
+          proposalId,
         error,
         hasExecutor: !!executor,
         hasPublicKey: executor && !!executor.publicKey,
         hasSecretKey: executor && !!executor.secretKey,
-      });
-      return {
+        });
+        return {
         success: false,
         error,
-        correlationId,
-      };
+          correlationId,
+        };
           }
 
     try {
@@ -3918,14 +3918,14 @@ export class SquadsVaultService {
         }
 
         enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (proven approach)', {
-                vaultAddress,
-                proposalId,
+            vaultAddress,
+            proposalId,
           transactionIndex: transactionIndexNumber,
           executor: executor.publicKey.toString(),
           programId: this.programId.toString(),
           multisigPda: multisigAddress.toString(),
               });
-
+        
         // Build the execution instruction
         const executionIx = instructions.vaultTransactionExecute({
           multisigPda: multisigAddress,
@@ -3939,7 +3939,7 @@ export class SquadsVaultService {
               proposalId,
           transactionIndex: transactionIndexNumber,
             });
-
+          
         // Get latest blockhash
         const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
 
@@ -3948,27 +3948,27 @@ export class SquadsVaultService {
           payerKey: executor.publicKey,
           recentBlockhash: blockhash,
           instructions: [executionIx],
-        });
-
+          });
+          
         // Compile to V0 message (required for Squads)
         const compiledMessage = message.compileToV0Message();
         const transaction = new VersionedTransaction(compiledMessage);
 
         // Sign the transaction
         transaction.sign([executor]);
-
+                
         // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
         const serializedSize = transaction.serialize().length;
         const maxTransactionSize = 1232; // Solana transaction size limit
         
         enhancedLogger.info('📏 Transaction Size Validation', {
-          vaultAddress,
-          proposalId,
+              vaultAddress,
+              proposalId,
           transactionIndex: transactionIndexNumber,
           serializedSize,
           maxSize: maxTransactionSize,
           sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
-          correlationId,
+              correlationId,
         });
         
         if (serializedSize > maxTransactionSize) {
@@ -3993,24 +3993,24 @@ export class SquadsVaultService {
         
         if (serializedSize > maxTransactionSize * 0.9) {
           enhancedLogger.warn('⚠️ Transaction size is close to limit', {
-            vaultAddress,
-            proposalId,
+                vaultAddress,
+                proposalId,
             transactionIndex: transactionIndexNumber,
             serializedSize,
             maxSize: maxTransactionSize,
             remainingBytes: maxTransactionSize - serializedSize,
-            correlationId,
+                correlationId,
             note: 'Transaction is large but within limits - monitor for future growth',
-          });
-        } else {
+              });
+            } else {
           enhancedLogger.info('✅ Transaction size is well within limits', {
-            vaultAddress,
-            proposalId,
+                vaultAddress,
+                proposalId,
             transactionIndex: transactionIndexNumber,
             serializedSize,
             maxSize: maxTransactionSize,
             remainingBytes: maxTransactionSize - serializedSize,
-            correlationId,
+                correlationId,
           });
         }
 
@@ -4023,7 +4023,7 @@ export class SquadsVaultService {
           const simulation = await this.connection.simulateTransaction(transaction, {
             replaceRecentBlockhash: true,
             sigVerify: false,
-          });
+              });
 
           logExecutionStep(correlationId, 'simulate-complete', simulationStartTime, {
             err: simulation.value.err,
@@ -4102,8 +4102,8 @@ export class SquadsVaultService {
         } catch (simulationError: unknown) {
           const simErrorMsg = simulationError instanceof Error ? simulationError.message : String(simulationError);
           enhancedLogger.warn('⚠️ Simulation failed (continuing with execution anyway)', {
-            vaultAddress,
-            proposalId,
+                vaultAddress,
+                proposalId,
             transactionIndex: transactionIndexNumber,
             error: simErrorMsg,
             correlationId,
