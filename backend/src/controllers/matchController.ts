@@ -4607,7 +4607,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 
               // Clear the rate limit key on success
               await redis.del(vaultCreationKey);
-            } else {
+              } else {
                 console.error('❌ Could not reload match from DB after vault creation', { matchId: match.id });
               }
             } else {
