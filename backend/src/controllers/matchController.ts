@@ -4182,6 +4182,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     await releaseProposalLock(updatedMatch.id);
                   }
                 }
+              }
             } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
               console.error('❌ Failed to create proposals for fallback save:', errorMessage);
@@ -4208,6 +4209,7 @@ const submitResultHandler = async (req: any, res: any) => {
               console.warn('⚠️ Error in delayed cleanup:', error);
             }
           }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
+        }
       } else {
         // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
         // Do NOT continue to winner determination or proposal creation
