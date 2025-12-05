@@ -4643,7 +4643,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             });
           }
             // Fall through to background retry
-          }
           } // Close else block for hasEnoughBalance check
         } else {
           const timeSinceLastAttempt = now - parseInt(lastAttempt);
