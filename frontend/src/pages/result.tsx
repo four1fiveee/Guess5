@@ -248,8 +248,9 @@ const Result: React.FC = () => {
       return true;
     }
 
-    // Continue polling if proposal is active or pending
-    return normalizedStatus === 'ACTIVE' || normalizedStatus === 'PENDING';
+    // CRITICAL: Continue polling if proposal is active, pending, or executing
+    // We need to keep polling during EXECUTING to detect when it becomes EXECUTED
+    return normalizedStatus === 'ACTIVE' || normalizedStatus === 'PENDING' || normalizedStatus === 'EXECUTING';
   };
 
   const normalizedProposalSigners = useMemo(

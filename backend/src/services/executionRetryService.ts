@@ -71,7 +71,8 @@ export class ExecutionRetryService {
       const matchRepository = AppDataSource.getRepository(Match);
       
       // Find all matches with proposals ready to execute but not yet executed
-      // This includes proposals marked as READY_TO_EXECUTE or proposals with 0 signatures needed
+      // This includes proposals marked as READY_TO_EXECUTE, EXECUTING, or proposals with 0 signatures needed
+      // CRITICAL: Include EXECUTING status to handle cases where execution was marked but never completed
       const readyToExecuteMatches = await matchRepository.query(`
         SELECT 
           id, 
@@ -88,7 +89,7 @@ export class ExecutionRetryService {
         FROM "match"
         WHERE 
           (
-            ("proposalStatus" = 'READY_TO_EXECUTE' OR "needsSignatures" = 0)
+            ("proposalStatus" = 'READY_TO_EXECUTE' OR "proposalStatus" = 'EXECUTING' OR "needsSignatures" = 0)
             AND "proposalTransactionId" IS NULL
             AND "proposalExecutedAt" IS NULL
             AND ("payoutProposalId" IS NOT NULL OR "tieRefundProposalId" IS NOT NULL)
