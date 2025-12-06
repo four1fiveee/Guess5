@@ -3312,6 +3312,10 @@ export class SquadsVaultService {
       });
 
       // Check Proposal account status (source of truth for ExecuteReady)
+      // CRITICAL: Track VaultTransaction status to prevent execution if not ready
+      let vaultTransactionStatus: string | null = null;
+      let vaultTransactionIsExecuteReady = false;
+      
       try {
         try {
           const txAccountInfo = await this.connection.getAccountInfo(transactionPda, 'confirmed');
@@ -3331,6 +3335,8 @@ export class SquadsVaultService {
                 // CRITICAL: Check VaultTransaction status - this determines if validation passed
                 const vtStatus = (transactionData as any).status;
                 const vtStatusKind = vtStatus?.__kind || vtStatus;
+                vaultTransactionStatus = vtStatusKind;
+                vaultTransactionIsExecuteReady = (vtStatusKind === 'ExecuteReady' || vtStatusKind === 'Executed');
           
                 enhancedLogger.info('📋 Transaction Account Contents Verified', {
             vaultAddress,
@@ -3402,7 +3408,7 @@ export class SquadsVaultService {
                 }
                 
                 // CRITICAL DIAGNOSIS: Check if VaultTransaction status is ExecuteReady
-                if (vtStatusKind !== 'ExecuteReady' && vtStatusKind !== 'Executed') {
+                if (!vaultTransactionIsExecuteReady) {
                   enhancedLogger.error('❌ CRITICAL: VaultTransaction is NOT in ExecuteReady state', {
                     vaultAddress,
                     proposalId,
