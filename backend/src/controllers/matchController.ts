@@ -4268,8 +4268,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     res.header('Access-Control-Allow-Origin', originToUse);
     res.header('Vary', 'Origin');
     res.header('Access-Control-Allow-Credentials', 'true');
-  
-  try {
+    
     const { matchId } = req.params;
     
     console.log('🔍 Looking up match status for:', matchId);
