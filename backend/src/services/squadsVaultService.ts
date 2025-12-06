@@ -3968,7 +3968,9 @@ export class SquadsVaultService {
           programId: this.programId,
         });
         
-        let remainingAccounts: PublicKey[] = [];
+        // CRITICAL: Extract remaining accounts as AccountMeta objects with isWritable and isSigner flags
+        // Per Squads v4 docs: must include pubkey, isWritable (from message), isSigner (false)
+        let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
         try {
           const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
             this.connection,
@@ -3976,26 +3978,57 @@ export class SquadsVaultService {
             'confirmed'
           );
           
-          // Extract account keys from the message
+          // Extract account keys from the message with proper AccountMeta structure
           if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
             const accountKeys = (vaultTxAccount.message as any).accountKeys;
-            remainingAccounts = accountKeys.map((key: any) => {
-              if (key instanceof PublicKey) {
-                return key;
-              } else if (key?.pubkey) {
-                return key.pubkey;
-              } else if (typeof key === 'string') {
-                return new PublicKey(key);
-              }
-              return null;
-            }).filter((pk: PublicKey | null): pk is PublicKey => pk !== null);
             
-            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction', {
+            // CRITICAL: Ordering matters - must match message.accountKeys[] order exactly
+            remainingAccounts = accountKeys.map((key: any, index: number) => {
+              let pubkey: PublicKey | null = null;
+              
+              // Extract pubkey
+              if (key instanceof PublicKey) {
+                pubkey = key;
+              } else if (key?.pubkey) {
+                pubkey = key.pubkey instanceof PublicKey ? key.pubkey : new PublicKey(key.pubkey);
+              } else if (typeof key === 'string') {
+                pubkey = new PublicKey(key);
+              } else if (key && typeof key === 'object') {
+                // Handle AccountMeta-like objects
+                if (key.pubkey) {
+                  pubkey = key.pubkey instanceof PublicKey ? key.pubkey : new PublicKey(key.pubkey);
+                }
+              }
+              
+              if (!pubkey) {
+                return null;
+              }
+              
+              // Extract isWritable from the message (true if account was writable in original message)
+              // Default to true if not specified (conservative approach)
+              const isWritable = key?.isWritable !== undefined ? key.isWritable : 
+                                (key?.writable !== undefined ? key.writable : true);
+              
+              // CRITICAL: isSigner must be false - Squads signs on behalf of the vault
+              const isSigner = false;
+              
+              return {
+                pubkey,
+                isWritable,
+                isSigner,
+              };
+            }).filter((meta: any): meta is { pubkey: PublicKey; isWritable: boolean; isSigner: boolean } => meta !== null);
+            
+            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction (with AccountMeta structure)', {
               vaultAddress,
               proposalId,
               transactionPda: transactionPda.toString(),
               remainingAccountsCount: remainingAccounts.length,
-              remainingAccounts: remainingAccounts.map(a => a.toString()),
+              remainingAccounts: remainingAccounts.map(a => ({
+                pubkey: a.pubkey.toString(),
+                isWritable: a.isWritable,
+                isSigner: a.isSigner,
+              })),
               correlationId,
             });
           }
@@ -4011,8 +4044,6 @@ export class SquadsVaultService {
         }
         
         // Build the execution instruction
-        // The SDK should automatically include remaining accounts when it reads the vault transaction
-        // but we log them for debugging
         const executionIx = instructions.vaultTransactionExecute({
           multisigPda: multisigAddress,
           transactionIndex: transactionIndexNumber,
@@ -4020,13 +4051,48 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
-        enhancedLogger.info('✅ Execution instruction created', {
+        // CRITICAL: Manually add remaining accounts with proper AccountMeta structure
+        // Per Squads v4 docs: must include pubkey, isWritable (from message), isSigner (false)
+        // Ordering matters - must match message.accountKeys[] order exactly
+        if (remainingAccounts.length > 0) {
+          // Add remaining accounts to the instruction's keys array
+          // The instruction already has some keys, so we append the remaining ones
+          remainingAccounts.forEach((accountMeta) => {
+            executionIx.keys.push({
+              pubkey: accountMeta.pubkey,
+              isWritable: accountMeta.isWritable,
+              isSigner: accountMeta.isSigner, // Always false - Squads signs on behalf of vault
+            });
+          });
+          
+          enhancedLogger.info('✅ Added remaining accounts to execution instruction', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            remainingAccountsCount: remainingAccounts.length,
+            totalInstructionKeys: executionIx.keys.length,
+            remainingAccounts: remainingAccounts.map(a => ({
+              pubkey: a.pubkey.toString(),
+              isWritable: a.isWritable,
+              isSigner: a.isSigner,
+            })),
+            correlationId,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ No remaining accounts extracted - execution may fail if accounts are required', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            correlationId,
+          });
+        }
+
+        enhancedLogger.info('✅ Execution instruction created with remaining accounts', {
               vaultAddress,
               proposalId,
           transactionIndex: transactionIndexNumber,
           remainingAccountsCount: remainingAccounts.length,
-          hasRemainingAccounts: remainingAccounts.length > 0,
-          note: 'SDK should automatically include remaining accounts from vault transaction',
+          totalInstructionKeys: executionIx.keys.length,
             });
           
         // Get latest blockhash
