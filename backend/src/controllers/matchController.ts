@@ -4607,10 +4607,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 
               // Clear the rate limit key on success
               await redis.del(vaultCreationKey);
-              } else {
-                console.error('❌ Could not reload match from DB after vault creation', { matchId: match.id });
-              }
             } else {
+              console.error('❌ Could not reload match from DB after vault creation', { matchId: match.id });
+            }
+          } else {
               console.error('❌ On-demand vault creation failed (synchronous)', {
                 matchId: match.id,
                 success: creation?.success,
