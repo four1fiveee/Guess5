@@ -4057,12 +4057,65 @@ export class SquadsVaultService {
           });
         }
         
-        // Build the execution instruction
-        const executionIx = instructions.vaultTransactionExecute({
+        // CRITICAL FIX: Build instruction manually to avoid SDK connection bug
+        // The SDK's instructions.vaultTransactionExecute tries to fetch VaultTransaction internally
+        // without a connection, causing "Cannot read properties of undefined (reading 'getAccountInfo')"
+        // We'll construct the instruction manually using the accounts and data we already have
+        
+        // Derive the required PDAs
+        const [proposalPda] = getProposalPda({
           multisigPda: multisigAddress,
-          transactionIndex: transactionIndexNumber,
-          member: executor.publicKey,
+          transactionIndex: BigInt(transactionIndexNumber),
           programId: this.programId,
+        });
+        
+        // Build the instruction accounts array manually
+        // Per Squads v4: [multisig, transaction, proposal, member]
+        const instructionAccounts = [
+          {
+            pubkey: multisigAddress,
+            isSigner: false,
+            isWritable: false,
+          },
+          {
+            pubkey: transactionPda,
+            isSigner: false,
+            isWritable: false,
+          },
+          {
+            pubkey: proposalPda,
+            isSigner: false,
+            isWritable: true,
+          },
+          {
+            pubkey: executor.publicKey,
+            isSigner: true,
+            isWritable: false,
+          },
+        ];
+        
+        // Build instruction data: [discriminator (8 bytes), transaction_index (u64)]
+        // The discriminator for vaultTransactionExecute in Squads v4
+        // This is derived from the instruction name hash
+        const instructionDiscriminator = Buffer.from([0x2a, 0xbf, 0x8f, 0x72, 0x3d, 0x13, 0x4f, 0x93]);
+        const transactionIndexBuffer = Buffer.allocUnsafe(8);
+        transactionIndexBuffer.writeBigUInt64LE(BigInt(transactionIndexNumber), 0);
+        const instructionData = Buffer.concat([instructionDiscriminator, transactionIndexBuffer]);
+        
+        // Create the instruction manually
+        const executionIx = new TransactionInstruction({
+          programId: this.programId,
+          keys: instructionAccounts,
+          data: instructionData,
+        });
+        
+        enhancedLogger.info('✅ Manually constructed execution instruction', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          instructionAccountsCount: instructionAccounts.length,
+          instructionDataLength: instructionData.length,
+          correlationId,
         });
 
         // CRITICAL: Ensure keys array exists before adding remaining accounts
