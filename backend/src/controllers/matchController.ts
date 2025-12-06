@@ -13866,16 +13866,27 @@ const signProposalHandler = async (req: any, res: any) => {
       return;
     }
 
-    // Response already sent earlier after transaction confirmation
-    // Database update completed in background - frontend will poll for status updates
-    console.log('✅ Background verification and database update completed', {
-      matchId,
-      wallet,
-      proposalId: proposalIdString,
-      needsSignatures: Math.max(0, newNeedsSignatures),
-      proposalStatus: newProposalStatus,
-      finalSigners: uniqueSigners,
-    });
+      // Response already sent earlier after transaction confirmation
+      // Database update completed in background - frontend will poll for status updates
+      console.log('✅ Background verification and database update completed', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        needsSignatures: Math.max(0, newNeedsSignatures),
+        proposalStatus: newProposalStatus,
+        finalSigners: uniqueSigners,
+      });
+    })().catch((bgError: any) => {
+      // Background task errors are logged but don't affect the response
+      console.error('❌ Error in background verification/update task:', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        error: bgError?.message || String(bgError),
+        stack: bgError?.stack,
+        note: 'Response already sent to frontend. Frontend will poll for status updates.',
+      });
+    }); // End background task
 
   } catch (error: unknown) {
     console.error('❌ Error signing proposal:', error);
