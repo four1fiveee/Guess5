@@ -3951,67 +3951,28 @@ export class SquadsVaultService {
               correlationId,
       });
 
-      // CRITICAL FIX: Try rpc.vaultTransactionExecute first (handles remaining accounts automatically)
-      // If that fails, fall back to instructions.vaultTransactionExecute with manual account handling
+      // CRITICAL FIX: Skip rpc.vaultTransactionExecute due to SDK connection bug
+      // The SDK's rpc.vaultTransactionExecute has a bug where it doesn't properly pass the connection
+      // to VaultTransaction.fromAccountAddress, causing "Cannot read properties of undefined (reading 'getAccountInfo')"
+      // We'll use instructions.vaultTransactionExecute directly, which we know works
       let executionSignature: string;
-      let executionMethod = 'unknown';
+      let executionMethod = 'instructions.vaultTransactionExecute';
       
-      try {
-        // Method 1: Try rpc.vaultTransactionExecute (should handle remaining accounts automatically)
-        enhancedLogger.info('🚀 Attempting execution with rpc.vaultTransactionExecute (auto-handles remaining accounts)', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          executor: executor.publicKey.toString(),
-          correlationId,
-        });
-        
-        // CRITICAL: Validate connection before passing to SDK
-        if (!this.connection || typeof this.connection.getAccountInfo !== 'function') {
-          throw new Error('Connection is invalid or missing getAccountInfo method');
-        }
-        
-        executionSignature = await rpc.vaultTransactionExecute({
-          connection: this.connection,
-          feePayer: executor,
-          multisigPda: multisigAddress,
-          transactionIndex: transactionIndexNumber,
-          programId: this.programId,
-        });
-        
-        executionMethod = 'rpc.vaultTransactionExecute';
-        executionDAGLogger.addStep(correlationId, 'execution-rpc-success', {
-          signature: executionSignature,
-          method: executionMethod,
-        }, undefined, Date.now() - execStartTime);
-        enhancedLogger.info('✅ Execution successful using rpc.vaultTransactionExecute', {
-          vaultAddress,
-          proposalId,
-          signature: executionSignature,
-          correlationId,
-        });
-        // Continue to verification below (don't return here)
-      } catch (rpcError: any) {
-        // Method 2: Fall back to instructions.vaultTransactionExecute with manual handling
-        enhancedLogger.warn('⚠️ rpc.vaultTransactionExecute failed, trying instructions.vaultTransactionExecute', {
-          vaultAddress,
-          proposalId,
-          rpcError: rpcError?.message || String(rpcError),
-          correlationId,
-        });
-        
-        if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
-          throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
-        }
-
-        enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (manual approach)', {
-            vaultAddress,
-            proposalId,
-          transactionIndex: transactionIndexNumber,
-          executor: executor.publicKey.toString(),
-          programId: this.programId.toString(),
-          multisigPda: multisigAddress.toString(),
-              });
+      // Skip rpc.vaultTransactionExecute and go straight to manual approach
+      enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (manual approach)', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndexNumber,
+        executor: executor.publicKey.toString(),
+        programId: this.programId.toString(),
+        multisigPda: multisigAddress.toString(),
+        correlationId,
+        note: 'Skipping rpc.vaultTransactionExecute due to SDK connection bug - using manual approach directly',
+      });
+      
+      if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
+        throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
+      }
         
         // CRITICAL FIX: Fetch vault transaction to get remaining accounts
         // Squads v4 requires ALL accounts from the inner transaction message to be included
@@ -4146,13 +4107,14 @@ export class SquadsVaultService {
         }
 
         enhancedLogger.info('✅ Execution instruction created with remaining accounts', {
-              vaultAddress,
-              proposalId,
+          vaultAddress,
+          proposalId,
           transactionIndex: transactionIndexNumber,
           remainingAccountsCount: remainingAccounts.length,
           totalInstructionKeys: executionIx.keys.length,
-            });
-          
+          correlationId,
+        });
+        
         // Get latest blockhash
         const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
 
@@ -4344,14 +4306,13 @@ export class SquadsVaultService {
         }, undefined, Date.now() - execStartTime);
             
         enhancedLogger.info('✅ Proposal execution transaction sent', {
-              vaultAddress,
-              proposalId,
-        signature: executionSignature,
-        executor: executor.publicKey.toString(),
-        executionMethod,
-              correlationId,
+          vaultAddress,
+          proposalId,
+          signature: executionSignature,
+          executor: executor.publicKey.toString(),
+          executionMethod,
+          correlationId,
         });
-      } // End of catch (rpcError) block - fallback path complete
 
       // CRITICAL VERIFICATION: Confirm execution succeeded on-chain using dual-RPC verification (expert recommendation)
       executionDAGLogger.addStep(correlationId, 'verification-started', {
