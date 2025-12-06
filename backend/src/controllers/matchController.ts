@@ -6413,6 +6413,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
 // Check for pending winnings/refunds for a player
 const checkPendingClaimsHandler = async (req: any, res: any) => {
+  // Set CORS headers
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  const originToUse = corsOrigin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   try {
     const { wallet } = req.params;
     
@@ -6580,6 +6588,14 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
 };
 // Check if a player has been matched (for polling)
 const checkPlayerMatchHandler = async (req: any, res: any) => {
+  // Set CORS headers
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  const originToUse = corsOrigin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   try {
     // Ensure database is initialized
     if (!AppDataSource || !AppDataSource.isInitialized) {

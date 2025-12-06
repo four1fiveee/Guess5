@@ -1,4 +1,5 @@
 const axios = require('axios');
+const { resolveCorsOrigin } = require('../config/corsOrigins');
 
 /**
  * Fetches SOL price from various APIs with fallbacks
@@ -60,6 +61,13 @@ export async function fetchSolPrice(): Promise<number> {
 
 // Handler for the API endpoint
 export const getSolPriceHandler = async (req: any, res: any) => {
+  // Set CORS headers
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   try {
     const price = await fetchSolPrice();
     res.json({ price, timestamp: Date.now() });

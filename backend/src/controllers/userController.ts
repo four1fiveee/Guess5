@@ -32,6 +32,14 @@ export const setUsername = async (req: Request, res: Response) => {
  * GET /api/user/username?wallet=<address>
  */
 export const getUsername = async (req: Request, res: Response) => {
+  // Set CORS headers
+  const { resolveCorsOrigin } = require('../config/corsOrigins');
+  const origin = resolveCorsOrigin(req.headers.origin);
+  const originToUse = origin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
   try {
     const wallet = req.query.wallet as string;
 
