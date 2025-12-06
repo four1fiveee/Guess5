@@ -6315,8 +6315,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     
     // CRITICAL: Ensure CORS headers are set right before sending response
     // This prevents any middleware or code from clearing them
-    // Note: requestOrigin is already declared at the start of the function
-    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    // Note: requestOrigin and corsOrigin are already declared at the start of the function
     const originToUse = corsOrigin || 'https://guess5.io';
     res.header('Access-Control-Allow-Origin', originToUse);
     res.header('Vary', 'Origin');
