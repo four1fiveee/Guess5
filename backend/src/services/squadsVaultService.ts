@@ -3366,10 +3366,9 @@ export class SquadsVaultService {
                   hasMessage: !!transactionData.message,
                   hasAuthorityIndex: transactionData.authorityIndex !== undefined,
                   hasVaultIndex: transactionData.vaultIndex !== undefined,
-                  vaultTransactionStatus: vtStatusKind,
-                  vaultTransactionStatusFull: vtStatus,
+                  vaultTransactionStatus: vaultTransactionStatus,
                   correlationId,
-                  note: 'Transaction account contains the proposal instructions that will execute',
+                  note: 'Transaction account contains the proposal instructions that will execute. In Squads v4, VaultTransaction does not have status field.',
                 });
                 
                 // CRITICAL: Log the message field which contains the instructions
