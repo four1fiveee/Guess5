@@ -3620,6 +3620,29 @@ export class SquadsVaultService {
         // The actual execution will fail if signatures are truly insufficient
         // This allows execution to proceed when database says ready but on-chain check fails
       }
+
+      // CRITICAL: Check VaultTransaction status before execution
+      // If VaultTransaction is not ExecuteReady, execution will fail on-chain
+      if (vaultTransactionStatus !== null && !vaultTransactionIsExecuteReady) {
+        enhancedLogger.error('❌ BLOCKING: Cannot execute - VaultTransaction is not in ExecuteReady state', {
+          vaultAddress,
+          proposalId,
+          transactionPda: transactionPda.toString(),
+          vaultTransactionStatus,
+          proposalIsExecuteReady,
+          needsSignatures: proposalStatus.needsSignatures,
+          signers: proposalStatus.signers.map(s => s.toString()),
+          correlationId,
+          note: 'VaultTransaction must be in ExecuteReady state before execution. This usually means validation has not completed or not all required signers have signed.',
+        });
+        
+        return {
+          success: false,
+          error: 'VAULT_TRANSACTION_NOT_READY',
+          logs: [`VaultTransaction is in ${vaultTransactionStatus} state, not ExecuteReady. Execution cannot proceed until validation completes.`],
+          correlationId,
+        };
+      }
     } catch (statusError: unknown) {
       enhancedLogger.warn('⚠️ Failed to check proposal status before execution (continuing anyway)', {
         vaultAddress,
