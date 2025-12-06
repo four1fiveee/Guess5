@@ -13383,7 +13383,7 @@ const signProposalHandler = async (req: any, res: any) => {
           try {
             // First check if proposal is already executed
             const checkExecuted = await matchRepository.query(`
-              SELECT "proposalExecutedAt", "proposalStatus"
+              SELECT "proposalExecutedAt", "proposalStatus", "executionAttempts", "executionLastAttemptAt"
               FROM "match"
               WHERE id = $1
               LIMIT 1
@@ -13398,12 +13398,32 @@ const signProposalHandler = async (req: any, res: any) => {
               return;
             }
             
+            // CRITICAL: Increment execution attempt count (expert recommendation)
+            const currentAttempts = (checkExecuted?.[0]?.executionAttempts || 0) + 1;
+            const lastAttemptAt = new Date();
+            
+            // Update execution attempt tracking
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "executionAttempts" = $1,
+                  "executionLastAttemptAt" = $2
+              WHERE id = $3
+            `, [currentAttempts, lastAttemptAt, matchId]);
+            
+            console.log('📊 Execution attempt tracking updated', {
+              matchId,
+              proposalId: proposalIdString,
+              attemptNumber: currentAttempts,
+              lastAttemptAt: lastAttemptAt.toISOString(),
+            });
+            
             // If status is EXECUTING but no execution record, allow execution to proceed (stuck state recovery)
             if (checkExecuted && checkExecuted.length > 0 && checkExecuted[0].proposalStatus === 'EXECUTING' && !checkExecuted[0].proposalExecutedAt) {
               console.warn('⚠️ Proposal stuck in EXECUTING state with no execution record - forcing execution', {
                 matchId,
                 proposalId: proposalIdString,
                 currentStatus: checkExecuted[0].proposalStatus,
+                attemptNumber: currentAttempts,
                 note: 'Previous execution attempt likely failed - retrying now'
               });
               // Continue with execution - don't return
@@ -13411,12 +13431,14 @@ const signProposalHandler = async (req: any, res: any) => {
               // Normal case: try to atomically set status to EXECUTING
             const updated = await matchRepository.query(`
               UPDATE "match"
-              SET "proposalStatus" = 'EXECUTING'
+              SET "proposalStatus" = 'EXECUTING',
+                  "executionAttempts" = $2,
+                  "executionLastAttemptAt" = $3
               WHERE id = $1 
                 AND "proposalExecutedAt" IS NULL 
                 AND "proposalStatus" != 'EXECUTING'
               RETURNING id
-            `, [matchId]);
+            `, [matchId, currentAttempts, lastAttemptAt]);
             
             if (updated.length === 0) {
                 console.log('⚠️ Could not atomically set status to EXECUTING (may already be EXECUTING or executed)', {
@@ -13424,6 +13446,7 @@ const signProposalHandler = async (req: any, res: any) => {
                 proposalId: proposalIdString,
                   currentStatus: checkExecuted?.[0]?.proposalStatus || matchRow.proposalStatus,
                   executedAt: checkExecuted?.[0]?.proposalExecutedAt || matchRow.proposalExecutedAt,
+                  attemptNumber: currentAttempts,
               });
                 // If we couldn't update, check if it's because it's already executed
                 if (checkExecuted && checkExecuted.length > 0 && checkExecuted[0].proposalExecutedAt) {
@@ -13434,6 +13457,7 @@ const signProposalHandler = async (req: any, res: any) => {
             console.log('✅ Execution enqueued atomically', {
               matchId,
               proposalId: proposalIdString,
+              attemptNumber: currentAttempts,
             });
               }
             }
