@@ -32,20 +32,24 @@ export const setUsername = async (req: Request, res: Response) => {
  * GET /api/user/username?wallet=<address>
  */
 export const getUsername = async (req: Request, res: Response) => {
-  // Set CORS headers
+  // Set CORS headers using setHeader (more reliable than header())
   const { resolveCorsOrigin } = require('../config/corsOrigins');
   const reqAny = req as any;
   const resAny = res as any;
   const origin = resolveCorsOrigin(reqAny.headers?.origin);
   const originToUse = origin || 'https://guess5.io';
-  resAny.header('Access-Control-Allow-Origin', originToUse);
-  resAny.header('Vary', 'Origin');
-  resAny.header('Access-Control-Allow-Credentials', 'true');
+  resAny.setHeader('Access-Control-Allow-Origin', originToUse);
+  resAny.setHeader('Vary', 'Origin');
+  resAny.setHeader('Access-Control-Allow-Credentials', 'true');
   
   try {
     const wallet = req.query.wallet as string;
 
     if (!wallet) {
+      // Ensure CORS headers are set even on error
+      resAny.setHeader('Access-Control-Allow-Origin', originToUse);
+      resAny.setHeader('Vary', 'Origin');
+      resAny.setHeader('Access-Control-Allow-Credentials', 'true');
       return res.status(400).json({ error: 'Wallet address is required' });
     }
 
@@ -58,6 +62,10 @@ export const getUsername = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Error getting username:', errorMessage);
+    // Ensure CORS headers are set even on error
+    resAny.setHeader('Access-Control-Allow-Origin', originToUse);
+    resAny.setHeader('Vary', 'Origin');
+    resAny.setHeader('Access-Control-Allow-Credentials', 'true');
     return res.status(500).json({ error: 'Failed to get username' });
   }
 };

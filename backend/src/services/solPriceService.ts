@@ -61,18 +61,22 @@ export async function fetchSolPrice(): Promise<number> {
 
 // Handler for the API endpoint
 export const getSolPriceHandler = async (req: any, res: any) => {
-  // Set CORS headers
+  // Set CORS headers using setHeader (more reliable than header())
   const origin = resolveCorsOrigin(req.headers.origin);
   const originToUse = origin || 'https://guess5.io';
-  res.header('Access-Control-Allow-Origin', originToUse);
-  res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', originToUse);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   try {
     const price = await fetchSolPrice();
     res.json({ price, timestamp: Date.now() });
   } catch (error) {
     console.error('❌ Error fetching SOL price:', error);
+    // Ensure CORS headers are set even on error
+    res.setHeader('Access-Control-Allow-Origin', originToUse);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.status(500).json({ error: 'Failed to fetch SOL price', fallback: 180 });
   }
 };

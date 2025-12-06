@@ -6413,13 +6413,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
 
 // Check for pending winnings/refunds for a player
 const checkPendingClaimsHandler = async (req: any, res: any) => {
-  // Set CORS headers
+  // Set CORS headers using setHeader (more reliable than header())
   const requestOrigin = req.headers.origin;
   const corsOrigin = resolveCorsOrigin(requestOrigin);
   const originToUse = corsOrigin || 'https://guess5.io';
-  res.header('Access-Control-Allow-Origin', originToUse);
-  res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', originToUse);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   try {
     const { wallet } = req.params;
@@ -6580,6 +6580,13 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
       wallet: req.params?.wallet,
       errorName: error instanceof Error ? error.name : undefined,
     });
+    // Ensure CORS headers are set even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.setHeader('Access-Control-Allow-Origin', originToUse);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.status(500).json({ 
       error: 'Internal server error',
       details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
@@ -6588,13 +6595,13 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
 };
 // Check if a player has been matched (for polling)
 const checkPlayerMatchHandler = async (req: any, res: any) => {
-  // Set CORS headers
+  // Set CORS headers using setHeader (more reliable than header())
   const requestOrigin = req.headers.origin;
   const corsOrigin = resolveCorsOrigin(requestOrigin);
   const originToUse = corsOrigin || 'https://guess5.io';
-  res.header('Access-Control-Allow-Origin', originToUse);
-  res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Origin', originToUse);
+  res.setHeader('Vary', 'Origin');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   
   try {
     // Ensure database is initialized
@@ -6857,6 +6864,13 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('❌ Error checking player match:', errorMessage);
     console.error('❌ Error stack:', errorStack);
+    // Ensure CORS headers are set even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.setHeader('Access-Control-Allow-Origin', originToUse);
+    res.setHeader('Vary', 'Origin');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
     res.status(500).json({ 
       error: 'Internal server error',
       details: process.env.NODE_ENV === 'development' ? errorMessage : undefined
