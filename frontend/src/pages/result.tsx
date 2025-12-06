@@ -1274,25 +1274,37 @@ const Result: React.FC = () => {
       console.log('✅ Proposal signed & backend confirmed', {
         matchId,
         wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
+        proposalId: result?.proposalId || payoutData.proposalId,
         response: result,
         backendStatus: response.status,
+        verifying: result?.verifying,
       });
+      
+      // CRITICAL: Handle response structure - backend may send immediate response with verifying flag
+      // Use response data if available, otherwise use current payoutData
+      const responseProposalId = result?.proposalId || payoutData.proposalId;
+      const responseProposalStatus = result?.proposalStatus || payoutData.proposalStatus || 'ACTIVE';
+      const responseProposalSigners = result?.proposalSigners || payoutData.proposalSigners || [];
+      const responseNeedsSignatures = result?.needsSignatures ?? payoutData.needsSignatures ?? 0;
+      const isVerifying = result?.verifying === true;
       
       // CRITICAL: Only update UI optimistically AFTER backend confirms success
       // This prevents UI from showing success when the request actually failed
       const userWallet = publicKey.toString();
-      const currentSigners = Array.isArray(payoutData.proposalSigners) 
-        ? payoutData.proposalSigners 
-        : [];
+      const currentSigners = Array.isArray(responseProposalSigners) 
+        ? responseProposalSigners 
+        : (Array.isArray(payoutData.proposalSigners) ? payoutData.proposalSigners : []);
       
       // Update local state to reflect user has signed (only after backend confirms)
       const updatedPayoutData = {
         ...payoutData,
+        proposalId: responseProposalId,
+        proposalStatus: responseProposalStatus,
         proposalSigners: currentSigners.some((s: string) => s?.toLowerCase() === userWallet.toLowerCase())
           ? currentSigners
           : [...currentSigners, userWallet],
-        needsSignatures: Math.max(0, (payoutData.needsSignatures || 0) - 1),
+        needsSignatures: responseNeedsSignatures,
+        verifying: isVerifying, // Track if backend is still verifying
       };
       
       // If needsSignatures becomes 0, set status to EXECUTING

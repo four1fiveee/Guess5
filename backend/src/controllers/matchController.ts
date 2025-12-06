@@ -5913,10 +5913,23 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   }
 
   // CRITICAL: Move all execution logic to background to prevent blocking the status response
-  // Execute proposals that are READY_TO_EXECUTE but haven't been executed yet
+  // Execute proposals that are READY_TO_EXECUTE or stuck in EXECUTING but haven't been executed yet
   // This is a fallback in case execution failed during signProposalHandler
   // Run in background - don't await, return response immediately
-  if ((match as any).proposalStatus === 'READY_TO_EXECUTE' && 
+  const proposalStatus = (match as any).proposalStatus;
+  const isReadyToExecute = proposalStatus === 'READY_TO_EXECUTE';
+  const isStuckExecuting = proposalStatus === 'EXECUTING' && !(match as any).proposalExecutedAt;
+  
+  // Check if EXECUTING status is stuck (more than 2 minutes old)
+  let isStuck = false;
+  if (isStuckExecuting && (match as any).updatedAt) {
+    const updatedAt = new Date((match as any).updatedAt);
+    const now = new Date();
+    const ageMinutes = (now.getTime() - updatedAt.getTime()) / (1000 * 60);
+    isStuck = ageMinutes > 2; // Stuck if EXECUTING for more than 2 minutes
+  }
+  
+  if ((isReadyToExecute || (isStuckExecuting && isStuck)) && 
       ((match as any).payoutProposalId || (match as any).tieRefundProposalId) &&
       (match as any).squadsVaultAddress &&
       !(match as any).proposalExecutedAt) {
