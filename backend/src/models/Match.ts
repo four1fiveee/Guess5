@@ -56,6 +56,13 @@ export class Match {
   @Column({ nullable: true })
   proposalExpiresAt?: Date;
 
+  // Execution attempt tracking (expert recommendation)
+  @Column({ nullable: true, default: 0 })
+  executionAttempts?: number;
+
+  @Column({ nullable: true })
+  executionLastAttemptAt?: Date;
+
   @Column({ nullable: true })
   proposalTransactionId?: string;
 
