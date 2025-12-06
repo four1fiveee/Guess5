@@ -250,7 +250,9 @@ const Result: React.FC = () => {
 
     // CRITICAL: Continue polling if proposal is active, pending, or executing
     // We need to keep polling during EXECUTING to detect when it becomes EXECUTED
-    return normalizedStatus === 'ACTIVE' || normalizedStatus === 'PENDING' || normalizedStatus === 'EXECUTING';
+    // Also continue polling if needsSignatures is 0 but not yet executed (execution in progress)
+    const isExecuting = normalizedStatus === 'EXECUTING' || (needs === 0 && !info.proposalExecutedAt);
+    return normalizedStatus === 'ACTIVE' || normalizedStatus === 'PENDING' || isExecuting;
   };
 
   const normalizedProposalSigners = useMemo(
@@ -742,9 +744,10 @@ const Result: React.FC = () => {
       return;
     }
     
-    // Smart polling: 1s until proposal exists, then 3s for signatures
+    // Smart polling: 1s until proposal exists, 2s during EXECUTING (faster to detect completion), 3s otherwise
     const hasProposal = !!payoutData?.proposalId;
-    const baseInterval = hasProposal ? 3000 : 1000; // Slower polling once we have proposal
+    const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+    const baseInterval = hasProposal ? (isExecuting ? 2000 : 3000) : 1000; // Faster polling during execution
     
     console.log('🔄 Starting smart proposal polling...', {
       matchId: router.query.matchId,
@@ -767,7 +770,8 @@ const Result: React.FC = () => {
     
     const pollInterval = setInterval(() => {
       pollCount++;
-      const currentInterval = hasProposal ? 3000 : 1000; // Consistent with base interval
+      const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+      const currentInterval = hasProposal ? (isExecuting ? 2000 : 3000) : 1000; // Faster polling during execution
       
       // CRITICAL: Debounce to prevent rapid state updates that cause UI flashing
       const now = Date.now();
@@ -824,15 +828,33 @@ const Result: React.FC = () => {
     fetchPrice();
   }, []);
 
-  // Track execution start time
+  // Track execution start time and force re-renders during execution
+  const [executionElapsedSeconds, setExecutionElapsedSeconds] = useState<number>(0);
+  
   useEffect(() => {
     if ((payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt)) && !executionStartTime) {
       setExecutionStartTime(Date.now());
+      setExecutionElapsedSeconds(0);
     } else if (payoutData?.proposalExecutedAt && executionStartTime) {
       // Reset when execution completes
       setExecutionStartTime(null);
+      setExecutionElapsedSeconds(0);
     }
   }, [payoutData?.proposalStatus, payoutData?.needsSignatures, payoutData?.proposalExecutedAt, executionStartTime]);
+
+  // Update elapsed time every second during execution to force re-renders
+  useEffect(() => {
+    if (!executionStartTime || payoutData?.proposalExecutedAt) {
+      return;
+    }
+
+    const interval = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - executionStartTime) / 1000);
+      setExecutionElapsedSeconds(elapsed);
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [executionStartTime, payoutData?.proposalExecutedAt]);
 
   // Track verification start time
   useEffect(() => {
@@ -1831,7 +1853,7 @@ const Result: React.FC = () => {
                               </p>
                               {executionStartTime && (
                                 <p className="text-xs text-white/50">
-                                  {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                  {executionElapsedSeconds}s elapsed
                                 </p>
                               )}
                             </div>
@@ -2017,7 +2039,7 @@ const Result: React.FC = () => {
                               </p>
                               {executionStartTime && (
                                 <p className="text-xs text-white/50">
-                                  {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                  {executionElapsedSeconds}s elapsed
                                 </p>
                               )}
                             </div>
@@ -2440,7 +2462,7 @@ const Result: React.FC = () => {
                               </p>
                               {executionStartTime && (
                                 <p className="text-xs text-white/50">
-                                  {Math.floor((Date.now() - executionStartTime) / 1000)}s elapsed
+                                  {executionElapsedSeconds}s elapsed
                                 </p>
                               )}
                             </div>
