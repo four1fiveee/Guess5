@@ -37,7 +37,17 @@ const apiRequest = async (
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-      throw new Error(errorData.error || `HTTP error! status: ${response.status}`);
+      
+      // For 503 errors (service unavailable), preserve the detailed message from backend
+      if (response.status === 503) {
+        const errorMessage = errorData.message || errorData.error || 'Service temporarily unavailable';
+        const error = new Error(errorMessage);
+        (error as any).status = 503;
+        (error as any).details = errorData;
+        throw error;
+      }
+      
+      throw new Error(errorData.error || errorData.message || `HTTP error! status: ${response.status}`);
     }
 
     return await response.json();

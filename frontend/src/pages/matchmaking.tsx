@@ -571,8 +571,14 @@ const Matchmaking: React.FC = () => {
               console.log(`⏳ Waiting before retry (attempt ${attempt}/${maxRetries})...`);
               await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
             }
-          } catch (refreshError) {
+          } catch (refreshError: any) {
             console.warn(`⚠️ Failed to fetch vault addresses (attempt ${attempt}/${maxRetries}):`, refreshError);
+            
+            // If it's a 503 error (service unavailable), throw immediately with the detailed message
+            if (refreshError?.status === 503 || refreshError?.message?.includes('insufficient balance')) {
+              throw new Error(refreshError.message || 'Vault creation is temporarily unavailable. Please try again later or contact support.');
+            }
+            
             if (attempt < maxRetries) {
               await new Promise(resolve => setTimeout(resolve, 1000 * attempt)); // Exponential backoff
             }
@@ -586,7 +592,7 @@ const Matchmaking: React.FC = () => {
 
       // Validate we have deposit address (required for payment)
       if (!depositAddress) {
-        throw new Error('Vault deposit address not found. Please wait a moment and try again, or refresh the page.');
+        throw new Error('Vault deposit address not found. The vault may still be creating, or there may be a temporary issue. Please wait a moment and try again, or refresh the page.');
       }
       
       // Use the addresses we found
@@ -759,9 +765,18 @@ const Matchmaking: React.FC = () => {
         setPaymentTimeout(timeout);
       }
       
-    } catch (error) {
+    } catch (error: any) {
       console.error('❌ Payment error:', error);
-      alert(`Payment failed: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      
+      // Show more detailed error message if available
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      const isServiceUnavailable = error?.status === 503 || errorMessage?.includes('insufficient balance') || errorMessage?.includes('temporarily unavailable');
+      
+      if (isServiceUnavailable) {
+        alert(`⚠️ Service Temporarily Unavailable\n\n${errorMessage}\n\nPlease try again in a few moments or contact support if the issue persists.`);
+      } else {
+        alert(`Payment failed: ${errorMessage}`);
+      }
     } finally {
       clearTimeout(safetyTimeout);
       setIsPaymentInProgress(false);
