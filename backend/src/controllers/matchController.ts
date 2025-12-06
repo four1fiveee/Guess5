@@ -4260,15 +4260,15 @@ const submitResultHandler = async (req: any, res: any) => {
 };
 const getMatchStatusHandler = async (req: any, res: any) => {
   try {
-    // Set CORS headers explicitly to ensure they're always present
-    const requestOrigin = req.headers.origin;
-    const corsOrigin = resolveCorsOrigin(requestOrigin);
-    // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
-    const originToUse = corsOrigin || 'https://guess5.io';
-    res.header('Access-Control-Allow-Origin', originToUse);
-    res.header('Vary', 'Origin');
-    res.header('Access-Control-Allow-Credentials', 'true');
-    
+  // Set CORS headers explicitly to ensure they're always present
+  const requestOrigin = req.headers.origin;
+  const corsOrigin = resolveCorsOrigin(requestOrigin);
+  // Always set CORS headers - resolveCorsOrigin will return a valid origin or the first allowed origin
+  const originToUse = corsOrigin || 'https://guess5.io';
+  res.header('Access-Control-Allow-Origin', originToUse);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  
     const { matchId } = req.params;
     
     console.log('🔍 Looking up match status for:', matchId);
@@ -4491,7 +4491,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       shouldCreate: !!(match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status))
     });
     
-    if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
+      if (match && !(match as any).squadsVaultAddress && ['payment_required', 'matched', 'escrow', 'active'].includes(match.status)) {
       console.log('🏦 Vault creation needed - starting synchronous attempt', {
         matchId: match.id,
         player1: match.player1,
@@ -4640,7 +4640,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 errorCode: creationErr?.code,
                 stack: creationErr instanceof Error ? creationErr.stack : undefined
             });
-            }
+          }
             // Fall through to background retry
           } // Close catch block
           } // Close else block for hasEnoughBalance check
@@ -4777,9 +4777,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           }
         } catch (catchUpCheckError: unknown) {
           enhancedLogger.warn('⚠️ Fee wallet catch-up check failed (non-blocking)', {
-            matchId: match?.id,
+        matchId: match?.id,
             error: catchUpCheckError instanceof Error ? catchUpCheckError.message : String(catchUpCheckError),
-          });
+      });
         }
       })();
     }
@@ -12776,26 +12776,50 @@ const signProposalHandler = async (req: any, res: any) => {
       });
     }
 
-    // CRITICAL: Verify on-chain that the player's signature is actually present
-    // Only update DB after confirming the signature is on-chain
-    console.log('🔍 Verifying player signature on-chain before updating DB...', {
+    // CRITICAL: Send response immediately after transaction confirmation
+    // Verification will happen in background to prevent frontend from hanging
+    console.log('✅ Transaction confirmed, sending immediate response to frontend...', {
       matchId,
       wallet,
       proposalId: proposalIdString,
       transactionSignature: signature,
     });
     
-    let playerSignatureVerified = false;
-    let onChainSigners: string[] = [];
-    const maxVerificationAttempts = 10; // Increased from 5 to 10 for Solana eventual consistency
-    const verificationDelay = 3000; // Increased from 2s to 3s between attempts
+    // Send immediate response to prevent frontend from hanging
+    // Verification will happen in background and database will be updated after verification
+    res.json({
+      success: true,
+      message: 'Proposal signed successfully. Verifying on-chain...',
+      signature,
+      proposalId: proposalIdString,
+      needsSignatures: matchRow.needsSignatures,
+      proposalStatus: matchRow.proposalStatus || 'ACTIVE',
+      proposalSigners: normalizeProposalSigners(matchRow.proposalSigners),
+      verifying: true, // Indicate that verification is in progress
+    });
     
-    // CRITICAL: Add initial delay before first verification attempt
-    // Solana's eventual consistency means signatures may take a few seconds to appear
-    console.log('⏳ Waiting 3 seconds before first on-chain verification (Solana eventual consistency)...');
-    await new Promise(resolve => setTimeout(resolve, 3000));
-    
-    for (let attempt = 0; attempt < maxVerificationAttempts; attempt++) {
+    // CRITICAL: Verify on-chain that the player's signature is actually present
+    // This happens in background after response is sent to prevent frontend from hanging
+    // Wrap in async IIFE to run in background
+    (async () => {
+      console.log('🔍 Verifying player signature on-chain (background task)...', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        transactionSignature: signature,
+      });
+      
+      let playerSignatureVerified = false;
+      let onChainSigners: string[] = [];
+      const maxVerificationAttempts = 10; // Increased from 5 to 10 for Solana eventual consistency
+      const verificationDelay = 3000; // Increased from 2s to 3s between attempts
+      
+      // CRITICAL: Add initial delay before first verification attempt
+      // Solana's eventual consistency means signatures may take a few seconds to appear
+      console.log('⏳ Waiting 3 seconds before first on-chain verification (Solana eventual consistency)...');
+      await new Promise(resolve => setTimeout(resolve, 3000));
+      
+      for (let attempt = 0; attempt < maxVerificationAttempts; attempt++) {
       try {
         const proposalStatus = await squadsVaultService.checkProposalStatus(
           matchRow.squadsVaultAddress,
@@ -13832,29 +13856,25 @@ const signProposalHandler = async (req: any, res: any) => {
         wallet,
         proposalId: proposalIdString,
       });
-      // CRITICAL: Fail the request if database update fails - we need to ensure signature is recorded
-      // The on-chain transaction might have succeeded, but we need database consistency
-      res.status(500).json({ 
-        error: 'Failed to record signature in database', 
-        details: dbError?.message || 'Database update failed',
-        note: 'Your signature transaction may have succeeded on-chain, but database update failed. Please check match status.'
+      // Response already sent - can't send another response
+      // Log error and continue - frontend will poll for status updates
+      // The transaction was confirmed on-chain, so the signature is valid even if DB update failed
+      console.error('❌ Database update failed in background task (response already sent):', {
+        error: dbError?.message || 'Database update failed',
+        note: 'Transaction was confirmed on-chain. Frontend will poll for status updates.',
       });
       return;
     }
 
-    // Get final signers list for response
-    const finalSignersForResponse = updatedMatch?.proposalSigners 
-      ? normalizeProposalSigners(updatedMatch.proposalSigners)
-      : uniqueSigners;
-    
-    res.json({
-      success: true,
-      message: 'Proposal signed successfully',
-      signature,
+    // Response already sent earlier after transaction confirmation
+    // Database update completed in background - frontend will poll for status updates
+    console.log('✅ Background verification and database update completed', {
+      matchId,
+      wallet,
       proposalId: proposalIdString,
       needsSignatures: Math.max(0, newNeedsSignatures),
       proposalStatus: newProposalStatus,
-      proposalSigners: finalSignersForResponse,
+      finalSigners: uniqueSigners,
     });
 
   } catch (error: unknown) {
