@@ -4526,16 +4526,28 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             const balance = await connection.getBalance(feeWalletPublicKey);
             const balanceSOL = balance / 1000000000;
             
-            console.error('❌ Fee wallet has insufficient balance - cannot create vault', {
+            console.error('❌ CRITICAL: Fee wallet has insufficient balance - cannot create vault', {
               matchId: match.id,
               feeWallet: FEE_WALLET_ADDRESS,
               balance: balanceSOL,
               required: minRequiredBalance,
-              shortfall: minRequiredBalance - balanceSOL
+              shortfall: minRequiredBalance - balanceSOL,
+              note: 'Vault creation cannot proceed until fee wallet is funded'
             });
             
-            // Don't throw - let it fall through to background retry, but log the issue clearly
-            // The background process will also fail, but at least we've logged it
+            // CRITICAL: Return error response to frontend so user knows what's wrong
+            // Don't let the frontend wait indefinitely
+            applyNoCacheHeaders();
+            return res.status(503).json({
+              error: 'Vault creation temporarily unavailable',
+              message: `Fee wallet has insufficient balance (${balanceSOL.toFixed(6)} SOL, required: ${minRequiredBalance} SOL). Please contact support or try again later.`,
+              matchId: match.id,
+              feeWallet: FEE_WALLET_ADDRESS,
+              balance: balanceSOL,
+              required: minRequiredBalance,
+              shortfall: minRequiredBalance - balanceSOL,
+              retryAfter: 60, // Suggest retrying after 60 seconds
+            });
           } else {
           // Mark that we're attempting vault creation
             await redis.set(vaultCreationKey, now.toString(), 'EX', 60);
