@@ -3332,11 +3332,28 @@ export class SquadsVaultService {
                 // Log transaction account details for debugging
                 const transactionData = transactionAccount as any;
                 
-                // CRITICAL: Check VaultTransaction status - this determines if validation passed
-                const vtStatus = (transactionData as any).status;
-                const vtStatusKind = vtStatus?.__kind || vtStatus;
-                vaultTransactionStatus = vtStatusKind;
-                vaultTransactionIsExecuteReady = (vtStatusKind === 'ExecuteReady' || vtStatusKind === 'Executed');
+                // CRITICAL: In Squads v4, VaultTransaction does NOT have a status field
+                // The status is tracked on the Proposal account, not the VaultTransaction account
+                // VaultTransaction is just a container for the transaction message/instructions
+                // We'll check Proposal status later, which is the source of truth
+                // For now, log what fields are actually available on VaultTransaction
+                const availableFields = Object.keys(transactionData || {});
+                enhancedLogger.info('📋 VaultTransaction account structure', {
+                  vaultAddress,
+                  proposalId,
+                  transactionPda: transactionPda.toString(),
+                  availableFields,
+                  hasMessage: !!transactionData.message,
+                  hasAuthorityIndex: transactionData.authorityIndex !== undefined,
+                  hasVaultIndex: transactionData.vaultIndex !== undefined,
+                  note: 'VaultTransaction does not have status field in Squads v4 - status is on Proposal account',
+                  correlationId,
+                });
+                
+                // In Squads v4, VaultTransaction doesn't have status - it's always "ready" if it exists
+                // The actual readiness is determined by the Proposal account status
+                vaultTransactionStatus = 'N/A (Squads v4: status on Proposal)';
+                vaultTransactionIsExecuteReady = true; // VaultTransaction existence means it's ready (Proposal status is checked separately)
           
                 enhancedLogger.info('📋 Transaction Account Contents Verified', {
             vaultAddress,
@@ -3621,27 +3638,21 @@ export class SquadsVaultService {
         // This allows execution to proceed when database says ready but on-chain check fails
       }
 
-      // CRITICAL: Check VaultTransaction status before execution
-      // If VaultTransaction is not ExecuteReady, execution will fail on-chain
-      if (vaultTransactionStatus !== null && !vaultTransactionIsExecuteReady) {
-        enhancedLogger.error('❌ BLOCKING: Cannot execute - VaultTransaction is not in ExecuteReady state', {
+      // CRITICAL: In Squads v4, VaultTransaction does NOT have a status field
+      // The Proposal account status is the source of truth for execution readiness
+      // We already checked proposalIsExecuteReady above, so we don't need to check VaultTransaction status
+      // The VaultTransaction account is just a container for the transaction message
+      // If it exists and the Proposal is ExecuteReady, we can proceed
+      if (vaultTransactionStatus && vaultTransactionStatus !== 'N/A (Squads v4: status on Proposal)') {
+        enhancedLogger.info('ℹ️ VaultTransaction status check (informational only)', {
           vaultAddress,
           proposalId,
           transactionPda: transactionPda.toString(),
           vaultTransactionStatus,
           proposalIsExecuteReady,
-          needsSignatures: proposalStatus.needsSignatures,
-          signers: proposalStatus.signers.map(s => s.toString()),
+          note: 'In Squads v4, Proposal status is the source of truth, not VaultTransaction status',
           correlationId,
-          note: 'VaultTransaction must be in ExecuteReady state before execution. This usually means validation has not completed or not all required signers have signed.',
         });
-        
-        return {
-          success: false,
-          error: 'VAULT_TRANSACTION_NOT_READY',
-          logs: [`VaultTransaction is in ${vaultTransactionStatus} state, not ExecuteReady. Execution cannot proceed until validation completes.`],
-          correlationId,
-        };
       }
     } catch (statusError: unknown) {
       enhancedLogger.warn('⚠️ Failed to check proposal status before execution (continuing anyway)', {
