@@ -95,8 +95,11 @@ app.use(cors({
       return;
     }
 
-    console.log('🚫 CORS blocked origin:', origin);
-    callback(new Error('Not allowed by CORS'));
+    // CRITICAL: Don't reject - let the manual CORS middleware handle it
+    // This ensures headers are always set even if origin isn't in the list
+    // The manual middleware will set the correct origin or default
+    console.log('⚠️ Origin not in cors package list, but allowing (manual CORS will handle):', origin);
+    callback(null, true); // Allow the request - manual CORS middleware will set correct headers
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
