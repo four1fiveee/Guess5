@@ -1413,6 +1413,11 @@ const Result: React.FC = () => {
       setTimeout(() => {
         clearInterval(aggressiveInterval);
       }, 10000);
+      
+      // CRITICAL FIX: Don't reset signingProposal after successful sign
+      // The button will be hidden because userHasSigned will be true
+      // Only reset if there's an error
+      console.log('✅ Signing completed successfully - button will be hidden on next render');
     } catch (err) {
       console.error('❌ Error signing proposal:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign proposal';
@@ -1431,7 +1436,9 @@ const Result: React.FC = () => {
         // Other errors (validation, server errors, etc.)
         setError(errorMessage);
       }
-    } finally {
+      
+      // CRITICAL FIX: Only reset signingProposal on error
+      // After successful sign, the button should remain disabled/hidden
       setSigningProposal(false);
     }
   };
@@ -1893,10 +1900,10 @@ const Result: React.FC = () => {
                                !playerProposalSigners.includes(publicKey?.toString() || '') && (
                                 <button
                                   onClick={handleSignProposal}
-                                  disabled={signingProposal}
+                                  disabled={signingProposal || playerProposalSigners.includes(publicKey?.toString() || '')}
                                   className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
                                 >
-                                  {signingProposal ? 'Signing...' : 'Sign Refund Proposal'}
+                                  {signingProposal ? 'Signing...' : playerProposalSigners.includes(publicKey?.toString() || '') ? '✓ Signed - Processing...' : 'Sign Refund Proposal'}
                                 </button>
                               )}
                             </div>
@@ -2133,16 +2140,24 @@ const Result: React.FC = () => {
                                   return null;
                                 }
 
+                                // CRITICAL FIX: Disable button if user has signed OR if currently signing
+                                const isButtonDisabled = signingProposal || userHasSigned;
+                                
                                 return (
                                   <button
                                     onClick={handleSignProposal}
-                                    disabled={signingProposal}
+                                    disabled={isButtonDisabled}
                                     className="bg-accent hover:bg-yellow-400 disabled:bg-gray-600 disabled:cursor-not-allowed text-primary font-bold py-2.5 px-6 rounded-lg transition-all duration-200 shadow hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center mx-auto"
                                   >
                                     {signingProposal ? (
                                       <>
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
                                         Signing...
+                                      </>
+                                    ) : userHasSigned ? (
+                                      <>
+                                        <span className="mr-2">✓</span>
+                                        Signed - Processing...
                                       </>
                                     ) : 'Sign Proposal to Claim Winnings'}
                                   </button>
@@ -2357,13 +2372,16 @@ const Result: React.FC = () => {
                                   return null;
                                 }
 
+                                // CRITICAL FIX: Disable button if user has signed OR if currently signing
+                                const isButtonDisabled = signingProposal || userHasSigned;
+                                
                                 return (
                                   <button
                                     onClick={handleSignProposal}
-                                    disabled={signingProposal}
+                                    disabled={isButtonDisabled}
                                     className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
                                   >
-                                    {signingProposal ? 'Signing...' : 'Sign Proposal to Claim Refund'}
+                                    {signingProposal ? 'Signing...' : userHasSigned ? '✓ Signed - Processing...' : 'Sign Proposal to Claim Refund'}
                                   </button>
                                 );
                               })()}
