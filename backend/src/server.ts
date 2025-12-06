@@ -99,6 +99,19 @@ async function startServer() {
       enhancedLogger.warn('⚠️ Redis lock auto-cleanup failed (optional):', error?.message || error);
     }
 
+    // Start background reconciliation worker (expert recommendation)
+    try {
+      const reconciliationWorker = require('./services/reconciliationWorker');
+      if (reconciliationWorker && reconciliationWorker.startReconciliationWorker) {
+        reconciliationWorker.startReconciliationWorker();
+        enhancedLogger.info('✅ Background reconciliation worker started');
+      } else {
+        enhancedLogger.warn('⚠️ Reconciliation worker module not available (optional)');
+      }
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Failed to start reconciliation worker (optional):', error?.message || error);
+    }
+
     // Smart contract service is optional - matchmaking uses Squads Protocol
     // Only initialize if the file exists (it's not required for basic matchmaking)
     enhancedLogger.info('🔌 Checking for smart contract service (optional)...');
