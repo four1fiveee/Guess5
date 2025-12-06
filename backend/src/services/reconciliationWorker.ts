@@ -261,10 +261,12 @@ async function runReconciliation(): Promise<void> {
     const matchRepository = AppDataSource.getRepository(Match);
     
     // Find all stuck proposals (EXECUTING or READY_TO_EXECUTE for > 5 minutes, not executed)
+    // CRITICAL: Use COALESCE for executionAttempts columns in case they don't exist yet
     const stuckMatches = await matchRepository.query(`
       SELECT id, "payoutProposalId", "tieRefundProposalId", "proposalStatus",
              "squadsVaultAddress", "proposalExecutedAt", "updatedAt",
-             "executionAttempts", "executionLastAttemptAt"
+             COALESCE("executionAttempts", 0) as "executionAttempts", 
+             "executionLastAttemptAt"
       FROM "match"
       WHERE ("proposalStatus" = 'EXECUTING' OR "proposalStatus" = 'READY_TO_EXECUTE')
         AND "proposalExecutedAt" IS NULL
@@ -273,7 +275,28 @@ async function runReconciliation(): Promise<void> {
         AND "squadsVaultAddress" IS NOT NULL
       ORDER BY "updatedAt" ASC
       LIMIT 50
-    `);
+    `).catch((error: any) => {
+      // If columns don't exist, try without them
+      if (error?.message?.includes('executionAttempts') || error?.message?.includes('executionLastAttemptAt')) {
+        enhancedLogger.warn('⚠️ executionAttempts columns not found, querying without them', {
+          correlationId,
+          error: error?.message,
+        });
+        return matchRepository.query(`
+          SELECT id, "payoutProposalId", "tieRefundProposalId", "proposalStatus",
+                 "squadsVaultAddress", "proposalExecutedAt", "updatedAt"
+          FROM "match"
+          WHERE ("proposalStatus" = 'EXECUTING' OR "proposalStatus" = 'READY_TO_EXECUTE')
+            AND "proposalExecutedAt" IS NULL
+            AND "updatedAt" < NOW() - INTERVAL '5 minutes'
+            AND ("payoutProposalId" IS NOT NULL OR "tieRefundProposalId" IS NOT NULL)
+            AND "squadsVaultAddress" IS NOT NULL
+          ORDER BY "updatedAt" ASC
+          LIMIT 50
+        `);
+      }
+      throw error;
+    });
 
     enhancedLogger.info('📊 Found stuck proposals for reconciliation', {
       correlationId,
