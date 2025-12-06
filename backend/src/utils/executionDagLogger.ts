@@ -34,7 +34,7 @@ export interface ExecutionDAG {
   rpcResponses?: any[];
   simulationLogs?: string[];
   accountLists?: any[];
-  errors?: string[];
+  errors?: Array<{ timestamp: string; error: string }>;
   finalState?: any;
 }
 
