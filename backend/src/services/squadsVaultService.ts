@@ -3424,26 +3424,17 @@ export class SquadsVaultService {
                   });
                 }
                 
-                // CRITICAL DIAGNOSIS: Check if VaultTransaction status is ExecuteReady
-                if (!vaultTransactionIsExecuteReady) {
-                  enhancedLogger.error('❌ CRITICAL: VaultTransaction is NOT in ExecuteReady state', {
-                    vaultAddress,
-                    proposalId,
-                    transactionPda: transactionPda.toString(),
-                    currentStatus: vtStatusKind,
-                    expectedStatus: 'ExecuteReady',
-                    correlationId,
-                    note: 'This is why the proposal cannot execute. Validation stage must pass first.',
-                  });
-                } else {
-                  enhancedLogger.info('✅ VaultTransaction is in ExecuteReady state', {
-                    vaultAddress,
-                    proposalId,
-                    transactionPda: transactionPda.toString(),
-                    status: vtStatusKind,
-                    correlationId,
-                  });
-                }
+                // CRITICAL: In Squads v4, VaultTransaction does NOT have a status field
+                // The Proposal account status is the source of truth
+                // VaultTransaction is just a container for the transaction message
+                // If it exists, it's ready (the Proposal status determines execution readiness)
+                enhancedLogger.info('✅ VaultTransaction account exists and is ready', {
+                  vaultAddress,
+                  proposalId,
+                  transactionPda: transactionPda.toString(),
+                  note: 'In Squads v4, VaultTransaction does not have status - Proposal status determines readiness',
+                  correlationId,
+                });
               } catch (txAccountError: unknown) {
                 enhancedLogger.warn('⚠️ Could not parse Transaction account (continuing)', {
                   vaultAddress,
