@@ -5935,10 +5935,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       !(match as any).proposalExecutedAt) {
     // Execute in background - don't block the response
     (async () => {
-    console.log('🚀 Found READY_TO_EXECUTE proposal - executing now (fallback)', {
+    console.log(`🚀 Found ${isStuck ? 'STUCK EXECUTING' : 'READY_TO_EXECUTE'} proposal - executing now (fallback)`, {
       matchId: match.id,
       payoutProposalId: (match as any).payoutProposalId,
       tieRefundProposalId: (match as any).tieRefundProposalId,
+      proposalStatus,
+      isStuck,
+      updatedAt: (match as any).updatedAt,
     });
     
     try {
