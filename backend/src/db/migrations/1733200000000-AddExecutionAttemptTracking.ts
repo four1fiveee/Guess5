@@ -1,7 +1,7 @@
 import { MigrationInterface, QueryRunner, TableColumn } from 'typeorm';
 
-export class AddExecutionAttemptTracking019 implements MigrationInterface {
-  public name = 'AddExecutionAttemptTracking019';
+export class AddExecutionAttemptTracking1733200000000 implements MigrationInterface {
+  public name = 'AddExecutionAttemptTracking1733200000000';
   
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Helper function to safely add column if it doesn't exist
@@ -21,8 +21,8 @@ export class AddExecutionAttemptTracking019 implements MigrationInterface {
       name: 'executionAttempts',
       type: 'integer',
       default: 0,
-      isNullable: true,
-      comment: 'Number of times execution has been attempted'
+      isNullable: false,
+      comment: 'Number of times execution has been attempted for a proposal'
     }));
 
     // Add executionLastAttemptAt column
@@ -33,7 +33,7 @@ export class AddExecutionAttemptTracking019 implements MigrationInterface {
       comment: 'Timestamp of the last execution attempt'
     }));
 
-    console.log('✅ Migration 019 completed: Added execution attempt tracking columns');
+    console.log('✅ Migration completed: Added execution attempt tracking columns');
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
