@@ -17,17 +17,40 @@ export class ProposalExpirationService {
     try {
       const matchRepository = AppDataSource.getRepository(Match);
       const now = new Date();
+      const expirationTime = new Date(now.getTime() - this.PROPOSAL_EXPIRATION_MINUTES * 60 * 1000);
       
       // Find ACTIVE proposals older than 30 minutes
-      const expiredProposals = await matchRepository
-        .createQueryBuilder('match')
-        .where('match.proposalStatus = :status', { status: 'ACTIVE' })
-        .andWhere('match.proposalCreatedAt IS NOT NULL')
-        .andWhere('match.proposalCreatedAt < :expirationTime', {
-          expirationTime: new Date(now.getTime() - this.PROPOSAL_EXPIRATION_MINUTES * 60 * 1000)
-        })
-        .andWhere('(match.proposalExpiresAt IS NULL OR match.proposalExpiresAt < :now)', { now })
-        .getMany();
+      // CRITICAL: Use raw SQL to avoid proposalExpiresAt and executionAttempts column issues
+      const expiredProposalRows = await matchRepository.query(`
+        SELECT id, "proposalStatus", "proposalCreatedAt", "proposalExpiresAt", 
+               "proposalSigners", "needsSignatures", "squadsVaultAddress", "squadsVaultPda",
+               winner, "player1Result", "player2Result", "entryFee", player1, player2
+        FROM "match"
+        WHERE "proposalStatus" = $1
+          AND "proposalCreatedAt" IS NOT NULL
+          AND "proposalCreatedAt" < $2
+          AND ("proposalExpiresAt" IS NULL OR "proposalExpiresAt" < $3)
+      `, ['ACTIVE', expirationTime, now]);
+      
+      // Convert rows to Match entities
+      const expiredProposals = expiredProposalRows.map((row: any) => {
+        const match = new Match();
+        match.id = row.id;
+        match.proposalStatus = row.proposalStatus;
+        match.proposalCreatedAt = row.proposalCreatedAt;
+        match.proposalExpiresAt = row.proposalExpiresAt;
+        match.proposalSigners = row.proposalSigners;
+        match.needsSignatures = row.needsSignatures;
+        match.squadsVaultAddress = row.squadsVaultAddress;
+        match.squadsVaultPda = row.squadsVaultPda;
+        match.winner = row.winner;
+        match.player1Result = row.player1Result;
+        match.player2Result = row.player2Result;
+        match.entryFee = row.entryFee;
+        match.player1 = row.player1;
+        match.player2 = row.player2;
+        return match;
+      });
 
       enhancedLogger.info(`🔍 Found ${expiredProposals.length} expired proposals to process`);
 

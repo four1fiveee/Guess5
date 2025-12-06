@@ -97,6 +97,21 @@ export const initializeDatabase = async () => {
         }
       }
 
+      // Ensure executionAttempts and executionLastAttemptAt columns exist (migration might have failed)
+      try {
+        await AppDataSource.query(`
+          ALTER TABLE "match" 
+          ADD COLUMN IF NOT EXISTS "executionAttempts" integer DEFAULT 0,
+          ADD COLUMN IF NOT EXISTS "executionLastAttemptAt" timestamp
+        `);
+        console.log('✅ Ensured executionAttempts and executionLastAttemptAt columns exist');
+      } catch (columnError: any) {
+        // Ignore if columns already exist or other non-critical errors
+        if (!columnError?.message?.includes('already exists') && !columnError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure execution attempt tracking columns:', columnError?.message);
+        }
+      }
+
       console.log('✅ Database initialization complete');
       return;
       

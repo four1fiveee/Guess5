@@ -4578,12 +4578,20 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             
         if (creation?.success && creation.vaultAddress) {
               // Reload match from DB to get fresh vault data (createMatchVault saves it)
+              // CRITICAL: Use raw SQL to avoid executionAttempts column issues
               console.log('🔄 Reloading match from DB to get vault addresses...', { matchId: match.id });
           const { AppDataSource } = require('../db/index');
           const matchRepository = AppDataSource.getRepository(Match);
-              const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
+              // Use raw SQL to avoid missing executionAttempts column
+              const freshMatchRows = await matchRepository.query(`
+                SELECT "squadsVaultAddress", "squadsVaultPda"
+                FROM "match"
+                WHERE id = $1
+                LIMIT 1
+              `, [match.id]);
               
-              if (freshMatch) {
+              if (freshMatchRows && freshMatchRows.length > 0) {
+                const freshMatch = freshMatchRows[0];
                 (match as any).squadsVaultAddress = freshMatch.squadsVaultAddress || creation.vaultAddress;
                 (match as any).squadsVaultPda = freshMatch.squadsVaultPda || creation.vaultPda || null;
                 
