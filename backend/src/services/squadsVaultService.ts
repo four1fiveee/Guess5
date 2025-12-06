@@ -22,28 +22,9 @@ import { MatchAuditLog } from '../models/MatchAuditLog';
 import { AttestationData, kmsService } from './kmsService';
 import { setGameState } from '../utils/redisGameState';
 import { sendAndLogRawTransaction, pollTxAndLog, subscribeToProgramLogs, logExecutionStep } from '../utils/txDebug';
-// Import execution DAG logger and RPC failover utilities (optional - may not exist in all environments)
-let executionDAGLogger: any;
-let verifyOnBothRPCs: any;
-let createRPCConnections: any;
-
-try {
-  executionDAGLogger = require('../utils/executionDagLogger').executionDAGLogger;
-  const rpcFailover = require('../utils/rpcFailover');
-  verifyOnBothRPCs = rpcFailover.verifyOnBothRPCs;
-  createRPCConnections = rpcFailover.createRPCConnections;
-} catch (e) {
-  // Fallback if modules don't exist (for backwards compatibility)
-  executionDAGLogger = {
-    createDAG: () => ({}),
-    addStep: () => {},
-    addRPCResponse: () => {},
-    addError: () => {},
-    finalize: async () => {},
-  };
-  verifyOnBothRPCs = async () => ({ verified: false, attempts: 0 });
-  createRPCConnections = () => ({ primary: null, fallback: null });
-}
+// Import execution DAG logger and RPC failover utilities
+import { executionDAGLogger } from '../utils/executionDagLogger';
+import { verifyOnBothRPCs, createRPCConnections } from '../utils/rpcFailover';
 // import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
 // import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
 
