@@ -4552,7 +4552,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           // Mark that we're attempting vault creation
             await redis.set(vaultCreationKey, now.toString(), 'EX', 60);
           
-            // Try synchronous creation with 20 second timeout (increased from 15s)
+            // Try synchronous creation with 5 second timeout (reduced from 20s to prevent status endpoint timeouts)
           try {
               console.log('⏳ Calling createMatchVault...', { matchId: match.id });
             const creationPromise = squadsVaultService.createMatchVault(
@@ -4563,10 +4563,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         );
             
             const timeoutPromise = new Promise((_, reject) => 
-              setTimeout(() => reject(new Error('Vault creation timeout')), 20000)
+              setTimeout(() => reject(new Error('Vault creation timeout')), 5000)
             );
             
-            console.log('⏳ Waiting for vault creation (max 20s)...', { matchId: match.id });
+            console.log('⏳ Waiting for vault creation (max 5s, will continue in background if needed)...', { matchId: match.id });
             const creation = await Promise.race([creationPromise, timeoutPromise]) as any;
             console.log('📦 Vault creation result received', {
               matchId: match.id,
