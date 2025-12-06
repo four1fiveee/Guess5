@@ -6425,11 +6425,19 @@ const checkPendingClaimsHandler = async (req: any, res: any) => {
     const { wallet } = req.params;
     
     if (!wallet || typeof wallet !== 'string') {
+      // Ensure CORS headers are set even on error
+      res.setHeader('Access-Control-Allow-Origin', originToUse);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
       return res.status(400).json({ error: 'Valid wallet address required' });
     }
 
     if (!AppDataSource || !AppDataSource.isInitialized) {
       console.error('❌ AppDataSource not initialized in checkPendingClaimsHandler');
+      // Ensure CORS headers are set even on error
+      res.setHeader('Access-Control-Allow-Origin', originToUse);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
       return res.status(500).json({ error: 'Database not initialized' });
     }
 
@@ -6607,6 +6615,10 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
     // Ensure database is initialized
     if (!AppDataSource || !AppDataSource.isInitialized) {
       console.error('❌ AppDataSource not initialized in checkPlayerMatchHandler');
+      // Ensure CORS headers are set even on error
+      res.setHeader('Access-Control-Allow-Origin', originToUse);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
       return res.status(500).json({ error: 'Database not initialized' });
     }
 
@@ -6617,6 +6629,10 @@ const checkPlayerMatchHandler = async (req: any, res: any) => {
     
     if (!walletParam) {
       console.log('❌ No wallet provided in request');
+      // Ensure CORS headers are set even on error
+      res.setHeader('Access-Control-Allow-Origin', originToUse);
+      res.setHeader('Vary', 'Origin');
+      res.setHeader('Access-Control-Allow-Credentials', 'true');
       return res.status(400).json({ error: 'Wallet address required' });
     }
     
