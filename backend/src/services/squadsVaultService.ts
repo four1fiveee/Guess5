@@ -3935,6 +3935,11 @@ export class SquadsVaultService {
           correlationId,
         });
         
+        // CRITICAL: Validate connection before passing to SDK
+        if (!this.connection || typeof this.connection.getAccountInfo !== 'function') {
+          throw new Error('Connection is invalid or missing getAccountInfo method');
+        }
+        
         executionSignature = await rpc.vaultTransactionExecute({
           connection: this.connection,
           feePayer: executor,
