@@ -5957,6 +5957,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
   const correctNeedsSignatures = Math.max(0, threshold - signerCount);
   const hasStateMismatch = signerCount >= threshold && currentNeedsSignatures > 0 && !(match as any).proposalExecutedAt;
   
+  // CRITICAL FIX: Detect execution mismatch - transaction ID exists but executedAt is null
+  // This happens when execution was attempted but database wasn't updated
+  const hasExecutionMismatch = !!(match as any).proposalTransactionId && 
+                                !(match as any).proposalExecutedAt && 
+                                (match as any).proposalStatus !== 'EXECUTED';
+  
   // Fix state mismatch if detected
   if (hasStateMismatch) {
     console.warn('⚠️ Detected database state mismatch - fixing needsSignatures and proposalStatus', {
@@ -5995,6 +6001,95 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         console.error('❌ Failed to fix database state mismatch', {
           matchId: match.id,
           error: fixError?.message || String(fixError),
+        });
+      }
+    })();
+  }
+  
+  // CRITICAL FIX: If transaction ID exists but executedAt is null, verify on-chain and update DB
+  if (hasExecutionMismatch) {
+    console.warn('⚠️ Detected execution mismatch - transaction ID exists but executedAt is null', {
+      matchId: match.id,
+      proposalTransactionId: (match as any).proposalTransactionId,
+      proposalStatus: (match as any).proposalStatus,
+      proposalExecutedAt: (match as any).proposalExecutedAt,
+      note: 'Verifying on-chain execution status and updating database',
+    });
+    
+    // Verify on-chain in background - don't block response
+    (async () => {
+      try {
+        const { Connection, PublicKey } = require('@solana/web3.js');
+        const { accounts, getProposalPda } = require('@sqds/multisig');
+        const connection = new Connection(
+          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+          'confirmed'
+        );
+        
+        const multisigAddress = new PublicKey((match as any).squadsVaultAddress);
+        const programId = process.env.SQUADS_PROGRAM_ID 
+          ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+          : require('@sqds/multisig').PROGRAM_ID;
+        const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+        const transactionIndex = BigInt(String(proposalId));
+        const [proposalPda] = getProposalPda({
+          multisigPda: multisigAddress,
+          transactionIndex,
+          programId,
+        });
+        
+        // Check proposal status on-chain
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          connection,
+          proposalPda,
+          'confirmed'
+        );
+        
+        const onChainStatus = (proposalAccount as any).status?.__kind;
+        const isExecuted = onChainStatus === 'Executed';
+        
+        if (isExecuted) {
+          console.log('✅ On-chain verification: Proposal is Executed - updating database', {
+            matchId: match.id,
+            proposalTransactionId: (match as any).proposalTransactionId,
+            onChainStatus,
+          });
+          
+          // Update database to reflect executed status
+          const matchRepository = AppDataSource.getRepository(Match);
+          const executedAt = new Date();
+          const isTieRefund = !!(match as any).tieRefundProposalId && String((match as any).tieRefundProposalId).trim() === String(proposalId).trim();
+          const isWinnerPayout = !!(match as any).payoutProposalId && String((match as any).payoutProposalId).trim() === String(proposalId).trim() && (match as any).winner && (match as any).winner !== 'tie';
+          
+          const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+          const executionUpdates = buildProposalExecutionUpdates({
+            executedAt,
+            signature: (match as any).proposalTransactionId,
+            isTieRefund,
+            isWinnerPayout,
+          });
+          
+          const { persistExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+          await persistExecutionUpdates(matchRepository, match.id, executionUpdates);
+          
+          console.log('✅ Database updated with execution result (from on-chain verification)', {
+            matchId: match.id,
+            proposalTransactionId: (match as any).proposalTransactionId,
+            executedAt: executedAt.toISOString(),
+          });
+        } else {
+          console.warn('⚠️ On-chain verification: Proposal is not Executed', {
+            matchId: match.id,
+            proposalTransactionId: (match as any).proposalTransactionId,
+            onChainStatus,
+            note: 'Transaction may have failed or is still pending',
+          });
+        }
+      } catch (verifyError: any) {
+        console.error('❌ Failed to verify execution on-chain', {
+          matchId: match.id,
+          proposalTransactionId: (match as any).proposalTransactionId,
+          error: verifyError?.message || String(verifyError),
         });
       }
     })();

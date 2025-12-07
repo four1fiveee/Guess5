@@ -435,13 +435,14 @@ const Result: React.FC = () => {
             
             // CRITICAL: Only update state if there are meaningful changes
             // This prevents UI flashing from unnecessary state updates
+            // CRITICAL FIX: Use optional chaining to prevent null access errors
             const hasMeaningfulChanges = 
-              updatedPayoutData.proposalId !== currentPayoutData.proposalId ||
-              updatedPayoutData.proposalStatus !== currentPayoutData.proposalStatus ||
-              updatedPayoutData.needsSignatures !== currentPayoutData.needsSignatures ||
-              updatedPayoutData.proposalExecutedAt !== currentPayoutData.proposalExecutedAt ||
-              updatedPayoutData.proposalTransactionId !== currentPayoutData.proposalTransactionId ||
-              JSON.stringify(updatedPayoutData.proposalSigners) !== JSON.stringify(currentPayoutData.proposalSigners);
+              updatedPayoutData.proposalId !== (currentPayoutData?.proposalId ?? null) ||
+              updatedPayoutData.proposalStatus !== (currentPayoutData?.proposalStatus ?? null) ||
+              updatedPayoutData.needsSignatures !== (currentPayoutData?.needsSignatures ?? null) ||
+              updatedPayoutData.proposalExecutedAt !== (currentPayoutData?.proposalExecutedAt ?? null) ||
+              updatedPayoutData.proposalTransactionId !== (currentPayoutData?.proposalTransactionId ?? null) ||
+              JSON.stringify(updatedPayoutData.proposalSigners) !== JSON.stringify(currentPayoutData?.proposalSigners ?? []);
             
             if (hasMeaningfulChanges) {
               console.log('✅ Updating payout data with meaningful changes', {
@@ -455,9 +456,9 @@ const Result: React.FC = () => {
               setPayoutData(updatedPayoutData);
             } else {
               console.log('⏸️ Skipping state update - no meaningful changes', {
-                proposalId: updatedPayoutData.proposalId,
-                proposalStatus: updatedPayoutData.proposalStatus,
-                needsSignatures: updatedPayoutData.needsSignatures,
+              proposalId: updatedPayoutData?.proposalId ?? null,
+              proposalStatus: updatedPayoutData?.proposalStatus ?? null,
+              needsSignatures: updatedPayoutData?.needsSignatures ?? null,
               });
             }
             setLoading(false);
