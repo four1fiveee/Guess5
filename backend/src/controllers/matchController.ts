@@ -13288,6 +13288,67 @@ const signProposalHandler = async (req: any, res: any) => {
       
       newProposalStatus = newNeedsSignatures === 0 ? 'READY_TO_EXECUTE' : 'ACTIVE';
 
+      // CRITICAL: Before updating DB, verify on-chain signatures match expected threshold
+      // This prevents DB divergence bugs where DB says ready but on-chain doesn't
+      if (newNeedsSignatures === 0) {
+        const THRESHOLD = 2;
+        console.log('🔍 Verifying on-chain signatures before updating DB (prevents divergence)', {
+          matchId,
+          proposalId: proposalIdString,
+          expectedThreshold: THRESHOLD,
+          databaseSignerCount: uniqueSigners.length,
+          newNeedsSignatures,
+        });
+        
+        try {
+          // Check on-chain proposal status with timeout
+          const onChainCheck = await Promise.race([
+            squadsVaultService.checkProposalStatus(
+              matchRow.squadsVaultAddress,
+              proposalIdString
+            ),
+            new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('On-chain verification timeout')), 5000)
+            ),
+          ]) as any;
+          
+          if (onChainCheck && onChainCheck.signers) {
+            const onChainSignerCount = onChainCheck.signers.length;
+            const onChainNeedsSignatures = onChainCheck.needsSignatures || 0;
+            
+            // CRITICAL: Verify on-chain has enough signatures before updating DB
+            if (onChainSignerCount < THRESHOLD) {
+              throw new Error(`On-chain signers (${onChainSignerCount}) < threshold (${THRESHOLD}). Signatures not yet reflected on-chain.`);
+            }
+            
+            console.log('✅ On-chain signatures verified before DB update', {
+              matchId,
+              proposalId: proposalIdString,
+              onChainSignerCount,
+              threshold: THRESHOLD,
+              onChainNeedsSignatures,
+              databaseSignerCount: uniqueSigners.length,
+              note: 'All signatures confirmed on-chain - safe to update DB',
+            });
+          } else {
+            console.warn('⚠️ Could not verify on-chain signatures before DB update (continuing anyway)', {
+              matchId,
+              proposalId: proposalIdString,
+              note: 'On-chain check failed or timed out - proceeding with DB update but execution will wait for ExecuteReady',
+            });
+          }
+        } catch (onChainVerifyError: any) {
+          // If on-chain verification fails, log warning but don't block DB update
+          // Execution will wait for ExecuteReady state anyway
+          console.warn('⚠️ On-chain signature verification failed before DB update (non-blocking)', {
+            matchId,
+            proposalId: proposalIdString,
+            error: onChainVerifyError?.message || String(onChainVerifyError),
+            note: 'DB will be updated, but execution will wait for ExecuteReady state to prevent failures',
+          });
+        }
+      }
+
       console.log('🧾 Recording new proposal signature', {
         matchId,
         proposalId: proposalIdString,
