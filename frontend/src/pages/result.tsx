@@ -1933,6 +1933,19 @@ const Result: React.FC = () => {
                             <p className="text-sm text-white/80 mb-3">
                               Sign the refund proposal below to release your SOL back to your wallet.
                             </p>
+                          ) : payoutData?.verificationStatus === 'VERIFYING_ON_CHAIN' || payoutData?.verifying ? (
+                            <div className="mb-3 p-4 rounded-lg bg-blue-500/10 border border-blue-400/30">
+                              <div className="flex items-center gap-2 text-blue-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-400 border-t-transparent"></div>
+                                <span>Verifying on chain...</span>
+                              </div>
+                              <p className="text-sm text-white/80 mb-1">
+                                Your signature is being verified on the blockchain. This can take up to ~30 seconds.
+                              </p>
+                              <p className="text-xs text-white/50">
+                                💡 The database will only update after verification succeeds. Please wait...
+                              </p>
+                            </div>
                           ) : null}
                           {readableRefundReason && (
                             <div className="text-white/50 text-xs uppercase tracking-[0.25em] mt-2">

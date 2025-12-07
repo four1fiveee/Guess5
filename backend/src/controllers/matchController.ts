@@ -13035,7 +13035,7 @@ const signProposalHandler = async (req: any, res: any) => {
     // Wrap in async IIFE to run in background
     (async () => {
       // Import verification utility
-      const { verifySignatureOnChain } = await import('../utils/signatureVerification');
+      const { verifySignatureOnChain } = require('../utils/signatureVerification');
       
       // Get transactionIndex from proposal
       let transactionIndex = 0;
