@@ -200,10 +200,26 @@ const Result: React.FC = () => {
 
     // If both players have results, check if payout is complete
     if (info.player1Result && info.player2Result) {
-      // If proposal is executed or has transaction ID, stop polling
-      if (info.proposalTransactionId || normalizedStatus === 'EXECUTED') {
+      // CRITICAL: Stop polling ONLY if proposal is EXECUTED (not just EXECUTING)
+      // proposalTransactionId can be the approval signature, not execution signature
+      // So we must check proposalExecutedAt or EXECUTED status, not just proposalTransactionId
+      if (normalizedStatus === 'EXECUTED' || info.proposalExecutedAt) {
+        console.log('🛑 Stopping polling: Proposal is executed', {
+          proposalStatus: normalizedStatus,
+          proposalExecutedAt: info.proposalExecutedAt,
+        });
         return false;
       }
+      
+      // CRITICAL: Continue polling during EXECUTING status until it becomes EXECUTED
+      if (normalizedStatus === 'EXECUTING') {
+        console.log('🔄 Continue polling: Proposal is EXECUTING, waiting for EXECUTED', {
+          proposalStatus: normalizedStatus,
+          proposalExecutedAt: info.proposalExecutedAt,
+        });
+        return true;
+      }
+      
       // CRITICAL: Continue polling even if proposal is READY_TO_EXECUTE until it's actually EXECUTED
       // This ensures we detect when the proposal is executed and stop the spinning
       // Don't stop polling just because it's ready - wait for execution
@@ -216,7 +232,9 @@ const Result: React.FC = () => {
           return true;
         }
         // If proposal is ready but not executed, continue polling
-        if (normalizedStatus !== 'EXECUTED' && !info.proposalTransactionId) {
+        // NOTE: proposalTransactionId might be approval signature, not execution signature
+        // So we check proposalExecutedAt instead
+        if (normalizedStatus !== 'EXECUTED' && !info.proposalExecutedAt) {
           return true;
         }
       }
