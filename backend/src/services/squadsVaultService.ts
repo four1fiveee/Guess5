@@ -4401,24 +4401,92 @@ export class SquadsVaultService {
           });
         }
 
-        // CRITICAL: Simulate transaction before sending (expert recommendation)
+        // CRITICAL: Simulate transaction before sending with dual-RPC (expert recommendation)
         // This catches errors before wasting fees and provides better error messages
+        // Dual-RPC simulation reduces false negatives from RPC lag
         const simulationStartTime = Date.now();
         logExecutionStep(correlationId, 'simulate-start', execStartTime);
         
+        let simulationLogs: string[] = [];
+        let simulationError: any = null;
+        let primarySimSuccess = false;
+        let secondarySimSuccess = false;
+        
         try {
-          const simulation = await this.connection.simulateTransaction(transaction, {
+          // Primary RPC simulation
+          const primarySimulation = await this.connection.simulateTransaction(transaction, {
             replaceRecentBlockhash: true,
             sigVerify: false,
-              });
-
-          logExecutionStep(correlationId, 'simulate-complete', simulationStartTime, {
-            err: simulation.value.err,
-            unitsConsumed: simulation.value.unitsConsumed,
-            logCount: simulation.value.logs?.length || 0,
           });
+          
+          primarySimSuccess = !primarySimulation.value.err;
+          simulationLogs = primarySimulation.value.logs || [];
+          
+          logExecutionStep(correlationId, 'simulate-primary-complete', simulationStartTime, {
+            err: primarySimulation.value.err,
+            unitsConsumed: primarySimulation.value.unitsConsumed,
+            logCount: simulationLogs.length,
+          });
+          
+          // Secondary RPC simulation (expert recommendation: dual-RPC)
+          let secondarySimulation: any = null;
+          try {
+            const { createRPCConnections } = require('../utils/rpcFailover');
+            const { fallback } = createRPCConnections();
+            
+            secondarySimulation = await fallback.simulateTransaction(transaction, {
+              replaceRecentBlockhash: true,
+              sigVerify: false,
+            });
+            
+            secondarySimSuccess = !secondarySimulation.value.err;
+            
+            // Merge logs from both simulations
+            if (secondarySimulation.value.logs) {
+              const secondaryLogs = secondarySimulation.value.logs || [];
+              // Combine unique logs
+              const allLogs = [...simulationLogs, ...secondaryLogs];
+              simulationLogs = Array.from(new Set(allLogs));
+            }
+            
+            logExecutionStep(correlationId, 'simulate-secondary-complete', simulationStartTime, {
+              err: secondarySimulation.value.err,
+              unitsConsumed: secondarySimulation.value.unitsConsumed,
+              logCount: secondarySimulation.value.logs?.length || 0,
+            });
+            
+            enhancedLogger.info('✅ Dual-RPC simulation completed', {
+              vaultAddress,
+              proposalId,
+              primarySuccess: primarySimSuccess,
+              secondarySuccess: secondarySimSuccess,
+              correlationId,
+            });
+          } catch (secondarySimError: any) {
+            enhancedLogger.warn('⚠️ Secondary RPC simulation failed (non-blocking)', {
+              vaultAddress,
+              proposalId,
+              error: secondarySimError?.message || String(secondarySimError),
+              correlationId,
+              note: 'Continuing with primary RPC simulation result',
+            });
+          }
+          
+          // If both simulations fail, abort execution
+          if (!primarySimSuccess && !secondarySimSuccess) {
+            simulationError = primarySimulation.value.err || secondarySimulation?.value?.err;
+          } else if (primarySimSuccess || secondarySimSuccess) {
+            // At least one simulation succeeded - proceed with execution
+            enhancedLogger.info('✅ At least one RPC simulation succeeded - proceeding with execution', {
+              vaultAddress,
+              proposalId,
+              primarySuccess: primarySimSuccess,
+              secondarySuccess: secondarySimSuccess,
+              correlationId,
+            });
+          }
 
-          if (simulation.value.err) {
+          if (simulationError) {
             const simError = JSON.stringify(simulation.value.err);
             
             // CRITICAL DIAGNOSIS: Extract detailed error information
@@ -4495,10 +4563,15 @@ export class SquadsVaultService {
             
             return {
               success: false,
-              error: `Simulation failed: ${simError}`,
-              logs: logs,
+              error: `Simulation failed on both RPCs: ${simError}`,
+              logs: simulationLogs,
               errorLogs: errorLogs,
               correlationId,
+              simulationDetails: {
+                primarySuccess: primarySimSuccess,
+                secondarySuccess: secondarySimSuccess,
+                allLogs: simulationLogs,
+              },
             };
           }
 
@@ -4506,9 +4579,11 @@ export class SquadsVaultService {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            computeUnitsConsumed: simulation.value.unitsConsumed,
-            logCount: simulation.value.logs?.length || 0,
-            lastLogs: simulation.value.logs?.slice(-5),
+            computeUnitsConsumed: primarySimulation.value.unitsConsumed,
+            logCount: simulationLogs.length,
+            lastLogs: simulationLogs.slice(-5),
+            primarySuccess: primarySimSuccess,
+            secondarySuccess: secondarySimSuccess,
             correlationId,
             note: 'Proceeding with execution - simulation confirms transaction will succeed',
           });
@@ -4681,6 +4756,7 @@ export class SquadsVaultService {
           signature: executionSignature,
           executedAt: new Date().toISOString(),
           correlationId,
+          logs: simulationLogs, // Include simulation logs for auditing
         };
       } catch (verificationError: unknown) {
         const errorMsg = verificationError instanceof Error ? verificationError.message : String(verificationError);
@@ -4710,6 +4786,7 @@ export class SquadsVaultService {
           signature: executionSignature,
           executedAt: new Date().toISOString(),
           correlationId,
+          logs: simulationLogs, // Include simulation logs for auditing
         };
       }
     } catch (executionError: unknown) {

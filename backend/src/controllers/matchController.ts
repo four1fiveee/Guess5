@@ -13615,15 +13615,45 @@ const signProposalHandler = async (req: any, res: any) => {
               // Don't throw - proceed with execution. If accounts are actually missing, execution will fail with a clear error
             }
             
-            // All readiness checks passed - now execute
+            // ROBUST EXECUTION PATTERN (Expert Recommendation)
+            // Step 1: Short initial wait (1-3s) to reduce immediate negatives from caches
+            console.log('⏳ Short initial wait (1s) to allow account state propagation...', {
+              matchId,
+              proposalId: proposalIdString,
+            });
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            // Step 2: Track execution attempts
+            const executionAttemptsResult = await matchRepository.query(`
+              SELECT "executionAttempts", "executionLastAttemptAt", "proposalStatus"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            
+            const currentAttempts = (executionAttemptsResult[0]?.executionAttempts || 0) + 1;
+            const maxAttempts = 8; // Expert recommendation: max 8 attempts over 30 minutes
+            
+            // Step 3: Update DB to EXECUTING status and increment attempts
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "proposalStatus" = 'EXECUTING',
+                  "executionAttempts" = $1,
+                  "executionLastAttemptAt" = NOW(),
+                  "updatedAt" = NOW()
+              WHERE id = $2
+            `, [currentAttempts, matchId]);
+            
             console.log('✅ All readiness checks passed - executing proposal', {
               matchId,
               proposalId: proposalIdString,
               proposalIsExecuteReady,
               vaultTxHydrated,
               executor: cachedFeeWalletKeypair.publicKey.toString(),
+              executionAttempt: currentAttempts,
+              maxAttempts,
             });
             
+            // Step 4: Execute with dual-RPC simulation (handled in executeProposal)
             const executeResult = await squadsVaultService.executeProposal(
               matchRow.squadsVaultAddress,
               proposalIdString,
@@ -13631,12 +13661,65 @@ const signProposalHandler = async (req: any, res: any) => {
               matchRow.squadsVaultPda ?? undefined
             );
             
-            if (executeResult.success) {
-              console.log('✅ IMMEDIATE EXECUTION: Proposal executed successfully after player signed', {
+            // Step 5: Verify on-chain execution result
+            let onChainVerified = false;
+            if (executeResult.success && executeResult.signature) {
+              try {
+                const { PublicKey, Connection } = require('@solana/web3.js');
+                const { accounts, getProposalPda } = require('@sqds/multisig');
+                const verifyConnection = new Connection(
+                  process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+                  'confirmed'
+                );
+                
+                const verifyMultisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+                const verifyProgramId = process.env.SQUADS_PROGRAM_ID 
+                  ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+                  : require('@sqds/multisig').PROGRAM_ID;
+                const verifyTransactionIndex = BigInt(proposalIdString);
+                const [verifyProposalPda] = getProposalPda({
+                  multisigPda: verifyMultisigAddress,
+                  transactionIndex: verifyTransactionIndex,
+                  programId: verifyProgramId,
+                });
+                
+                // Wait a bit for on-chain state to propagate
+                await new Promise(resolve => setTimeout(resolve, 2000));
+                
+                const verifyProposal = await accounts.Proposal.fromAccountAddress(
+                  verifyConnection,
+                  verifyProposalPda,
+                  'confirmed'
+                );
+                
+                const verifyStatus = (verifyProposal as any).status?.__kind;
+                onChainVerified = verifyStatus === 'Executed';
+                
+                console.log('🔍 On-chain execution verification', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  signature: executeResult.signature,
+                  onChainStatus: verifyStatus,
+                  verified: onChainVerified,
+                });
+              } catch (verifyError: any) {
+                console.warn('⚠️ On-chain verification failed (non-blocking)', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  error: verifyError?.message || String(verifyError),
+                  note: 'Execution signature exists, but on-chain verification failed. This may be due to RPC lag.',
+                });
+              }
+            }
+            
+            // Step 6: Update DB based on result
+            if (executeResult.success && onChainVerified) {
+              console.log('✅ IMMEDIATE EXECUTION: Proposal executed and verified on-chain', {
                 matchId,
                 proposalId: proposalIdString,
                 signature: executeResult.signature,
                 executedAt: executeResult.executedAt,
+                executionAttempt: currentAttempts,
                 note: 'Proposal executed immediately when it became ExecuteReady (2 of 3 signatures)',
               });
               
@@ -13661,22 +13744,97 @@ const signProposalHandler = async (req: any, res: any) => {
                 proposalId: proposalIdString,
                 executionSignature: executeResult.signature,
               });
+            } else if (executeResult.success && !onChainVerified) {
+              // Execution reported success but on-chain verification failed
+              // This could be RPC lag - roll back to READY_TO_EXECUTE and retry
+              console.warn('⚠️ IMMEDIATE EXECUTION: Execution reported success but on-chain verification failed - rolling back', {
+                matchId,
+                proposalId: proposalIdString,
+                signature: executeResult.signature,
+                executionAttempt: currentAttempts,
+                note: 'Rolling back to READY_TO_EXECUTE - reconciliation worker will retry',
+              });
+              
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = 'READY_TO_EXECUTE',
+                    "updatedAt" = NOW()
+                WHERE id = $1
+              `, [matchId]);
             } else {
+              // Execution failed - roll back to READY_TO_EXECUTE
               console.error('❌ IMMEDIATE EXECUTION: Failed to execute proposal', {
                 matchId,
                 proposalId: proposalIdString,
                 error: executeResult.error,
-                note: 'Reconciliation worker will retry execution later',
+                executionAttempt: currentAttempts,
+                maxAttempts,
+                simulationLogs: executeResult.logs,
+                note: currentAttempts >= maxAttempts 
+                  ? 'Max attempts reached - marking for manual review'
+                  : 'Rolling back to READY_TO_EXECUTE - reconciliation worker will retry',
               });
+              
+              // Roll back to READY_TO_EXECUTE
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = 'READY_TO_EXECUTE',
+                    "updatedAt" = NOW()
+                WHERE id = $1
+              `, [matchId]);
+              
+              // Alert if attempts exceed threshold
+              if (currentAttempts >= 5) {
+                console.error('🚨 ALERT: Execution attempts exceeded threshold', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  executionAttempts: currentAttempts,
+                  threshold: 5,
+                  note: 'This proposal needs manual review - execution is failing repeatedly',
+                });
+                // TODO: Send alert to monitoring system
+              }
+              
+              if (currentAttempts >= maxAttempts) {
+                console.error('🚨 ALERT: Max execution attempts reached - marking as ERROR', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  executionAttempts: currentAttempts,
+                  maxAttempts,
+                  note: 'This proposal has failed execution too many times - requires manual intervention',
+                });
+                
+                await matchRepository.query(`
+                  UPDATE "match"
+                  SET "proposalStatus" = 'EXECUTION_ERROR',
+                      "updatedAt" = NOW()
+                  WHERE id = $1
+                `, [matchId]);
+              }
             }
           } catch (executeError: any) {
+            // Roll back on any error
             console.error('❌ IMMEDIATE EXECUTION: Error during execution attempt', {
               matchId,
               proposalId: proposalIdString,
               error: executeError?.message || String(executeError),
               errorStack: executeError?.stack,
-              note: 'Reconciliation worker will retry execution later',
+              note: 'Rolling back to READY_TO_EXECUTE - reconciliation worker will retry',
             });
+            
+            try {
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = 'READY_TO_EXECUTE',
+                    "updatedAt" = NOW()
+                WHERE id = $1
+              `, [matchId]);
+            } catch (rollbackError: any) {
+              console.error('❌ CRITICAL: Failed to roll back proposal status', {
+                matchId,
+                error: rollbackError?.message || String(rollbackError),
+              });
+            }
           }
         })();
       } else if (newNeedsSignatures === 0 && newProposalStatus === 'READY_TO_EXECUTE' && !cachedFeeWalletKeypair) {
