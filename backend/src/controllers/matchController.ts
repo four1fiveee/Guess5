@@ -13034,8 +13034,7 @@ const signProposalHandler = async (req: any, res: any) => {
     // Database will ONLY be updated after verification succeeds
     // Wrap in async IIFE to run in background
     (async () => {
-      // Import verification utility
-      const { verifySignatureOnChain } = require('../utils/signatureVerification');
+      // Verification utility is imported at top of file (verifySignatureOnChain)
       
       // Get transactionIndex from proposal
       let transactionIndex = 0;
