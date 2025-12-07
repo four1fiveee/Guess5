@@ -1334,12 +1334,14 @@ const Result: React.FC = () => {
       });
       
       // CRITICAL: Handle response structure - backend may send immediate response with verifying flag
+      // Backend now sends status: 'VERIFYING_ON_CHAIN' when signature is being verified
       // Use response data if available, otherwise use current payoutData
       const responseProposalId = result?.proposalId || payoutData.proposalId;
       const responseProposalStatus = result?.proposalStatus || payoutData.proposalStatus || 'ACTIVE';
       const responseProposalSigners = result?.proposalSigners || payoutData.proposalSigners || [];
       const responseNeedsSignatures = result?.needsSignatures ?? payoutData.needsSignatures ?? 0;
-      const isVerifying = result?.verifying === true;
+      const isVerifying = result?.verifying === true || result?.status === 'VERIFYING_ON_CHAIN';
+      const verificationStatus = result?.status || (isVerifying ? 'VERIFYING_ON_CHAIN' : null);
       
       // CRITICAL: Only update UI optimistically AFTER backend confirms success
       // This prevents UI from showing success when the request actually failed
@@ -1349,16 +1351,32 @@ const Result: React.FC = () => {
         : (Array.isArray(payoutData.proposalSigners) ? payoutData.proposalSigners : []);
       
       // Update local state to reflect user has signed (only after backend confirms)
+      // CRITICAL: If status is VERIFYING_ON_CHAIN, do NOT add signer to list yet
+      // Database will only be updated after verification succeeds
+      const shouldAddSigner = verificationStatus !== 'VERIFYING_ON_CHAIN';
       const updatedPayoutData = {
         ...payoutData,
         proposalId: responseProposalId,
-        proposalStatus: responseProposalStatus,
-        proposalSigners: currentSigners.some((s: string) => s?.toLowerCase() === userWallet.toLowerCase())
+        proposalStatus: verificationStatus === 'VERIFYING_ON_CHAIN' ? 'ACTIVE' : responseProposalStatus,
+        proposalSigners: shouldAddSigner && currentSigners.some((s: string) => s?.toLowerCase() === userWallet.toLowerCase())
           ? currentSigners
-          : [...currentSigners, userWallet],
+          : shouldAddSigner
+          ? [...currentSigners, userWallet]
+          : currentSigners, // Don't add signer if still verifying
         needsSignatures: responseNeedsSignatures,
         verifying: isVerifying, // Track if backend is still verifying
+        verificationStatus, // Track verification status
       };
+      
+      // Log verification status for debugging
+      if (verificationStatus === 'VERIFYING_ON_CHAIN') {
+        console.log('⏳ Backend is verifying signature on-chain - will poll for updates', {
+          matchId,
+          wallet: publicKey.toString(),
+          proposalId: responseProposalId,
+          note: 'Database will be updated after verification succeeds',
+        });
+      }
       
       // If needsSignatures becomes 0, set status to EXECUTING
       if (updatedPayoutData.needsSignatures === 0 && updatedPayoutData.proposalStatus !== 'EXECUTED') {
