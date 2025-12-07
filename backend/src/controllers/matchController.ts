@@ -13517,8 +13517,36 @@ const signProposalHandler = async (req: any, res: any) => {
               }
             }
             
+            // CRITICAL FIX: If proposal has enough approvals but never reached ExecuteReady, proceed anyway
+            // This handles cases where Squads SDK has eventual consistency issues
+            // The execution instruction will validate approvals on-chain
             if (!proposalIsExecuteReady) {
-              throw new Error(`Proposal never reached ExecuteReady state after ${maxWaitAttempts} attempts (~${(maxWaitAttempts * waitIntervalMs) / 1000}s)`);
+              // Check if we have enough approvals to proceed anyway
+              let finalApprovedCount = 0;
+              try {
+                const finalProposalCheck = await accounts.Proposal.fromAccountAddress(
+                  connection,
+                  proposalPda,
+                  'confirmed'
+                );
+                finalApprovedCount = ((finalProposalCheck as any).approved || []).length;
+                const finalThreshold = (finalProposalCheck as any).threshold || 2;
+                
+                if (finalApprovedCount >= finalThreshold) {
+                  console.warn('⚠️ Proposal never reached ExecuteReady state, but has enough approvals - proceeding with execution', {
+                    matchId,
+                    proposalId: proposalIdString,
+                    approvedCount: finalApprovedCount,
+                    threshold: finalThreshold,
+                    note: 'Execution will proceed - Squads program will validate approvals on-chain',
+                  });
+                  proposalIsExecuteReady = true; // Force execution to proceed
+                } else {
+                  throw new Error(`Proposal never reached ExecuteReady state and only has ${finalApprovedCount} approvals (need ${finalThreshold}) after ${maxWaitAttempts} attempts (~${(maxWaitAttempts * waitIntervalMs) / 1000}s)`);
+                }
+              } catch (finalCheckError: any) {
+                throw new Error(`Proposal never reached ExecuteReady state after ${maxWaitAttempts} attempts (~${(maxWaitAttempts * waitIntervalMs) / 1000}s). Final check failed: ${finalCheckError?.message || String(finalCheckError)}`);
+              }
             }
             
             // CRITICAL CHECK 3: Wait for VaultTransaction to hydrate (accountKeys loaded)
