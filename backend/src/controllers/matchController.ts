@@ -31,6 +31,7 @@ const { resolveCorsOrigin } = require('../config/corsOrigins');
 const { redisMemoryManager } = require('../utils/redisMemoryManager');
 const { disburseBonusIfEligible } = require('../services/bonusService');
 const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+const { verifySignatureOnChain } = require('../utils/signatureVerification');
 
 // 🔧 Soft TTL cache for proposal lookups to prevent repeating expensive operations
 // Cache key: <multisigPda>:<matchId>
