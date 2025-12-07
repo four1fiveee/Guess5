@@ -13329,6 +13329,88 @@ const signProposalHandler = async (req: any, res: any) => {
         updatedProposalStatus: updatedRow.proposalStatus,
       });
       
+      // CRITICAL: If proposal is ready to execute (needsSignatures === 0), execute immediately
+      // According to Squads docs: proposal must be Approved status and executor needs EXECUTE permissions
+      // Fee wallet has ALL permissions (including EXECUTE), so it can execute
+      if (newNeedsSignatures === 0 && newProposalStatus === 'READY_TO_EXECUTE' && cachedFeeWalletKeypair) {
+        console.log('🚀 Proposal is ready to execute - executing immediately with fee wallet', {
+          matchId,
+          proposalId: proposalIdString,
+          vaultAddress: matchRow.squadsVaultAddress,
+          needsSignatures: newNeedsSignatures,
+          proposalStatus: newProposalStatus,
+          executor: cachedFeeWalletKeypair.publicKey.toString(),
+          note: 'Fee wallet has ALL permissions (including EXECUTE) - can execute immediately',
+        });
+        
+        // Execute in background - don't await to prevent blocking the response
+        // But log the result for monitoring
+        (async () => {
+          try {
+            const executeResult = await squadsVaultService.executeProposal(
+              matchRow.squadsVaultAddress,
+              proposalIdString,
+              cachedFeeWalletKeypair,
+              matchRow.squadsVaultPda ?? undefined
+            );
+            
+            if (executeResult.success) {
+              console.log('✅ IMMEDIATE EXECUTION: Proposal executed successfully after player signed', {
+                matchId,
+                proposalId: proposalIdString,
+                signature: executeResult.signature,
+                executedAt: executeResult.executedAt,
+                note: 'Proposal executed immediately when it became Approved (2 of 3 signatures)',
+              });
+              
+              // Update database with execution result
+              const { buildProposalExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+              const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+              const isTieRefund = !!matchRow.tieRefundProposalId && String(matchRow.tieRefundProposalId).trim() === proposalIdString;
+              const isWinnerPayout = !!matchRow.payoutProposalId && String(matchRow.payoutProposalId).trim() === proposalIdString && matchRow.winner && matchRow.winner !== 'tie';
+              
+              const executionUpdates = buildProposalExecutionUpdates({
+                executedAt,
+                signature: executeResult.signature ?? null,
+                isTieRefund,
+                isWinnerPayout,
+              });
+              
+              const { persistExecutionUpdates } = require('../utils/proposalExecutionUpdates');
+              await persistExecutionUpdates(matchRepository, matchId, executionUpdates);
+              
+              console.log('✅ IMMEDIATE EXECUTION: Database updated with execution result', {
+                matchId,
+                proposalId: proposalIdString,
+                executionSignature: executeResult.signature,
+              });
+            } else {
+              console.error('❌ IMMEDIATE EXECUTION: Failed to execute proposal', {
+                matchId,
+                proposalId: proposalIdString,
+                error: executeResult.error,
+                note: 'Reconciliation worker will retry execution later',
+              });
+            }
+          } catch (executeError: any) {
+            console.error('❌ IMMEDIATE EXECUTION: Error during execution attempt', {
+              matchId,
+              proposalId: proposalIdString,
+              error: executeError?.message || String(executeError),
+              note: 'Reconciliation worker will retry execution later',
+            });
+          }
+        })();
+      } else if (newNeedsSignatures === 0 && newProposalStatus === 'READY_TO_EXECUTE' && !cachedFeeWalletKeypair) {
+        console.warn('⚠️ Proposal is ready to execute but fee wallet keypair not available', {
+          matchId,
+          proposalId: proposalIdString,
+          needsSignatures: newNeedsSignatures,
+          proposalStatus: newProposalStatus,
+          note: 'Reconciliation worker will execute this proposal later',
+        });
+      }
+      
       // CRITICAL: Verify the user's signature was actually recorded
       // Use retry mechanism to handle potential timing issues with database updates
       // CRITICAL FIX: Add initial delay to allow database transaction to commit
