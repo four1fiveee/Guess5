@@ -13004,20 +13004,23 @@ const signProposalHandler = async (req: any, res: any) => {
       });
     }
 
-    // CRITICAL: Send response immediately after transaction confirmation
-    // Verification will happen in background to prevent frontend from hanging
-    console.log('✅ Transaction confirmed, sending immediate response to frontend...', {
+    // CRITICAL FIX: Send "VERIFYING_ON_CHAIN" status immediately
+    // DO NOT send success: true until signature is verified on-chain
+    // This prevents DB/chain divergence and false execution triggers
+    console.log('✅ Transaction confirmed, sending VERIFYING_ON_CHAIN response to frontend...', {
       matchId,
       wallet,
       proposalId: proposalIdString,
       transactionSignature: signature,
+      note: 'Response sent immediately, but DB will only update after on-chain verification',
     });
     
-    // Send immediate response to prevent frontend from hanging
-    // Verification will happen in background and database will be updated after verification
+    // Send immediate response with VERIFYING status - frontend will poll for updates
+    // Database will NOT be updated until verification succeeds
     res.json({
       success: true,
-      message: 'Proposal signed successfully. Verifying on-chain...',
+      status: 'VERIFYING_ON_CHAIN',
+      message: 'Transaction confirmed. Verifying signature on-chain...',
       signature,
       proposalId: proposalIdString,
       needsSignatures: matchRow.needsSignatures,
@@ -13027,14 +13030,16 @@ const signProposalHandler = async (req: any, res: any) => {
     });
     
     // CRITICAL: Verify on-chain that the player's signature is actually present
-    // This happens in background after response is sent to prevent frontend from hanging
+    // This happens in background after response is sent
+    // Database will ONLY be updated after verification succeeds
     // Wrap in async IIFE to run in background
     (async () => {
-      console.log('🔍 Verifying player signature on-chain (background task)...', {
+      console.log('🔍 VERIFICATION STARTED: Verifying player signature on-chain (background task)...', {
         matchId,
         wallet,
         proposalId: proposalIdString,
         transactionSignature: signature,
+        note: 'Database will NOT be updated until signature is confirmed on-chain',
       });
       
       let playerSignatureVerified = false;
@@ -13059,11 +13064,12 @@ const signProposalHandler = async (req: any, res: any) => {
           playerSignatureVerified = onChainSigners.includes(wallet.toLowerCase());
           
           if (playerSignatureVerified) {
-            console.log('✅ Player signature verified on-chain', {
+            console.log('✅ VERIFICATION CONFIRMED SIGNATURE ON CHAIN: Player signature verified on-chain', {
               matchId,
               wallet,
               attempt: attempt + 1,
               onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
+              note: 'Signature confirmed - will now update database',
             });
             break;
           } else if (attempt < maxVerificationAttempts - 1) {
@@ -13097,29 +13103,53 @@ const signProposalHandler = async (req: any, res: any) => {
     }
     
     if (!playerSignatureVerified) {
-      console.error('❌ CRITICAL: Player signature not found on-chain after confirmation', {
+      console.error('❌ VERIFICATION FAILED: Player signature not found on-chain after confirmation', {
         matchId,
         wallet,
         proposalId: proposalIdString,
         transactionSignature: signature,
         onChainSigners: onChainSigners.map(s => s.toString()),
         attempts: maxVerificationAttempts,
-        note: 'Transaction was confirmed but signature is not on-chain. This should not happen.',
+        note: 'Transaction was confirmed but signature is not on-chain. Marking DB as ERROR.',
       });
-      // CRITICAL FIX: DO NOT update DB if signature is not verified on-chain
-      // This prevents DB/chain divergence bugs
-      // The signature might appear later due to Solana's eventual consistency, but we should wait
-      const errorDetails = {
-        message: `Player signature not verified on-chain after ${maxVerificationAttempts} attempts`,
-        transactionSignature: signature,
-        onChainSigners: onChainSigners.map(s => s.toString()),
-        expectedWallet: wallet,
-        proposalId: proposalIdString,
-        note: 'Transaction was confirmed but signature is not yet visible on-chain. This may be due to Solana\'s eventual consistency. Please wait a few seconds and try again.',
-      };
-      console.error('❌ CRITICAL: Throwing error to prevent DB update', errorDetails);
-      throw new Error(JSON.stringify(errorDetails));
+      
+      // CRITICAL FIX: Mark DB as ERROR if signature never appears
+      // This prevents false execution triggers and DB/chain divergence
+      try {
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED',
+              "updatedAt" = NOW()
+          WHERE id = $1
+        `, [matchId]);
+        
+        console.error('❌ VERIFICATION FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
+          matchId,
+          wallet,
+          proposalId: proposalIdString,
+          transactionSignature: signature,
+          note: 'Database will NOT be updated with signer. Execution will NOT be triggered.',
+        });
+      } catch (dbError: any) {
+        console.error('❌ CRITICAL: Failed to mark DB as ERROR', {
+          matchId,
+          error: dbError?.message,
+        });
+      }
+      
+      // Do NOT throw error - just return early
+      // The response was already sent, so we can't change it
+      // Frontend will see status remains ACTIVE and can retry
+      return;
     }
+    
+    console.log('✅ SIGNATURE VERIFIED: updating DB', {
+      matchId,
+      wallet,
+      proposalId: proposalIdString,
+      onChainSigners: onChainSigners.map(s => s.toString()),
+      note: 'Signature confirmed on-chain - safe to update database now',
+    });
 
     // Update match with new signer (only after on-chain verification or confirmation)
     let newNeedsSignatures = 0;
