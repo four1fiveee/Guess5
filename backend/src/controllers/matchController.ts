@@ -13501,6 +13501,18 @@ const signProposalHandler = async (req: any, res: any) => {
       // newNeedsSignatures is already calculated correctly, just ensure it's non-negative
       const persistedNeedsSignatures = Math.max(0, newNeedsSignatures);
       
+      // CRITICAL: Update database ONLY after signature is verified on-chain
+      // This ensures DB always reflects on-chain state
+      console.log('✅ SIGNATURE VERIFIED: updating DB with verified signer', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        updatedSigners: uniqueSigners.map(s => s.toString()),
+        newNeedsSignatures: persistedNeedsSignatures,
+        newProposalStatus,
+        note: 'Database update happens AFTER on-chain verification - prevents DB/chain divergence',
+      });
+      
       // Update database using raw SQL
       // CRITICAL: Store transaction signature for monitoring and re-broadcast capability
       const updateResult = await matchRepository.query(`
@@ -13513,6 +13525,15 @@ const signProposalHandler = async (req: any, res: any) => {
         WHERE id = $5
         RETURNING id, "proposalSigners", "needsSignatures", "proposalStatus", "proposalTransactionId"
       `, [updatedSignersJson, persistedNeedsSignatures, newProposalStatus, signature, matchId]);
+      
+      console.log('✅ SIGNATURE VERIFIED: Database updated successfully', {
+        matchId,
+        proposalId: proposalIdString,
+        updatedSigners: uniqueSigners.map(s => s.toString()),
+        needsSignatures: persistedNeedsSignatures,
+        proposalStatus: newProposalStatus,
+        note: 'Database now reflects verified on-chain state',
+      });
     
       // CRITICAL: Verify the update actually succeeded
       if (!updateResult || updateResult.length === 0) {
