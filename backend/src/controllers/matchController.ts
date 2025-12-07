@@ -13330,23 +13330,202 @@ const signProposalHandler = async (req: any, res: any) => {
       });
       
       // CRITICAL: If proposal is ready to execute (needsSignatures === 0), execute immediately
-      // According to Squads docs: proposal must be Approved status and executor needs EXECUTE permissions
+      // According to Squads docs: proposal must be ExecuteReady status (not just Approved) and executor needs EXECUTE permissions
       // Fee wallet has ALL permissions (including EXECUTE), so it can execute
+      // BUT: Must wait for ExecuteReady state and VaultTransaction hydration before executing
       if (newNeedsSignatures === 0 && newProposalStatus === 'READY_TO_EXECUTE' && cachedFeeWalletKeypair) {
-        console.log('🚀 Proposal is ready to execute - executing immediately with fee wallet', {
+        console.log('🚀 Proposal is ready to execute - preparing immediate execution with fee wallet', {
           matchId,
           proposalId: proposalIdString,
           vaultAddress: matchRow.squadsVaultAddress,
           needsSignatures: newNeedsSignatures,
           proposalStatus: newProposalStatus,
           executor: cachedFeeWalletKeypair.publicKey.toString(),
-          note: 'Fee wallet has ALL permissions (including EXECUTE) - can execute immediately',
+          note: 'Fee wallet has ALL permissions (including EXECUTE) - will execute after readiness checks',
         });
         
         // Execute in background - don't await to prevent blocking the response
         // But log the result for monitoring
         (async () => {
           try {
+            // CRITICAL: Wait for ExecuteReady state and verify on-chain readiness before executing
+            // This prevents "VaultTransaction is not ExecuteReady" errors due to Solana eventual consistency
+            const { PublicKey, Connection } = require('@solana/web3.js');
+            const { accounts, getProposalPda, getTransactionPda } = require('@sqds/multisig');
+            const connection = new Connection(
+              process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+              'confirmed'
+            );
+            
+            const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+            const programId = process.env.SQUADS_PROGRAM_ID 
+              ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
+              : require('@sqds/multisig').PROGRAM_ID;
+            
+            // Parse proposalId as transactionIndex
+            const transactionIndex = BigInt(proposalIdString);
+            const [proposalPda] = getProposalPda({
+              multisigPda: multisigAddress,
+              transactionIndex,
+              programId,
+            });
+            const [transactionPda] = getTransactionPda({
+              multisigPda: multisigAddress,
+              index: transactionIndex,
+              programId,
+            });
+            
+            // CRITICAL CHECK 1: Wait for ExecuteReady state (not just Approved)
+            console.log('⏳ Waiting for proposal to reach ExecuteReady state...', {
+              matchId,
+              proposalId: proposalIdString,
+              proposalPda: proposalPda.toString(),
+            });
+            
+            let proposalIsExecuteReady = false;
+            const maxWaitAttempts = 15; // Up to ~20 seconds (15 * 1.5s)
+            const waitIntervalMs = 1500;
+            
+            for (let attempt = 0; attempt < maxWaitAttempts; attempt++) {
+              try {
+                const proposalAccount = await accounts.Proposal.fromAccountAddress(
+                  connection,
+                  proposalPda,
+                  'confirmed'
+                );
+                
+                const statusKind = (proposalAccount as any).status?.__kind;
+                const approvedSigners = (proposalAccount as any).approved || [];
+                const threshold = (proposalAccount as any).threshold || 2;
+                
+                // CRITICAL CHECK 2: Verify all signatures are reflected on-chain before executing
+                if (approvedSigners.length < threshold) {
+                  console.warn(`⚠️ On-chain signers (${approvedSigners.length}) < threshold (${threshold}) - waiting...`, {
+                    matchId,
+                    proposalId: proposalIdString,
+                    attempt: attempt + 1,
+                    approvedSigners: approvedSigners.map((s: any) => s.toString()),
+                    threshold,
+                  });
+                  if (attempt < maxWaitAttempts - 1) {
+                    await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
+                    continue;
+                  } else {
+                    throw new Error(`Signatures not yet reflected on-chain after ${maxWaitAttempts} attempts`);
+                  }
+                }
+                
+                if (statusKind === 'ExecuteReady') {
+                  proposalIsExecuteReady = true;
+                  console.log('✅ Proposal reached ExecuteReady state', {
+                    matchId,
+                    proposalId: proposalIdString,
+                    attempt: attempt + 1,
+                    totalWaitMs: attempt * waitIntervalMs,
+                    approvedSigners: approvedSigners.map((s: any) => s.toString()),
+                    threshold,
+                  });
+                  break;
+                } else if (statusKind === 'Executed') {
+                  console.log('✅ Proposal already executed - skipping', {
+                    matchId,
+                    proposalId: proposalIdString,
+                  });
+                  return; // Already executed, nothing to do
+                } else {
+                  console.log(`⏳ Proposal status: ${statusKind} (attempt ${attempt + 1}/${maxWaitAttempts})`, {
+                    matchId,
+                    proposalId: proposalIdString,
+                    statusKind,
+                    approvedSigners: approvedSigners.map((s: any) => s.toString()),
+                    threshold,
+                  });
+                  if (attempt < maxWaitAttempts - 1) {
+                    await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
+                  }
+                }
+              } catch (checkError: any) {
+                console.warn(`⚠️ Error checking proposal status (attempt ${attempt + 1}/${maxWaitAttempts})`, {
+                  matchId,
+                  proposalId: proposalIdString,
+                  error: checkError?.message || String(checkError),
+                });
+                if (attempt < maxWaitAttempts - 1) {
+                  await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
+                }
+              }
+            }
+            
+            if (!proposalIsExecuteReady) {
+              throw new Error(`Proposal never reached ExecuteReady state after ${maxWaitAttempts} attempts (~${(maxWaitAttempts * waitIntervalMs) / 1000}s)`);
+            }
+            
+            // CRITICAL CHECK 3: Wait for VaultTransaction to hydrate (accountKeys loaded)
+            console.log('⏳ Waiting for VaultTransaction to hydrate (accountKeys loaded)...', {
+              matchId,
+              proposalId: proposalIdString,
+              transactionPda: transactionPda.toString(),
+            });
+            
+            let vaultTxHydrated = false;
+            const maxHydrationAttempts = 10; // Up to 10 seconds
+            const hydrationIntervalMs = 1000;
+            
+            for (let attempt = 0; attempt < maxHydrationAttempts; attempt++) {
+              try {
+                const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+                  connection,
+                  transactionPda,
+                  'confirmed'
+                );
+                
+                const accountKeys = (vaultTxAccount.message as any)?.accountKeys;
+                if (accountKeys && Array.isArray(accountKeys) && accountKeys.length > 0) {
+                  vaultTxHydrated = true;
+                  console.log('✅ VaultTransaction hydrated with accountKeys', {
+                    matchId,
+                    proposalId: proposalIdString,
+                    attempt: attempt + 1,
+                    accountKeysCount: accountKeys.length,
+                    totalWaitMs: attempt * hydrationIntervalMs,
+                  });
+                  break;
+                } else {
+                  console.log(`⏳ VaultTransaction not yet hydrated (attempt ${attempt + 1}/${maxHydrationAttempts})`, {
+                    matchId,
+                    proposalId: proposalIdString,
+                    hasMessage: !!vaultTxAccount.message,
+                    accountKeysCount: accountKeys?.length || 0,
+                  });
+                  if (attempt < maxHydrationAttempts - 1) {
+                    await new Promise(resolve => setTimeout(resolve, hydrationIntervalMs));
+                  }
+                }
+              } catch (hydrationError: any) {
+                console.warn(`⚠️ Error checking VaultTransaction hydration (attempt ${attempt + 1}/${maxHydrationAttempts})`, {
+                  matchId,
+                  proposalId: proposalIdString,
+                  error: hydrationError?.message || String(hydrationError),
+                });
+                if (attempt < maxHydrationAttempts - 1) {
+                  await new Promise(resolve => setTimeout(resolve, hydrationIntervalMs));
+                }
+              }
+            }
+            
+            if (!vaultTxHydrated) {
+              throw new Error(`VaultTransaction not hydrated after ${maxHydrationAttempts} attempts (~${(maxHydrationAttempts * hydrationIntervalMs) / 1000}s)`);
+            }
+            
+            // All readiness checks passed - now execute
+            console.log('✅ All readiness checks passed - executing proposal', {
+              matchId,
+              proposalId: proposalIdString,
+              proposalIsExecuteReady,
+              vaultTxHydrated,
+              executor: cachedFeeWalletKeypair.publicKey.toString(),
+            });
+            
             const executeResult = await squadsVaultService.executeProposal(
               matchRow.squadsVaultAddress,
               proposalIdString,
@@ -13360,7 +13539,7 @@ const signProposalHandler = async (req: any, res: any) => {
                 proposalId: proposalIdString,
                 signature: executeResult.signature,
                 executedAt: executeResult.executedAt,
-                note: 'Proposal executed immediately when it became Approved (2 of 3 signatures)',
+                note: 'Proposal executed immediately when it became ExecuteReady (2 of 3 signatures)',
               });
               
               // Update database with execution result
@@ -13397,6 +13576,7 @@ const signProposalHandler = async (req: any, res: any) => {
               matchId,
               proposalId: proposalIdString,
               error: executeError?.message || String(executeError),
+              errorStack: executeError?.stack,
               note: 'Reconciliation worker will retry execution later',
             });
           }
