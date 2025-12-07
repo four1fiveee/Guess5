@@ -532,23 +532,24 @@ const Result: React.FC = () => {
             // 1. Proposal is EXECUTING (already has all signatures)
             // 2. needsSignatures is 0 (all signatures collected)
             // 3. User has actually signed
-            const proposalReadyToSign = payoutData.proposalId && 
+            // CRITICAL FIX: Use optional chaining to prevent null access errors
+            const proposalReadyToSign = payoutData?.proposalId && 
                                         !userHasSigned && 
-                                        payoutData.proposalStatus !== 'EXECUTED' && 
-                                        payoutData.proposalStatus !== 'EXECUTING' &&
-                                        payoutData.needsSignatures !== 0 &&
-                                        !payoutData.proposalExecutedAt;
+                                        payoutData?.proposalStatus !== 'EXECUTED' && 
+                                        payoutData?.proposalStatus !== 'EXECUTING' &&
+                                        payoutData?.needsSignatures !== 0 &&
+                                        !payoutData?.proposalExecutedAt;
             
             if (proposalReadyToSign) {
               console.log('🔄 Proposal is available but user hasn\'t signed yet - triggering page refresh', {
-                proposalId: payoutData.proposalId,
-                needsSignatures: payoutData.needsSignatures,
-                proposalStatus: payoutData.proposalStatus,
+                proposalId: payoutData?.proposalId,
+                needsSignatures: payoutData?.needsSignatures,
+                proposalStatus: payoutData?.proposalStatus,
                 userHasSigned,
                 userWallet: checkUserWallet,
                 playerProposalSigners,
                 normalizedProposalSigners,
-                proposalExecutedAt: payoutData.proposalExecutedAt,
+                proposalExecutedAt: payoutData?.proposalExecutedAt,
               });
               
               // REMOVED: No more automatic page reload - let React update naturally
@@ -1859,10 +1860,26 @@ const Result: React.FC = () => {
                                 Your refund is being sent to your wallet. This usually takes 10-30 seconds.
                               </p>
                               {executionStartTime && (
-                                <p className="text-xs text-white/50">
+                                <p className="text-xs text-white/50 mb-1">
                                   {executionElapsedSeconds}s elapsed
                                 </p>
                               )}
+                              {/* CRITICAL: Show clear execution status */}
+                              <div className="mt-2 text-xs text-white/60">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${payoutData.proposalStatus === 'EXECUTING' ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`}></span>
+                                  <span>
+                                    {payoutData.proposalStatus === 'EXECUTING' 
+                                      ? 'Executing on blockchain...' 
+                                      : 'All signatures collected, execution starting...'}
+                                  </span>
+                                </div>
+                                {payoutData.proposalId && (
+                                  <div className="mt-1 text-white/40 text-xs font-mono">
+                                    Proposal: {payoutData.proposalId.substring(0, 8)}...
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           ) : hasRefundProposal ? (
                             <p className="text-sm text-white/80 mb-3">
@@ -2045,10 +2062,26 @@ const Result: React.FC = () => {
                                 Your winnings are being sent to your wallet. This usually takes 10-30 seconds.
                               </p>
                               {executionStartTime && (
-                                <p className="text-xs text-white/50">
+                                <p className="text-xs text-white/50 mb-1">
                                   {executionElapsedSeconds}s elapsed
                                 </p>
                               )}
+                              {/* CRITICAL: Show clear execution status */}
+                              <div className="mt-2 text-xs text-white/60">
+                                <div className="flex items-center gap-2">
+                                  <span className={`w-2 h-2 rounded-full ${payoutData.proposalStatus === 'EXECUTING' ? 'bg-yellow-400 animate-pulse' : 'bg-green-400'}`}></span>
+                                  <span>
+                                    {payoutData.proposalStatus === 'EXECUTING' 
+                                      ? 'Executing on blockchain...' 
+                                      : 'All signatures collected, execution starting...'}
+                                  </span>
+                                </div>
+                                {payoutData.proposalId && (
+                                  <div className="mt-1 text-white/40 text-xs font-mono">
+                                    Proposal: {payoutData.proposalId.substring(0, 8)}...
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           ) : (
                           <p className="text-sm text-white/80 mb-3">
