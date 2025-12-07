@@ -3951,11 +3951,20 @@ export class SquadsVaultService {
               correlationId,
       });
 
-        // CRITICAL FIX: Use manual instruction construction with correct discriminator
+        // CRITICAL FIX: Use manual instruction construction with known discriminator
         // The SDK's instructions.vaultTransactionExecute has bugs, so we'll build it manually
-        // but use the SDK to derive the correct discriminator first
+        // This is a production fallback - track usage for monitoring
         let executionSignature: string;
-        let executionMethod = 'manual-with-sdk-discriminator';
+        let executionMethod = 'manual-construction-fallback';
+        
+        // Track manual execution fallback usage (expert recommendation)
+        enhancedLogger.warn('⚠️ Using manual execution fallback (SDK unavailable or buggy)', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          correlationId,
+          note: 'Manual construction is a valid workaround but indicates SDK issues that should be reported',
+        });
         
         enhancedLogger.info('📝 Executing Proposal using manual instruction construction', {
           vaultAddress,
@@ -3964,8 +3973,9 @@ export class SquadsVaultService {
           executor: executor.publicKey.toString(),
           programId: this.programId.toString(),
           multisigPda: multisigAddress.toString(),
+          executionMethod,
           correlationId,
-          note: 'Building instruction manually but deriving discriminator from SDK',
+          note: 'Building instruction manually with known discriminator and preserved account meta flags',
         });
         
         // CRITICAL FIX: Fetch vault transaction FIRST to get remaining accounts
@@ -3984,22 +3994,137 @@ export class SquadsVaultService {
         });
         
         // CRITICAL: Fetch VaultTransaction account to extract remaining accounts
+        // Also validate proposal status and transactionIndex before proceeding
         let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
+        let vaultTxAccount: any = null;
         
         try {
-          const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
             this.connection,
             transactionPda,
             'confirmed'
           );
+          
+          // CRITICAL VALIDATION: Verify transactionIndex matches the derived PDA
+          // The VaultTransaction should have an index field that matches our transactionIndexNumber
+          if ((vaultTxAccount as any).index !== undefined) {
+            const vaultTxIndex = Number((vaultTxAccount as any).index);
+            if (vaultTxIndex !== transactionIndexNumber) {
+              const error = `Transaction index mismatch: VaultTransaction.index=${vaultTxIndex}, expected=${transactionIndexNumber}`;
+              enhancedLogger.error('❌ Transaction index mismatch - aborting execution', {
+                vaultAddress,
+                proposalId,
+                transactionPda: transactionPda.toString(),
+                vaultTxIndex,
+                expectedIndex: transactionIndexNumber,
+                correlationId,
+              });
+              throw new Error(error);
+            }
+            enhancedLogger.info('✅ Verified transactionIndex matches VaultTransaction.index', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              correlationId,
+            });
+          }
+          
+          // CRITICAL VALIDATION: Check proposal status on-chain
+          let proposalAccount: any = null;
+          try {
+            proposalAccount = await accounts.Proposal.fromAccountAddress(
+              this.connection,
+              proposalPda,
+              'confirmed'
+            );
+            
+            const proposalStatus = (proposalAccount.status as any)?.__kind;
+            const approvedSigners = proposalAccount.approved || [];
+            const threshold = proposalAccount.threshold;
+            
+            enhancedLogger.info('📋 On-chain Proposal Status Check', {
+              vaultAddress,
+              proposalId,
+              proposalPda: proposalPda.toString(),
+              proposalStatus,
+              approvedSignersCount: approvedSigners.length,
+              threshold,
+              approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
+              correlationId,
+            });
+            
+            // Validate proposal is in ExecuteReady or Approved state
+            if (proposalStatus !== 'ExecuteReady' && proposalStatus !== 'Approved') {
+              const error = `Proposal is not in ExecuteReady or Approved state: ${proposalStatus}`;
+              enhancedLogger.error('❌ Proposal not ready for execution - aborting', {
+                vaultAddress,
+                proposalId,
+                proposalStatus,
+                approvedSignersCount: approvedSigners.length,
+                threshold,
+                correlationId,
+              });
+              throw new Error(error);
+            }
+            
+            // Validate we have enough signers
+            if (approvedSigners.length < threshold) {
+              const error = `Insufficient signers: ${approvedSigners.length}/${threshold}`;
+              enhancedLogger.error('❌ Insufficient signers for execution - aborting', {
+                vaultAddress,
+                proposalId,
+                approvedSignersCount: approvedSigners.length,
+                threshold,
+                correlationId,
+              });
+              throw new Error(error);
+            }
+            
+            enhancedLogger.info('✅ Proposal validation passed - ready for execution', {
+              vaultAddress,
+              proposalId,
+              proposalStatus,
+              approvedSignersCount: approvedSigners.length,
+              threshold,
+              correlationId,
+            });
+          } catch (proposalFetchError: unknown) {
+            enhancedLogger.warn('⚠️ Could not fetch on-chain Proposal account for validation', {
+              vaultAddress,
+              proposalId,
+              proposalPda: proposalPda.toString(),
+              error: proposalFetchError instanceof Error ? proposalFetchError.message : String(proposalFetchError),
+              correlationId,
+              note: 'Continuing with execution - validation will occur during simulation',
+            });
+          }
           
           enhancedLogger.info('✅ Fetched VaultTransaction account', {
             vaultAddress,
             proposalId,
             transactionPda: transactionPda.toString(),
             hasMessage: !!vaultTxAccount.message,
+            messageAccountKeysCount: (vaultTxAccount.message as any)?.accountKeys?.length || 0,
             correlationId,
           });
+          
+          // CRITICAL: Log vaultTx message details for debugging
+          if (vaultTxAccount.message) {
+            const messageBytes = (vaultTxAccount.message as any).serialize?.() || 
+                                 (vaultTxAccount.message as any).toBytes?.() ||
+                                 null;
+            enhancedLogger.info('📦 VaultTransaction Message Details', {
+              vaultAddress,
+              proposalId,
+              transactionPda: transactionPda.toString(),
+              hasAccountKeys: !!(vaultTxAccount.message as any).accountKeys,
+              accountKeysCount: (vaultTxAccount.message as any).accountKeys?.length || 0,
+              messageBytesLength: messageBytes ? messageBytes.length : null,
+              messageBytesHex: messageBytes ? messageBytes.toString('hex').substring(0, 200) + '...' : null,
+              correlationId,
+              note: 'Message details logged for debugging - redact sensitive info in production',
+            });
+          }
           
           // Extract remaining accounts from the message
           if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
@@ -4027,12 +4152,29 @@ export class SquadsVaultService {
                 return null;
               }
               
-              // Extract isWritable from the message
+              // CRITICAL FIX: Extract isWritable from the message - preserve actual flags
               const isWritable = key?.isWritable !== undefined ? key.isWritable : 
                                 (key?.writable !== undefined ? key.writable : true);
               
-              // CRITICAL: isSigner must be false - Squads signs on behalf of the vault
-              const isSigner = false;
+              // CRITICAL FIX: Preserve isSigner from message if available, but default to false for safety
+              // In typical Squads flows, inner instruction signers should be the multisig PDA (so isSigner=false)
+              // However, if the message explicitly marks an account as signer, we should preserve that
+              const isSigner = key?.isSigner !== undefined ? key.isSigner : 
+                              (key?.signer !== undefined ? key.signer : false);
+              
+              // Safety check: If message says signer=true, log a warning as this is unusual for multisig
+              if (isSigner) {
+                enhancedLogger.warn('⚠️ VaultTransaction message marks account as signer - unusual for multisig', {
+                  vaultAddress,
+                  proposalId,
+                  accountPubkey: pubkey.toString(),
+                  accountIndex: index,
+                  isWritable,
+                  isSigner,
+                  correlationId,
+                  note: 'This account is marked as signer in the message - ensure executor can provide signature',
+                });
+              }
               
               return {
                 pubkey,
@@ -4041,7 +4183,7 @@ export class SquadsVaultService {
               };
             }).filter((meta: any): meta is { pubkey: PublicKey; isWritable: boolean; isSigner: boolean } => meta !== null);
             
-            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction', {
+            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction (with preserved meta flags)', {
               vaultAddress,
               proposalId,
               transactionPda: transactionPda.toString(),
@@ -4051,15 +4193,26 @@ export class SquadsVaultService {
                 isWritable: a.isWritable,
                 isSigner: a.isSigner,
               })),
+              signerAccountsCount: remainingAccounts.filter(a => a.isSigner).length,
+              writableAccountsCount: remainingAccounts.filter(a => a.isWritable).length,
+              correlationId,
+            });
+          } else {
+            enhancedLogger.warn('⚠️ VaultTransaction message has no accountKeys - execution may fail', {
+              vaultAddress,
+              proposalId,
+              transactionPda: transactionPda.toString(),
+              hasMessage: !!vaultTxAccount.message,
               correlationId,
             });
           }
         } catch (txFetchError: unknown) {
-          enhancedLogger.error('❌ Failed to fetch VaultTransaction account', {
+          enhancedLogger.error('❌ Failed to fetch or validate VaultTransaction account', {
             vaultAddress,
             proposalId,
             transactionPda: transactionPda.toString(),
             error: txFetchError instanceof Error ? txFetchError.message : String(txFetchError),
+            errorStack: txFetchError instanceof Error ? txFetchError.stack : undefined,
             correlationId,
             note: 'Cannot proceed without VaultTransaction account',
           });
@@ -4073,10 +4226,23 @@ export class SquadsVaultService {
         const instructionDiscriminator = Buffer.from([0x2a, 0xbf, 0x8f, 0x72, 0x3d, 0x13, 0x4f, 0x93]);
         let executionIx: TransactionInstruction;
         
-        // Build instruction data: [discriminator (8 bytes), transaction_index (u64)]
+        // CRITICAL: Build instruction data correctly: [discriminator (8 bytes), transaction_index (u64, little-endian)]
+        // This matches the SDK's expected format: discriminator || serialized(transactionIndex)
         const transactionIndexBuffer = Buffer.allocUnsafe(8);
         transactionIndexBuffer.writeBigUInt64LE(BigInt(transactionIndexNumber), 0);
         const instructionData = Buffer.concat([instructionDiscriminator, transactionIndexBuffer]);
+        
+        enhancedLogger.info('📐 Instruction Data Construction', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          discriminatorHex: instructionDiscriminator.toString('hex'),
+          transactionIndexHex: transactionIndexBuffer.toString('hex'),
+          instructionDataHex: instructionData.toString('hex'),
+          instructionDataLength: instructionData.length,
+          correlationId,
+          note: 'Instruction data format: [8-byte discriminator][8-byte u64 transactionIndex (little-endian)]',
+        });
         
         // Build instruction accounts
         // Per Squads v4: [multisig, transaction, proposal, member]
@@ -4365,7 +4531,7 @@ export class SquadsVaultService {
           maxRetries: 3,
         });
         
-        executionMethod = 'instructions.vaultTransactionExecute';
+        // Keep executionMethod as 'manual-construction-fallback' (don't overwrite)
         executionDAGLogger.addStep(correlationId, 'execution-instructions-success', {
           signature: executionSignature,
           method: executionMethod,
@@ -5337,3 +5503,4 @@ export class SquadsVaultService {
 // Export singleton instance
 export const squadsVaultService = new SquadsVaultService();
 export const getSquadsVaultService = () => squadsVaultService;
+
