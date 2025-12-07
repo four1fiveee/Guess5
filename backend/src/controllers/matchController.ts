@@ -13035,26 +13035,36 @@ const signProposalHandler = async (req: any, res: any) => {
     // Database will ONLY be updated after verification succeeds
     // Wrap in async IIFE to run in background
     (async () => {
-      // Verification utility is imported at top of file (verifySignatureOnChain)
-      
-      // Get transactionIndex from proposal
-      let transactionIndex = 0;
       try {
-        const proposalStatus = await squadsVaultService.checkProposalStatus(
-          matchRow.squadsVaultAddress,
-          proposalIdString
-        );
-        if (proposalStatus && proposalStatus.transactionIndex !== undefined) {
-          transactionIndex = Number(proposalStatus.transactionIndex);
-        }
-      } catch (e) {
-        console.warn('⚠️ Could not get transactionIndex from proposal, will try to derive from proposalId', {
+        // Verification utility is imported at top of file (verifySignatureOnChain)
+        console.log('🚀 BACKGROUND_TASK_STARTED: Starting signature verification background task', {
+          event: 'BACKGROUND_TASK_STARTED',
           matchId,
+          wallet,
           proposalId: proposalIdString,
+          transactionSignature: signature,
+          note: 'Background task initiated - will verify signature on-chain',
         });
-      }
-      
-      console.log('🔍 VERIFICATION STARTED: Verifying player signature on-chain (background task)...', {
+        
+        // Get transactionIndex from proposal
+        let transactionIndex = 0;
+        try {
+          const proposalStatus = await squadsVaultService.checkProposalStatus(
+            matchRow.squadsVaultAddress,
+            proposalIdString
+          );
+          if (proposalStatus && proposalStatus.transactionIndex !== undefined) {
+            transactionIndex = Number(proposalStatus.transactionIndex);
+          }
+        } catch (e) {
+          console.warn('⚠️ Could not get transactionIndex from proposal, will try to derive from proposalId', {
+            matchId,
+            proposalId: proposalIdString,
+            error: e?.message || String(e),
+          });
+        }
+        
+        console.log('🔍 VERIFICATION STARTED: Verifying player signature on-chain (background task)...', {
         event: 'VERIFICATION_STARTED',
         matchId,
         wallet,
@@ -14750,16 +14760,28 @@ const signProposalHandler = async (req: any, res: any) => {
       proposalStatus: newProposalStatus,
         finalSigners: uniqueSigners,
       });
+      } catch (innerError: any) {
+        // Catch any errors within the background task
+        console.error('❌ Error in background verification/update task (inner catch):', {
+          matchId,
+          wallet,
+          proposalId: proposalIdString,
+          error: innerError?.message || String(innerError),
+          stack: innerError?.stack,
+          note: 'Error occurred during verification or database update',
+        });
+        throw innerError; // Re-throw to be caught by outer catch
+      }
     })().catch((bgError: any) => {
       // Background task errors are logged but don't affect the response
-      console.error('❌ Error in background verification/update task:', {
+      console.error('❌ Error in background verification/update task (outer catch):', {
         matchId,
         wallet,
         proposalId: proposalIdString,
         error: bgError?.message || String(bgError),
         stack: bgError?.stack,
         note: 'Response already sent to frontend. Frontend will poll for status updates.',
-    });
+      });
     }); // End background task
 
   } catch (error: unknown) {
