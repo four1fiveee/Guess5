@@ -131,10 +131,25 @@ export async function verifySignatureOnChain({
         'confirmed'
       );
       
-      if (proposalPrimary.signers) {
-        vaultTxSignersPrimary = proposalPrimary.signers.map((s: any) => s.toString());
-        const signerFound = proposalPrimary.signers.some(
-          (s: any) => s.toString().toLowerCase() === signerPubkey.toLowerCase()
+      // Proposal uses 'approved' property, not 'signers'
+      const approvedSigners = (proposalPrimary as any).approved || [];
+      if (approvedSigners.length > 0) {
+        vaultTxSignersPrimary = approvedSigners.map((s: any) => {
+          // Handle both PublicKey objects and objects with .key property
+          if (s instanceof PublicKey) {
+            return s.toString();
+          } else if (s?.key instanceof PublicKey) {
+            return s.key.toString();
+          } else if (typeof s === 'string') {
+            return s;
+          }
+          return s?.toString() || '';
+        });
+        const signerFound = approvedSigners.some(
+          (s: any) => {
+            const signerKey = s instanceof PublicKey ? s : (s?.key instanceof PublicKey ? s.key : (typeof s === 'string' ? new PublicKey(s) : null));
+            return signerKey && signerKey.toString().toLowerCase() === signerPubkey.toLowerCase();
+          }
         );
         
         if (signerFound) {
@@ -172,10 +187,25 @@ export async function verifySignatureOnChain({
         'confirmed'
       );
       
-      if (proposalSecondary.signers) {
-        vaultTxSignersSecondary = proposalSecondary.signers.map((s: any) => s.toString());
-        const signerFound = proposalSecondary.signers.some(
-          (s: any) => s.toString().toLowerCase() === signerPubkey.toLowerCase()
+      // Proposal uses 'approved' property, not 'signers'
+      const approvedSignersSecondary = (proposalSecondary as any).approved || [];
+      if (approvedSignersSecondary.length > 0) {
+        vaultTxSignersSecondary = approvedSignersSecondary.map((s: any) => {
+          // Handle both PublicKey objects and objects with .key property
+          if (s instanceof PublicKey) {
+            return s.toString();
+          } else if (s?.key instanceof PublicKey) {
+            return s.key.toString();
+          } else if (typeof s === 'string') {
+            return s;
+          }
+          return s?.toString() || '';
+        });
+        const signerFound = approvedSignersSecondary.some(
+          (s: any) => {
+            const signerKey = s instanceof PublicKey ? s : (s?.key instanceof PublicKey ? s.key : (typeof s === 'string' ? new PublicKey(s) : null));
+            return signerKey && signerKey.toString().toLowerCase() === signerPubkey.toLowerCase();
+          }
         );
         
         if (signerFound) {
