@@ -13034,122 +13034,156 @@ const signProposalHandler = async (req: any, res: any) => {
     // Database will ONLY be updated after verification succeeds
     // Wrap in async IIFE to run in background
     (async () => {
-      console.log('🔍 VERIFICATION STARTED: Verifying player signature on-chain (background task)...', {
-        matchId,
-        wallet,
-        proposalId: proposalIdString,
-        transactionSignature: signature,
-        note: 'Database will NOT be updated until signature is confirmed on-chain',
-      });
+      // Import verification utility
+      const { verifySignatureOnChain } = await import('../utils/signatureVerification');
       
-      let playerSignatureVerified = false;
-      let onChainSigners: string[] = [];
-      const maxVerificationAttempts = 10; // Increased from 5 to 10 for Solana eventual consistency
-      const verificationDelay = 3000; // Increased from 2s to 3s between attempts
-      
-      // CRITICAL: Add initial delay before first verification attempt
-      // Solana's eventual consistency means signatures may take a few seconds to appear
-      console.log('⏳ Waiting 3 seconds before first on-chain verification (Solana eventual consistency)...');
-      await new Promise(resolve => setTimeout(resolve, 3000));
-      
-      for (let attempt = 0; attempt < maxVerificationAttempts; attempt++) {
+      // Get transactionIndex from proposal
+      let transactionIndex = 0;
       try {
         const proposalStatus = await squadsVaultService.checkProposalStatus(
           matchRow.squadsVaultAddress,
           proposalIdString
         );
-        
-        if (proposalStatus && proposalStatus.signers) {
-          onChainSigners = proposalStatus.signers.map((s: any) => s.toString().toLowerCase());
-          playerSignatureVerified = onChainSigners.includes(wallet.toLowerCase());
-          
-          if (playerSignatureVerified) {
-            console.log('✅ VERIFICATION CONFIRMED SIGNATURE ON CHAIN: Player signature verified on-chain', {
-              matchId,
-              wallet,
-              attempt: attempt + 1,
-              onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
-              note: 'Signature confirmed - will now update database',
-            });
-            break;
-          } else if (attempt < maxVerificationAttempts - 1) {
-            console.warn(`⚠️ Player signature not yet on-chain (attempt ${attempt + 1}/${maxVerificationAttempts}), waiting...`, {
-              matchId,
-              wallet,
-              onChainSigners: proposalStatus.signers.map((s: any) => s.toString()),
-              expectedWallet: wallet,
-            });
-            await new Promise(resolve => setTimeout(resolve, verificationDelay));
-          }
-        } else {
-          console.warn(`⚠️ Could not get proposal status (attempt ${attempt + 1}/${maxVerificationAttempts})`, {
-            matchId,
-            proposalId: proposalIdString,
-          });
-          if (attempt < maxVerificationAttempts - 1) {
-            await new Promise(resolve => setTimeout(resolve, verificationDelay));
-          }
+        if (proposalStatus && proposalStatus.transactionIndex !== undefined) {
+          transactionIndex = Number(proposalStatus.transactionIndex);
         }
-      } catch (verifyError: any) {
-        console.warn(`⚠️ Error verifying signature on-chain (attempt ${attempt + 1}/${maxVerificationAttempts})`, {
+      } catch (e) {
+        console.warn('⚠️ Could not get transactionIndex from proposal, will try to derive from proposalId', {
           matchId,
-          wallet,
-          error: verifyError?.message,
+          proposalId: proposalIdString,
         });
-        if (attempt < maxVerificationAttempts - 1) {
-          await new Promise(resolve => setTimeout(resolve, verificationDelay));
-        }
       }
-    }
-    
-    if (!playerSignatureVerified) {
-      console.error('❌ VERIFICATION FAILED: Player signature not found on-chain after confirmation', {
+      
+      console.log('🔍 VERIFICATION STARTED: Verifying player signature on-chain (background task)...', {
+        event: 'VERIFICATION_STARTED',
         matchId,
         wallet,
         proposalId: proposalIdString,
         transactionSignature: signature,
-        onChainSigners: onChainSigners.map(s => s.toString()),
-        attempts: maxVerificationAttempts,
-        note: 'Transaction was confirmed but signature is not on-chain. Marking DB as ERROR.',
+        transactionIndex,
+        note: 'Database will NOT be updated until signature is confirmed on-chain',
       });
       
-      // CRITICAL FIX: Mark DB as ERROR if signature never appears
-      // This prevents false execution triggers and DB/chain divergence
-      try {
-        await matchRepository.query(`
-          UPDATE "match"
-          SET "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED',
-              "updatedAt" = NOW()
-          WHERE id = $1
-        `, [matchId]);
-        
-        console.error('❌ VERIFICATION FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
+      // Store signed transaction for idempotency (30-60s TTL for forensic tracing)
+      // In production, you might want to use Redis or a cache with TTL
+      // For now, we'll just log it for audit trail
+      console.log('📝 SIGNED_TX_STORED: Storing signed transaction for audit trail', {
+        matchId,
+        wallet,
+        transactionSignature: signature,
+        proposalId: proposalIdString,
+        ttl: '30s (for forensic tracing)',
+      });
+      
+      // Use dual-RPC verification with exponential backoff
+      const verificationResult = await verifySignatureOnChain({
+        txSig: signature,
+        vaultAddress: matchRow.squadsVaultAddress,
+        proposalId: proposalIdString,
+        transactionIndex,
+        signerPubkey: wallet,
+        options: {
+          attempts: 10,
+          initialDelayMs: 3000, // 1-3s with jitter
+          delayMs: 3000,
+          exponentialBackoffAfter: 6, // Exponential backoff after 6 attempts
+          correlationId: matchId,
+        },
+      });
+      
+      // Emit metric for observability
+      console.log('📊 METRIC: signature_verification_attempts', {
+        event: 'METRIC',
+        metric: 'signature_verification_attempts',
+        matchId,
+        result: verificationResult.ok ? 'success' : 'failed',
+        attempts: verificationResult.attempt || 0,
+        primaryRpcSeen: verificationResult.primaryRpcSeen || false,
+        secondaryRpcSeen: verificationResult.secondaryRpcSeen || false,
+        txConfirmed: verificationResult.txConfirmed || false,
+      });
+      
+      if (!verificationResult.ok) {
+        console.error('❌ VERIFICATION_FAILED: Player signature not found on-chain after all attempts', {
+          event: 'VERIFICATION_FAILED',
           matchId,
           wallet,
           proposalId: proposalIdString,
           transactionSignature: signature,
-          note: 'Database will NOT be updated with signer. Execution will NOT be triggered.',
+          reason: verificationResult.reason || 'timeout',
+          attempts: verificationResult.attempt || 0,
+          primaryRpcSeen: verificationResult.primaryRpcSeen || false,
+          secondaryRpcSeen: verificationResult.secondaryRpcSeen || false,
+          vaultTxSignersPrimary: verificationResult.vaultTxSignersPrimary || [],
+          vaultTxSignersSecondary: verificationResult.vaultTxSignersSecondary || [],
+          txConfirmed: verificationResult.txConfirmed || false,
+          note: 'Transaction was confirmed but signature is not on-chain. Marking DB as ERROR.',
         });
-      } catch (dbError: any) {
-        console.error('❌ CRITICAL: Failed to mark DB as ERROR', {
+        
+        // CRITICAL FIX: Mark DB as ERROR if signature never appears
+        // This prevents false execution triggers and DB/chain divergence
+        try {
+          await matchRepository.query(`
+            UPDATE "match"
+            SET "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED',
+                "updatedAt" = NOW()
+            WHERE id = $1
+          `, [matchId]);
+          
+          console.error('❌ VERIFICATION_FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
+            matchId,
+            wallet,
+            proposalId: proposalIdString,
+            transactionSignature: signature,
+            note: 'Database will NOT be updated with signer. Execution will NOT be triggered.',
+          });
+        } catch (dbError: any) {
+          console.error('❌ CRITICAL: Failed to mark DB as ERROR', {
+            matchId,
+            error: dbError?.message,
+          });
+        }
+        
+        // Alert if failure rate is high (for monitoring)
+        // In production, you'd emit this to your alerting system
+        console.warn('⚠️ ALERT: Signature verification failed', {
+          event: 'ALERT',
+          alertType: 'SIGNATURE_VERIFICATION_FAILED',
           matchId,
-          error: dbError?.message,
+          wallet,
+          proposalId: proposalIdString,
+          note: 'Consider checking RPC health and network conditions',
         });
+        
+        // Do NOT throw error - just return early
+        // The response was already sent, so we can't change it
+        // Frontend will see status remains ACTIVE and can retry
+        return;
       }
       
-      // Do NOT throw error - just return early
-      // The response was already sent, so we can't change it
-      // Frontend will see status remains ACTIVE and can retry
-      return;
-    }
-    
-    console.log('✅ SIGNATURE VERIFIED: updating DB', {
-      matchId,
-      wallet,
-      proposalId: proposalIdString,
-      onChainSigners: onChainSigners.map(s => s.toString()),
-      note: 'Signature confirmed on-chain - safe to update database now',
-    });
+      // Verification succeeded
+      const onChainSigners = verificationResult.vaultTxSignersPrimary || verificationResult.vaultTxSignersSecondary || [];
+      
+      console.log('✅ VERIFICATION_CONFIRMED: Signature verified on-chain', {
+        event: 'VERIFICATION_CONFIRMED',
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        attempt: verificationResult.attempt || 0,
+        onChainSigners,
+        primaryRpcSeen: verificationResult.primaryRpcSeen || false,
+        secondaryRpcSeen: verificationResult.secondaryRpcSeen || false,
+        txConfirmed: verificationResult.txConfirmed || false,
+        note: 'Signature confirmed - will now update database',
+      });
+      
+      console.log('✅ SIGNATURE VERIFIED: updating DB', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        onChainSigners: onChainSigners.map(s => s.toString()),
+        note: 'Signature confirmed on-chain - safe to update database now',
+      });
 
     // Update match with new signer (only after on-chain verification or confirmation)
     let newNeedsSignatures = 0;
