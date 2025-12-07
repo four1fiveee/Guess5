@@ -13382,6 +13382,19 @@ const signProposalHandler = async (req: any, res: any) => {
       });
       
       newProposalStatus = newNeedsSignatures === 0 ? 'READY_TO_EXECUTE' : 'ACTIVE';
+      
+      // CRITICAL DIAGNOSTIC: Log when proposal becomes ready to execute
+      if (newNeedsSignatures === 0 && newProposalStatus === 'READY_TO_EXECUTE') {
+        console.log('✅ PROPOSAL READY TO EXECUTE - Will trigger immediate execution', {
+          matchId,
+          proposalId: proposalIdString,
+          needsSignatures: newNeedsSignatures,
+          proposalStatus: newProposalStatus,
+          hasFeeWalletKeypair: !!cachedFeeWalletKeypair,
+          feeWalletAddress: cachedFeeWalletKeypair?.publicKey.toString() || 'N/A',
+          timestamp: new Date().toISOString(),
+        });
+      }
 
       // CRITICAL: Before updating DB, verify on-chain signatures match expected threshold
       // This prevents DB divergence bugs where DB says ready but on-chain doesn't

@@ -3958,15 +3958,15 @@ export class SquadsVaultService {
         let executionMethod = 'manual-construction-fallback';
         
         // Track manual execution fallback usage (expert recommendation)
-        enhancedLogger.warn('⚠️ Using manual execution fallback (SDK unavailable or buggy)', {
+        enhancedLogger.warn('⚠️ IMMEDIATE EXECUTION: fallback manual attempt', {
           vaultAddress,
           proposalId,
           transactionIndex: transactionIndexNumber,
           correlationId,
-          note: 'Manual construction is a valid workaround but indicates SDK issues that should be reported',
+          note: 'Using manual construction (SDK has known bugs) - this is the primary execution method',
         });
         
-        enhancedLogger.info('📝 Executing Proposal using manual instruction construction', {
+        enhancedLogger.info('📝 IMMEDIATE EXECUTION: fallback manual attempt - Building instruction manually', {
           vaultAddress,
           proposalId,
           transactionIndex: transactionIndexNumber,
@@ -4509,7 +4509,7 @@ export class SquadsVaultService {
             );
             
             // CRITICAL: Always log ALL simulation logs to diagnose the issue
-            enhancedLogger.error('❌ Simulation failed before execution - transaction would fail', {
+            enhancedLogger.error('❌ IMMEDIATE EXECUTION: fallback simulation failed', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
@@ -4612,7 +4612,7 @@ export class SquadsVaultService {
           method: executionMethod,
         }, undefined, Date.now() - execStartTime);
             
-        enhancedLogger.info('✅ Proposal execution transaction sent', {
+        enhancedLogger.info('✅ IMMEDIATE EXECUTION: fallback manual attempt - sent txSig: ' + executionSignature, {
           vaultAddress,
           proposalId,
           signature: executionSignature,
