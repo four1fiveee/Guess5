@@ -13490,14 +13490,16 @@ const signProposalHandler = async (req: any, res: any) => {
       // Fee wallet has ALL permissions (including EXECUTE), so it can execute
       // BUT: Must wait for ExecuteReady state and VaultTransaction hydration before executing
       if (newNeedsSignatures === 0 && newProposalStatus === 'READY_TO_EXECUTE' && cachedFeeWalletKeypair) {
-        console.log('🚀 Proposal is ready to execute - preparing immediate execution with fee wallet', {
+        console.log('🚀 IMMEDIATE EXECUTION TRIGGERED: Proposal is ready to execute', {
           matchId,
           proposalId: proposalIdString,
           vaultAddress: matchRow.squadsVaultAddress,
           needsSignatures: newNeedsSignatures,
           proposalStatus: newProposalStatus,
           executor: cachedFeeWalletKeypair.publicKey.toString(),
+          executorHasPermissions: true,
           note: 'Fee wallet has ALL permissions (including EXECUTE) - will execute after readiness checks',
+          timestamp: new Date().toISOString(),
         });
         
         // Execute in background - don't await to prevent blocking the response
@@ -13865,9 +13867,13 @@ const signProposalHandler = async (req: any, res: any) => {
                 executionAttempt: currentAttempts,
                 maxAttempts,
                 simulationLogs: executeResult.logs,
+                simulationLogsCount: executeResult.logs?.length || 0,
+                executionMethod: executeResult.executionMethod || 'unknown',
+                correlationId: executeResult.correlationId,
                 note: currentAttempts >= maxAttempts 
                   ? 'Max attempts reached - marking for manual review'
                   : 'Rolling back to READY_TO_EXECUTE - reconciliation worker will retry',
+                timestamp: new Date().toISOString(),
               });
               
               // Roll back to READY_TO_EXECUTE
