@@ -631,25 +631,36 @@ const Result: React.FC = () => {
         }
         
         // CRITICAL: Mark data as potentially stale when using localStorage fallback
+        // CRITICAL FIX: Ensure data is not null before accessing properties
+        if (!data) {
+          console.error('❌ localStorage data is null - cannot use fallback', {
+            matchId: router.query.matchId,
+            storedPayoutData: storedPayoutData?.substring(0, 100),
+          });
+          setLoading(false);
+          return;
+        }
+        
         data._isStaleFallback = true;
         
         setPayoutData(data);
         setLoading(false);
         // CRITICAL FIX: Continue polling until proposal is executed or user has signed
+        // CRITICAL FIX: Use optional chaining to prevent null access errors
         const keepPolling = shouldContinuePolling(data);
         console.log('🔄 Polling Decision (API):', {
           matchId: router.query.matchId,
           keepPolling,
-          proposalId: data.proposalId,
-          proposalStatus: data.proposalStatus,
-          bothPlayersHaveResults: data.player1Result && data.player2Result,
+          proposalId: data?.proposalId,
+          proposalStatus: data?.proposalStatus,
+          bothPlayersHaveResults: data?.player1Result && data?.player2Result,
           isPolling: isPolling
         });
         
         setIsPolling(keepPolling);
         if (!keepPolling) {
           stopRefreshLoops();
-        } else if (!data.proposalId) {
+        } else if (!data?.proposalId) {
           // CRITICAL: If no proposalId yet, ensure polling is active
           // This ensures both players see the signing button as soon as proposal is created
           setIsPolling(true);
@@ -1904,9 +1915,35 @@ const Result: React.FC = () => {
                                   </p>
                                 </div>
                               ) : playerProposalSigners.includes(publicKey?.toString() || '') ? (
-                                <p className="text-sm text-yellow-400 mb-2">
-                                  ✓ You have signed. Waiting for execution...
-                                </p>
+                                <div className="mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                  <div className="flex items-center gap-2 text-yellow-400 text-sm font-semibold mb-1">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-yellow-400 border-t-transparent"></div>
+                                    <span>✓ You have signed. Waiting for execution...</span>
+                                  </div>
+                                  {executionStartTime && (
+                                    <div className="text-xs text-white/60 mt-1">
+                                      <div>⏱️ {executionElapsedSeconds}s elapsed</div>
+                                      {executionElapsedSeconds > 60 && (
+                                        <div className="text-yellow-400 mt-1">
+                                          ⚠️ Execution taking longer than expected. The proposal may be waiting for ExecuteReady state or network confirmation.
+                                        </div>
+                                      )}
+                                      {executionElapsedSeconds > 120 && (
+                                        <div className="text-orange-400 mt-1 font-semibold">
+                                          ⚠️ Execution has been waiting for 2+ minutes. The backend reconciliation worker will retry if needed.
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {payoutData?.proposalId && (
+                                    <div className="text-xs text-white/40 mt-1 font-mono">
+                                      Proposal: {payoutData.proposalId.substring(0, 8)}...
+                                    </div>
+                                  )}
+                                  <div className="text-xs text-white/50 mt-2">
+                                    💡 Execution typically takes 10-30 seconds. If it takes longer, the backend is automatically retrying.
+                                  </div>
+                                </div>
                               ) : (
                                 <p className="text-sm text-white/60 mb-2">
                                   ⏳ Sign the refund proposal to release your SOL
@@ -2108,9 +2145,35 @@ const Result: React.FC = () => {
                                   </p>
                                 </div>
                               ) : playerProposalSigners.includes(publicKey?.toString() || '') ? (
-                                <p className="text-sm text-yellow-400 mb-2">
-                                  ✓ You have signed. Waiting for execution...
-                                </p>
+                                <div className="mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                  <div className="flex items-center gap-2 text-yellow-400 text-sm font-semibold mb-1">
+                                    <div className="animate-spin rounded-full h-4 w-4 border-2 border-yellow-400 border-t-transparent"></div>
+                                    <span>✓ You have signed. Waiting for execution...</span>
+                                  </div>
+                                  {executionStartTime && (
+                                    <div className="text-xs text-white/60 mt-1">
+                                      <div>⏱️ {executionElapsedSeconds}s elapsed</div>
+                                      {executionElapsedSeconds > 60 && (
+                                        <div className="text-yellow-400 mt-1">
+                                          ⚠️ Execution taking longer than expected. The proposal may be waiting for ExecuteReady state or network confirmation.
+                                        </div>
+                                      )}
+                                      {executionElapsedSeconds > 120 && (
+                                        <div className="text-orange-400 mt-1 font-semibold">
+                                          ⚠️ Execution has been waiting for 2+ minutes. The backend reconciliation worker will retry if needed.
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                  {payoutData?.proposalId && (
+                                    <div className="text-xs text-white/40 mt-1 font-mono">
+                                      Proposal: {payoutData.proposalId.substring(0, 8)}...
+                                    </div>
+                                  )}
+                                  <div className="text-xs text-white/50 mt-2">
+                                    💡 Execution typically takes 10-30 seconds. If it takes longer, the backend is automatically retrying.
+                                  </div>
+                                </div>
                               ) : (
                                 <p className="text-sm text-white/60 mb-2">
                                   ⏳ Sign the proposal to claim your winnings
@@ -2340,9 +2403,9 @@ const Result: React.FC = () => {
                                   : 'text-white/60'
                               }`}>
                                 {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? '✅ Proposal is ready to execute - waiting for processing...'
+                                  ? `✅ Proposal is ready to execute - waiting for processing...${executionStartTime ? ` (${executionElapsedSeconds}s)` : ''}`
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
-                                  ? '✓ You have signed. Waiting for proposal execution...'
+                                  ? `✓ You have signed. Waiting for proposal execution...${executionStartTime ? ` (${executionElapsedSeconds}s elapsed)` : ''}`
                                   : playerProposalSigners.length > 0
                                   ? '🎉 Other player has signed! Proposal is ready to execute. No action needed from you.'
                                   : '⏳ Waiting for either player to sign (only 1 signature needed)...'
