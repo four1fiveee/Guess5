@@ -5949,7 +5949,58 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     isStuck = ageMinutes > 2; // Stuck if EXECUTING for more than 2 minutes
   }
   
-  if ((isReadyToExecute || (isStuckExecuting && isStuck)) && 
+  // CRITICAL FIX: Detect database state mismatch where signers exist but needsSignatures is incorrect
+  const proposalSigners = normalizeProposalSigners((match as any).proposalSigners);
+  const signerCount = proposalSigners.length;
+  const currentNeedsSignatures = (match as any).needsSignatures || 0;
+  const threshold = 2; // Standard threshold for 2-player matches
+  const correctNeedsSignatures = Math.max(0, threshold - signerCount);
+  const hasStateMismatch = signerCount >= threshold && currentNeedsSignatures > 0 && !(match as any).proposalExecutedAt;
+  
+  // Fix state mismatch if detected
+  if (hasStateMismatch) {
+    console.warn('⚠️ Detected database state mismatch - fixing needsSignatures and proposalStatus', {
+      matchId: match.id,
+      signerCount,
+      currentNeedsSignatures,
+      correctNeedsSignatures,
+      proposalStatus,
+      proposalSigners,
+    });
+    
+    // Fix in background - don't block response
+    (async () => {
+      try {
+        const matchRepository = AppDataSource.getRepository(Match);
+        const correctStatus = 'READY_TO_EXECUTE';
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "needsSignatures" = $1,
+              "proposalStatus" = $2,
+              "updatedAt" = NOW()
+          WHERE id = $3
+            AND "proposalExecutedAt" IS NULL
+        `, [correctNeedsSignatures, correctStatus, match.id]);
+        
+        console.log('✅ Fixed database state mismatch', {
+          matchId: match.id,
+          needsSignatures: `${currentNeedsSignatures} -> ${correctNeedsSignatures}`,
+          proposalStatus: `${proposalStatus || 'null'} -> ${correctStatus}`,
+        });
+        
+        // Update local match object for this request
+        (match as any).needsSignatures = correctNeedsSignatures;
+        (match as any).proposalStatus = correctStatus;
+      } catch (fixError: any) {
+        console.error('❌ Failed to fix database state mismatch', {
+          matchId: match.id,
+          error: fixError?.message || String(fixError),
+        });
+      }
+    })();
+  }
+  
+  if ((isReadyToExecute || (isStuckExecuting && isStuck) || hasStateMismatch) && 
       ((match as any).payoutProposalId || (match as any).tieRefundProposalId) &&
       (match as any).squadsVaultAddress &&
       !(match as any).proposalExecutedAt) {
@@ -13977,9 +14028,9 @@ const signProposalHandler = async (req: any, res: any) => {
       console.log('✅ Background verification and database update completed', {
         matchId,
         wallet,
-        proposalId: proposalIdString,
-        needsSignatures: Math.max(0, newNeedsSignatures),
-        proposalStatus: newProposalStatus,
+      proposalId: proposalIdString,
+      needsSignatures: Math.max(0, newNeedsSignatures),
+      proposalStatus: newProposalStatus,
         finalSigners: uniqueSigners,
       });
     })().catch((bgError: any) => {
@@ -13991,7 +14042,7 @@ const signProposalHandler = async (req: any, res: any) => {
         error: bgError?.message || String(bgError),
         stack: bgError?.stack,
         note: 'Response already sent to frontend. Frontend will poll for status updates.',
-      });
+    });
     }); // End background task
 
   } catch (error: unknown) {
