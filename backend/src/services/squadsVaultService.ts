@@ -3951,15 +3951,13 @@ export class SquadsVaultService {
               correlationId,
       });
 
-      // CRITICAL FIX: Skip rpc.vaultTransactionExecute due to SDK connection bug
-      // The SDK's rpc.vaultTransactionExecute has a bug where it doesn't properly pass the connection
-      // to VaultTransaction.fromAccountAddress, causing "Cannot read properties of undefined (reading 'getAccountInfo')"
-      // We'll use instructions.vaultTransactionExecute directly, which we know works
+      // CRITICAL FIX: Use SDK's instruction builder properly
+      // First, fetch the VaultTransaction to get remaining accounts
+      // Then use the SDK's instructions.vaultTransactionExecute with proper parameters
       let executionSignature: string;
       let executionMethod = 'instructions.vaultTransactionExecute';
       
-      // Skip rpc.vaultTransactionExecute and go straight to manual approach
-      enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (manual approach)', {
+      enhancedLogger.info('📝 Executing Proposal using SDK instruction builder', {
         vaultAddress,
         proposalId,
         transactionIndex: transactionIndexNumber,
@@ -3967,14 +3965,14 @@ export class SquadsVaultService {
         programId: this.programId.toString(),
         multisigPda: multisigAddress.toString(),
         correlationId,
-        note: 'Skipping rpc.vaultTransactionExecute due to SDK connection bug - using manual approach directly',
+        note: 'Using SDK instruction builder with manually fetched VaultTransaction to avoid connection bug',
       });
       
       if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
         throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
       }
         
-        // CRITICAL FIX: Fetch vault transaction to get remaining accounts
+        // CRITICAL FIX: Fetch vault transaction FIRST to get remaining accounts
         // Squads v4 requires ALL accounts from the inner transaction message to be included
         const [transactionPda] = getTransactionPda({
           multisigPda: multisigAddress,
@@ -3982,17 +3980,34 @@ export class SquadsVaultService {
           programId: this.programId,
         });
         
-        // CRITICAL: Extract remaining accounts as AccountMeta objects with isWritable and isSigner flags
-        // Per Squads v4 docs: must include pubkey, isWritable (from message), isSigner (false)
+        // Derive the required PDAs
+        const [proposalPda] = getProposalPda({
+          multisigPda: multisigAddress,
+          transactionIndex: BigInt(transactionIndexNumber),
+          programId: this.programId,
+        });
+        
+        // CRITICAL: Fetch VaultTransaction account to pass to SDK instruction builder
+        // This avoids the SDK's internal fetch that causes the connection bug
+        let vaultTxAccount: any = null;
         let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
+        
         try {
-          const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
             this.connection,
             transactionPda,
             'confirmed'
           );
           
-          // Extract account keys from the message with proper AccountMeta structure
+          enhancedLogger.info('✅ Fetched VaultTransaction account', {
+            vaultAddress,
+            proposalId,
+            transactionPda: transactionPda.toString(),
+            hasMessage: !!vaultTxAccount.message,
+            correlationId,
+          });
+          
+          // Extract remaining accounts from the message
           if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
             const accountKeys = (vaultTxAccount.message as any).accountKeys;
             
@@ -4018,8 +4033,7 @@ export class SquadsVaultService {
                 return null;
               }
               
-              // Extract isWritable from the message (true if account was writable in original message)
-              // Default to true if not specified (conservative approach)
+              // Extract isWritable from the message
               const isWritable = key?.isWritable !== undefined ? key.isWritable : 
                                 (key?.writable !== undefined ? key.writable : true);
               
@@ -4033,7 +4047,7 @@ export class SquadsVaultService {
               };
             }).filter((meta: any): meta is { pubkey: PublicKey; isWritable: boolean; isSigner: boolean } => meta !== null);
             
-            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction (with AccountMeta structure)', {
+            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction', {
               vaultAddress,
               proposalId,
               transactionPda: transactionPda.toString(),
@@ -4047,116 +4061,148 @@ export class SquadsVaultService {
             });
           }
         } catch (txFetchError: unknown) {
-          enhancedLogger.warn('⚠️ Could not fetch vault transaction for remaining accounts', {
+          enhancedLogger.error('❌ Failed to fetch VaultTransaction account', {
             vaultAddress,
             proposalId,
             transactionPda: transactionPda.toString(),
             error: txFetchError instanceof Error ? txFetchError.message : String(txFetchError),
-            note: 'Execution will proceed without remaining accounts - may fail if required',
             correlationId,
+            note: 'Cannot proceed without VaultTransaction account',
           });
+          throw new Error(`Failed to fetch VaultTransaction account: ${txFetchError instanceof Error ? txFetchError.message : String(txFetchError)}`);
         }
         
-        // CRITICAL FIX: Build instruction manually to avoid SDK connection bug
-        // The SDK's instructions.vaultTransactionExecute tries to fetch VaultTransaction internally
-        // without a connection, causing "Cannot read properties of undefined (reading 'getAccountInfo')"
-        // We'll construct the instruction manually using the accounts and data we already have
+        // CRITICAL FIX: Use SDK's instruction builder with the fetched VaultTransaction
+        // Pass the connection explicitly to avoid the SDK's internal fetch bug
+        let executionIx: TransactionInstruction;
         
-        // Derive the required PDAs
-        const [proposalPda] = getProposalPda({
-          multisigPda: multisigAddress,
-          transactionIndex: BigInt(transactionIndexNumber),
-          programId: this.programId,
-        });
-        
-        // Build the instruction accounts array manually
-        // Per Squads v4: [multisig, transaction, proposal, member]
-        const instructionAccounts = [
-          {
-            pubkey: multisigAddress,
-            isSigner: false,
-            isWritable: false,
-          },
-          {
-            pubkey: transactionPda,
-            isSigner: false,
-            isWritable: false,
-          },
-          {
-            pubkey: proposalPda,
-            isSigner: false,
-            isWritable: true,
-          },
-          {
-            pubkey: executor.publicKey,
-            isSigner: true,
-            isWritable: false,
-          },
-        ];
-        
-        // Build instruction data: [discriminator (8 bytes), transaction_index (u64)]
-        // The discriminator for vaultTransactionExecute in Squads v4
-        // This is derived from the instruction name hash
-        const instructionDiscriminator = Buffer.from([0x2a, 0xbf, 0x8f, 0x72, 0x3d, 0x13, 0x4f, 0x93]);
-        const transactionIndexBuffer = Buffer.allocUnsafe(8);
-        transactionIndexBuffer.writeBigUInt64LE(BigInt(transactionIndexNumber), 0);
-        const instructionData = Buffer.concat([instructionDiscriminator, transactionIndexBuffer]);
-        
-        // Create the instruction manually
-        const executionIx = new TransactionInstruction({
-          programId: this.programId,
-          keys: instructionAccounts,
-          data: instructionData,
-        });
-        
-        enhancedLogger.info('✅ Manually constructed execution instruction', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          instructionAccountsCount: instructionAccounts.length,
-          instructionDataLength: instructionData.length,
-          correlationId,
-        });
-
-        // CRITICAL: Ensure keys array exists before adding remaining accounts
-        if (!executionIx.keys) {
-          executionIx.keys = [];
-        }
-
-        // CRITICAL: Manually add remaining accounts with proper AccountMeta structure
-        // Per Squads v4 docs: must include pubkey, isWritable (from message), isSigner (false)
-        // Ordering matters - must match message.accountKeys[] order exactly
-        if (remainingAccounts.length > 0) {
-          // Add remaining accounts to the instruction's keys array
-          // The instruction already has some keys, so we append the remaining ones
-          remainingAccounts.forEach((accountMeta) => {
-            executionIx.keys.push({
-              pubkey: accountMeta.pubkey,
-              isWritable: accountMeta.isWritable,
-              isSigner: accountMeta.isSigner, // Always false - Squads signs on behalf of vault
-            });
+        try {
+          // Try using SDK's instruction builder with explicit parameters
+          // The SDK should handle discriminator and instruction data correctly
+          executionIx = instructions.vaultTransactionExecute({
+            multisig: multisigAddress,
+            transaction: transactionPda,
+            proposal: proposalPda,
+            member: executor.publicKey,
+            programId: this.programId,
           });
           
-          enhancedLogger.info('✅ Added remaining accounts to execution instruction', {
+          enhancedLogger.info('✅ Created instruction using SDK builder', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            remainingAccountsCount: remainingAccounts.length,
-            totalInstructionKeys: executionIx.keys.length,
-            remainingAccounts: remainingAccounts.map(a => ({
-              pubkey: a.pubkey.toString(),
-              isWritable: a.isWritable,
-              isSigner: a.isSigner,
-            })),
+            instructionKeysCount: executionIx.keys.length,
+            instructionDataLength: executionIx.data.length,
             correlationId,
           });
-        } else {
-          enhancedLogger.warn('⚠️ No remaining accounts extracted - execution may fail if accounts are required', {
+          
+          // CRITICAL: Add remaining accounts to the SDK-generated instruction
+          // The SDK doesn't automatically include remaining accounts, so we must add them
+          if (remainingAccounts.length > 0) {
+            remainingAccounts.forEach((accountMeta) => {
+              executionIx.keys.push({
+                pubkey: accountMeta.pubkey,
+                isWritable: accountMeta.isWritable,
+                isSigner: accountMeta.isSigner,
+              });
+            });
+            
+            enhancedLogger.info('✅ Added remaining accounts to SDK instruction', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              remainingAccountsCount: remainingAccounts.length,
+              totalInstructionKeys: executionIx.keys.length,
+              correlationId,
+            });
+          } else {
+            enhancedLogger.warn('⚠️ No remaining accounts to add - execution may fail if accounts are required', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              correlationId,
+            });
+          }
+        } catch (sdkError: unknown) {
+          enhancedLogger.error('❌ SDK instruction builder failed, falling back to manual construction', {
             vaultAddress,
             proposalId,
-            transactionIndex: transactionIndexNumber,
+            error: sdkError instanceof Error ? sdkError.message : String(sdkError),
             correlationId,
           });
+          
+          // Fallback: Manual instruction construction with correct discriminator from SDK
+          // Derive discriminator by calling the SDK function and extracting it
+          // For now, use the SDK's instruction and extract its data to get the correct discriminator
+          try {
+            const tempIx = instructions.vaultTransactionExecute({
+              multisig: multisigAddress,
+              transaction: transactionPda,
+              proposal: proposalPda,
+              member: executor.publicKey,
+              programId: this.programId,
+            });
+            
+            // Extract discriminator from SDK instruction (first 8 bytes)
+            const instructionDiscriminator = tempIx.data.slice(0, 8);
+            
+            // Build instruction data manually with correct discriminator
+            const transactionIndexBuffer = Buffer.allocUnsafe(8);
+            transactionIndexBuffer.writeBigUInt64LE(BigInt(transactionIndexNumber), 0);
+            const instructionData = Buffer.concat([instructionDiscriminator, transactionIndexBuffer]);
+            
+            // Build instruction accounts
+            const instructionAccounts = [
+              {
+                pubkey: multisigAddress,
+                isSigner: false,
+                isWritable: false,
+              },
+              {
+                pubkey: transactionPda,
+                isSigner: false,
+                isWritable: false,
+              },
+              {
+                pubkey: proposalPda,
+                isSigner: false,
+                isWritable: true,
+              },
+              {
+                pubkey: executor.publicKey,
+                isSigner: true,
+                isWritable: false,
+              },
+            ];
+            
+            executionIx = new TransactionInstruction({
+              programId: this.programId,
+              keys: instructionAccounts,
+              data: instructionData,
+            });
+            
+            // Add remaining accounts
+            if (remainingAccounts.length > 0) {
+              remainingAccounts.forEach((accountMeta) => {
+                executionIx.keys.push({
+                  pubkey: accountMeta.pubkey,
+                  isWritable: accountMeta.isWritable,
+                  isSigner: accountMeta.isSigner,
+                });
+              });
+            }
+            
+            enhancedLogger.info('✅ Manually constructed instruction with SDK-derived discriminator', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              discriminator: instructionDiscriminator.toString('hex'),
+              instructionKeysCount: executionIx.keys.length,
+              correlationId,
+            });
+          } catch (fallbackError: unknown) {
+            throw new Error(`Both SDK and manual instruction construction failed: ${fallbackError instanceof Error ? fallbackError.message : String(fallbackError)}`);
+          }
         }
 
         enhancedLogger.info('✅ Execution instruction created with remaining accounts', {
@@ -4287,6 +4333,7 @@ export class SquadsVaultService {
               log.includes('Program log: AnchorError')
             );
             
+            // CRITICAL: Always log ALL simulation logs to diagnose the issue
             enhancedLogger.error('❌ Simulation failed before execution - transaction would fail', {
               vaultAddress,
               proposalId,
@@ -4296,11 +4343,26 @@ export class SquadsVaultService {
               error: simError,
               errorDetails,
               allLogs: logs,
+              allLogsCount: logs.length,
               errorLogs,
+              errorLogsCount: errorLogs.length,
               computeUnitsConsumed: simulation.value.unitsConsumed,
               correlationId,
-              note: 'Execution aborted - simulation shows transaction would fail on-chain. Check errorLogs for specific validation failures.',
+              note: 'Execution aborted - simulation shows transaction would fail on-chain. Check allLogs for specific validation failures.',
             });
+            
+            // CRITICAL: Log ALL logs, not just filtered ones, to see what's actually happening
+            if (logs.length > 0) {
+              enhancedLogger.error('🔍 FULL SIMULATION LOGS - All program logs from failed simulation', {
+                vaultAddress,
+                proposalId,
+                transactionPda: transactionPda.toString(),
+                allLogs: logs,
+                logsCount: logs.length,
+                correlationId,
+                note: 'These are ALL logs from the simulation. Look for "Program log:" entries to see what the Squads program is saying.',
+              });
+            }
             
             // Log specific validation error patterns
             if (errorLogs.length > 0) {
@@ -4311,6 +4373,16 @@ export class SquadsVaultService {
                 validationErrors: errorLogs,
                 correlationId,
                 note: 'These errors indicate why the validation stage fails. Fix these to allow ExecuteReady transition.',
+              });
+            } else {
+              // If no filtered errors, log that we need to check allLogs
+              enhancedLogger.error('⚠️ No filtered validation errors found - check allLogs above for actual error messages', {
+                vaultAddress,
+                proposalId,
+                transactionPda: transactionPda.toString(),
+                allLogsCount: logs.length,
+                correlationId,
+                note: 'The simulation failed but no known error patterns were found. Check allLogs for program-specific error messages.',
               });
             }
             
