@@ -2282,15 +2282,15 @@ const Result: React.FC = () => {
                                 
                                 // CRITICAL: Disable button if proposal creation failed or has retryable error
                                 const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
-                                const hasRetryableError = error && (
+                                const hasRetryableError = Boolean(error && (
                                   error.includes('still being created') ||
                                   error.includes('not ready') ||
                                   error.includes('VaultTransaction')
-                                );
-                                const isButtonDisabled = signingProposal || 
+                                ));
+                                const isButtonDisabled = Boolean(signingProposal || 
                                                          userHasSigned ||
                                                          isProposalCreationFailed ||
-                                                         hasRetryableError;
+                                                         hasRetryableError);
                                 
                                 return (
                                   <button
