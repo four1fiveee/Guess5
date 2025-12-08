@@ -12519,18 +12519,34 @@ const signProposalHandler = async (req: any, res: any) => {
   });
   
   // ✅ Step 1: Add top-level logging BEFORE parsing the body
-  console.log('🔥 SIGN_PROPOSAL: request received', {
-    matchId: req.params?.matchId || req.query?.matchId || 'unknown',
-    wallet: req.query?.wallet || 'unknown',
-    rawBodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'unknown'),
-    bodyType: typeof req.body,
-    isBuffer: Buffer.isBuffer(req.body),
-    bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : 'not an object',
-    contentType: req.headers['content-type'],
-    method: req.method,
-    url: req.url,
-    time: Date.now(),
-  });
+  try {
+    const bodyKeys = Buffer.isBuffer(req.body) 
+      ? `Buffer(${req.body.length} bytes)` 
+      : (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) 
+          ? Object.keys(req.body).slice(0, 10).join(', ') + (Object.keys(req.body).length > 10 ? '...' : '')
+          : 'not an object');
+    
+    console.log('🔥 SIGN_PROPOSAL: request received', {
+      matchId: req.params?.matchId || req.query?.matchId || 'unknown',
+      wallet: req.query?.wallet || 'unknown',
+      rawBodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'unknown'),
+      bodyType: typeof req.body,
+      isBuffer: Buffer.isBuffer(req.body),
+      bodyKeys,
+      contentType: req.headers['content-type'],
+      method: req.method,
+      url: req.url,
+      time: Date.now(),
+    });
+  } catch (logError: any) {
+    // If logging fails, log a minimal version
+    console.error('❌ Failed to log request details:', logError?.message);
+    console.log('🔥 SIGN_PROPOSAL: request received (minimal log)', {
+      matchId: 'unknown',
+      wallet: 'unknown',
+      error: 'Logging failed',
+    });
+  }
 
   try {
     // CRITICAL: Support both raw bytes (application/octet-stream) and JSON formats
