@@ -1271,15 +1271,36 @@ const Result: React.FC = () => {
           
           // CRITICAL: Send raw bytes with application/octet-stream content type
           // Backend will broadcast, confirm, then update DB
+          // Convert Uint8Array to ArrayBuffer for better browser compatibility
+          const bodyBuffer = proposalSerialized.buffer.slice(
+            proposalSerialized.byteOffset,
+            proposalSerialized.byteOffset + proposalSerialized.byteLength
+          );
+          
           const fetchStartTime = Date.now();
-          response = await fetch(requestUrl, {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/octet-stream',
-            },
-            credentials: 'include',
-            body: proposalSerialized, // Raw Uint8Array bytes
-          });
+          
+          // Add timeout to prevent hanging requests (30 seconds)
+          const controller = new AbortController();
+          const timeoutId = setTimeout(() => controller.abort(), 30000);
+          
+          try {
+            response = await fetch(requestUrl, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/octet-stream',
+              },
+              credentials: 'include',
+              body: bodyBuffer, // ArrayBuffer for better browser compatibility
+              signal: controller.signal,
+            });
+            clearTimeout(timeoutId);
+          } catch (fetchErr: any) {
+            clearTimeout(timeoutId);
+            if (fetchErr.name === 'AbortError') {
+              throw new Error('Request timeout: The backend did not respond within 30 seconds. Please check your connection and try again.');
+            }
+            throw fetchErr;
+          }
           
           const fetchDuration = Date.now() - fetchStartTime;
           console.log('📡 POST request completed', {
