@@ -12317,24 +12317,69 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         });
       }
     } catch (vaultTxError: any) {
+      // CRITICAL DIAGNOSTIC: Check proposal state to understand why VaultTransaction is missing
+      let proposalDiagnostics: any = {};
+      try {
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          connection,
+          proposalPda,
+          'confirmed'
+        );
+        proposalDiagnostics = {
+          proposalPda: proposalPda.toString(),
+          proposalTransactionIndex: proposalAccount.transactionIndex?.toString(),
+          proposalStatus: proposalAccount.status,
+          proposalHasTransactionIndex: proposalAccount.transactionIndex !== undefined && proposalAccount.transactionIndex !== null,
+          transactionIndexMatch: proposalAccount.transactionIndex?.toString() === transactionIndex?.toString(),
+        };
+        
+        // Check if proposal has any instructions (if we can access them)
+        if ((proposalAccount as any).instructions) {
+          proposalDiagnostics.proposalHasInstructions = Array.isArray((proposalAccount as any).instructions) 
+            ? (proposalAccount as any).instructions.length 
+            : 'unknown';
+        }
+      } catch (proposalCheckError: any) {
+        proposalDiagnostics.proposalCheckError = proposalCheckError?.message;
+      }
+      
       console.error('❌ CRITICAL: Failed to fetch VaultTransaction account for remaining accounts', {
         matchId,
         transactionPda: transactionPda?.toString(),
         transactionIndex: transactionIndex?.toString(),
         multisigPda: multisigAddress?.toString(),
+        proposalPda: proposalPda?.toString(),
         error: vaultTxError?.message,
         stack: vaultTxError?.stack,
+        proposalDiagnostics,
         note: 'Squads v4 REQUIRES remainingAccounts in approval instruction. Without them, the approval will fail silently and the signer will NOT be added to the proposal.',
+        possibleCauses: [
+          'Proposal was created but VaultTransaction account was never initialized',
+          'Failed createProposal flow or race condition',
+          'Missing vaultTransactionCreate instruction during proposal creation',
+          'Proposal created with no inner instructions (Squads will not create VaultTransaction if proposal contains no instructions)',
+          'Wrong transactionIndex or multisigPda used to derive VaultTransaction PDA',
+        ],
       });
       
       // CRITICAL: Do NOT proceed without remainingAccounts - the approval will fail
       // Return an error to the client so they know the transaction cannot be built
       sendResponse(500, {
         error: 'Failed to fetch VaultTransaction account',
-        details: 'The VaultTransaction account required for building the approval instruction does not exist on-chain. This may indicate the proposal was created incorrectly or the transaction index is wrong.',
+        details: 'The VaultTransaction account required for building the approval instruction does not exist on-chain. Squads v4 requires all remainingAccounts from VaultTransaction.message.accountKeys to be included in the approval instruction. Without the VaultTransaction, the approval will be rejected by the Squads program and the signer will NOT be added to the proposal.',
         transactionPda: transactionPda?.toString(),
         transactionIndex: transactionIndex?.toString(),
+        proposalPda: proposalPda?.toString(),
+        multisigPda: multisigAddress?.toString(),
+        proposalDiagnostics,
         matchId,
+        possibleCauses: [
+          'Proposal was created but VaultTransaction account was never initialized',
+          'Failed createProposal flow or race condition',
+          'Missing vaultTransactionCreate instruction during proposal creation',
+          'Proposal created with no inner instructions',
+          'Wrong transactionIndex or multisigPda used to derive VaultTransaction PDA',
+        ],
       });
       return;
     }
