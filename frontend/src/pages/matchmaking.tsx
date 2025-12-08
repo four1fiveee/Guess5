@@ -1417,72 +1417,166 @@ const Matchmaking: React.FC = () => {
             </div>
           )}
 
-          {status === 'payment_required' && (matchData?.matchId || matchDataRef.current?.matchId) && (
-            <div className="animate-fade-in">
-              <h2 className="text-2xl font-bold text-accent mb-2">Payment Required</h2>
-              <p className="text-white/70 text-sm mb-6">Send your entry fee to the secure multisig vault</p>
-              
-              <div className="bg-secondary bg-opacity-20 rounded-lg p-4 mb-4 border border-accent/20">
-                <div className="text-white/60 text-xs uppercase tracking-wide mb-2">Entry Fee</div>
-                <div className="text-accent text-xl font-bold">
-                  {solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD` : '—'}
-                </div>
-                <div className="text-white/70 text-sm mt-1">
-                  {entryFee} SOL
-                </div>
-              </div>
-
-              {!(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress) && (
-                <div className="bg-yellow-500/20 border border-yellow-500/40 rounded-lg p-3 mb-4">
-                  <div className="flex items-center justify-center mb-2">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400 mr-2"></div>
-                    <div className="text-yellow-400 text-sm font-medium">Preparing secure vault...</div>
-                  </div>
-                  <p className="text-white/70 text-xs text-center">This usually takes a few seconds</p>
-                </div>
-              )}
-
-              {(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress) && (
-                <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4">
-                  <div className="text-green-400 text-sm font-medium mb-1">✓ Vault Ready</div>
-                  <div className="text-white/60 text-xs break-all font-mono">
-                    {(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(0, 8)}...{(matchData.squadsVaultPda || matchData.vaultPda || matchData.squadsVaultAddress || matchData.vaultAddress)?.slice(-8)}
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={handlePayment}
-                disabled={isPaymentInProgress || !(matchData?.matchId || matchDataRef.current?.matchId) || !publicKey}
-                className={`w-full font-bold py-3.5 px-6 rounded-lg transition-all duration-200 min-h-[52px] flex items-center justify-center ${
-                  isPaymentInProgress || !(matchData?.matchId || matchDataRef.current?.matchId) || !publicKey
-                    ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
-                    : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'
-                }`}
-              >
-                {isPaymentInProgress ? (
-                  <span className="flex items-center justify-center">
-                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
-                    Processing Payment...
-                  </span>
-                ) : (matchData?.matchId || matchDataRef.current?.matchId) && publicKey ? (
-                  `Pay ${entryFee} SOL Entry Fee`
+          {status === 'payment_required' && (matchData?.matchId || matchDataRef.current?.matchId) && (() => {
+            const isPlayer1 = currentWallet === matchData?.player1;
+            const userPaid = isPlayer1 ? !!matchData?.player1Paid : !!matchData?.player2Paid;
+            const opponentPaid = isPlayer1 ? !!matchData?.player2Paid : !!matchData?.player1Paid;
+            
+            // Calculate rounded USD amount to match fee categories ($5, $20, $50, $100)
+            const calculateRoundedUSD = (solAmount: number, solPrice: number | null): number | null => {
+              if (!solPrice) return null;
+              const usdAmount = solAmount * solPrice;
+              // Round to nearest fee category
+              const categories = [5, 20, 50, 100];
+              const rounded = categories.reduce((prev, curr) => 
+                Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+              );
+              return rounded;
+            };
+            
+            const roundedUSD = calculateRoundedUSD(entryFee, solPrice);
+            const vaultAddress = matchData?.squadsVaultPda || matchData?.vaultPda || matchData?.squadsVaultAddress || matchData?.vaultAddress;
+            
+            // Helper to abbreviate wallet address
+            const abbreviateAddress = (addr: string | null | undefined): string => {
+              if (!addr) return '—';
+              return `${addr.slice(0, 4)}...${addr.slice(-4)}`;
+            };
+            
+            return (
+              <div className="animate-fade-in">
+                <h2 className="text-2xl font-bold text-accent mb-2">Payment Required</h2>
+                
+                {/* Player status message */}
+                {userPaid ? (
+                  <p className="text-white/70 text-sm mb-6 text-center">Please wait while the other player pays</p>
                 ) : (
-                  'Waiting for Match...'
+                  <p className="text-white/70 text-sm mb-6 text-center">Please pay now to get into a game and compete</p>
                 )}
-              </button>
-              
-              <div className="mt-4 text-center">
-                <button
-                  onClick={handleCancelAndReturn}
-                  disabled={isCancelling}
-                  className="text-white/60 hover:text-white text-sm underline transition-colors disabled:text-white/30 disabled:hover:text-white/30"
-                >
-                  {isCancelling ? 'Cancelling...' : 'Cancel'}
-                </button>
+                
+                {/* Players table */}
+                <div className="bg-secondary bg-opacity-20 rounded-lg p-4 mb-4 border border-accent/20">
+                  <div className="space-y-3">
+                    {/* Player 1 Row */}
+                    <div className="flex items-center justify-between py-2 border-b border-white/10 last:border-b-0">
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="text-white/60 text-sm font-medium min-w-[80px]">Player 1</div>
+                        <div className="flex-1">
+                          <div className="text-white font-medium text-sm">
+                            {matchData?.player1Username ? `@${matchData.player1Username}` : abbreviateAddress(matchData?.player1)}
+                          </div>
+                          <div className="text-white/50 text-xs font-mono">
+                            {abbreviateAddress(matchData?.player1)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {matchData?.player1Paid ? (
+                          <span className="text-green-400 text-sm font-medium flex items-center gap-1">
+                            <span>✓</span> Paid
+                          </span>
+                        ) : (
+                          <span className="text-yellow-400 text-sm font-medium">Pending</span>
+                        )}
+                      </div>
+                    </div>
+                    
+                    {/* Player 2 Row */}
+                    <div className="flex items-center justify-between py-2">
+                      <div className="flex items-center gap-3 flex-1">
+                        <div className="text-white/60 text-sm font-medium min-w-[80px]">Player 2</div>
+                        <div className="flex-1">
+                          <div className="text-white font-medium text-sm">
+                            {matchData?.player2Username ? `@${matchData.player2Username}` : abbreviateAddress(matchData?.player2)}
+                          </div>
+                          <div className="text-white/50 text-xs font-mono">
+                            {abbreviateAddress(matchData?.player2)}
+                          </div>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {matchData?.player2Paid ? (
+                          <span className="text-green-400 text-sm font-medium flex items-center gap-1">
+                            <span>✓</span> Paid
+                          </span>
+                        ) : (
+                          <span className="text-yellow-400 text-sm font-medium">Pending</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Entry Fee Display */}
+                <div className="bg-secondary bg-opacity-20 rounded-lg p-4 mb-4 border border-accent/20">
+                  <div className="text-white/60 text-xs uppercase tracking-wide mb-2">Entry Fee</div>
+                  <div className="flex items-baseline gap-2">
+                    <div className="text-accent text-xl font-bold">
+                      {roundedUSD ? `$${roundedUSD} USD` : (solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD` : '—')}
+                    </div>
+                    <div className="text-white/70 text-sm">
+                      ({entryFee} SOL)
+                    </div>
+                  </div>
+                </div>
+                
+                {/* Vault Address */}
+                {vaultAddress && (
+                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4">
+                    <div className="text-green-400 text-sm font-medium mb-1">✓ Vault Ready</div>
+                    <div className="text-white/60 text-xs break-all font-mono">
+                      {vaultAddress.slice(0, 8)}...{vaultAddress.slice(-8)}
+                    </div>
+                  </div>
+                )}
+                
+                {!vaultAddress && (
+                  <div className="bg-yellow-500/20 border border-yellow-500/40 rounded-lg p-3 mb-4">
+                    <div className="flex items-center justify-center mb-2">
+                      <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400 mr-2"></div>
+                      <div className="text-yellow-400 text-sm font-medium">Preparing secure vault...</div>
+                    </div>
+                    <p className="text-white/70 text-xs text-center">This usually takes a few seconds</p>
+                  </div>
+                )}
+
+                {/* Payment Button */}
+                {!userPaid && (
+                  <button
+                    onClick={handlePayment}
+                    disabled={isPaymentInProgress || !(matchData?.matchId || matchDataRef.current?.matchId) || !publicKey || !vaultAddress}
+                    className={`w-full font-bold py-3.5 px-6 rounded-lg transition-all duration-200 min-h-[52px] flex items-center justify-center ${
+                      isPaymentInProgress || !(matchData?.matchId || matchDataRef.current?.matchId) || !publicKey || !vaultAddress
+                        ? 'bg-gray-600 cursor-not-allowed text-gray-400' 
+                        : 'bg-accent hover:bg-yellow-400 hover:shadow-lg text-primary transform hover:scale-[1.02] active:scale-[0.98]'
+                    }`}
+                  >
+                    {isPaymentInProgress ? (
+                      <span className="flex items-center justify-center">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
+                        Processing Payment...
+                      </span>
+                    ) : (matchData?.matchId || matchDataRef.current?.matchId) && publicKey ? (
+                      `Pay ${entryFee} SOL Entry Fee`
+                    ) : (
+                      'Waiting for Match...'
+                    )}
+                  </button>
+                )}
+                
+                {/* Cancel Button */}
+                <div className="mt-4 text-center">
+                  <button
+                    onClick={handleCancelAndReturn}
+                    disabled={isCancelling}
+                    className="text-white/60 hover:text-white text-sm underline transition-colors disabled:text-white/30 disabled:hover:text-white/30"
+                  >
+                    {isCancelling ? 'Cancelling...' : 'Cancel'}
+                  </button>
+                </div>
               </div>
-            </div>
-          )}
+            );
+          })()}
 
           {status === 'waiting_for_payment' && matchData && (
             <div className="animate-fade-in">

@@ -1207,6 +1207,24 @@ const Result: React.FC = () => {
           
           const errorData = await getTxResponse.json();
           
+          // CRITICAL: Check if this is a FATAL error (proposal creation failure)
+          const isFatal = errorData.fatal === true || errorData.retryable === false;
+          
+          if (isFatal) {
+            // FATAL ERROR: Do not retry, show match failed message
+            console.error('❌ FATAL: Match failed to initialize - proposal creation failure', {
+              matchId,
+              wallet: publicKey.toString(),
+              error: errorData.error || errorData.message,
+              fatal: errorData.fatal,
+              details: errorData.details,
+            });
+            
+            const fatalMessage = errorData.message || 
+                                'This match could not be initialized properly. Please contact support or try creating a new match.';
+            throw new Error(fatalMessage);
+          }
+          
           // Check if this is a retryable error (proposal not ready)
           const isRetryable = errorData.retryable === true || 
                               errorData.error?.includes('not ready') ||
@@ -1671,6 +1689,13 @@ const Result: React.FC = () => {
       console.error('❌ Error signing proposal:', err);
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign proposal';
       
+      // CRITICAL: Check if it's a FATAL error (match failed to initialize)
+      const isFatalError = 
+        errorMessage.includes('Match failed to initialize') ||
+        errorMessage.includes('could not be initialized') ||
+        errorMessage.includes('proposal creation failure') ||
+        errorMessage.includes('contact support');
+      
       // CRITICAL: Check if it's a network/CORS error that we retried
       const isNetworkError = 
         errorMessage.includes('Network error') ||
@@ -1678,7 +1703,10 @@ const Result: React.FC = () => {
         errorMessage.includes('CORS') ||
         errorMessage.includes('Network request failed');
       
-      if (isNetworkError) {
+      if (isFatalError) {
+        // FATAL ERROR: Match initialization failure - show clear message
+        setError('Match failed to initialize: This match could not be set up properly. Please try creating a new match or contact support if this issue persists.');
+      } else if (isNetworkError) {
         // Network errors after retries - show user-friendly error
         setError('Network error: Could not send signed transaction to backend. Please check your connection and try again. If the problem persists, the transaction may have been signed in your wallet but not confirmed by the server.');
       } else {

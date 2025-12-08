@@ -4248,7 +4248,17 @@ const submitResultHandler = async (req: any, res: any) => {
     }
 
   } catch (error: unknown) {
-    console.error('❌ Error submitting result:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    
+    console.error('❌ Error submitting result:', {
+      error: errorMessage,
+      stack: errorStack,
+      matchId: req.body?.matchId,
+      wallet: req.body?.wallet,
+      correlationId: req.body?.correlationId || 'unknown',
+    });
+    
     // Ensure CORS headers are set even on error
     const requestOrigin = req.headers.origin;
     const corsOrigin = resolveCorsOrigin(requestOrigin);
@@ -4256,7 +4266,13 @@ const submitResultHandler = async (req: any, res: any) => {
     res.header('Access-Control-Allow-Origin', originToUse);
     res.header('Vary', 'Origin');
     res.header('Access-Control-Allow-Credentials', 'true');
-    res.status(500).json({ error: 'Internal server error' });
+    
+    // Provide more detailed error message for debugging
+    res.status(500).json({ 
+      error: 'Internal server error',
+      message: 'An error occurred while processing your result submission. Please try again.',
+      details: process.env.NODE_ENV === 'development' ? errorMessage : undefined,
+    });
   }
 };
 const getMatchStatusHandler = async (req: any, res: any) => {
@@ -12336,19 +12352,29 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       }
       
       // CRITICAL DIAGNOSTIC: Check proposal state to understand why VaultTransaction is missing
+      // EXPERT FIX: Differentiate between retryable (propagation delay) and fatal (creation failure)
       let proposalDiagnostics: any = {};
+      let isFatal = false;
+      let fatalReason = '';
+      
       try {
         const proposalAccount = await accounts.Proposal.fromAccountAddress(
           connection,
           proposalPda,
           'confirmed'
         );
+        
+        const proposalTxIndex = proposalAccount.transactionIndex?.toString();
+        const expectedTxIndex = transactionIndex?.toString();
+        const txIndexMatches = proposalTxIndex === expectedTxIndex;
+        
         proposalDiagnostics = {
           proposalPda: proposalPda.toString(),
-          proposalTransactionIndex: proposalAccount.transactionIndex?.toString(),
+          proposalTransactionIndex: proposalTxIndex,
+          expectedTransactionIndex: expectedTxIndex,
           proposalStatus: proposalAccount.status,
           proposalHasTransactionIndex: proposalAccount.transactionIndex !== undefined && proposalAccount.transactionIndex !== null,
-          transactionIndexMatch: proposalAccount.transactionIndex?.toString() === transactionIndex?.toString(),
+          transactionIndexMatch: txIndexMatches,
         };
         
         // Check if proposal has any instructions (if we can access them)
@@ -12357,8 +12383,68 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
             ? (proposalAccount as any).instructions.length 
             : 'unknown';
         }
+        
+        // FATAL CHECK #1: transactionIndex mismatch
+        if (!txIndexMatches && proposalTxIndex !== undefined && proposalTxIndex !== null) {
+          isFatal = true;
+          fatalReason = `TransactionIndex mismatch: proposal has ${proposalTxIndex}, expected ${expectedTxIndex}. This indicates wrong PDA derivation or proposal mismatch.`;
+        }
+        
+        // FATAL CHECK #2: Proposal exists but has no instructions (Squads won't create VaultTransaction)
+        const instructionCount = proposalDiagnostics.proposalHasInstructions;
+        if (typeof instructionCount === 'number' && instructionCount === 0) {
+          isFatal = true;
+          fatalReason = `Proposal has zero instructions. Squads v4 will not create VaultTransaction for proposals without instructions. This is a proposal creation failure.`;
+        }
+        
       } catch (proposalCheckError: any) {
         proposalDiagnostics.proposalCheckError = proposalCheckError?.message;
+        // If we can't even fetch the proposal, it might not exist - check creation time
+      }
+      
+      // FATAL CHECK #3: Check how long ago proposal was created
+      // If proposal was created > 30 seconds ago and VaultTransaction still missing, it's likely fatal
+      const proposalCreatedAt = matchRow.proposalCreatedAt;
+      if (proposalCreatedAt) {
+        const ageSeconds = (Date.now() - new Date(proposalCreatedAt).getTime()) / 1000;
+        proposalDiagnostics.proposalAgeSeconds = ageSeconds;
+        
+        if (ageSeconds > 30) {
+          // Proposal is old but VaultTransaction still missing - likely fatal
+          isFatal = true;
+          fatalReason = `Proposal was created ${Math.round(ageSeconds)} seconds ago but VaultTransaction still missing. This exceeds normal propagation delays (5-10s) and indicates a creation failure.`;
+        }
+      }
+      
+      // FATAL CHECK #4: Check if proposal creation transaction succeeded
+      const proposalCreationTx = matchRow.proposalTransactionId;
+      if (proposalCreationTx) {
+        try {
+          const creationTx = await connection.getTransaction(proposalCreationTx, {
+            commitment: 'confirmed',
+            maxSupportedTransactionVersion: 0,
+          });
+          
+          if (creationTx?.meta?.err) {
+            isFatal = true;
+            fatalReason = `Proposal creation transaction failed on-chain: ${JSON.stringify(creationTx.meta.err)}. VaultTransaction will never be created.`;
+          } else if (!creationTx) {
+            // Transaction not found - might be too old or invalid
+            proposalDiagnostics.creationTxNotFound = true;
+          } else {
+            proposalDiagnostics.creationTxSucceeded = true;
+          }
+        } catch (txCheckError: any) {
+          proposalDiagnostics.creationTxCheckError = txCheckError?.message;
+        }
+      }
+      
+      // FATAL CHECK #5: Verify multisigPda matches
+      // This is already checked earlier, but if it doesn't match, it's fatal
+      const multisigFromMatch = matchRow.squadsVaultAddress;
+      if (multisigFromMatch && multisigFromMatch !== multisigAddress.toString()) {
+        isFatal = true;
+        fatalReason = `MultisigPDA mismatch: match has ${multisigFromMatch}, request uses ${multisigAddress.toString()}. This indicates wrong match or corrupted data.`;
       }
       
       console.error('❌ CRITICAL: Failed to fetch VaultTransaction account for remaining accounts', {
@@ -12370,36 +12456,77 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         error: vaultTxError?.message,
         stack: vaultTxError?.stack,
         proposalDiagnostics,
-        note: 'Squads v4 REQUIRES remainingAccounts in approval instruction. Without them, the approval will fail silently and the signer will NOT be added to the proposal.',
-        possibleCauses: [
-          'Proposal was created but VaultTransaction account was never initialized',
-          'Failed createProposal flow or race condition',
-          'Missing vaultTransactionCreate instruction during proposal creation',
-          'Proposal created with no inner instructions (Squads will not create VaultTransaction if proposal contains no instructions)',
+        isFatal,
+        fatalReason: isFatal ? fatalReason : undefined,
+        note: isFatal 
+          ? 'FATAL: This proposal will NEVER become valid. Do not retry.'
+          : 'Squads v4 REQUIRES remainingAccounts in approval instruction. Without them, the approval will fail silently and the signer will NOT be added to the proposal.',
+        possibleCauses: isFatal ? [
+          'Proposal creation transaction failed on-chain',
+          'Proposal created with zero instructions (Squads will not create VaultTransaction)',
           'Wrong transactionIndex or multisigPda used to derive VaultTransaction PDA',
+          'Proposal creation flow did not complete successfully',
+        ] : [
+          'Proposal is still being created on-chain (wait 5-10 seconds)',
+          'Temporary synchronization delay between proposal creation and VaultTransaction initialization',
+          'Network latency causing account propagation delay',
         ],
       });
       
       // CRITICAL: Do NOT proceed without remainingAccounts - the approval will fail
       // Return an error to the client so they know the transaction cannot be built
-      sendResponse(500, {
-        error: 'Failed to fetch VaultTransaction account',
-        details: 'The VaultTransaction account required for building the approval instruction does not exist on-chain. Squads v4 requires all remainingAccounts from VaultTransaction.message.accountKeys to be included in the approval instruction. Without the VaultTransaction, the approval will be rejected by the Squads program and the signer will NOT be added to the proposal.',
-        transactionPda: transactionPda?.toString(),
-        transactionIndex: transactionIndex?.toString(),
-        proposalPda: proposalPda?.toString(),
-        multisigPda: multisigAddress?.toString(),
-        proposalDiagnostics,
-        matchId,
-        possibleCauses: [
-          'Proposal was created but VaultTransaction account was never initialized',
-          'Failed createProposal flow or race condition',
-          'Missing vaultTransactionCreate instruction during proposal creation',
-          'Proposal created with no inner instructions',
-          'Wrong transactionIndex or multisigPda used to derive VaultTransaction PDA',
-        ],
-      });
-      return;
+      
+      if (isFatal) {
+        // FATAL ERROR: This proposal will never become valid
+        console.error('❌ FATAL: VaultTransaction did not appear after retries - proposal creation failure', {
+          matchId,
+          proposalPda: proposalPda?.toString(),
+          transactionIndex: transactionIndex?.toString(),
+          multisigPda: multisigAddress?.toString(),
+          fatalReason,
+          proposalDiagnostics,
+        });
+        
+        sendResponse(500, {
+          error: 'Match failed to initialize',
+          message: 'This match could not be initialized properly. The proposal was created but the required transaction account is missing. Please contact support or try creating a new match.',
+          details: fatalReason,
+          transactionPda: transactionPda?.toString(),
+          transactionIndex: transactionIndex?.toString(),
+          proposalPda: proposalPda?.toString(),
+          multisigPda: multisigAddress?.toString(),
+          proposalDiagnostics,
+          matchId,
+          retryable: false, // FATAL - do not retry
+          fatal: true,
+        });
+        return;
+      } else {
+        // RETRYABLE ERROR: Likely propagation delay
+        const userFriendlyMessage = proposalDiagnostics.proposalStatus?.__kind === 'Active' 
+          ? 'The proposal is still being created on-chain. Please wait a few seconds and try again.'
+          : 'The proposal is not ready for signing yet. This may be due to a temporary synchronization issue. Please wait a moment and try again.';
+        
+        sendResponse(500, {
+          error: 'Proposal not ready for signing',
+          message: userFriendlyMessage,
+          details: 'The VaultTransaction account required for building the approval instruction does not exist on-chain yet. This usually means the proposal is still being created or synchronized. Please wait a few seconds and try again.',
+          transactionPda: transactionPda?.toString(),
+          transactionIndex: transactionIndex?.toString(),
+          proposalPda: proposalPda?.toString(),
+          multisigPda: multisigAddress?.toString(),
+          proposalDiagnostics,
+          matchId,
+          retryable: true, // Indicate this is a retryable error
+          fatal: false,
+          possibleCauses: [
+            'Proposal is still being created on-chain (wait 5-10 seconds)',
+            'Temporary synchronization delay between proposal creation and VaultTransaction initialization',
+            'Network latency causing account propagation delay',
+          ],
+        });
+        return;
+      }
     }
 
     let approveIx;
