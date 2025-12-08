@@ -2272,36 +2272,40 @@ const Result: React.FC = () => {
                                 </p>
                               )}
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
-                              {payoutData.proposalId && 
-                               !playerProposalSigners.includes(publicKey?.toString() || '') && (
-                                (() => {
-                                  // CRITICAL: Disable button if proposal creation failed or has retryable error
-                                  const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
-                                  const hasRetryableError = error && (
-                                    error.includes('still being created') ||
-                                    error.includes('not ready') ||
-                                    error.includes('VaultTransaction')
-                                  );
-                                  const isButtonDisabled = signingProposal || 
-                                                           playerProposalSigners.includes(publicKey?.toString() || '') ||
-                                                           isProposalCreationFailed ||
-                                                           hasRetryableError;
-                                  
-                                  return (
-                                    <button
-                                      onClick={handleSignProposal}
-                                      disabled={isButtonDisabled}
-                                      className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-2 px-6 rounded-lg transition-colors"
-                                    >
-                                      {signingProposal ? 'Signing...' : 
-                                       playerProposalSigners.includes(publicKey?.toString() || '') ? '✓ Signed - Processing...' : 
-                                       isProposalCreationFailed ? 'Match Failed to Initialize' :
-                                       hasRetryableError ? 'Proposal Not Ready Yet' :
-                                       'Sign Refund Proposal'}
-                                    </button>
-                                  );
-                                })()}
-                              )}
+                              {(() => {
+                                const hasProposalId = !!payoutData.proposalId;
+                                const userHasSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+                                
+                                if (!hasProposalId || userHasSigned) {
+                                  return null;
+                                }
+                                
+                                // CRITICAL: Disable button if proposal creation failed or has retryable error
+                                const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
+                                const hasRetryableError = error && (
+                                  error.includes('still being created') ||
+                                  error.includes('not ready') ||
+                                  error.includes('VaultTransaction')
+                                );
+                                const isButtonDisabled = signingProposal || 
+                                                         userHasSigned ||
+                                                         isProposalCreationFailed ||
+                                                         hasRetryableError;
+                                
+                                return (
+                                  <button
+                                    onClick={handleSignProposal}
+                                    disabled={isButtonDisabled}
+                                    className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                  >
+                                    {signingProposal ? 'Signing...' : 
+                                     userHasSigned ? '✓ Signed - Processing...' : 
+                                     isProposalCreationFailed ? 'Match Failed to Initialize' :
+                                     hasRetryableError ? 'Proposal Not Ready Yet' :
+                                     'Sign Refund Proposal'}
+                                  </button>
+                                );
+                              })()}
                             </div>
                           )}
                         </div>
