@@ -740,3 +740,186 @@ export const adminCleanupStaleLocks = async (req: Request, res: Response) => {
     });
   }
 };
+
+/**
+ * Admin endpoint to manually execute a proposal (emergency recovery tool)
+ * POST /api/admin/execute-proposal/:matchId
+ * 
+ * SECURITY: This endpoint should be protected with admin authentication in production.
+ * THROTTLING: Rate-limited to prevent abuse (max 1 execution per match per minute).
+ * AUDIT: All execution attempts are logged with admin identity and timestamp.
+ */
+const executionThrottle = new Map<string, number>(); // matchId -> last execution timestamp
+const THROTTLE_WINDOW_MS = 60 * 1000; // 1 minute
+
+export const adminExecuteProposal = async (req: Request, res: Response) => {
+  const startTime = Date.now();
+  const adminId = (req as any).user?.id || (req as any).adminId || 'unknown'; // TODO: Add proper admin auth
+  const auditTrail: any[] = [];
+  
+  try {
+    const { matchId } = req.params;
+    
+    auditTrail.push({
+      action: 'admin_execute_proposal_requested',
+      matchId,
+      adminId,
+      timestamp: new Date().toISOString(),
+      ip: req.ip || 'unknown',
+    });
+    
+    console.log('🔧 Admin manual execution requested', { matchId, adminId });
+    
+    // Throttling check
+    const lastExecution = executionThrottle.get(matchId);
+    const now = Date.now();
+    if (lastExecution && (now - lastExecution) < THROTTLE_WINDOW_MS) {
+      const remainingMs = THROTTLE_WINDOW_MS - (now - lastExecution);
+      auditTrail.push({
+        action: 'throttled',
+        remainingMs,
+        timestamp: new Date().toISOString(),
+      });
+      
+      return res.status(429).json({
+        error: 'Rate limit exceeded',
+        message: `Execution throttled. Please wait ${Math.ceil(remainingMs / 1000)} seconds before retrying.`,
+        remainingSeconds: Math.ceil(remainingMs / 1000),
+        auditTrail,
+      });
+    }
+    
+    // Update throttle
+    executionThrottle.set(matchId, now);
+    
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      auditTrail.push({
+        action: 'match_not_found',
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(404).json({ error: 'Match not found', auditTrail });
+    }
+    
+    // Validate match state
+    if (!match.squadsVaultAddress || !match.payoutProposalId) {
+      auditTrail.push({
+        action: 'invalid_match_state',
+        hasVault: !!match.squadsVaultAddress,
+        hasProposal: !!match.payoutProposalId,
+        timestamp: new Date().toISOString(),
+      });
+      return res.status(400).json({
+        error: 'Invalid match state',
+        message: 'Match does not have vault address or proposal ID',
+        auditTrail,
+      });
+    }
+    
+    auditTrail.push({
+      action: 'execution_started',
+      vaultAddress: match.squadsVaultAddress,
+      proposalId: match.payoutProposalId,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Import squadsVaultService
+    const { squadsVaultService } = require('../services/squadsVaultService');
+    const { getFeeWallet } = require('../config/solana');
+    
+    const executor = getFeeWallet();
+    
+    // Execute proposal
+    const executeResult = await squadsVaultService.executeProposal(
+      match.squadsVaultAddress,
+      match.payoutProposalId,
+      executor
+    );
+    
+    const executionTime = Date.now() - startTime;
+    
+    auditTrail.push({
+      action: 'execution_completed',
+      success: executeResult.success,
+      signature: executeResult.signature,
+      error: executeResult.error,
+      errorCode: executeResult.errorCode,
+      attempts: executeResult.attempts,
+      executionTimeMs: executionTime,
+      timestamp: new Date().toISOString(),
+    });
+    
+    // Update match record with execution attempt
+    if (executeResult.signature) {
+      await matchRepository.update(matchId, {
+        proposalTransactionId: executeResult.signature,
+        executionAttempts: (match.executionAttempts || 0) + 1,
+        executionLastAttemptAt: new Date(),
+      });
+    } else {
+      await matchRepository.update(matchId, {
+        executionAttempts: (match.executionAttempts || 0) + 1,
+        executionLastAttemptAt: new Date(),
+      });
+    }
+    
+    // Log audit trail
+    console.log('📋 ADMIN EXECUTION AUDIT TRAIL', {
+      matchId,
+      adminId,
+      auditTrail,
+      duration: executionTime,
+    });
+    
+    if (executeResult.success) {
+      return res.json({
+        success: true,
+        message: 'Proposal executed successfully',
+        signature: executeResult.signature,
+        executedAt: executeResult.executedAt,
+        auditTrail,
+        executionTimeMs: executionTime,
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: executeResult.error,
+        errorCode: executeResult.errorCode,
+        attempts: executeResult.attempts,
+        auditTrail,
+        executionTimeMs: executionTime,
+      });
+    }
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const executionTime = Date.now() - startTime;
+    
+    auditTrail.push({
+      action: 'execution_failed',
+      error: errorMessage,
+      timestamp: new Date().toISOString(),
+      executionTimeMs: executionTime,
+    });
+    
+    console.error('❌ Admin execution failed:', {
+      matchId: req.params.matchId,
+      adminId,
+      error: errorMessage,
+      auditTrail,
+    });
+    
+    return res.status(500).json({
+      error: 'Internal server error',
+      details: errorMessage,
+      auditTrail,
+      executionTimeMs: executionTime,
+    });
+  }
+};

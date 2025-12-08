@@ -16,7 +16,8 @@ import {
   adminClearLockAndDeleteMatch,
   adminGetLockStats,
   adminCheckLockStatus,
-  adminCleanupStaleLocks
+  adminCleanupStaleLocks,
+  adminExecuteProposal
 } from '../controllers/adminController';
 
 const router = Router();
@@ -25,6 +26,9 @@ const router = Router();
 router.post('/delete-match/:matchId', adminDeleteMatch);
 router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
 router.post('/clear-lock-and-delete/:matchId', adminClearLockAndDeleteMatch);
+
+// Proposal execution (admin recovery tool)
+router.post('/execute-proposal/:matchId', adminExecuteProposal);
 
 // Lock monitoring and management
 router.get('/locks/stats', adminGetLockStats);

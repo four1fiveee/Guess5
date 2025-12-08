@@ -4055,23 +4055,177 @@ export class SquadsVaultService {
         let executionMethod = 'sdk-rpc-method';
         
         // Use SDK method - the ONLY execution path
-        try {
-          enhancedLogger.info('✅ Attempting SDK rpc.vaultTransactionExecute', {
+        // HARDENING: Retry with exponential backoff for transient RPC failures
+        const maxRetries = 3;
+        const baseDelayMs = 1000; // 1 second base delay
+        let lastError: any = null;
+        let attemptNumber = 0;
+        
+        for (attemptNumber = 1; attemptNumber <= maxRetries; attemptNumber++) {
+          try {
+            // Emit metric: execute.attempt
+            enhancedLogger.info('📊 METRIC: execute.attempt', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              attempt: attemptNumber,
+              maxRetries,
+              correlationId,
+            });
+            
+            enhancedLogger.info('✅ Attempting SDK rpc.vaultTransactionExecute', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              multisigPda: multisigAddress.toString(),
+              executor: executor.publicKey.toString(),
+              attempt: attemptNumber,
+              maxRetries,
+              correlationId,
+              note: 'Using SDK method - this is the ONLY supported approach for Squads v4',
+            });
+            
+            // Add jitter to reduce hot-node contention
+            if (attemptNumber > 1) {
+              const jitter = Math.floor(Math.random() * 500); // 0-500ms random jitter
+              const delay = baseDelayMs * Math.pow(2, attemptNumber - 2) + jitter; // Exponential backoff
+              enhancedLogger.info('⏳ Retry delay with jitter', {
+                vaultAddress,
+                proposalId,
+                attempt: attemptNumber,
+                delayMs: delay,
+                jitterMs: jitter,
+                correlationId,
+              });
+              await new Promise(resolve => setTimeout(resolve, delay));
+            }
+            
+            executionSignature = await rpc.vaultTransactionExecute({
+              connection: this.connection,
+              multisig: multisigAddress,
+              transactionIndex: BigInt(transactionIndexNumber),
+              member: executor,
+              programId: this.programId,
+            });
+            
+            // Success - break out of retry loop
+            break;
+          } catch (sdkError: any) {
+            lastError = sdkError;
+            
+            // Check if error is retryable (transient RPC failures)
+            const isRetryable = this.isRetryableError(sdkError);
+            
+            // CRITICAL: Extract error code for InstructionFallbackNotFound (0x65/101)
+            const errorCode = sdkError?.code || sdkError?.errorCode || 
+                             (sdkError?.message?.includes('0x65') ? 101 : null) ||
+                             (sdkError?.message?.includes('101') ? 101 : null);
+            
+            const isInstructionFallbackNotFound = errorCode === 101 || 
+                                                  errorCode === 0x65 ||
+                                                  sdkError?.message?.includes('InstructionFallbackNotFound') ||
+                                                  sdkError?.message?.includes('0x65') ||
+                                                  sdkError?.message?.includes('101');
+            
+            // Non-retryable errors (0x65/101, invalid state) - log comprehensively and break
+            if (isInstructionFallbackNotFound || !isRetryable) {
+              // Derive PDAs for comprehensive error logging
+              const [transactionPda] = getTransactionPda({
+                multisigPda: multisigAddress,
+                index: BigInt(transactionIndexNumber),
+                programId: this.programId,
+              });
+              
+              const [proposalPda] = getProposalPda({
+                multisigPda: multisigAddress,
+                transactionIndex: BigInt(transactionIndexNumber),
+                programId: this.programId,
+              });
+              
+              // CRITICAL: Comprehensive error logging for 0x65/101 errors
+              await this.logExecutionErrorComprehensive({
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                multisigPda: multisigAddress,
+                transactionPda,
+                proposalPda,
+                error: sdkError,
+                errorCode,
+                isInstructionFallbackNotFound,
+                correlationId,
+                attempt: attemptNumber,
+              });
+              
+              // Emit metric: execute.failure with error_code
+              enhancedLogger.error('📊 METRIC: execute.failure', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                errorCode: errorCode || 'unknown',
+                isInstructionFallbackNotFound,
+                attempt: attemptNumber,
+                correlationId,
+              });
+              
+              // Break retry loop - this error is not retryable
+              break;
+            }
+            
+            // Retryable error - log and continue to next attempt
+            enhancedLogger.warn('⚠️ Transient error on SDK execution attempt, will retry', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              attempt: attemptNumber,
+              maxRetries,
+              error: sdkError?.message || String(sdkError),
+              isRetryable,
+              correlationId,
+            });
+            
+            // If this was the last attempt, break and handle final error
+            if (attemptNumber >= maxRetries) {
+              break;
+            }
+          }
+        }
+        
+        // Check if we succeeded or exhausted retries
+        if (!executionSignature && lastError) {
+          // All retries failed - emit metric and return error
+          const errorCode = lastError?.code || lastError?.errorCode || 
+                           (lastError?.message?.includes('0x65') ? 101 : null) ||
+                           (lastError?.message?.includes('101') ? 101 : null);
+          
+          enhancedLogger.error('📊 METRIC: execute.failure (all retries exhausted)', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            multisigPda: multisigAddress.toString(),
-            executor: executor.publicKey.toString(),
+            errorCode: errorCode || 'unknown',
+            attempts: attemptNumber,
             correlationId,
-            note: 'Using SDK method - this is the ONLY supported approach for Squads v4',
           });
           
-          executionSignature = await rpc.vaultTransactionExecute({
-            connection: this.connection,
-            multisig: multisigAddress,
-            transactionIndex: BigInt(transactionIndexNumber),
-            member: executor,
-            programId: this.programId,
+          return {
+            success: false,
+            error: `SDK execution failed after ${attemptNumber} attempts: ${lastError?.message || String(lastError)}`,
+            correlationId,
+            errorCode: errorCode || undefined,
+            attempts: attemptNumber,
+          };
+        }
+        
+        // Success - continue with verification
+        if (executionSignature) {
+          // Emit metric: execute.success
+          enhancedLogger.info('📊 METRIC: execute.success', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            signature: executionSignature,
+            attempts: attemptNumber,
+            correlationId,
           });
           
           enhancedLogger.info('✅ SDK rpc.vaultTransactionExecute succeeded', {
@@ -4079,6 +4233,7 @@ export class SquadsVaultService {
             proposalId,
             transactionIndex: transactionIndexNumber,
             executionSignature,
+            attempts: attemptNumber,
             correlationId,
           });
           
@@ -4194,12 +4349,17 @@ export class SquadsVaultService {
             });
             
             // Success - return with verification
+            // NOTE: Callers should update DB with:
+            // - proposalTransactionId = executionSignature
+            // - executionAttempts = (current + 1)
+            // - executionLastAttemptAt = new Date()
             return {
               success: true,
               signature: executionSignature,
               method: executionMethod,
               executedAt: new Date().toISOString(),
               correlationId,
+              attempts: attemptNumber, // Include attempt count for DB updates
             };
           } catch (verificationError: unknown) {
             const errorMsg = verificationError instanceof Error ? verificationError.message : String(verificationError);
@@ -4232,114 +4392,6 @@ export class SquadsVaultService {
               correlationId,
             };
           }
-        } catch (sdkError: any) {
-          // CRITICAL: Extract error code for InstructionFallbackNotFound (0x65/101)
-          const errorCode = sdkError?.code || sdkError?.errorCode || 
-                           (sdkError?.message?.includes('0x65') ? 101 : null) ||
-                           (sdkError?.message?.includes('101') ? 101 : null);
-          
-          // Check if this is the InstructionFallbackNotFound error
-          const isInstructionFallbackNotFound = errorCode === 101 || 
-                                                errorCode === 0x65 ||
-                                                sdkError?.message?.includes('InstructionFallbackNotFound') ||
-                                                sdkError?.message?.includes('0x65') ||
-                                                sdkError?.message?.includes('101');
-          
-          // Derive PDAs for comprehensive error logging
-          const [transactionPda] = getTransactionPda({
-            multisigPda: multisigAddress,
-            index: BigInt(transactionIndexNumber),
-            programId: this.programId,
-          });
-          
-          const [proposalPda] = getProposalPda({
-            multisigPda: multisigAddress,
-            transactionIndex: BigInt(transactionIndexNumber),
-            programId: this.programId,
-          });
-          
-          // CRITICAL: Comprehensive error logging for 0x65/101 errors
-          if (isInstructionFallbackNotFound) {
-            enhancedLogger.error('❌ CRITICAL: InstructionFallbackNotFound (0x65/101) - SDK execution failed', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              multisigPda: multisigAddress.toString(),
-              transactionPda: transactionPda.toString(),
-              proposalPda: proposalPda.toString(),
-              errorCode: errorCode || 'unknown',
-              errorMessage: sdkError?.message || String(sdkError),
-              errorStack: sdkError?.stack,
-              errorType: typeof sdkError,
-              errorKeys: sdkError ? Object.keys(sdkError) : [],
-              correlationId,
-              note: 'This error means the EXECUTE instruction is malformed. Manual construction is NOT safe. Only SDK method should be used.',
-            });
-            
-            // Try to fetch on-chain state for diagnosis
-            try {
-              const proposalAccount = await accounts.Proposal.fromAccountAddress(
-                this.connection,
-                proposalPda,
-                'confirmed'
-              );
-              
-              const proposalStatus = (proposalAccount.status as any)?.__kind;
-              const approvedSigners = proposalAccount.approved || [];
-              const threshold = proposalAccount.threshold;
-              
-              enhancedLogger.error('🔍 On-chain Proposal State at Failure', {
-                vaultAddress,
-                proposalId,
-                proposalPda: proposalPda.toString(),
-                proposalStatus,
-                approvedSignersCount: approvedSigners.length,
-                threshold,
-                approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
-                correlationId,
-              });
-              
-              // Check if ExecuteReady state is required
-              if (proposalStatus !== 'ExecuteReady') {
-                enhancedLogger.error('❌ Proposal is NOT in ExecuteReady state - execution cannot proceed', {
-                  vaultAddress,
-                  proposalId,
-                  proposalStatus,
-                  requiredStatus: 'ExecuteReady',
-                  correlationId,
-                  note: 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
-                });
-              }
-            } catch (fetchError: unknown) {
-              enhancedLogger.warn('⚠️ Could not fetch Proposal account for diagnosis', {
-                vaultAddress,
-                proposalId,
-                error: fetchError instanceof Error ? fetchError.message : String(fetchError),
-                correlationId,
-              });
-            }
-          } else {
-            enhancedLogger.error('❌ SDK rpc.vaultTransactionExecute failed with non-0x65 error', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              error: sdkError?.message || String(sdkError),
-              errorStack: sdkError?.stack,
-              errorCode,
-              correlationId,
-              note: 'This is NOT InstructionFallbackNotFound - investigate the actual error',
-            });
-          }
-          
-          // DO NOT fall back to manual construction - it is unsafe
-          // Return error immediately
-          return {
-            success: false,
-            error: `SDK execution failed: ${sdkError?.message || String(sdkError)}`,
-            correlationId,
-            errorCode: errorCode || undefined,
-            isInstructionFallbackNotFound,
-          };
         }
     } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
@@ -5063,6 +5115,195 @@ export class SquadsVaultService {
       normalized.includes('transaction expired') ||
       normalized.includes('expired blockhash') ||
       normalized.includes('slot is behind');
+  }
+
+  /**
+   * Determine if an error is retryable (transient RPC failures)
+   * Non-retryable: 0x65/101 (InstructionFallbackNotFound), invalid state errors
+   * Retryable: network errors, RPC timeouts, connection issues
+   */
+  private isRetryableError(error: any): boolean {
+    const message = error?.message || String(error) || '';
+    const normalized = message.toLowerCase();
+    
+    // Check for non-retryable errors first
+    if (normalized.includes('0x65') || 
+        normalized.includes('101') || 
+        normalized.includes('instructionfallbacknotfound') ||
+        normalized.includes('invalid state') ||
+        normalized.includes('not in executeready')) {
+      return false;
+    }
+    
+    // Retryable errors: network, RPC, connection issues
+    return normalized.includes('network') ||
+           normalized.includes('timeout') ||
+           normalized.includes('connection') ||
+           normalized.includes('econnrefused') ||
+           normalized.includes('enotfound') ||
+           normalized.includes('econnreset') ||
+           normalized.includes('socket') ||
+           normalized.includes('rpc') && (normalized.includes('error') || normalized.includes('failed'));
+  }
+
+  /**
+   * Comprehensive error logging for 0x65/101 and other execution failures
+   * Includes full on-chain state dump, account details, and simulation logs
+   */
+  private async logExecutionErrorComprehensive(params: {
+    vaultAddress: string;
+    proposalId: string;
+    transactionIndex: number;
+    multisigPda: PublicKey;
+    transactionPda: PublicKey;
+    proposalPda: PublicKey;
+    error: any;
+    errorCode: number | null;
+    isInstructionFallbackNotFound: boolean;
+    correlationId: string;
+    attempt: number;
+  }): Promise<void> {
+    const {
+      vaultAddress,
+      proposalId,
+      transactionIndex,
+      multisigPda,
+      transactionPda,
+      proposalPda,
+      error,
+      errorCode,
+      isInstructionFallbackNotFound,
+      correlationId,
+      attempt,
+    } = params;
+
+    // Base error log
+    enhancedLogger.error('❌ CRITICAL: Execution failed with comprehensive diagnostics', {
+      vaultAddress,
+      proposalId,
+      transactionIndex,
+      multisigPda: multisigPda.toString(),
+      transactionPda: transactionPda.toString(),
+      proposalPda: proposalPda.toString(),
+      errorCode: errorCode || 'unknown',
+      isInstructionFallbackNotFound,
+      attempt,
+      errorMessage: error?.message || String(error),
+      errorStack: error?.stack,
+      errorType: typeof error,
+      errorKeys: error ? Object.keys(error) : [],
+      correlationId,
+      note: isInstructionFallbackNotFound 
+        ? 'This error means the EXECUTE instruction is malformed. Manual construction is NOT safe. Only SDK method should be used.'
+        : 'Execution failed - see comprehensive diagnostics below',
+    });
+
+    // Fetch and log on-chain Proposal account state
+    try {
+      const proposalAccount = await accounts.Proposal.fromAccountAddress(
+        this.connection,
+        proposalPda,
+        'confirmed'
+      );
+      
+      const proposalStatus = (proposalAccount.status as any)?.__kind;
+      const approvedSigners = proposalAccount.approved || [];
+      const threshold = proposalAccount.threshold;
+      
+      // Full account dump
+      const accountDump = {
+        status: proposalStatus,
+        approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
+        approvedSignersCount: approvedSigners.length,
+        threshold,
+        hasEnoughSigners: approvedSigners.length >= threshold,
+        accountData: JSON.stringify(proposalAccount, (key, value) => {
+          // Serialize PublicKey objects
+          if (value && typeof value === 'object' && 'toBase58' in value) {
+            return value.toBase58();
+          }
+          return value;
+        }, 2),
+      };
+      
+      enhancedLogger.error('🔍 FULL ON-CHAIN PROPOSAL ACCOUNT DUMP', {
+        vaultAddress,
+        proposalId,
+        proposalPda: proposalPda.toString(),
+        ...accountDump,
+        correlationId,
+      });
+      
+      // Check ExecuteReady state
+      if (proposalStatus !== 'ExecuteReady') {
+        enhancedLogger.error('❌ Proposal is NOT in ExecuteReady state - execution cannot proceed', {
+          vaultAddress,
+          proposalId,
+          proposalStatus,
+          requiredStatus: 'ExecuteReady',
+          approvedSignersCount: approvedSigners.length,
+          threshold,
+          correlationId,
+          note: 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
+        });
+      }
+    } catch (fetchError: unknown) {
+      enhancedLogger.warn('⚠️ Could not fetch Proposal account for comprehensive diagnosis', {
+        vaultAddress,
+        proposalId,
+        proposalPda: proposalPda.toString(),
+        error: fetchError instanceof Error ? fetchError.message : String(fetchError),
+        correlationId,
+      });
+    }
+
+    // Fetch and log VaultTransaction account state
+    try {
+      const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+        this.connection,
+        transactionPda,
+        'confirmed'
+      );
+      
+      const vaultTxDump = {
+        hasMessage: !!vaultTxAccount.message,
+        messageAccountKeysCount: (vaultTxAccount.message as any)?.accountKeys?.length || 0,
+        accountData: JSON.stringify(vaultTxAccount, (key, value) => {
+          if (value && typeof value === 'object' && 'toBase58' in value) {
+            return value.toBase58();
+          }
+          return value;
+        }, 2),
+      };
+      
+      enhancedLogger.error('🔍 FULL ON-CHAIN VAULTTRANSACTION ACCOUNT DUMP', {
+        vaultAddress,
+        proposalId,
+        transactionPda: transactionPda.toString(),
+        ...vaultTxDump,
+        correlationId,
+      });
+    } catch (fetchError: unknown) {
+      enhancedLogger.warn('⚠️ Could not fetch VaultTransaction account for comprehensive diagnosis', {
+        vaultAddress,
+        proposalId,
+        transactionPda: transactionPda.toString(),
+        error: fetchError instanceof Error ? fetchError.message : String(fetchError),
+        correlationId,
+      });
+    }
+
+    // Try to get simulation logs if available in error
+    if (error?.logs && Array.isArray(error.logs)) {
+      enhancedLogger.error('🔍 SIMULATION LOGS FROM ERROR', {
+        vaultAddress,
+        proposalId,
+        transactionPda: transactionPda.toString(),
+        simulationLogs: error.logs,
+        logsCount: error.logs.length,
+        correlationId,
+      });
+    }
   }
 
   private async buildExecutionErrorDetails(
