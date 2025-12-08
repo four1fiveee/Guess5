@@ -12519,19 +12519,48 @@ const signProposalHandler = async (req: any, res: any) => {
   });
   
   // ✅ Step 1: Add top-level logging BEFORE parsing the body
+  // CRITICAL: Use defensive checks to prevent crashes when accessing req.body
   try {
-    const bodyKeys = Buffer.isBuffer(req.body) 
-      ? `Buffer(${req.body.length} bytes)` 
-      : (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) 
-          ? Object.keys(req.body).slice(0, 10).join(', ') + (Object.keys(req.body).length > 10 ? '...' : '')
-          : 'not an object');
+    let bodyKeys = 'unknown';
+    let rawBodyLength: any = 'unknown';
+    let isBuffer = false;
+    let bodyType = typeof req.body;
+    
+    // Defensive checks to prevent crashes
+    if (req.body !== null && req.body !== undefined) {
+      try {
+        isBuffer = Buffer.isBuffer(req.body);
+        if (isBuffer) {
+          rawBodyLength = req.body.length;
+          bodyKeys = `Buffer(${rawBodyLength} bytes)`;
+        } else if (typeof req.body === 'object') {
+          try {
+            const keys = Object.keys(req.body);
+            bodyKeys = keys.slice(0, 10).join(', ') + (keys.length > 10 ? '...' : '');
+            if (typeof req.body === 'string') {
+              rawBodyLength = req.body.length;
+            }
+          } catch {
+            bodyKeys = 'object (keys access failed)';
+          }
+        } else if (typeof req.body === 'string') {
+          rawBodyLength = req.body.length;
+          bodyKeys = `string(${rawBodyLength} chars)`;
+        }
+      } catch (e) {
+        // Ignore errors in body inspection
+        bodyKeys = 'inspection failed';
+      }
+    } else {
+      bodyType = 'null/undefined';
+    }
     
     console.log('🔥 SIGN_PROPOSAL: request received', {
       matchId: req.params?.matchId || req.query?.matchId || 'unknown',
       wallet: req.query?.wallet || 'unknown',
-      rawBodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'unknown'),
-      bodyType: typeof req.body,
-      isBuffer: Buffer.isBuffer(req.body),
+      rawBodyLength,
+      bodyType,
+      isBuffer,
       bodyKeys,
       contentType: req.headers['content-type'],
       method: req.method,
@@ -12539,12 +12568,17 @@ const signProposalHandler = async (req: any, res: any) => {
       time: Date.now(),
     });
   } catch (logError: any) {
-    // If logging fails, log a minimal version
-    console.error('❌ Failed to log request details:', logError?.message);
+    // If logging fails, log a minimal version with error details
+    console.error('❌ Failed to log request details:', {
+      error: logError?.message,
+      stack: logError?.stack,
+      errorType: logError?.constructor?.name,
+    });
     console.log('🔥 SIGN_PROPOSAL: request received (minimal log)', {
-      matchId: 'unknown',
-      wallet: 'unknown',
+      matchId: req.query?.matchId || 'unknown',
+      wallet: req.query?.wallet || 'unknown',
       error: 'Logging failed',
+      errorMessage: logError?.message,
     });
   }
 
@@ -12563,15 +12597,40 @@ const signProposalHandler = async (req: any, res: any) => {
     const isOctetStream = contentType.includes('application/octet-stream');
     
     // CRITICAL DIAGNOSTIC: Log body type to confirm raw parser is working
+    // Defensive checks to prevent crashes
+    let bodyIsBuffer = false;
+    let bodyLength: any = 'not a buffer/string';
+    let bodyKeys: any = 'N/A';
+    
+    try {
+      if (req.body !== null && req.body !== undefined) {
+        bodyIsBuffer = Buffer.isBuffer(req.body);
+        if (bodyIsBuffer) {
+          bodyLength = req.body.length;
+        } else if (typeof req.body === 'string') {
+          bodyLength = req.body.length;
+        }
+        if (req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body)) {
+          try {
+            bodyKeys = Object.keys(req.body);
+          } catch {
+            bodyKeys = 'keys access failed';
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors in body inspection
+    }
+    
     console.log('🔍 SIGN_PROPOSAL: Body type check', {
-      matchId: req.query.matchId,
-      wallet: req.query.wallet,
+      matchId: req.query?.matchId || 'unknown',
+      wallet: req.query?.wallet || 'unknown',
       contentType,
       isOctetStream,
-      bodyIsBuffer: Buffer.isBuffer(req.body),
+      bodyIsBuffer,
       bodyType: typeof req.body,
-      bodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'not a buffer/string'),
-      bodyKeys: req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? Object.keys(req.body) : 'N/A',
+      bodyLength,
+      bodyKeys,
       note: 'If bodyIsBuffer=true and bodyLength>0, raw parser is working correctly',
     });
     
