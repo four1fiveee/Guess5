@@ -1272,6 +1272,87 @@ export class SquadsVaultService {
         // Verify the transaction account can be decoded and has an index field
         // This prevents race conditions where account exists but isn't fully indexed
         await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'winner payout');
+        
+        // RUNTIME ASSERTION #1: Ensure VaultTransaction account exists and can be decoded
+        let vaultTxAccount;
+        try {
+          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda,
+            'confirmed'
+          );
+          enhancedLogger.info('✅ RUNTIME ASSERTION #1 PASSED: VaultTransaction account exists and is decodable', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } catch (vaultTxFetchError: any) {
+          enhancedLogger.error('❌ RUNTIME ASSERTION #1 FAILED: VaultTransaction account missing after creation', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            multisigPda: multisigAddress.toString(),
+            error: vaultTxFetchError?.message || String(vaultTxFetchError),
+            note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation',
+          });
+          throw new Error(
+            `❌ VaultTransaction account missing after creation. ` +
+            `vaultTxPda=${transactionPda.toString()} ` +
+            `transactionIndex=${transactionIndex.toString()} ` +
+            `multisigPda=${multisigAddress.toString()}`
+          );
+        }
+        
+        // RUNTIME ASSERTION #2: Ensure VaultTransaction has at least 1 instruction
+        if (!vaultTxAccount.message || !vaultTxAccount.message.instructions || 
+            (Array.isArray(vaultTxAccount.message.instructions) && vaultTxAccount.message.instructions.length === 0)) {
+          enhancedLogger.error('❌ RUNTIME ASSERTION #2 FAILED: VaultTransaction contains no instructions', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            hasMessage: !!vaultTxAccount.message,
+            hasInstructions: !!(vaultTxAccount.message && vaultTxAccount.message.instructions),
+            instructionCount: vaultTxAccount.message && Array.isArray(vaultTxAccount.message.instructions) 
+              ? vaultTxAccount.message.instructions.length 
+              : 'unknown',
+            note: 'ABORTING MATCH CREATION - VaultTransaction must contain instructions',
+          });
+          throw new Error(
+            `❌ VaultTransaction contains no instructions. This proposal cannot be signed or executed. ` +
+            `vaultTxPda=${transactionPda.toString()}`
+          );
+        }
+        enhancedLogger.info('✅ RUNTIME ASSERTION #2 PASSED: VaultTransaction has instructions', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          instructionCount: Array.isArray(vaultTxAccount.message.instructions) 
+            ? vaultTxAccount.message.instructions.length 
+            : 'unknown',
+        });
+        
+        // RUNTIME ASSERTION #3: Ensure remainingAccounts can be extracted properly
+        const accountKeys = (vaultTxAccount.message as any).accountKeys;
+        if (!accountKeys || !Array.isArray(accountKeys) || accountKeys.length === 0) {
+          enhancedLogger.error('❌ RUNTIME ASSERTION #3 FAILED: VaultTransaction has zero accountKeys', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            hasMessage: !!vaultTxAccount.message,
+            hasAccountKeys: !!(vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys),
+            accountKeysCount: accountKeys ? accountKeys.length : 0,
+            note: 'ABORTING MATCH CREATION - VaultTransaction must have accountKeys for approval instructions',
+          });
+          throw new Error(
+            `❌ VaultTransaction has zero accountKeys. Invalid state. ` +
+            `vaultTxPda=${transactionPda.toString()}`
+          );
+        }
+        enhancedLogger.info('✅ RUNTIME ASSERTION #3 PASSED: VaultTransaction has accountKeys', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          accountKeysCount: accountKeys.length,
+          note: 'VaultTransaction is fully hydrated and ready for approval instructions',
+        });
       } catch (confirmationError: any) {
         enhancedLogger.error(
           '❌ Failed to confirm vault transaction for proposal creation',
@@ -2159,6 +2240,87 @@ export class SquadsVaultService {
         // Verify the transaction account can be decoded and has an index field
         // This prevents race conditions where account exists but isn't fully indexed
         await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'tie refund');
+        
+        // RUNTIME ASSERTION #1: Ensure VaultTransaction account exists and can be decoded
+        let vaultTxAccount;
+        try {
+          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+            this.connection,
+            transactionPda,
+            'confirmed'
+          );
+          enhancedLogger.info('✅ RUNTIME ASSERTION #1 PASSED (tie refund): VaultTransaction account exists and is decodable', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+          });
+        } catch (vaultTxFetchError: any) {
+          enhancedLogger.error('❌ RUNTIME ASSERTION #1 FAILED (tie refund): VaultTransaction account missing after creation', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            multisigPda: multisigAddress.toString(),
+            error: vaultTxFetchError?.message || String(vaultTxFetchError),
+            note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation',
+          });
+          throw new Error(
+            `❌ VaultTransaction account missing after creation (tie refund). ` +
+            `vaultTxPda=${transactionPda.toString()} ` +
+            `transactionIndex=${transactionIndex.toString()} ` +
+            `multisigPda=${multisigAddress.toString()}`
+          );
+        }
+        
+        // RUNTIME ASSERTION #2: Ensure VaultTransaction has at least 1 instruction
+        if (!vaultTxAccount.message || !vaultTxAccount.message.instructions || 
+            (Array.isArray(vaultTxAccount.message.instructions) && vaultTxAccount.message.instructions.length === 0)) {
+          enhancedLogger.error('❌ RUNTIME ASSERTION #2 FAILED (tie refund): VaultTransaction contains no instructions', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            hasMessage: !!vaultTxAccount.message,
+            hasInstructions: !!(vaultTxAccount.message && vaultTxAccount.message.instructions),
+            instructionCount: vaultTxAccount.message && Array.isArray(vaultTxAccount.message.instructions) 
+              ? vaultTxAccount.message.instructions.length 
+              : 'unknown',
+            note: 'ABORTING MATCH CREATION - VaultTransaction must contain instructions',
+          });
+          throw new Error(
+            `❌ VaultTransaction contains no instructions (tie refund). This proposal cannot be signed or executed. ` +
+            `vaultTxPda=${transactionPda.toString()}`
+          );
+        }
+        enhancedLogger.info('✅ RUNTIME ASSERTION #2 PASSED (tie refund): VaultTransaction has instructions', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          instructionCount: Array.isArray(vaultTxAccount.message.instructions) 
+            ? vaultTxAccount.message.instructions.length 
+            : 'unknown',
+        });
+        
+        // RUNTIME ASSERTION #3: Ensure remainingAccounts can be extracted properly
+        const accountKeys = (vaultTxAccount.message as any).accountKeys;
+        if (!accountKeys || !Array.isArray(accountKeys) || accountKeys.length === 0) {
+          enhancedLogger.error('❌ RUNTIME ASSERTION #3 FAILED (tie refund): VaultTransaction has zero accountKeys', {
+            vaultAddress,
+            transactionPda: transactionPda.toString(),
+            transactionIndex: transactionIndex.toString(),
+            hasMessage: !!vaultTxAccount.message,
+            hasAccountKeys: !!(vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys),
+            accountKeysCount: accountKeys ? accountKeys.length : 0,
+            note: 'ABORTING MATCH CREATION - VaultTransaction must have accountKeys for approval instructions',
+          });
+          throw new Error(
+            `❌ VaultTransaction has zero accountKeys (tie refund). Invalid state. ` +
+            `vaultTxPda=${transactionPda.toString()}`
+          );
+        }
+        enhancedLogger.info('✅ RUNTIME ASSERTION #3 PASSED (tie refund): VaultTransaction has accountKeys', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          accountKeysCount: accountKeys.length,
+          note: 'VaultTransaction is fully hydrated and ready for approval instructions',
+        });
       } catch (confirmationError: any) {
         enhancedLogger.error(
           '❌ Failed to confirm tie refund vault transaction',
