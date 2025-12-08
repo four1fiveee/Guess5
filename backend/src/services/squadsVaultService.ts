@@ -3937,7 +3937,105 @@ export class SquadsVaultService {
         throw new Error('programId is undefined');
               }
 
-      enhancedLogger.info('🚀 Calling rpc.vaultTransactionExecute', {
+      // CRITICAL: Check ExecuteReady state BEFORE attempting execution
+      // Do NOT execute until proposal is in ExecuteReady state
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex: BigInt(transactionIndexNumber),
+        programId: this.programId,
+      });
+      
+      let proposalAccount: any = null;
+      try {
+        proposalAccount = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda,
+          'confirmed'
+        );
+        
+        const proposalStatus = (proposalAccount.status as any)?.__kind;
+        const approvedSigners = proposalAccount.approved || [];
+        const threshold = proposalAccount.threshold;
+        
+        enhancedLogger.info('📋 Pre-execution Proposal Status Check', {
+          vaultAddress,
+          proposalId,
+          proposalPda: proposalPda.toString(),
+          proposalStatus,
+          approvedSignersCount: approvedSigners.length,
+          threshold,
+          approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
+          correlationId,
+        });
+        
+        // CRITICAL: Only execute if proposal is in ExecuteReady state
+        if (proposalStatus !== 'ExecuteReady') {
+          const error = `Proposal is not in ExecuteReady state: ${proposalStatus}. Cannot execute until ExecuteReady.`;
+          enhancedLogger.error('❌ Proposal not ready for execution - aborting', {
+            vaultAddress,
+            proposalId,
+            proposalStatus,
+            requiredStatus: 'ExecuteReady',
+            approvedSignersCount: approvedSigners.length,
+            threshold,
+            correlationId,
+            note: 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
+          });
+          
+          return {
+            success: false,
+            error,
+            correlationId,
+            proposalStatus,
+            requiredStatus: 'ExecuteReady',
+          };
+        }
+        
+        // Validate we have enough signers
+        if (approvedSigners.length < threshold) {
+          const error = `Insufficient signers: ${approvedSigners.length}/${threshold}`;
+          enhancedLogger.error('❌ Insufficient signers for execution - aborting', {
+            vaultAddress,
+            proposalId,
+            approvedSignersCount: approvedSigners.length,
+            threshold,
+            correlationId,
+          });
+          
+          return {
+            success: false,
+            error,
+            correlationId,
+          };
+        }
+        
+        enhancedLogger.info('✅ Proposal validation passed - ExecuteReady confirmed, proceeding with execution', {
+          vaultAddress,
+          proposalId,
+          proposalStatus,
+          approvedSignersCount: approvedSigners.length,
+          threshold,
+          correlationId,
+        });
+      } catch (proposalFetchError: unknown) {
+        const error = `Failed to fetch Proposal account for ExecuteReady check: ${proposalFetchError instanceof Error ? proposalFetchError.message : String(proposalFetchError)}`;
+        enhancedLogger.error('❌ Cannot verify ExecuteReady state - aborting execution', {
+          vaultAddress,
+          proposalId,
+          proposalPda: proposalPda.toString(),
+          error: proposalFetchError instanceof Error ? proposalFetchError.message : String(proposalFetchError),
+          correlationId,
+          note: 'Cannot proceed without ExecuteReady verification',
+        });
+        
+        return {
+          success: false,
+          error,
+          correlationId,
+        };
+      }
+
+      enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute', {
               vaultAddress,
               proposalId,
         transactionIndex: transactionIndexNumber,
@@ -3951,844 +4049,298 @@ export class SquadsVaultService {
               correlationId,
       });
 
-        // CRITICAL FIX: Use manual instruction construction with known discriminator
-        // The SDK's instructions.vaultTransactionExecute has bugs, so we'll build it manually
-        // This is a production fallback - track usage for monitoring
+        // CRITICAL FIX: Use ONLY SDK's rpc.vaultTransactionExecute - NO manual construction
+        // This is the ONLY safe execution method for Squads v4
         let executionSignature: string;
-        let executionMethod = 'manual-construction-fallback';
+        let executionMethod = 'sdk-rpc-method';
         
-        // Track manual execution fallback usage (expert recommendation)
-        enhancedLogger.warn('⚠️ IMMEDIATE EXECUTION: fallback manual attempt', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          correlationId,
-          note: 'Using manual construction (SDK has known bugs) - this is the primary execution method',
-        });
-        
-        enhancedLogger.info('📝 IMMEDIATE EXECUTION: fallback manual attempt - Building instruction manually', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          executor: executor.publicKey.toString(),
-          programId: this.programId.toString(),
-          multisigPda: multisigAddress.toString(),
-          executionMethod,
-          correlationId,
-          note: 'Building instruction manually with known discriminator and preserved account meta flags',
-        });
-        
-        // CRITICAL FIX: Fetch vault transaction FIRST to get remaining accounts
-        // Squads v4 requires ALL accounts from the inner transaction message to be included
-        const [transactionPda] = getTransactionPda({
-          multisigPda: multisigAddress,
-          index: BigInt(transactionIndexNumber),
-          programId: this.programId,
-        });
-        
-        // Derive the required PDAs
-        const [proposalPda] = getProposalPda({
-          multisigPda: multisigAddress,
-          transactionIndex: BigInt(transactionIndexNumber),
-          programId: this.programId,
-        });
-        
-        // CRITICAL: Fetch VaultTransaction account to extract remaining accounts
-        // Also validate proposal status and transactionIndex before proceeding
-        let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
-        let vaultTxAccount: any = null;
-        
+        // Use SDK method - the ONLY execution path
         try {
-          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda,
-            'confirmed'
-          );
+          enhancedLogger.info('✅ Attempting SDK rpc.vaultTransactionExecute', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            multisigPda: multisigAddress.toString(),
+            executor: executor.publicKey.toString(),
+            correlationId,
+            note: 'Using SDK method - this is the ONLY supported approach for Squads v4',
+          });
           
-          // CRITICAL VALIDATION: Verify transactionIndex matches the derived PDA
-          // The VaultTransaction should have an index field that matches our transactionIndexNumber
-          if ((vaultTxAccount as any).index !== undefined) {
-            const vaultTxIndex = Number((vaultTxAccount as any).index);
-            if (vaultTxIndex !== transactionIndexNumber) {
-              const error = `Transaction index mismatch: VaultTransaction.index=${vaultTxIndex}, expected=${transactionIndexNumber}`;
-              enhancedLogger.error('❌ Transaction index mismatch - aborting execution', {
+          executionSignature = await rpc.vaultTransactionExecute({
+            connection: this.connection,
+            multisig: multisigAddress,
+            transactionIndex: BigInt(transactionIndexNumber),
+            member: executor,
+            programId: this.programId,
+          });
+          
+          enhancedLogger.info('✅ SDK rpc.vaultTransactionExecute succeeded', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            executionSignature,
+            correlationId,
+          });
+          
+          // CRITICAL: Verify execution on-chain before returning success
+          executionDAGLogger.addStep(correlationId, 'verification-started', {
+            signature: executionSignature,
+          });
+          
+          try {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s for confirmation
+            
+            // Verify on primary RPC
+            const txDetails = await this.connection.getTransaction(executionSignature, {
+              commitment: 'confirmed',
+              maxSupportedTransactionVersion: 0,
+            });
+            
+            executionDAGLogger.addRPCResponse(correlationId, {
+              rpc: 'primary',
+              signature: executionSignature,
+              success: !txDetails?.meta?.err,
+              error: txDetails?.meta?.err,
+              logs: txDetails?.meta?.logMessages?.slice(-10),
+            });
+
+            if (txDetails?.meta?.err) {
+              const error = `Transaction failed on-chain: ${JSON.stringify(txDetails.meta.err)}`;
+              executionDAGLogger.addError(correlationId, error);
+              executionDAGLogger.addStep(correlationId, 'verification-failed', {
+                signature: executionSignature,
+                error: txDetails.meta.err,
+              }, error);
+              
+              enhancedLogger.error('❌ Execution transaction failed on-chain', {
                 vaultAddress,
                 proposalId,
-                transactionPda: transactionPda.toString(),
-                vaultTxIndex,
-                expectedIndex: transactionIndexNumber,
+                signature: executionSignature,
+                error: txDetails.meta.err,
+                logs: txDetails.meta.logMessages?.slice(-10),
                 correlationId,
               });
-              throw new Error(error);
+              
+              await executionDAGLogger.finalize(correlationId, false, { error });
+              
+              return {
+                success: false,
+                error,
+                signature: executionSignature,
+                correlationId,
+              };
             }
-            enhancedLogger.info('✅ Verified transactionIndex matches VaultTransaction.index', {
+            
+            // CRITICAL: Verify on fallback RPC (expert recommendation - reduces account-state lag by ~70%)
+            try {
+              const { createRPCConnections } = require('../utils/rpcFailover');
+              const { fallback } = createRPCConnections();
+              
+              const fallbackTxDetails = await fallback.getTransaction(executionSignature, {
+                commitment: 'confirmed',
+                maxSupportedTransactionVersion: 0,
+              });
+              
+              executionDAGLogger.addRPCResponse(correlationId, {
+                rpc: 'fallback',
+                signature: executionSignature,
+                success: !fallbackTxDetails?.meta?.err,
+                error: fallbackTxDetails?.meta?.err,
+                logs: fallbackTxDetails?.meta?.logMessages?.slice(-10),
+              });
+              
+              if (fallbackTxDetails?.meta?.err) {
+                enhancedLogger.warn('⚠️ Fallback RPC shows transaction error (primary RPC shows success)', {
+                  vaultAddress,
+                  proposalId,
+                  signature: executionSignature,
+                  primaryError: txDetails?.meta?.err,
+                  fallbackError: fallbackTxDetails.meta.err,
+                  correlationId,
+                  note: 'Primary RPC shows success - proceeding with execution',
+                });
+              } else {
+                enhancedLogger.info('✅ Both RPCs confirm execution success', {
+                  vaultAddress,
+                  proposalId,
+                  signature: executionSignature,
+                  correlationId,
+                });
+              }
+            } catch (fallbackError: any) {
+              enhancedLogger.warn('⚠️ Fallback RPC verification failed (primary RPC shows success)', {
+                vaultAddress,
+                proposalId,
+                signature: executionSignature,
+                fallbackError: fallbackError?.message,
+                correlationId,
+                note: 'Primary RPC shows success - proceeding with execution',
+              });
+            }
+            
+            executionDAGLogger.addStep(correlationId, 'verification-success', {
+              signature: executionSignature,
+            });
+            await executionDAGLogger.finalize(correlationId, true, {
+              signature: executionSignature,
+              executedAt: new Date().toISOString(),
+            });
+            
+            enhancedLogger.info('✅ Execution verified on-chain', {
+              vaultAddress,
+              proposalId,
+              signature: executionSignature,
+              correlationId,
+            });
+            
+            // Success - return with verification
+            return {
+              success: true,
+              signature: executionSignature,
+              method: executionMethod,
+              executedAt: new Date().toISOString(),
+              correlationId,
+            };
+          } catch (verificationError: unknown) {
+            const errorMsg = verificationError instanceof Error ? verificationError.message : String(verificationError);
+            enhancedLogger.warn('⚠️ Could not verify execution on-chain (but signature was returned)', {
+              vaultAddress,
+              proposalId,
+              signature: executionSignature,
+              error: errorMsg,
+              correlationId,
+              note: 'Execution may have succeeded - signature was returned by SDK',
+            });
+            
+            // Still return success if we got a signature - the SDK wouldn't return one if it failed
+            executionDAGLogger.addStep(correlationId, 'verification-warning', {
+              signature: executionSignature,
+              warning: 'Could not verify on-chain but signature was returned',
+            }, errorMsg);
+            
+            await executionDAGLogger.finalize(correlationId, true, {
+              signature: executionSignature,
+              executedAt: new Date().toISOString(),
+              warning: 'Verification failed but signature returned',
+            });
+            
+            return {
+              success: true,
+              signature: executionSignature,
+              method: executionMethod,
+              executedAt: new Date().toISOString(),
+              correlationId,
+            };
+          }
+        } catch (sdkError: any) {
+          // CRITICAL: Extract error code for InstructionFallbackNotFound (0x65/101)
+          const errorCode = sdkError?.code || sdkError?.errorCode || 
+                           (sdkError?.message?.includes('0x65') ? 101 : null) ||
+                           (sdkError?.message?.includes('101') ? 101 : null);
+          
+          // Check if this is the InstructionFallbackNotFound error
+          const isInstructionFallbackNotFound = errorCode === 101 || 
+                                                errorCode === 0x65 ||
+                                                sdkError?.message?.includes('InstructionFallbackNotFound') ||
+                                                sdkError?.message?.includes('0x65') ||
+                                                sdkError?.message?.includes('101');
+          
+          // Derive PDAs for comprehensive error logging
+          const [transactionPda] = getTransactionPda({
+            multisigPda: multisigAddress,
+            index: BigInt(transactionIndexNumber),
+            programId: this.programId,
+          });
+          
+          const [proposalPda] = getProposalPda({
+            multisigPda: multisigAddress,
+            transactionIndex: BigInt(transactionIndexNumber),
+            programId: this.programId,
+          });
+          
+          // CRITICAL: Comprehensive error logging for 0x65/101 errors
+          if (isInstructionFallbackNotFound) {
+            enhancedLogger.error('❌ CRITICAL: InstructionFallbackNotFound (0x65/101) - SDK execution failed', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
-              correlationId,
-            });
-          }
-          
-          // CRITICAL VALIDATION: Check proposal status on-chain
-          let proposalAccount: any = null;
-          try {
-            proposalAccount = await accounts.Proposal.fromAccountAddress(
-              this.connection,
-              proposalPda,
-              'confirmed'
-            );
-            
-            const proposalStatus = (proposalAccount.status as any)?.__kind;
-            const approvedSigners = proposalAccount.approved || [];
-            const threshold = proposalAccount.threshold;
-            
-            enhancedLogger.info('📋 On-chain Proposal Status Check', {
-              vaultAddress,
-              proposalId,
+              multisigPda: multisigAddress.toString(),
+              transactionPda: transactionPda.toString(),
               proposalPda: proposalPda.toString(),
-              proposalStatus,
-              approvedSignersCount: approvedSigners.length,
-              threshold,
-              approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
+              errorCode: errorCode || 'unknown',
+              errorMessage: sdkError?.message || String(sdkError),
+              errorStack: sdkError?.stack,
+              errorType: typeof sdkError,
+              errorKeys: sdkError ? Object.keys(sdkError) : [],
               correlationId,
+              note: 'This error means the EXECUTE instruction is malformed. Manual construction is NOT safe. Only SDK method should be used.',
             });
             
-            // Validate proposal is in ExecuteReady or Approved state
-            if (proposalStatus !== 'ExecuteReady' && proposalStatus !== 'Approved') {
-              const error = `Proposal is not in ExecuteReady or Approved state: ${proposalStatus}`;
-              enhancedLogger.error('❌ Proposal not ready for execution - aborting', {
+            // Try to fetch on-chain state for diagnosis
+            try {
+              const proposalAccount = await accounts.Proposal.fromAccountAddress(
+                this.connection,
+                proposalPda,
+                'confirmed'
+              );
+              
+              const proposalStatus = (proposalAccount.status as any)?.__kind;
+              const approvedSigners = proposalAccount.approved || [];
+              const threshold = proposalAccount.threshold;
+              
+              enhancedLogger.error('🔍 On-chain Proposal State at Failure', {
                 vaultAddress,
                 proposalId,
+                proposalPda: proposalPda.toString(),
                 proposalStatus,
                 approvedSignersCount: approvedSigners.length,
                 threshold,
+                approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
                 correlationId,
               });
-              throw new Error(error);
-            }
-            
-            // Validate we have enough signers
-            if (approvedSigners.length < threshold) {
-              const error = `Insufficient signers: ${approvedSigners.length}/${threshold}`;
-              enhancedLogger.error('❌ Insufficient signers for execution - aborting', {
-                vaultAddress,
-                proposalId,
-                approvedSignersCount: approvedSigners.length,
-                threshold,
-                correlationId,
-              });
-              throw new Error(error);
-            }
-            
-            enhancedLogger.info('✅ Proposal validation passed - ready for execution', {
-              vaultAddress,
-              proposalId,
-              proposalStatus,
-              approvedSignersCount: approvedSigners.length,
-              threshold,
-              correlationId,
-            });
-          } catch (proposalFetchError: unknown) {
-            enhancedLogger.warn('⚠️ Could not fetch on-chain Proposal account for validation', {
-              vaultAddress,
-              proposalId,
-              proposalPda: proposalPda.toString(),
-              error: proposalFetchError instanceof Error ? proposalFetchError.message : String(proposalFetchError),
-              correlationId,
-              note: 'Continuing with execution - validation will occur during simulation',
-            });
-          }
-          
-          enhancedLogger.info('✅ Fetched VaultTransaction account', {
-            vaultAddress,
-            proposalId,
-            transactionPda: transactionPda.toString(),
-            hasMessage: !!vaultTxAccount.message,
-            messageAccountKeysCount: (vaultTxAccount.message as any)?.accountKeys?.length || 0,
-            correlationId,
-          });
-          
-          // CRITICAL: Log vaultTx message details for debugging
-          if (vaultTxAccount.message) {
-            const messageBytes = (vaultTxAccount.message as any).serialize?.() || 
-                                 (vaultTxAccount.message as any).toBytes?.() ||
-                                 null;
-            enhancedLogger.info('📦 VaultTransaction Message Details', {
-              vaultAddress,
-              proposalId,
-              transactionPda: transactionPda.toString(),
-              hasAccountKeys: !!(vaultTxAccount.message as any).accountKeys,
-              accountKeysCount: (vaultTxAccount.message as any).accountKeys?.length || 0,
-              messageBytesLength: messageBytes ? messageBytes.length : null,
-              messageBytesHex: messageBytes ? messageBytes.toString('hex').substring(0, 200) + '...' : null,
-              correlationId,
-              note: 'Message details logged for debugging - redact sensitive info in production',
-            });
-          }
-          
-          // Extract remaining accounts from the message
-          if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
-            const accountKeys = (vaultTxAccount.message as any).accountKeys;
-            
-            // CRITICAL: Ordering matters - must match message.accountKeys[] order exactly
-            remainingAccounts = accountKeys.map((key: any, index: number) => {
-              let pubkey: PublicKey | null = null;
               
-              // Extract pubkey
-              if (key instanceof PublicKey) {
-                pubkey = key;
-              } else if (key?.pubkey) {
-                pubkey = key.pubkey instanceof PublicKey ? key.pubkey : new PublicKey(key.pubkey);
-              } else if (typeof key === 'string') {
-                pubkey = new PublicKey(key);
-              } else if (key && typeof key === 'object') {
-                // Handle AccountMeta-like objects
-                if (key.pubkey) {
-                  pubkey = key.pubkey instanceof PublicKey ? key.pubkey : new PublicKey(key.pubkey);
-                }
-              }
-              
-              if (!pubkey) {
-                return null;
-              }
-              
-              // CRITICAL FIX: Extract isWritable from the message - preserve actual flags
-              const isWritable = key?.isWritable !== undefined ? key.isWritable : 
-                                (key?.writable !== undefined ? key.writable : true);
-              
-              // CRITICAL FIX: Preserve isSigner from message if available, but default to false for safety
-              // In typical Squads flows, inner instruction signers should be the multisig PDA (so isSigner=false)
-              // However, if the message explicitly marks an account as signer, we should preserve that
-              const isSigner = key?.isSigner !== undefined ? key.isSigner : 
-                              (key?.signer !== undefined ? key.signer : false);
-              
-              // Safety check: If message says signer=true, log a warning as this is unusual for multisig
-              if (isSigner) {
-                enhancedLogger.warn('⚠️ VaultTransaction message marks account as signer - unusual for multisig', {
+              // Check if ExecuteReady state is required
+              if (proposalStatus !== 'ExecuteReady') {
+                enhancedLogger.error('❌ Proposal is NOT in ExecuteReady state - execution cannot proceed', {
                   vaultAddress,
                   proposalId,
-                  accountPubkey: pubkey.toString(),
-                  accountIndex: index,
-                  isWritable,
-                  isSigner,
+                  proposalStatus,
+                  requiredStatus: 'ExecuteReady',
                   correlationId,
-                  note: 'This account is marked as signer in the message - ensure executor can provide signature',
+                  note: 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
                 });
               }
-              
-              return {
-                pubkey,
-                isWritable,
-                isSigner,
-              };
-            }).filter((meta: any): meta is { pubkey: PublicKey; isWritable: boolean; isSigner: boolean } => meta !== null);
-            
-            enhancedLogger.info('📋 Extracted remaining accounts from vault transaction (with preserved meta flags)', {
-              vaultAddress,
-              proposalId,
-              transactionPda: transactionPda.toString(),
-              remainingAccountsCount: remainingAccounts.length,
-              remainingAccounts: remainingAccounts.map(a => ({
-                pubkey: a.pubkey.toString(),
-                isWritable: a.isWritable,
-                isSigner: a.isSigner,
-              })),
-              signerAccountsCount: remainingAccounts.filter(a => a.isSigner).length,
-              writableAccountsCount: remainingAccounts.filter(a => a.isWritable).length,
-              correlationId,
-            });
-          } else {
-            enhancedLogger.warn('⚠️ VaultTransaction message has no accountKeys - execution may fail', {
-              vaultAddress,
-              proposalId,
-              transactionPda: transactionPda.toString(),
-              hasMessage: !!vaultTxAccount.message,
-              correlationId,
-            });
-          }
-        } catch (txFetchError: unknown) {
-          enhancedLogger.error('❌ Failed to fetch or validate VaultTransaction account', {
-            vaultAddress,
-            proposalId,
-            transactionPda: transactionPda.toString(),
-            error: txFetchError instanceof Error ? txFetchError.message : String(txFetchError),
-            errorStack: txFetchError instanceof Error ? txFetchError.stack : undefined,
-            correlationId,
-            note: 'Cannot proceed without VaultTransaction account',
-          });
-          throw new Error(`Failed to fetch VaultTransaction account: ${txFetchError instanceof Error ? txFetchError.message : String(txFetchError)}`);
-        }
-        
-        // CRITICAL FIX: Build instruction manually with known discriminator
-        // The SDK's instructions.vaultTransactionExecute has bugs, so we'll use manual construction
-        // The discriminator for vaultTransactionExecute is the first 8 bytes of SHA-256("global:vault_transaction_execute")
-        // Known value: [0x2a, 0xbf, 0x8f, 0x72, 0x3d, 0x13, 0x4f, 0x93]
-        const instructionDiscriminator = Buffer.from([0x2a, 0xbf, 0x8f, 0x72, 0x3d, 0x13, 0x4f, 0x93]);
-        let executionIx: TransactionInstruction;
-        
-        // CRITICAL: Build instruction data correctly: [discriminator (8 bytes), transaction_index (u64, little-endian)]
-        // This matches the SDK's expected format: discriminator || serialized(transactionIndex)
-        const transactionIndexBuffer = Buffer.allocUnsafe(8);
-        transactionIndexBuffer.writeBigUInt64LE(BigInt(transactionIndexNumber), 0);
-        const instructionData = Buffer.concat([instructionDiscriminator, transactionIndexBuffer]);
-        
-        enhancedLogger.info('📐 Instruction Data Construction', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          discriminatorHex: instructionDiscriminator.toString('hex'),
-          transactionIndexHex: transactionIndexBuffer.toString('hex'),
-          instructionDataHex: instructionData.toString('hex'),
-          instructionDataLength: instructionData.length,
-          correlationId,
-          note: 'Instruction data format: [8-byte discriminator][8-byte u64 transactionIndex (little-endian)]',
-        });
-        
-        // Build instruction accounts
-        // Per Squads v4: [multisig, transaction, proposal, member]
-        const instructionAccounts = [
-          {
-            pubkey: multisigAddress,
-            isSigner: false,
-            isWritable: false,
-          },
-          {
-            pubkey: transactionPda,
-            isSigner: false,
-            isWritable: false,
-          },
-          {
-            pubkey: proposalPda,
-            isSigner: false,
-            isWritable: true,
-          },
-          {
-            pubkey: executor.publicKey,
-            isSigner: true,
-            isWritable: false,
-          },
-        ];
-        
-        executionIx = new TransactionInstruction({
-          programId: this.programId,
-          keys: instructionAccounts,
-          data: instructionData,
-        });
-        
-        // CRITICAL: Add remaining accounts to the instruction
-        if (remainingAccounts.length > 0) {
-          remainingAccounts.forEach((accountMeta) => {
-            executionIx.keys.push({
-              pubkey: accountMeta.pubkey,
-              isWritable: accountMeta.isWritable,
-              isSigner: accountMeta.isSigner,
-            });
-          });
-          
-          enhancedLogger.info('✅ Added remaining accounts to execution instruction', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            remainingAccountsCount: remainingAccounts.length,
-            totalInstructionKeys: executionIx.keys.length,
-            correlationId,
-          });
-        } else {
-          enhancedLogger.warn('⚠️ No remaining accounts to add - execution may fail if accounts are required', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            correlationId,
-          });
-        }
-        
-        enhancedLogger.info('✅ Manually constructed execution instruction', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          discriminator: instructionDiscriminator.toString('hex'),
-          instructionKeysCount: executionIx.keys.length,
-          instructionDataLength: instructionData.length,
-          correlationId,
-        });
-
-        enhancedLogger.info('✅ Execution instruction created with remaining accounts', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          remainingAccountsCount: remainingAccounts.length,
-          totalInstructionKeys: executionIx.keys.length,
-          correlationId,
-        });
-        
-        // Get latest blockhash
-        const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
-
-        // Build transaction message
-        // CRITICAL: In Squads v4, the SDK's instructions.vaultTransactionExecute should automatically
-        // fetch the vault transaction and include all remaining accounts in the instruction's keys
-        // If it doesn't, the simulation will fail and show us what's missing
-        const message = new TransactionMessage({
-          payerKey: executor.publicKey,
-          recentBlockhash: blockhash,
-          instructions: [executionIx],
-        });
-          
-        // Compile to V0 message (required for Squads)
-        const compiledMessage = message.compileToV0Message();
-        const transaction = new VersionedTransaction(compiledMessage);
-        
-        // Note: If remaining accounts are missing, the simulation below will catch it
-        // and provide detailed error logs showing exactly which accounts are needed
-
-        // Sign the transaction
-        transaction.sign([executor]);
-                
-        // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
-        const serializedSize = transaction.serialize().length;
-        const maxTransactionSize = 1232; // Solana transaction size limit
-        
-        enhancedLogger.info('📏 Transaction Size Validation', {
-              vaultAddress,
-              proposalId,
-          transactionIndex: transactionIndexNumber,
-          serializedSize,
-          maxSize: maxTransactionSize,
-          sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
-              correlationId,
-        });
-        
-        if (serializedSize > maxTransactionSize) {
-          const error = `Transaction size ${serializedSize} bytes exceeds Solana limit of ${maxTransactionSize} bytes`;
-          enhancedLogger.error('❌ Transaction too large - cannot send', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            serializedSize,
-            maxSize: maxTransactionSize,
-            excessBytes: serializedSize - maxTransactionSize,
-            correlationId,
-            note: 'Transaction must be split or instructions reduced to fit within size limit',
-          });
-          
-          return {
-            success: false,
-            error,
-            correlationId,
-          };
-        }
-        
-        if (serializedSize > maxTransactionSize * 0.9) {
-          enhancedLogger.warn('⚠️ Transaction size is close to limit', {
+            } catch (fetchError: unknown) {
+              enhancedLogger.warn('⚠️ Could not fetch Proposal account for diagnosis', {
                 vaultAddress,
                 proposalId,
-            transactionIndex: transactionIndexNumber,
-            serializedSize,
-            maxSize: maxTransactionSize,
-            remainingBytes: maxTransactionSize - serializedSize,
+                error: fetchError instanceof Error ? fetchError.message : String(fetchError),
                 correlationId,
-            note: 'Transaction is large but within limits - monitor for future growth',
               });
-            } else {
-          enhancedLogger.info('✅ Transaction size is well within limits', {
-                vaultAddress,
-                proposalId,
-            transactionIndex: transactionIndexNumber,
-            serializedSize,
-            maxSize: maxTransactionSize,
-            remainingBytes: maxTransactionSize - serializedSize,
-                correlationId,
-          });
-        }
-
-        // CRITICAL: Simulate transaction before sending with dual-RPC (expert recommendation)
-        // This catches errors before wasting fees and provides better error messages
-        // Dual-RPC simulation reduces false negatives from RPC lag
-        const simulationStartTime = Date.now();
-        logExecutionStep(correlationId, 'simulate-start', execStartTime);
-        
-        let simulationLogs: string[] = [];
-        let simulationError: any = null;
-        let primarySimSuccess = false;
-        let secondarySimSuccess = false;
-        
-        try {
-          // Primary RPC simulation
-          const primarySimulation = await this.connection.simulateTransaction(transaction, {
-            replaceRecentBlockhash: true,
-            sigVerify: false,
-          });
-          
-          primarySimSuccess = !primarySimulation.value.err;
-          simulationLogs = primarySimulation.value.logs || [];
-          
-          logExecutionStep(correlationId, 'simulate-primary-complete', simulationStartTime, {
-            err: primarySimulation.value.err,
-            unitsConsumed: primarySimulation.value.unitsConsumed,
-            logCount: simulationLogs.length,
-          });
-          
-          // Secondary RPC simulation (expert recommendation: dual-RPC)
-          let secondarySimulation: any = null;
-          try {
-            const { createRPCConnections } = require('../utils/rpcFailover');
-            const { fallback } = createRPCConnections();
-            
-            secondarySimulation = await fallback.simulateTransaction(transaction, {
-              replaceRecentBlockhash: true,
-              sigVerify: false,
-            });
-            
-            secondarySimSuccess = !secondarySimulation.value.err;
-            
-            // Merge logs from both simulations
-            if (secondarySimulation.value.logs) {
-              const secondaryLogs = secondarySimulation.value.logs || [];
-              // Combine unique logs
-              const allLogs = [...simulationLogs, ...secondaryLogs];
-              simulationLogs = Array.from(new Set(allLogs));
             }
-            
-            logExecutionStep(correlationId, 'simulate-secondary-complete', simulationStartTime, {
-              err: secondarySimulation.value.err,
-              unitsConsumed: secondarySimulation.value.unitsConsumed,
-              logCount: secondarySimulation.value.logs?.length || 0,
-            });
-            
-            enhancedLogger.info('✅ Dual-RPC simulation completed', {
-              vaultAddress,
-              proposalId,
-              primarySuccess: primarySimSuccess,
-              secondarySuccess: secondarySimSuccess,
-              correlationId,
-            });
-          } catch (secondarySimError: any) {
-            enhancedLogger.warn('⚠️ Secondary RPC simulation failed (non-blocking)', {
-              vaultAddress,
-              proposalId,
-              error: secondarySimError?.message || String(secondarySimError),
-              correlationId,
-              note: 'Continuing with primary RPC simulation result',
-            });
-          }
-          
-          // If both simulations fail, abort execution
-          if (!primarySimSuccess && !secondarySimSuccess) {
-            simulationError = primarySimulation.value.err || secondarySimulation?.value?.err;
-          } else if (primarySimSuccess || secondarySimSuccess) {
-            // At least one simulation succeeded - proceed with execution
-            enhancedLogger.info('✅ At least one RPC simulation succeeded - proceeding with execution', {
-              vaultAddress,
-              proposalId,
-              primarySuccess: primarySimSuccess,
-              secondarySuccess: secondarySimSuccess,
-              correlationId,
-            });
-          }
-
-          if (simulationError) {
-            const simError = JSON.stringify(simulation.value.err);
-            
-            // CRITICAL DIAGNOSIS: Extract detailed error information
-            const errorDetails: any = {
-              rawError: simulation.value.err,
-              errorString: simError,
-              errorType: typeof simulation.value.err,
-            };
-            
-            // Check for common Squads v4 validation errors
-            const logs = simulation.value.logs || [];
-            const errorLogs = logs.filter((log: string) => 
-              log.includes('vault transaction not in ExecuteReady') ||
-              log.includes('invalid remaining accounts') ||
-              log.includes('missing signer index') ||
-              log.includes('constraint violation') ||
-              log.includes('AnchorError') ||
-              log.includes('Program log: Error:') ||
-              log.includes('Program log: AnchorError')
-            );
-            
-            // CRITICAL: Always log ALL simulation logs to diagnose the issue
-            enhancedLogger.error('❌ IMMEDIATE EXECUTION: fallback simulation failed', {
+          } else {
+            enhancedLogger.error('❌ SDK rpc.vaultTransactionExecute failed with non-0x65 error', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
-              transactionPda: transactionPda.toString(),
-              multisigPda: multisigAddress.toString(),
-              error: simError,
-              errorDetails,
-              allLogs: logs,
-              allLogsCount: logs.length,
-              errorLogs,
-              errorLogsCount: errorLogs.length,
-              computeUnitsConsumed: simulation.value.unitsConsumed,
+              error: sdkError?.message || String(sdkError),
+              errorStack: sdkError?.stack,
+              errorCode,
               correlationId,
-              note: 'Execution aborted - simulation shows transaction would fail on-chain. Check allLogs for specific validation failures.',
+              note: 'This is NOT InstructionFallbackNotFound - investigate the actual error',
             });
-            
-            // CRITICAL: Log ALL logs, not just filtered ones, to see what's actually happening
-            if (logs.length > 0) {
-              enhancedLogger.error('🔍 FULL SIMULATION LOGS - All program logs from failed simulation', {
-                vaultAddress,
-                proposalId,
-                transactionPda: transactionPda.toString(),
-                allLogs: logs,
-                logsCount: logs.length,
-                correlationId,
-                note: 'These are ALL logs from the simulation. Look for "Program log:" entries to see what the Squads program is saying.',
-              });
-            }
-            
-            // Log specific validation error patterns
-            if (errorLogs.length > 0) {
-              enhancedLogger.error('🔍 VALIDATION ERROR DETECTED - This is why proposal cannot transition to ExecuteReady', {
-                vaultAddress,
-                proposalId,
-                transactionPda: transactionPda.toString(),
-                validationErrors: errorLogs,
-                correlationId,
-                note: 'These errors indicate why the validation stage fails. Fix these to allow ExecuteReady transition.',
-              });
-            } else {
-              // If no filtered errors, log that we need to check allLogs
-              enhancedLogger.error('⚠️ No filtered validation errors found - check allLogs above for actual error messages', {
-                vaultAddress,
-                proposalId,
-                transactionPda: transactionPda.toString(),
-                allLogsCount: logs.length,
-                correlationId,
-                note: 'The simulation failed but no known error patterns were found. Check allLogs for program-specific error messages.',
-              });
-            }
-            
-            return {
-              success: false,
-              error: `Simulation failed on both RPCs: ${simError}`,
-              logs: simulationLogs,
-              errorLogs: errorLogs,
-              correlationId,
-              simulationDetails: {
-                primarySuccess: primarySimSuccess,
-                secondarySuccess: secondarySimSuccess,
-                allLogs: simulationLogs,
-              },
-            };
           }
-
-          enhancedLogger.info('✅ Simulation passed - transaction will succeed', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            computeUnitsConsumed: primarySimulation.value.unitsConsumed,
-            logCount: simulationLogs.length,
-            lastLogs: simulationLogs.slice(-5),
-            primarySuccess: primarySimSuccess,
-            secondarySuccess: secondarySimSuccess,
-            correlationId,
-            note: 'Proceeding with execution - simulation confirms transaction will succeed',
-          });
-        } catch (simulationError: unknown) {
-          const simErrorMsg = simulationError instanceof Error ? simulationError.message : String(simulationError);
-          enhancedLogger.warn('⚠️ Simulation failed (continuing with execution anyway)', {
-                vaultAddress,
-                proposalId,
-            transactionIndex: transactionIndexNumber,
-            error: simErrorMsg,
-            correlationId,
-            note: 'Simulation error may be transient - proceeding with execution attempt',
-          });
-          // Continue with execution - simulation errors can be transient
-        }
-            
-        // Send and confirm the transaction
-        executionSignature = await this.connection.sendRawTransaction(transaction.serialize(), {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
-        
-        // Keep executionMethod as 'manual-construction-fallback' (don't overwrite)
-        executionDAGLogger.addStep(correlationId, 'execution-instructions-success', {
-          signature: executionSignature,
-          method: executionMethod,
-        }, undefined, Date.now() - execStartTime);
-            
-        enhancedLogger.info('✅ IMMEDIATE EXECUTION: fallback manual attempt - sent txSig: ' + executionSignature, {
-          vaultAddress,
-          proposalId,
-          signature: executionSignature,
-          executor: executor.publicKey.toString(),
-          executionMethod,
-          correlationId,
-        });
-
-      // CRITICAL VERIFICATION: Confirm execution succeeded on-chain using dual-RPC verification (expert recommendation)
-      executionDAGLogger.addStep(correlationId, 'verification-started', {
-        signature: executionSignature,
-      });
-      
-      try {
-        await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2s for confirmation
-        
-        // Verify on primary RPC
-        const txDetails = await this.connection.getTransaction(executionSignature, {
-          commitment: 'confirmed',
-          maxSupportedTransactionVersion: 0,
-        });
-        
-        executionDAGLogger.addRPCResponse(correlationId, {
-          rpc: 'primary',
-          signature: executionSignature,
-          success: !txDetails?.meta?.err,
-          error: txDetails?.meta?.err,
-          logs: txDetails?.meta?.logMessages?.slice(-10),
-        });
-
-        if (txDetails?.meta?.err) {
-          const error = `Transaction failed on-chain: ${JSON.stringify(txDetails.meta.err)}`;
-          executionDAGLogger.addError(correlationId, error);
-          executionDAGLogger.addStep(correlationId, 'verification-failed', {
-            signature: executionSignature,
-            error: txDetails.meta.err,
-          }, error);
           
-          enhancedLogger.error('❌ Execution transaction failed on-chain', {
-                vaultAddress,
-                proposalId,
-            signature: executionSignature,
-            error: txDetails.meta.err,
-            logs: txDetails.meta.logMessages?.slice(-10),
-            correlationId,
-          });
-          
-          await executionDAGLogger.finalize(correlationId, false, { error });
-          
+          // DO NOT fall back to manual construction - it is unsafe
+          // Return error immediately
           return {
             success: false,
-            error,
-            signature: executionSignature,
+            error: `SDK execution failed: ${sdkError?.message || String(sdkError)}`,
             correlationId,
+            errorCode: errorCode || undefined,
+            isInstructionFallbackNotFound,
           };
-          }
-        
-        // CRITICAL: Verify on fallback RPC (expert recommendation - reduces account-state lag by ~70%)
-        const { primary, fallback } = createRPCConnections();
-        try {
-          const fallbackTxDetails = await fallback.getTransaction(executionSignature, {
-            commitment: 'confirmed',
-            maxSupportedTransactionVersion: 0,
-          });
-          
-          executionDAGLogger.addRPCResponse(correlationId, {
-            rpc: 'fallback',
-            signature: executionSignature,
-            success: !fallbackTxDetails?.meta?.err,
-            error: fallbackTxDetails?.meta?.err,
-            logs: fallbackTxDetails?.meta?.logMessages?.slice(-10),
-          });
-          
-          if (fallbackTxDetails?.meta?.err) {
-            enhancedLogger.warn('⚠️ Fallback RPC shows transaction error (primary RPC shows success)', {
-              vaultAddress,
-              proposalId,
-              signature: executionSignature,
-              primaryError: txDetails?.meta?.err,
-              fallbackError: fallbackTxDetails.meta.err,
-              correlationId,
-              note: 'Primary RPC shows success - proceeding with execution',
-            });
-          } else {
-            enhancedLogger.info('✅ Both RPCs confirm execution success', {
-              vaultAddress,
-              proposalId,
-              signature: executionSignature,
-              correlationId,
-            });
-          }
-        } catch (fallbackError: any) {
-          enhancedLogger.warn('⚠️ Fallback RPC verification failed (primary RPC shows success)', {
-            vaultAddress,
-            proposalId,
-            signature: executionSignature,
-            fallbackError: fallbackError?.message,
-            correlationId,
-            note: 'Primary RPC shows success - proceeding with execution',
-          });
         }
-
-        // Verify vault balance decreased (funds were transferred)
-        if (derivedVaultPda) {
-          const postExecutionBalance = await this.connection.getBalance(derivedVaultPda, 'confirmed');
-          const postExecutionBalanceSOL = postExecutionBalance / LAMPORTS_PER_SOL;
-          
-          enhancedLogger.info('✅ Execution verified on-chain', {
-              vaultAddress,
-              proposalId,
-            signature: executionSignature,
-            postExecutionBalanceSOL,
-            transactionError: txDetails?.meta?.err || null,
-            correlationId,
-          });
-        }
-        
-        enhancedLogger.info('✅ Proposal executed and verified successfully', {
-          vaultAddress,
-          proposalId,
-          signature: executionSignature,
-          executor: executor.publicKey.toString(),
-          correlationId,
-        });
-
-        // CRITICAL: Finalize execution DAG with success state (expert recommendation)
-        executionDAGLogger.addStep(correlationId, 'execution-completed', {
-          signature: executionSignature,
-          method: executionMethod,
-          postExecutionBalance: derivedVaultPda ? (await this.connection.getBalance(derivedVaultPda, 'confirmed') / LAMPORTS_PER_SOL) : undefined,
-        }, undefined, Date.now() - execStartTime);
-        
-        await executionDAGLogger.finalize(correlationId, true, {
-          signature: executionSignature,
-          executedAt: new Date().toISOString(),
-          method: executionMethod,
-        });
-
-        return {
-          success: true,
-          signature: executionSignature,
-          executedAt: new Date().toISOString(),
-          correlationId,
-          logs: simulationLogs, // Include simulation logs for auditing
-        };
-      } catch (verificationError: unknown) {
-        const errorMsg = verificationError instanceof Error ? verificationError.message : String(verificationError);
-        enhancedLogger.warn('⚠️ Could not verify execution on-chain (but signature was returned)', {
-            vaultAddress,
-            proposalId,
-          signature: executionSignature,
-          error: errorMsg,
-          correlationId,
-          note: 'Execution may have succeeded - signature was returned by SDK',
-        });
-        
-        // Still return success if we got a signature - the SDK wouldn't return one if it failed
-        executionDAGLogger.addStep(correlationId, 'verification-warning', {
-          signature: executionSignature,
-          warning: 'Could not verify on-chain but signature was returned',
-        }, errorMsg);
-        
-        await executionDAGLogger.finalize(correlationId, true, {
-          signature: executionSignature,
-          executedAt: new Date().toISOString(),
-          warning: 'Verification failed but signature returned',
-        });
-        
-        return {
-          success: true,
-          signature: executionSignature,
-          executedAt: new Date().toISOString(),
-          correlationId,
-          logs: simulationLogs, // Include simulation logs for auditing
-        };
-      }
     } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
