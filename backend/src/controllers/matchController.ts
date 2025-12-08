@@ -12467,12 +12467,32 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         // CRITICAL FIX: If transactionIndex mismatch, use the proposal account's transactionIndex
         // The proposal account is the source of truth - it was created with a specific transactionIndex
         if (!txIndexMatches && proposalTxIndex !== undefined && proposalTxIndex !== null) {
-          console.warn('⚠️ TransactionIndex mismatch detected - using proposal account transactionIndex', {
+          // 🚨 ALERT: TransactionIndex mismatch detected - this indicates a cache corruption or derivation bug
+          // This should be monitored and investigated if it occurs frequently
+          console.error('🚨 ALERT: TransactionIndex mismatch detected - cache/derivation bug', {
+            event: 'TRANSACTION_INDEX_MISMATCH',
             matchId,
+            multisigPda: multisigAddress.toString(),
+            proposalPda: proposalPda.toString(),
             cachedTransactionIndex: expectedTxIndex,
             proposalTransactionIndex: proposalTxIndex,
-            note: 'Proposal account is source of truth - updating transactionIndex to match proposal',
+            cacheKey,
+            cacheWasUsed: !!cached,
+            note: 'Proposal account is source of truth - correcting transactionIndex and invalidating cache',
+            severity: 'HIGH',
+            action: 'AUTO_CORRECTED',
           });
+          
+          // 🔧 CRITICAL: Invalidate the corrupted cache entry BEFORE updating
+          // This ensures we don't use stale/wrong data in the future
+          if (proposalDiscoveryCache.has(cacheKey)) {
+            proposalDiscoveryCache.delete(cacheKey);
+            console.log('🗑️ Invalidated corrupted cache entry', {
+              matchId,
+              cacheKey,
+              reason: 'transactionIndex mismatch',
+            });
+          }
           
           // Update transactionIndex to match the proposal account
           transactionIndex = BigInt(proposalTxIndex);
@@ -12527,11 +12547,17 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
                   remainingAccountsCount: remainingAccounts.length,
                 });
                 
-                // Update cache with correct transactionIndex
+                // Update cache with correct transactionIndex (after invalidation)
                 proposalDiscoveryCache.set(cacheKey, {
                   transactionIndex,
                   proposalPda: proposalPda.toString(),
                   timestamp: Date.now(),
+                });
+                
+                console.log('✅ Cache updated with corrected transactionIndex', {
+                  matchId,
+                  cacheKey,
+                  transactionIndex: transactionIndex.toString(),
                 });
                 
                 // Continue with approval instruction building - don't mark as fatal
