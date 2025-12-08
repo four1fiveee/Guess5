@@ -1260,7 +1260,22 @@ const Result: React.FC = () => {
             getTxError = new Error(errorData.message || errorData.error || 'Proposal not ready yet');
             continue; // Retry
           } else {
-            // Non-retryable error or final retry failed
+            // CRITICAL: If this is a retryable error but we've exhausted retries, don't throw
+            // Instead, show a user-friendly message and continue polling - the proposal will appear eventually
+            if (isRetryable) {
+              console.warn(`⚠️ Proposal still being created after ${maxGetTxRetries} attempts - will continue polling`, {
+                matchId,
+                error: errorData.error || errorData.message,
+                note: 'Backend is still creating the proposal. Frontend will continue polling until it appears.',
+              });
+              
+              // Don't throw - just show a message and let polling continue
+              setError(`Proposal is still being created on-chain. Please wait a few seconds and try again. (This can take up to 30 seconds)`);
+              setSigningProposal(false);
+              return; // Exit gracefully, polling will continue
+            }
+            
+            // Non-retryable error - throw it
             throw new Error(errorData.message || errorData.error || 'Failed to get approval transaction');
           }
         } catch (fetchError: any) {
