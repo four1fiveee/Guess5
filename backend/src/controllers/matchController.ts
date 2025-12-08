@@ -12402,19 +12402,29 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         // If we can't even fetch the proposal, it might not exist - check creation time
       }
       
-      // FATAL CHECK #3: Check how long ago proposal was created
-      // If proposal was created > 30 seconds ago and VaultTransaction still missing, it's likely fatal
-      const proposalCreatedAt = matchRow.proposalCreatedAt;
-      if (proposalCreatedAt) {
-        const ageSeconds = (Date.now() - new Date(proposalCreatedAt).getTime()) / 1000;
-        proposalDiagnostics.proposalAgeSeconds = ageSeconds;
-        
-        if (ageSeconds > 30) {
-          // Proposal is old but VaultTransaction still missing - likely fatal
-          isFatal = true;
-          fatalReason = `Proposal was created ${Math.round(ageSeconds)} seconds ago but VaultTransaction still missing. This exceeds normal propagation delays (5-10s) and indicates a creation failure.`;
+        // FATAL CHECK #3: Check how long ago proposal was created
+        // If proposal was created > 60 seconds ago and VaultTransaction still missing, it's likely fatal
+        // Increased from 30s to 60s to account for slower RPC propagation and network delays
+        const proposalCreatedAt = matchRow.proposalCreatedAt;
+        if (proposalCreatedAt) {
+          const ageSeconds = (Date.now() - new Date(proposalCreatedAt).getTime()) / 1000;
+          proposalDiagnostics.proposalAgeSeconds = ageSeconds;
+          
+          // Only mark as fatal if proposal is > 60 seconds old AND still Active (not transitioning)
+          // AND we've confirmed the proposal creation transaction succeeded
+          if (ageSeconds > 60 && proposalDiagnostics.proposalStatus?.__kind === 'Active') {
+            // Additional check: only fatal if creation tx succeeded (meaning it should have created VaultTransaction)
+            if (proposalDiagnostics.creationTxSucceeded === true) {
+              isFatal = true;
+              fatalReason = `Proposal was created ${Math.round(ageSeconds)} seconds ago, creation transaction succeeded, but VaultTransaction still missing. This exceeds normal propagation delays (5-15s) and indicates a creation failure.`;
+            } else if (proposalDiagnostics.creationTxSucceeded === false || proposalDiagnostics.creationTxNotFound === true) {
+              // If creation tx failed or not found, it's definitely fatal
+              isFatal = true;
+              fatalReason = `Proposal was created ${Math.round(ageSeconds)} seconds ago but creation transaction failed or not found. VaultTransaction will never be created.`;
+            }
+            // If we couldn't check creation tx status, don't mark as fatal based on age alone
+          }
         }
-      }
       
       // FATAL CHECK #4: Check if proposal creation transaction succeeded
       const proposalCreationTx = matchRow.proposalTransactionId;

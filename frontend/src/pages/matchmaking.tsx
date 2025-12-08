@@ -1244,6 +1244,8 @@ const Matchmaking: React.FC = () => {
         matchId: urlMatchId,
         player1: router.query.player1 as string,
         player2: router.query.player2 as string,
+        player1Username: null, // Will be fetched immediately
+        player2Username: null, // Will be fetched immediately
         entryFee: entryFeeAmount,
         status: 'payment_required',
         player1Paid: false,
@@ -1265,6 +1267,39 @@ const Matchmaking: React.FC = () => {
       setStatus('payment_required');
       setEntryFee(entryFeeAmount);
       localStorage.setItem('entryFeeSOL', entryFeeAmount.toString());
+      
+      // CRITICAL FIX: Immediately fetch full match data to get usernames and payment status
+      // This prevents blank payment screen for 10-15 seconds
+      (async () => {
+        try {
+          const fullMatchData = await getMatchStatus(urlMatchId);
+          if (fullMatchData) {
+            const updatedMatchData = {
+              ...initialMatchData,
+              ...fullMatchData,
+              player1Username: fullMatchData.player1Username || null,
+              player2Username: fullMatchData.player2Username || null,
+              player1Paid: fullMatchData.player1Paid || false,
+              player2Paid: fullMatchData.player2Paid || false,
+              squadsVaultAddress: fullMatchData.squadsVaultAddress || fullMatchData.vaultAddress || null,
+              vaultAddress: fullMatchData.vaultAddress || fullMatchData.squadsVaultAddress || null,
+              squadsVaultPda: fullMatchData.squadsVaultPda || fullMatchData.vaultPda || null,
+              vaultPda: fullMatchData.vaultPda || fullMatchData.squadsVaultPda || null,
+              status: fullMatchData.status || 'payment_required',
+            };
+            setMatchData(updatedMatchData);
+            matchDataRef.current = updatedMatchData;
+            
+            // Update status if it changed
+            if (fullMatchData.status && fullMatchData.status !== 'payment_required') {
+              setStatus(fullMatchData.status as any);
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error fetching initial match data:', error);
+          // Continue with initial data - polling will update it
+        }
+      })();
       
       // Start polling for status updates
       if (!isPolling) {
@@ -1462,12 +1497,21 @@ const Matchmaking: React.FC = () => {
                       <div className="flex items-center gap-3 flex-1">
                         <div className="text-white/60 text-sm font-medium min-w-[80px]">Player 1</div>
                         <div className="flex-1">
-                          <div className="text-white font-medium text-sm">
-                            {matchData?.player1Username ? `@${matchData.player1Username}` : abbreviateAddress(matchData?.player1)}
-                          </div>
-                          <div className="text-white/50 text-xs font-mono">
-                            {abbreviateAddress(matchData?.player1)}
-                          </div>
+                          {matchData?.player1 ? (
+                            <>
+                              <div className="text-white font-medium text-sm">
+                                {matchData?.player1Username ? `@${matchData.player1Username}` : abbreviateAddress(matchData?.player1)}
+                              </div>
+                              <div className="text-white/50 text-xs font-mono">
+                                {abbreviateAddress(matchData?.player1)}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-400"></div>
+                              <div className="text-white/50 text-xs">Loading...</div>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
@@ -1486,12 +1530,21 @@ const Matchmaking: React.FC = () => {
                       <div className="flex items-center gap-3 flex-1">
                         <div className="text-white/60 text-sm font-medium min-w-[80px]">Player 2</div>
                         <div className="flex-1">
-                          <div className="text-white font-medium text-sm">
-                            {matchData?.player2Username ? `@${matchData.player2Username}` : abbreviateAddress(matchData?.player2)}
-                          </div>
-                          <div className="text-white/50 text-xs font-mono">
-                            {abbreviateAddress(matchData?.player2)}
-                          </div>
+                          {matchData?.player2 ? (
+                            <>
+                              <div className="text-white font-medium text-sm">
+                                {matchData?.player2Username ? `@${matchData.player2Username}` : abbreviateAddress(matchData?.player2)}
+                              </div>
+                              <div className="text-white/50 text-xs font-mono">
+                                {abbreviateAddress(matchData?.player2)}
+                              </div>
+                            </>
+                          ) : (
+                            <div className="flex items-center gap-2">
+                              <div className="animate-spin rounded-full h-3 w-3 border-b-2 border-yellow-400"></div>
+                              <div className="text-white/50 text-xs">Loading...</div>
+                            </div>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
