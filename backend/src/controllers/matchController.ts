@@ -12597,6 +12597,23 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
           ? 'The proposal is still being created on-chain. Please wait a few seconds and try again.'
           : 'The proposal is not ready for signing yet. This may be due to a temporary synchronization issue. Please wait a moment and try again.';
         
+        // CRITICAL: Log detailed diagnostics for debugging
+        console.log('⚠️ RETRYABLE ERROR: VaultTransaction missing but proposal exists', {
+          matchId,
+          transactionPda: transactionPda?.toString(),
+          transactionIndex: transactionIndex?.toString(),
+          proposalPda: proposalPda?.toString(),
+          multisigPda: multisigAddress?.toString(),
+          proposalStatus: proposalDiagnostics.proposalStatus,
+          proposalAgeSeconds: proposalDiagnostics.proposalAgeSeconds,
+          proposalTransactionIndex: proposalDiagnostics.proposalTransactionIndex,
+          expectedTransactionIndex: proposalDiagnostics.expectedTransactionIndex,
+          transactionIndexMatch: proposalDiagnostics.transactionIndexMatch,
+          proposalHasInstructions: proposalDiagnostics.proposalHasInstructions,
+          creationTxSucceeded: proposalDiagnostics.creationTxSucceeded,
+          note: 'This is a retryable error - VaultTransaction will appear after propagation delay. Frontend should retry.',
+        });
+        
         sendResponse(500, {
           error: 'Proposal not ready for signing',
           message: userFriendlyMessage,
