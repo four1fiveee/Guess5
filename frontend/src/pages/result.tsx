@@ -1183,11 +1183,60 @@ const Result: React.FC = () => {
       });
       
       // Step 1: Get the transaction from backend (using latest proposal ID)
-      const getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${matchId}&wallet=${publicKey.toString()}`);
+      // CRITICAL: Add retry logic for "proposal not ready" errors (VaultTransaction missing)
+      const maxGetTxRetries = 3;
+      let getTxResponse: Response | null = null;
+      let getTxError: Error | null = null;
       
-      if (!getTxResponse.ok) {
-        const errorData = await getTxResponse.json();
-        throw new Error(errorData.error || 'Failed to get approval transaction');
+      for (let retry = 0; retry < maxGetTxRetries; retry++) {
+        try {
+          if (retry > 0) {
+            const delay = Math.min(2000 * retry, 5000); // 2s, 4s, 5s delays
+            console.log(`🔄 Retrying get-proposal-approval-transaction (attempt ${retry + 1}/${maxGetTxRetries}) after ${delay}ms...`, {
+              matchId,
+              wallet: publicKey.toString(),
+            });
+            await new Promise(resolve => setTimeout(resolve, delay));
+          }
+          
+          getTxResponse = await fetch(`${apiUrl}/api/match/get-proposal-approval-transaction?matchId=${matchId}&wallet=${publicKey.toString()}`);
+          
+          if (getTxResponse.ok) {
+            break; // Success - exit retry loop
+          }
+          
+          const errorData = await getTxResponse.json();
+          
+          // Check if this is a retryable error (proposal not ready)
+          const isRetryable = errorData.retryable === true || 
+                              errorData.error?.includes('not ready') ||
+                              errorData.error?.includes('VaultTransaction') ||
+                              errorData.message?.includes('still being created');
+          
+          if (isRetryable && retry < maxGetTxRetries - 1) {
+            console.warn(`⚠️ Proposal not ready yet (attempt ${retry + 1}/${maxGetTxRetries}), will retry...`, {
+              matchId,
+              error: errorData.error || errorData.message,
+              retryable: errorData.retryable,
+            });
+            getTxError = new Error(errorData.message || errorData.error || 'Proposal not ready yet');
+            continue; // Retry
+          } else {
+            // Non-retryable error or final retry failed
+            throw new Error(errorData.message || errorData.error || 'Failed to get approval transaction');
+          }
+        } catch (fetchError: any) {
+          if (retry === maxGetTxRetries - 1) {
+            // Final retry failed
+            throw fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+          }
+          getTxError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
+          // Continue to next retry
+        }
+      }
+      
+      if (!getTxResponse || !getTxResponse.ok) {
+        throw getTxError || new Error('Failed to get approval transaction after retries');
       }
       
       const txData = await getTxResponse.json();
