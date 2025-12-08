@@ -2274,13 +2274,33 @@ const Result: React.FC = () => {
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
                               {payoutData.proposalId && 
                                !playerProposalSigners.includes(publicKey?.toString() || '') && (
-                                <button
-                                  onClick={handleSignProposal}
-                                  disabled={signingProposal || playerProposalSigners.includes(publicKey?.toString() || '')}
-                                  className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 text-black font-bold py-2 px-6 rounded-lg transition-colors"
-                                >
-                                  {signingProposal ? 'Signing...' : playerProposalSigners.includes(publicKey?.toString() || '') ? '✓ Signed - Processing...' : 'Sign Refund Proposal'}
-                                </button>
+                                (() => {
+                                  // CRITICAL: Disable button if proposal creation failed or has retryable error
+                                  const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
+                                  const hasRetryableError = error && (
+                                    error.includes('still being created') ||
+                                    error.includes('not ready') ||
+                                    error.includes('VaultTransaction')
+                                  );
+                                  const isButtonDisabled = signingProposal || 
+                                                           playerProposalSigners.includes(publicKey?.toString() || '') ||
+                                                           isProposalCreationFailed ||
+                                                           hasRetryableError;
+                                  
+                                  return (
+                                    <button
+                                      onClick={handleSignProposal}
+                                      disabled={isButtonDisabled}
+                                      className="bg-accent hover:bg-yellow-600 disabled:bg-gray-600 disabled:cursor-not-allowed text-black font-bold py-2 px-6 rounded-lg transition-colors"
+                                    >
+                                      {signingProposal ? 'Signing...' : 
+                                       playerProposalSigners.includes(publicKey?.toString() || '') ? '✓ Signed - Processing...' : 
+                                       isProposalCreationFailed ? 'Match Failed to Initialize' :
+                                       hasRetryableError ? 'Proposal Not Ready Yet' :
+                                       'Sign Refund Proposal'}
+                                    </button>
+                                  );
+                                })()}
                               )}
                             </div>
                           )}
@@ -2558,8 +2578,20 @@ const Result: React.FC = () => {
                                   return null;
                                 }
 
-                                // CRITICAL FIX: Disable button if user has signed OR if currently signing
-                                const isButtonDisabled = signingProposal || userHasSigned;
+                                // CRITICAL FIX: Disable button if:
+                                // 1. User has signed OR currently signing
+                                // 2. Proposal creation failed (VAULT_TX_CREATION_FAILED)
+                                // 3. There's a retryable error indicating proposal isn't ready
+                                const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
+                                const hasRetryableError = error && (
+                                  error.includes('still being created') ||
+                                  error.includes('not ready') ||
+                                  error.includes('VaultTransaction')
+                                );
+                                const isButtonDisabled = signingProposal || 
+                                                         userHasSigned || 
+                                                         isProposalCreationFailed ||
+                                                         hasRetryableError;
                                 
                                 return (
                                   <button
