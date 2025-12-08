@@ -769,7 +769,9 @@ const Matchmaking: React.FC = () => {
         setStatus('waiting_for_game');
       } else if (currentPlayerPaidAfterPayment) {
         console.log('⏳ Current player paid, waiting for opponent to pay...');
-        setStatus('waiting_for_payment');
+        // CRITICAL FIX: Keep player on payment screen instead of switching to waiting_for_payment
+        // This provides better UX - they can see the payment status table
+        setStatus('payment_required');
       } else {
         console.log('⏳ Current player has not paid yet...');
         setStatus('payment_required');
@@ -1065,14 +1067,15 @@ const Matchmaking: React.FC = () => {
               }
               
               if (normalizedStatus === 'waiting_for_payment' && currentPlayerPaid) {
-                // If current player paid but status is still waiting_for_payment, check if both paid
+                // CRITICAL FIX: Keep player on payment screen instead of switching to waiting_for_payment
+                // This provides better UX - they can see the payment status table
                 if (bothPaid) {
                   // Both paid but status hasn't updated yet - wait a moment then redirect
                   console.log('✅ Both players paid, waiting for status to update...');
                   setStatus('waiting_for_game');
                   // Give backend 2 seconds to update status, then redirect
                   setTimeout(() => {
-                    if (statusRef.current === 'waiting_for_game' || statusRef.current === 'waiting_for_payment') {
+                    if (statusRef.current === 'waiting_for_game' || statusRef.current === 'payment_required') {
                       console.log('⏰ Status not updated, redirecting to game anyway...');
                       localStorage.setItem('matchId', currentMatchData.matchId);
                       if (data.word) {
@@ -1086,7 +1089,8 @@ const Matchmaking: React.FC = () => {
                     }
                   }, 2000);
                 } else {
-                  setStatus('waiting_for_payment');
+                  // Keep on payment screen to show status
+                  setStatus('payment_required');
                 }
               } else if (normalizedStatus === 'payment_required' && !currentPlayerPaid) {
                 setStatus('payment_required');
@@ -1578,14 +1582,14 @@ const Matchmaking: React.FC = () => {
                   </div>
                 </div>
                 
-                {/* Entry Fee Display */}
-                <div className="bg-secondary bg-opacity-20 rounded-lg p-4 mb-4 border border-accent/20">
-                  <div className="text-white/60 text-xs uppercase tracking-wide mb-2">Entry Fee</div>
-                  <div className="flex items-baseline gap-2">
-                    <div className="text-accent text-xl font-bold">
+                {/* Entry Fee Display - Centered and improved formatting */}
+                <div className="bg-secondary bg-opacity-20 rounded-lg p-5 mb-4 border border-accent/20">
+                  <div className="text-white/60 text-xs uppercase tracking-wide mb-3 text-center">Entry Fee</div>
+                  <div className="flex flex-col items-center justify-center gap-1">
+                    <div className="text-accent text-2xl font-bold text-center">
                       {roundedUSD ? `$${roundedUSD} USD` : (solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD` : '—')}
                     </div>
-                    <div className="text-white/70 text-sm">
+                    <div className="text-white/70 text-sm text-center">
                       ({entryFee} SOL)
                     </div>
                   </div>
@@ -1649,26 +1653,6 @@ const Matchmaking: React.FC = () => {
             );
           })()}
 
-          {status === 'waiting_for_payment' && matchData && (
-            <div className="animate-fade-in">
-              <div className="flex items-center justify-center mb-4">
-                <div className="animate-pulse w-3 h-3 bg-accent rounded-full mr-3"></div>
-                <h2 className="text-2xl font-bold text-accent">Waiting for Opponent</h2>
-              </div>
-              {(() => {
-                // Determine which player the current user is
-                const isPlayer1 = currentWallet === matchData.player1;
-                const opponentUsername = isPlayer1 ? matchData.player2Username : matchData.player1Username;
-                return opponentUsername && (
-                  <p className="text-white/70 text-sm mb-4 text-center">Waiting for @{opponentUsername} to pay their entry fee</p>
-                );
-              })()}
-              <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
-                <div className="text-green-400 text-sm font-medium mb-1">✓ Your payment confirmed</div>
-                <p className="text-white/70 text-sm">Waiting for your opponent to pay their entry fee</p>
-              </div>
-            </div>
-          )}
 
           {status === 'waiting_for_game' && (
             <div className="animate-fade-in">
@@ -1721,16 +1705,16 @@ const Matchmaking: React.FC = () => {
           
           {status === 'active' && countdown === 0 && (
             <div className="animate-fade-in flex flex-col items-center justify-center min-h-[500px] w-full">
-              <div className="text-center space-y-6">
+              <div className="text-center space-y-8">
                 <div className="relative">
-                  <h2 className="text-7xl font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] animate-pulse">
+                  <h2 className="text-8xl font-black text-accent drop-shadow-[0_0_40px_rgba(255,215,0,0.8)] animate-pulse">
                     GO!
                   </h2>
-                  <div className="absolute inset-0 text-7xl font-black text-accent/30 blur-xl animate-pulse">
+                  <div className="absolute inset-0 text-8xl font-black text-accent/20 blur-2xl animate-pulse">
                     GO!
                   </div>
                 </div>
-                <p className="text-white/90 text-xl font-semibold">Starting game...</p>
+                <p className="text-white/90 text-2xl font-bold">Starting game...</p>
               </div>
             </div>
           )}
