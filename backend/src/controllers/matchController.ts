@@ -13173,8 +13173,6 @@ module.exports = {
   checkPendingClaimsHandler,
   voidMatchHandler,
 };
-            });
-            confirmation = {
               value: { err: null },
               context: { slot: txStatus.value.slot || 0 },
             };
