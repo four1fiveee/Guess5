@@ -1184,17 +1184,21 @@ const Result: React.FC = () => {
       
       // Step 1: Get the transaction from backend (using latest proposal ID)
       // CRITICAL: Add retry logic for "proposal not ready" errors (VaultTransaction missing)
-      const maxGetTxRetries = 3;
+      // Backend atomic proposal creation can take up to 30 seconds (12 attempts × 2.5s)
+      // Frontend should retry for at least that long to match backend wait time
+      const maxGetTxRetries = 15; // Increased from 3 to 15 to match backend's 30s wait
       let getTxResponse: Response | null = null;
       let getTxError: Error | null = null;
       
       for (let retry = 0; retry < maxGetTxRetries; retry++) {
         try {
           if (retry > 0) {
-            const delay = Math.min(2000 * retry, 5000); // 2s, 4s, 5s delays
+            // Exponential backoff: 2s, 2.5s, 2.5s, 2.5s... (matches backend retry delay)
+            const delay = retry === 1 ? 2000 : 2500;
             console.log(`🔄 Retrying get-proposal-approval-transaction (attempt ${retry + 1}/${maxGetTxRetries}) after ${delay}ms...`, {
               matchId,
               wallet: publicKey.toString(),
+              note: 'Backend atomic proposal creation can take up to 30s - continuing to retry',
             });
             await new Promise(resolve => setTimeout(resolve, delay));
           }
