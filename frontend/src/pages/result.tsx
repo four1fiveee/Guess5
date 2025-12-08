@@ -518,6 +518,22 @@ const Result: React.FC = () => {
                 note: 'This ensures both players see consistent progress percentages'
               });
             }
+            // CRITICAL: Check for irrecoverable proposal creation failure
+            if (updatedPayoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED' || 
+                matchData.proposalStatus === 'VAULT_TX_CREATION_FAILED') {
+              console.error('❌ FATAL: Match failed to initialize - VaultTransaction creation failed', {
+                matchId,
+                proposalStatus: updatedPayoutData.proposalStatus || matchData.proposalStatus,
+                note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
+              });
+              
+              setError('Match failed to initialize: This match could not be set up properly. Please try creating a new match or contact support if this issue persists. (Code: VAULT_TX_NOT_CREATED)');
+              setIsPolling(false);
+              stopRefreshLoops();
+              setLoading(false);
+              return;
+            }
+            
             // CRITICAL: Always stop loading even if proposal doesn't exist yet
             // This prevents the spinning wheel from blocking the UI
             // CRITICAL FIX: Continue polling until proposal is executed or user has signed
