@@ -12398,6 +12398,17 @@ const signProposalHandler = async (req: any, res: any) => {
     headersSet: true,
   });
   
+  // ✅ Step 1: Add top-level logging BEFORE parsing the body
+  console.log('🔥 SIGN_PROPOSAL: request received', {
+    matchId: req.params?.matchId || req.query?.matchId || 'unknown',
+    wallet: req.query?.wallet || 'unknown',
+    rawBodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'unknown'),
+    contentType: req.headers['content-type'],
+    method: req.method,
+    url: req.url,
+    time: Date.now(),
+  });
+
   try {
     // CRITICAL: Support both raw bytes (application/octet-stream) and JSON formats
     // Raw bytes format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
@@ -12443,6 +12454,16 @@ const signProposalHandler = async (req: any, res: any) => {
       return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
       }
     }
+    
+    // ✅ Step 2: Add explicit logging when signed tx arrives
+    console.log('🔥 SIGN_PROPOSAL: received signed transaction', {
+      matchId,
+      wallet,
+      txBase64: typeof signedTransaction === 'string' ? (signedTransaction.slice(0, 60) + '...') : `Buffer(${Buffer.isBuffer(signedTransaction) ? signedTransaction.length : 'unknown'} bytes)`,
+      isRawBytes,
+      signedTransactionType: typeof signedTransaction,
+      signedTransactionLength: Buffer.isBuffer(signedTransaction) ? signedTransaction.length : (typeof signedTransaction === 'string' ? signedTransaction.length : 'unknown'),
+    });
     
     // NOTE: Vault transactions do NOT require approval in Squads v4
     // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
@@ -12780,78 +12801,314 @@ const signProposalHandler = async (req: any, res: any) => {
       throw new Error(`Failed to deserialize transaction: ${deserializeError?.message || String(deserializeError)}`);
     }
     
-    // CRITICAL: Send BOTH proposal AND vault transaction approvals (expert recommendation)
-    let signature;
+    // ✅ Step 3: BROADCAST immediately after receiving tx (before verification)
+    // CRITICAL: Broadcast the signed transaction IMMEDIATELY - don't wait for anything
+    const serializedTx = transaction.serialize();
+    console.log('🔥 SIGN_PROPOSAL: Broadcasting signed transaction to Solana...', {
+      matchId,
+      wallet,
+      transactionSize: serializedTx.length,
+      note: 'Broadcasting immediately - verification will happen in background',
+    });
     
+    let signature: string;
     try {
-      const serializedTx = transaction.serialize();
-      console.log('📤 Sending signed proposal transaction to network...');
-      
-      // First try with preflight (simulation)
+      // Try with preflight first
       try {
         signature = await connection.sendRawTransaction(serializedTx, {
-      skipPreflight: false,
-      maxRetries: 3,
-    });
-        console.log('✅ Proposal transaction sent, signature:', signature);
+          skipPreflight: false,
+          maxRetries: 3,
+        });
+        console.log('🔥 SIGN_PROPOSAL: broadcast success (with preflight)', {
+          matchId,
+          wallet,
+          signature,
+          note: 'Transaction broadcasted successfully',
+        });
       } catch (preflightError: any) {
-        // If preflight fails, try to get simulation logs
-        console.warn('⚠️ Preflight simulation failed, attempting to get simulation logs...');
-        try {
-          const simulationResult = await connection.simulateTransaction(transaction, {
-            replaceRecentBlockhash: true,
-            sigVerify: false,
-          });
-          console.error('❌ Simulation details:', {
-            err: simulationResult.value.err,
-            logs: simulationResult.value.logs,
-            accounts: simulationResult.value.accounts,
-          });
-        } catch (simError: any) {
-          console.warn('⚠️ Could not get simulation details:', simError?.message);
-        }
-        
-        // For old transactions, try skipping preflight (blockhash might be stale)
-        console.log('🔄 Retrying with skipPreflight=true (blockhash may be stale)...');
+        // If preflight fails, try without preflight (blockhash might be stale)
+        console.warn('⚠️ Preflight failed, retrying without preflight...', {
+          matchId,
+          wallet,
+          error: preflightError?.message,
+        });
         signature = await connection.sendRawTransaction(serializedTx, {
           skipPreflight: true,
           maxRetries: 3,
         });
-        console.log('✅ Transaction sent (preflight skipped), signature:', signature);
+        console.log('🔥 SIGN_PROPOSAL: broadcast success (skipPreflight=true)', {
+          matchId,
+          wallet,
+          signature,
+          note: 'Transaction broadcasted successfully (preflight skipped)',
+        });
       }
     } catch (sendError: any) {
-      console.error('❌ Failed to send transaction:', {
+      console.error('❌ SIGN_PROPOSAL: broadcast failed', {
+        matchId,
+        wallet,
         error: sendError?.message,
         stack: sendError?.stack,
         errorCode: sendError?.code,
         errorName: sendError?.name,
         logs: sendError?.logs,
+        note: 'CRITICAL: Transaction was NOT broadcasted to Solana',
       });
-      
-      // Try to extract more details from the error
-      let errorMessage = sendError?.message || String(sendError);
-      if (sendError?.logs && Array.isArray(sendError.logs)) {
-        errorMessage += ` | Logs: ${sendError.logs.slice(-5).join('; ')}`;
-      }
-      if (sendError?.err) {
-        errorMessage += ` | Error: ${JSON.stringify(sendError.err)}`;
-      }
-      
-      throw new Error(`Failed to send transaction: ${errorMessage}`);
+      return res.status(400).json({
+        error: 'Broadcast failed',
+        details: sendError?.message || String(sendError),
+        matchId,
+        wallet,
+      });
     }
     
-    // NOTE: Vault transactions do NOT require approval in Squads v4
-    // Only Proposals require signatures. VaultTransaction automatically becomes ExecuteReady
-    // when the linked Proposal reaches ExecuteReady.
-
-    // Wait for confirmation with timeout
-    let confirmation;
-    let approvalSkippedDueToReady = false;
-    try {
-      console.log('⏳ Waiting for proposal transaction confirmation...');
-      
-      // Add timeout to prevent hanging
-      const confirmationPromise = connection.confirmTransaction(signature, 'confirmed');
+    // ✅ Step 4: Return immediately with "VERIFYING_ON_CHAIN" + broadcast signature
+    console.log('🔥 SIGN_PROPOSAL: Returning response immediately with broadcast signature', {
+      matchId,
+      wallet,
+      signature,
+      note: 'Response sent - verification will happen in background',
+    });
+    
+    res.json({
+      success: true,
+      status: 'VERIFYING_ON_CHAIN',
+      message: 'Transaction broadcasted. Verifying signature on-chain...',
+      broadcastSignature: signature,
+      signature, // Keep for backward compatibility
+      proposalId: proposalIdString,
+      needsSignatures: matchRow.needsSignatures,
+      proposalStatus: matchRow.proposalStatus || 'ACTIVE',
+      proposalSigners: normalizeProposalSigners(matchRow.proposalSigners),
+      verifying: true,
+    });
+    
+    // ✅ Step 5: Run verification in setImmediate (after response is sent)
+    // This ensures verification runs 100% reliably after the request completes
+    setImmediate(() => {
+      (async () => {
+        try {
+          console.log('🚀 BACKGROUND_VERIFICATION: Starting verification after broadcast', {
+            event: 'BACKGROUND_VERIFICATION_STARTED',
+            matchId,
+            wallet,
+            proposalId: proposalIdString,
+            broadcastSignature: signature,
+            note: 'Verification running in background after response sent',
+          });
+          
+          // Wait for transaction confirmation first
+          try {
+            console.log('⏳ Waiting for transaction confirmation...', { matchId, signature });
+            await connection.confirmTransaction(signature, 'confirmed');
+            console.log('✅ Transaction confirmed on-chain', { matchId, signature });
+          } catch (confirmError: any) {
+            console.warn('⚠️ Transaction confirmation failed (may still succeed)', {
+              matchId,
+              signature,
+              error: confirmError?.message,
+            });
+            // Continue with verification anyway - transaction might still succeed
+          }
+          
+          // Now verify the signature is on the proposal
+          // Get transactionIndex from proposal
+          let transactionIndex = 0;
+          try {
+            const proposalStatus = await squadsVaultService.checkProposalStatus(
+              matchRow.squadsVaultAddress,
+              proposalIdString
+            );
+            if (proposalStatus && proposalStatus.transactionIndex !== undefined) {
+              transactionIndex = Number(proposalStatus.transactionIndex);
+            }
+          } catch (e) {
+            console.warn('⚠️ Could not get transactionIndex from proposal', {
+              matchId,
+              proposalId: proposalIdString,
+              error: e?.message,
+            });
+          }
+          
+          console.log('🔍 VERIFICATION_STARTED: Verifying player signature on-chain (background task)...', {
+            event: 'VERIFICATION_STARTED',
+            matchId,
+            wallet,
+            proposalId: proposalIdString,
+            transactionSignature: signature,
+            transactionIndex,
+            note: 'Database will NOT be updated until signature is confirmed on-chain',
+          });
+          
+          // Use dual-RPC verification with exponential backoff
+          const verificationResult = await verifySignatureOnChain({
+            txSig: signature,
+            vaultAddress: matchRow.squadsVaultAddress,
+            proposalId: proposalIdString,
+            transactionIndex,
+            signerPubkey: wallet,
+            options: {
+              attempts: 10,
+              initialDelayMs: 3000,
+              delayMs: 3000,
+              exponentialBackoffAfter: 6,
+              correlationId: matchId,
+            },
+          });
+          
+          // Emit metric for observability
+          console.log('📊 METRIC: signature_verification_attempts', {
+            event: 'METRIC',
+            metric: 'signature_verification_attempts',
+            matchId,
+            result: verificationResult.ok ? 'success' : 'failed',
+            attempts: verificationResult.attempt || 0,
+            primaryRpcSeen: verificationResult.primaryRpcSeen || false,
+            secondaryRpcSeen: verificationResult.secondaryRpcSeen || false,
+            txConfirmed: verificationResult.txConfirmed || false,
+          });
+          
+          if (!verificationResult.ok) {
+            console.error('❌ VERIFICATION_FAILED: Player signature not found on-chain after all attempts', {
+              event: 'VERIFICATION_FAILED',
+              matchId,
+              wallet,
+              proposalId: proposalIdString,
+              transactionSignature: signature,
+              reason: verificationResult.reason || 'timeout',
+              attempts: verificationResult.attempt || 0,
+              primaryRpcSeen: verificationResult.primaryRpcSeen || false,
+              secondaryRpcSeen: verificationResult.secondaryRpcSeen || false,
+              vaultTxSignersPrimary: verificationResult.vaultTxSignersPrimary || [],
+              vaultTxSignersSecondary: verificationResult.vaultTxSignersSecondary || [],
+              txConfirmed: verificationResult.txConfirmed || false,
+              note: 'Transaction was broadcasted but signature is not on-chain. Marking DB as ERROR.',
+            });
+            
+            // Mark DB as ERROR if signature never appears
+            try {
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED',
+                    "updatedAt" = NOW()
+                WHERE id = $1
+              `, [matchId]);
+              
+              console.error('❌ VERIFICATION_FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
+                matchId,
+                wallet,
+                proposalId: proposalIdString,
+                transactionSignature: signature,
+                note: 'Database will NOT be updated with signer. Execution will NOT be triggered.',
+              });
+            } catch (dbError: any) {
+              console.error('❌ CRITICAL: Failed to mark DB as ERROR', {
+                matchId,
+                error: dbError?.message,
+              });
+            }
+            return; // Exit background task
+          }
+          
+          // Verification succeeded - update database and trigger execution
+          const onChainSigners = verificationResult.vaultTxSignersPrimary || verificationResult.vaultTxSignersSecondary || [];
+          
+          console.log('✅ VERIFICATION_CONFIRMED: Signature verified on-chain', {
+            event: 'VERIFICATION_CONFIRMED',
+            matchId,
+            wallet,
+            proposalId: proposalIdString,
+            attempt: verificationResult.attempt || 0,
+            onChainSigners,
+            primaryRpcSeen: verificationResult.primaryRpcSeen || false,
+            secondaryRpcSeen: verificationResult.secondaryRpcSeen || false,
+            txConfirmed: verificationResult.txConfirmed || false,
+            note: 'Signature confirmed - will now update database',
+          });
+          
+          // Update database with verified signature
+          const currentSigners = normalizeProposalSigners(matchRow.proposalSigners);
+          if (!currentSigners.includes(wallet)) {
+            const uniqueSigners = [...currentSigners, wallet];
+            const newNeedsSignatures = Math.max(0, (matchRow.needsSignatures || 0) - 1);
+            const newProposalStatus = newNeedsSignatures === 0 ? 'READY_TO_EXECUTE' : (matchRow.proposalStatus || 'ACTIVE');
+            
+            try {
+              await matchRepository.query(`
+                UPDATE "match"
+                SET "proposalSigners" = $1,
+                    "needsSignatures" = $2,
+                    "proposalStatus" = $3,
+                    "proposalTransactionId" = $4,
+                    "updatedAt" = NOW()
+                WHERE id = $5
+              `, [
+                JSON.stringify(uniqueSigners),
+                newNeedsSignatures,
+                newProposalStatus,
+                signature,
+                matchId,
+              ]);
+              
+              console.log('✅ SIGNATURE_VERIFIED: Database updated with signer', {
+                matchId,
+                wallet,
+                proposalId: proposalIdString,
+                needsSignatures: newNeedsSignatures,
+                proposalStatus: newProposalStatus,
+                finalSigners: uniqueSigners,
+              });
+              
+              // Trigger immediate execution if threshold is met
+              if (newNeedsSignatures === 0) {
+                console.log('🚀 THRESHOLD_MET: Triggering immediate execution', {
+                  matchId,
+                  proposalId: proposalIdString,
+                  signers: uniqueSigners,
+                  note: 'All required signatures verified - executing proposal',
+                });
+                
+                // Trigger execution in background (don't await)
+                setImmediate(async () => {
+                  try {
+                    await squadsVaultService.executeProposalImmediately(
+                      matchRow.squadsVaultAddress,
+                      proposalIdString,
+                      matchId
+                    );
+                  } catch (execError: any) {
+                    console.error('❌ Immediate execution failed', {
+                      matchId,
+                      error: execError?.message,
+                      note: 'Reconciliation worker will retry',
+                    });
+                  }
+                });
+              }
+            } catch (dbError: any) {
+              console.error('❌ Database update failed in background task', {
+                matchId,
+                wallet,
+                error: dbError?.message,
+                note: 'Transaction was confirmed on-chain. Frontend will poll for status updates.',
+              });
+            }
+          }
+        } catch (bgError: any) {
+          console.error('❌ Error in background verification task', {
+            matchId,
+            wallet,
+            proposalId: proposalIdString,
+            error: bgError?.message || String(bgError),
+            stack: bgError?.stack,
+            note: 'Response already sent to frontend. Frontend will poll for status updates.',
+          });
+        }
+      })();
+    });
+    
+    // Return early - verification happens in background
+    return;
       const timeoutPromise = new Promise((_, reject) => {
         setTimeout(() => reject(new Error('Transaction confirmation timeout after 30 seconds')), 30000);
       });
