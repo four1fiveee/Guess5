@@ -13111,17 +13111,68 @@ const signProposalHandler = async (req: any, res: any) => {
     return;
 
   } catch (error: unknown) {
-      
-      // If confirmation times out or fails, check transaction status directly
-      if (confirmError?.message?.includes('timeout') || confirmError?.message?.includes('Timeout')) {
-        console.log('⏳ Confirmation timed out, checking transaction status directly...');
-        try {
-          const txStatus = await connection.getSignatureStatus(signature, { searchTransactionHistory: true });
-          if (txStatus?.value && !txStatus.value.err) {
-            // Transaction succeeded!
-            console.log('✅ Transaction confirmed via direct status check:', {
-              signature,
-              slot: txStatus.value.slot,
+    console.error('❌ Error signing proposal:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('❌ Error details:', {
+      message: errorMessage,
+      stack: errorStack,
+      matchId: req.body?.matchId,
+      wallet: req.body?.wallet,
+      hasSignedTransaction: !!req.body?.signedTransaction,
+      signedTransactionLength: req.body?.signedTransaction?.length,
+    });
+    res.status(500).json({ error: 'Failed to sign proposal', details: errorMessage });
+  }
+};
+
+module.exports = {
+  requestMatchHandler,
+  submitResultHandler,
+  getMatchStatusHandler,
+  getProposalApprovalTransactionHandler,
+  signProposalHandler,
+  checkPlayerMatchHandler,
+  debugWaitingPlayersHandler,
+  debugMatchesHandler,
+  matchTestHandler,
+  testRepositoryHandler,
+  testDatabaseHandler,
+  cleanupSelfMatchesHandler,
+  confirmEscrowHandler,
+  submitGameGuessHandler,
+  getGameStateHandler,
+  executePaymentHandler,
+  createEscrowTransactionHandler,
+  cleanupStuckMatchesHandler,
+  simpleCleanupHandler,
+  forceCleanupForWallet,
+  confirmPaymentHandler,
+  memoryStatsHandler,
+  debugMatchmakingHandler,
+  cancelMatchHandler,
+  manualRefundHandler,
+  manualMatchHandler,
+  manualExecuteProposalHandler,
+  clearMatchmakingDataHandler,
+  forceProposalCreationHandler,
+  runMigrationHandler,
+  generateReportHandler,
+  verifyBlockchainDataHandler,
+  verifyProposalExecutionHandler,
+  checkProposalMismatchesHandler,
+  processAutomatedRefunds,
+  walletBalanceSSEHandler,
+  verifyPaymentTransaction,
+
+  // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
+  websocketStatsHandler,
+
+  // Multisig vault integration handlers
+  depositToMultisigVaultHandler,
+  checkPendingClaimsHandler,
+  voidMatchHandler,
+};
             });
             confirmation = {
               value: { err: null },
