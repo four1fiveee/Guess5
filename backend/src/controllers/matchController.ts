@@ -13109,23 +13109,8 @@ const signProposalHandler = async (req: any, res: any) => {
     
     // Return early - verification happens in background
     return;
-      const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('Transaction confirmation timeout after 30 seconds')), 30000);
-      });
-      
-      confirmation = await Promise.race([confirmationPromise, timeoutPromise]) as any;
-      console.log('✅ Transaction confirmed:', {
-        signature,
-        slot: confirmation.context.slot,
-        hasError: !!confirmation.value.err,
-      });
-    } catch (confirmError: any) {
-      const formattedError = formatError(confirmError);
-      console.error('❌ Failed to confirm transaction:', {
-        error: formattedError,
-        rawError: confirmError,
-        signature,
-      });
+
+  } catch (error: unknown) {
       
       // If confirmation times out or fails, check transaction status directly
       if (confirmError?.message?.includes('timeout') || confirmError?.message?.includes('Timeout')) {
