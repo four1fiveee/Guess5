@@ -39,6 +39,7 @@ const Matchmaking: React.FC = () => {
   const [elapsedTime, setElapsedTime] = useState<string>('0s');
   const [solPrice, setSolPrice] = useState<number | null>(null);
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
+  const [countdown, setCountdown] = useState<number | null>(null);
   const currentWallet = publicKey?.toString() || null;
 
   const cancellationContext = useMemo(() => {
@@ -211,6 +212,24 @@ const Matchmaking: React.FC = () => {
       setElapsedTime('0s');
     }
   }, [status, queueStartTime]);
+
+  // Countdown effect for match start
+  useEffect(() => {
+    if (countdown !== null && countdown > 0) {
+      const timer = setTimeout(() => {
+        setCountdown(countdown - 1);
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (countdown === 0 && status === 'active') {
+      // Countdown finished - redirect to game
+      const matchId = matchData?.matchId || matchDataRef.current?.matchId || router.query.matchId;
+      if (matchId) {
+        setTimeout(() => {
+          router.push(`/game?matchId=${matchId}`);
+        }, 500);
+      }
+    }
+  }, [countdown, status, router, matchData]);
 
   const handleCancelAndReturn = async () => {
     if (isCancelling) {
@@ -717,10 +736,10 @@ const Matchmaking: React.FC = () => {
 
       // If match is active, redirect to game immediately
       if (confirmData.status === 'active') {
-        console.log('✅ Match is active, redirecting to game...');
+        console.log('✅ Match is active, starting countdown...');
         setStatus('active');
         
-        // Store match data and redirect to game
+        // Store match data
         localStorage.setItem('matchId', matchDataToUse.matchId);
         if (confirmData.word) {
           localStorage.setItem('word', confirmData.word);
@@ -731,9 +750,9 @@ const Matchmaking: React.FC = () => {
         
         clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
-        setTimeout(() => {
-          router.push(`/game?matchId=${matchDataToUse.matchId}`);
-        }, 500);
+        
+        // Start countdown (3, 2, 1) before redirecting
+        setCountdown(3);
         return;
       }
 
@@ -938,7 +957,7 @@ const Matchmaking: React.FC = () => {
               if (normalizedStatus === 'active') {
                 setStatus('active');
                 
-                // Store match data and redirect to game
+                // Store match data
                 localStorage.setItem('matchId', currentMatchData.matchId);
                 if (data.word) {
                   localStorage.setItem('word', data.word);
@@ -947,13 +966,12 @@ const Matchmaking: React.FC = () => {
                   localStorage.setItem('entryFee', data.entryFee.toString());
                 }
                 
-                // Stop polling and redirect immediately
+                // Stop polling
                 clearInterval(pollInterval);
                 setIsPolling(false);
                 
-                setTimeout(() => {
-                  router.push(`/game?matchId=${currentMatchData.matchId}`);
-                }, 500);
+                // Start countdown (3, 2, 1) before redirecting
+                setCountdown(3);
                 return;
               }
 
@@ -1041,9 +1059,8 @@ const Matchmaking: React.FC = () => {
                 }
                 clearInterval(pollInterval);
                 setIsPolling(false);
-                setTimeout(() => {
-                  router.push(`/game?matchId=${currentMatchData.matchId}`);
-                }, 500);
+                // Start countdown instead of immediate redirect
+                setCountdown(3);
                 return;
               }
               
@@ -1064,7 +1081,8 @@ const Matchmaking: React.FC = () => {
                       if (data.entryFee) {
                         localStorage.setItem('entryFee', data.entryFee.toString());
                       }
-                      router.push(`/game?matchId=${currentMatchData.matchId}`);
+                      // Start countdown instead of immediate redirect
+                      setCountdown(3);
                     }
                   }, 2000);
                 } else {
@@ -1671,13 +1689,37 @@ const Matchmaking: React.FC = () => {
             </div>
           )}
 
-          {status === 'active' && (
-            <div className="animate-fade-in">
-              <div className="flex items-center justify-center mb-4">
-                <div className="animate-pulse w-3 h-3 bg-green-400 rounded-full mr-3"></div>
-                <h2 className="text-2xl font-bold text-green-400">Game Starting</h2>
+          {status === 'active' && countdown !== null && countdown > 0 && (
+            <div className="animate-fade-in flex flex-col items-center justify-center min-h-[400px]">
+              <div className="text-center mb-8">
+                <h2 className="text-3xl font-bold text-accent mb-4">Match Starting</h2>
+                <p className="text-white/70 text-lg mb-8">Get ready to play!</p>
               </div>
-              <p className="text-white/70 text-center">Redirecting to game...</p>
+              
+              {/* Countdown Number */}
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center justify-center">
+                  <div className="w-48 h-48 rounded-full bg-accent/20 animate-ping"></div>
+                </div>
+                <div className="relative flex items-center justify-center">
+                  <div className="w-48 h-48 rounded-full bg-secondary bg-opacity-30 border-4 border-accent flex items-center justify-center shadow-2xl">
+                    <span className="text-8xl font-bold text-accent animate-pulse">
+                      {countdown}
+                    </span>
+                  </div>
+                </div>
+              </div>
+              
+              <p className="text-white/60 text-sm mt-8">Match starts in {countdown}...</p>
+            </div>
+          )}
+          
+          {status === 'active' && countdown === 0 && (
+            <div className="animate-fade-in flex flex-col items-center justify-center min-h-[400px]">
+              <div className="text-center">
+                <h2 className="text-3xl font-bold text-accent mb-4 animate-pulse">Go!</h2>
+                <p className="text-white/70 text-lg">Starting game...</p>
+              </div>
             </div>
           )}
 
