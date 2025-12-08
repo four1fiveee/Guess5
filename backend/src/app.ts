@@ -56,7 +56,15 @@ app.use((req: any, res: any, next: any) => {
 });
 
 // Security middleware with reduced limits
-app.use(express.json({ limit: '1mb' })); // Reduced from 10mb
+// CRITICAL: Skip JSON parsing for application/octet-stream to allow raw body parsing
+app.use(express.json({ 
+  limit: '1mb',
+  type: (req: any) => {
+    // Only parse JSON content types, skip octet-stream
+    const contentType = req.headers['content-type'] || '';
+    return contentType.includes('application/json') && !contentType.includes('application/octet-stream');
+  }
+}));
 app.use(express.urlencoded({ extended: true, limit: '1mb' })); // Reduced from 10mb
 
 // Apply CORS with restricted origins

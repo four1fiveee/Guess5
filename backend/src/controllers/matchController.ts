@@ -12403,6 +12403,9 @@ const signProposalHandler = async (req: any, res: any) => {
     matchId: req.params?.matchId || req.query?.matchId || 'unknown',
     wallet: req.query?.wallet || 'unknown',
     rawBodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'unknown'),
+    bodyType: typeof req.body,
+    isBuffer: Buffer.isBuffer(req.body),
+    bodyKeys: req.body && typeof req.body === 'object' ? Object.keys(req.body) : 'not an object',
     contentType: req.headers['content-type'],
     method: req.method,
     url: req.url,
@@ -12419,7 +12422,11 @@ const signProposalHandler = async (req: any, res: any) => {
     let isRawBytes = false;
     
     // Check if body is raw bytes (Buffer) or JSON
-    if (Buffer.isBuffer(req.body) && req.body.length > 0) {
+    // CRITICAL: Check for Buffer first, but also handle case where body might be empty object from JSON parser
+    const contentType = req.headers['content-type'] || '';
+    const isOctetStream = contentType.includes('application/octet-stream');
+    
+    if (isOctetStream && Buffer.isBuffer(req.body) && req.body.length > 0) {
       // Raw bytes format - extract params from query string
       isRawBytes = true;
       matchId = req.query.matchId as string;
@@ -12436,12 +12443,28 @@ const signProposalHandler = async (req: any, res: any) => {
       if (!matchId || !wallet) {
         return res.status(400).json({ error: 'Missing required query parameters: matchId, wallet' });
       }
+    } else if (isOctetStream && (!req.body || (typeof req.body === 'object' && Object.keys(req.body).length === 0))) {
+      // CRITICAL: Body is empty but content-type is octet-stream - raw parser didn't work
+      console.error('❌ SIGN_PROPOSAL: Body is empty but content-type is application/octet-stream', {
+        matchId: req.query.matchId,
+        wallet: req.query.wallet,
+        bodyType: typeof req.body,
+        isBuffer: Buffer.isBuffer(req.body),
+        bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 'not a buffer',
+        contentType: req.headers['content-type'],
+        note: 'Raw body parser may not be working correctly',
+      });
+      return res.status(400).json({ 
+        error: 'Failed to receive signed transaction. Body parser may not be configured correctly.',
+        contentType: req.headers['content-type'],
+        bodyType: typeof req.body,
+      });
     } else {
       // JSON format (backward compatibility)
       const body = req.body;
-      matchId = body.matchId;
-      wallet = body.wallet;
-      signedTransaction = body.signedTransaction; // base64 string
+      matchId = body?.matchId;
+      wallet = body?.wallet;
+      signedTransaction = body?.signedTransaction; // base64 string
       
       console.log('📦 Received JSON signed transaction', {
         matchId,
@@ -12450,8 +12473,14 @@ const signProposalHandler = async (req: any, res: any) => {
         contentType: req.headers['content-type'],
       });
     
-    if (!matchId || !wallet || !signedTransaction) {
-      return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
+      if (!matchId || !wallet || !signedTransaction) {
+        console.error('❌ SIGN_PROPOSAL: Missing required fields in JSON format', {
+          matchId,
+          wallet,
+          hasSignedTransaction: !!signedTransaction,
+          bodyKeys: body ? Object.keys(body) : 'body is null/undefined',
+        });
+        return res.status(400).json({ error: 'Missing required fields: matchId, wallet, signedTransaction' });
       }
     }
     
