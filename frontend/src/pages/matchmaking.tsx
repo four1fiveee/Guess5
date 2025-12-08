@@ -1674,47 +1674,42 @@ const Matchmaking: React.FC = () => {
           )}
 
           {status === 'active' && countdown !== null && countdown > 0 && (
-            <div className="animate-fade-in flex flex-col items-center justify-center min-h-[500px] w-full">
-              {/* Elegant countdown display */}
-              <div className="relative flex items-center justify-center mb-12">
-                {/* Outer glow rings */}
+            <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
+              {/* Clean countdown display - matching gameplay page style */}
+              <div className="relative flex items-center justify-center mb-8">
+                {/* Subtle glow effect without borders */}
                 <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-64 h-64 rounded-full bg-accent/10 animate-ping"></div>
-                </div>
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-56 h-56 rounded-full bg-accent/15 animate-pulse"></div>
+                  <div className="w-72 h-72 rounded-full bg-accent/5 animate-pulse"></div>
                 </div>
                 
-                {/* Main countdown circle */}
+                {/* Main countdown number - no border box */}
                 <div className="relative z-10">
-                  <div className="w-48 h-48 rounded-full bg-gradient-to-br from-accent/20 via-accent/10 to-transparent backdrop-blur-sm border-2 border-accent/50 flex items-center justify-center shadow-[0_0_40px_rgba(255,215,0,0.3)]">
-                    <span className="text-9xl font-black text-accent drop-shadow-[0_0_20px_rgba(255,215,0,0.5)]">
-                      {countdown}
-                    </span>
-                  </div>
+                  <span className="text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none">
+                    {countdown}
+                  </span>
                 </div>
               </div>
               
-              {/* Elegant text */}
-              <div className="text-center space-y-2">
-                <h2 className="text-4xl font-bold text-accent drop-shadow-lg">Match Starting</h2>
-                <p className="text-white/80 text-lg font-medium">Get ready to play!</p>
+              {/* Clean text matching gameplay page */}
+              <div className="text-center space-y-3">
+                <h2 className="text-3xl font-bold text-accent drop-shadow-lg">Match Starting</h2>
+                <p className="text-white/70 text-lg">Get ready to play!</p>
               </div>
             </div>
           )}
           
           {status === 'active' && countdown === 0 && (
-            <div className="animate-fade-in flex flex-col items-center justify-center min-h-[500px] w-full">
-              <div className="text-center space-y-8">
+            <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
+              <div className="text-center space-y-6">
                 <div className="relative">
-                  <h2 className="text-8xl font-black text-accent drop-shadow-[0_0_40px_rgba(255,215,0,0.8)] animate-pulse">
+                  <h2 className="text-[10rem] font-black text-accent drop-shadow-[0_0_50px_rgba(255,215,0,0.9)] animate-pulse leading-none">
                     GO!
                   </h2>
-                  <div className="absolute inset-0 text-8xl font-black text-accent/20 blur-2xl animate-pulse">
+                  <div className="absolute inset-0 text-[10rem] font-black text-accent/15 blur-3xl animate-pulse leading-none">
                     GO!
                   </div>
                 </div>
-                <p className="text-white/90 text-2xl font-bold">Starting game...</p>
+                <p className="text-white/80 text-2xl font-semibold">Starting game...</p>
               </div>
             </div>
           )}
