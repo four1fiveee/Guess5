@@ -13173,7 +13173,6 @@ module.exports = {
   checkPendingClaimsHandler,
   voidMatchHandler,
 };
-              context: { slot: txStatus.value.slot || 0 },
             };
           } else if (txStatus?.value?.err) {
             throw new Error(`Transaction failed: ${JSON.stringify(txStatus.value.err)}`);
