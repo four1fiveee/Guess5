@@ -2587,15 +2587,15 @@ const Result: React.FC = () => {
                                 // 2. Proposal creation failed (VAULT_TX_CREATION_FAILED)
                                 // 3. There's a retryable error indicating proposal isn't ready
                                 const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
-                                const hasRetryableError = error && (
+                                const hasRetryableError = Boolean(error && (
                                   error.includes('still being created') ||
                                   error.includes('not ready') ||
                                   error.includes('VaultTransaction')
-                                );
-                                const isButtonDisabled = signingProposal || 
+                                ));
+                                const isButtonDisabled = Boolean(signingProposal || 
                                                          userHasSigned || 
                                                          isProposalCreationFailed ||
-                                                         hasRetryableError;
+                                                         hasRetryableError);
                                 
                                 return (
                                   <button
