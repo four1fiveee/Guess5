@@ -239,8 +239,40 @@ if (process.env.NODE_ENV === 'development') {
   });
 }
 
-// Enhanced request logging for all environments to debug Player 2 issue
+// CRITICAL: Global request logger to prove requests reach the backend
+// This logs ALL requests BEFORE they hit route handlers
 app.use((req: any, res: any, next: any) => {
+  // Log ALL requests (especially POST to sign-proposal)
+  console.log('🔥 REQ', {
+    method: req.method,
+    url: req.originalUrl || req.url,
+    path: req.path,
+    time: new Date().toISOString(),
+    headers: {
+      host: req.headers.host,
+      origin: req.headers.origin,
+      'content-type': req.headers['content-type'],
+      'content-length': req.headers['content-length'],
+    },
+    query: req.query,
+    note: 'If you see this for POST /api/match/sign-proposal, the request reached the backend',
+  });
+  
+  // Special logging for sign-proposal requests
+  if (req.method === 'POST' && (req.url.includes('/sign-proposal') || req.path.includes('/sign-proposal'))) {
+    console.log('🔥 SIGN-PROPOSAL REQUEST DETECTED IN GLOBAL LOGGER', {
+      timestamp: new Date().toISOString(),
+      method: req.method,
+      url: req.originalUrl || req.url,
+      path: req.path,
+      origin: req.headers.origin,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      query: req.query,
+      note: 'This proves the request reached Express before route handlers',
+    });
+  }
+  
   // Log all POST requests to /api/match/submit-result
   if (req.method === 'POST' && req.url.includes('/api/match/submit-result')) {
     console.log('📤 SUBMIT-RESULT REQUEST RECEIVED:', {

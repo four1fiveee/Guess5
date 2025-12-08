@@ -13439,14 +13439,22 @@ const signProposalHandler = async (req: any, res: any) => {
     return;
 
   } catch (error: unknown) {
+    // CRITICAL: Ensure CORS headers are set even on error
+    const requestOrigin = req.headers.origin;
+    const corsOrigin = resolveCorsOrigin(requestOrigin);
+    const originToUse = corsOrigin || 'https://guess5.io';
+    res.header('Access-Control-Allow-Origin', originToUse);
+    res.header('Vary', 'Origin');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    
     console.error('❌ Error signing proposal:', error);
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     console.error('❌ Error details:', {
       message: errorMessage,
       stack: errorStack,
-      matchId: req.body?.matchId,
-      wallet: req.body?.wallet,
+      matchId: req.query?.matchId || req.body?.matchId,
+      wallet: req.query?.wallet || req.body?.wallet,
       hasSignedTransaction: !!req.body?.signedTransaction,
       signedTransactionLength: req.body?.signedTransaction?.length,
     });

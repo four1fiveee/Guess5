@@ -1284,21 +1284,46 @@ const Result: React.FC = () => {
           const timeoutId = setTimeout(() => controller.abort(), 30000);
           
           try {
+            console.log('🌐 Sending POST /api/match/sign-proposal', {
+              length: proposalSerialized.byteLength,
+              matchId,
+              wallet: publicKey.toString(),
+              url: requestUrl,
+              timestamp: new Date().toISOString(),
+            });
+            
             response = await fetch(requestUrl, {
               method: 'POST',
               headers: {
                 'Content-Type': 'application/octet-stream',
               },
+              mode: 'cors', // Explicitly enable CORS
               credentials: 'include',
               body: bodyBuffer, // ArrayBuffer for better browser compatibility
               signal: controller.signal,
             });
             clearTimeout(timeoutId);
+            
+            console.log('🌐 sign-proposal response', {
+              status: response.status,
+              ok: response.ok,
+              url: response.url,
+              timeMs: Date.now() - fetchStartTime,
+              headers: Object.fromEntries(response.headers.entries()),
+            });
           } catch (fetchErr: any) {
             clearTimeout(timeoutId);
             if (fetchErr.name === 'AbortError') {
+              console.error('❌ sign-proposal timeout after 30s', { matchId });
               throw new Error('Request timeout: The backend did not respond within 30 seconds. Please check your connection and try again.');
             }
+            console.error('❌ Network error calling sign-proposal', { 
+              matchId, 
+              error: fetchErr.message,
+              errorName: fetchErr.name,
+              errorType: fetchErr.constructor?.name,
+              url: requestUrl,
+            });
             throw fetchErr;
           }
           
