@@ -1261,39 +1261,98 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
-        // CRITICAL: Wait for account AND verify transaction index is readable
-        // This ensures the vault transaction is fully indexed on-chain before proposalCreate
-        await this.waitForAccountAvailability(
-          transactionPda,
-          'vault transaction',
-          vaultAddress
-        );
-        
-        // Verify the transaction account can be decoded and has an index field
-        // This prevents race conditions where account exists but isn't fully indexed
-        await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'winner payout');
-        
-        // RUNTIME ASSERTION #1: Ensure VaultTransaction account exists and can be decoded
+        // ⭐ ATOMIC PROPOSAL CREATION: Wait for VaultTransaction with robust retry logic
+        // This is THE critical fix - VaultTransaction MUST exist before proposal creation
+        // Retry for up to 30 seconds (12 attempts × 2.5s) to handle RPC propagation delays
         let vaultTxAccount;
-        try {
-          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda,
-            'confirmed'
-          );
-          enhancedLogger.info('✅ RUNTIME ASSERTION #1 PASSED: VaultTransaction account exists and is decodable', {
-            vaultAddress,
-            transactionPda: transactionPda.toString(),
-            transactionIndex: transactionIndex.toString(),
-          });
-        } catch (vaultTxFetchError: any) {
-          enhancedLogger.error('❌ RUNTIME ASSERTION #1 FAILED: VaultTransaction account missing after creation', {
+        let vaultTxFound = false;
+        const maxAttempts = 12;
+        const retryDelayMs = 2500; // 2.5 seconds between attempts
+        
+        enhancedLogger.info('🔍 ATOMIC PROPOSAL CREATION: Waiting for VaultTransaction to appear on-chain...', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          transactionIndex: transactionIndex.toString(),
+          multisigPda: multisigAddress.toString(),
+          creationTxSig: signature,
+          maxAttempts,
+          retryDelayMs,
+          note: 'This ensures VaultTransaction exists before proposal creation - prevents all downstream failures',
+        });
+        
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          try {
+            vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+              this.connection,
+              transactionPda,
+              'confirmed'
+            );
+            
+            // ✅ VaultTransaction found - verify it's fully hydrated
+            vaultTxFound = true;
+            
+            enhancedLogger.info('✅ ATOMIC PROPOSAL CREATION: VaultTransaction found on-chain', {
+              vaultAddress,
+              transactionPda: transactionPda.toString(),
+              transactionIndex: transactionIndex.toString(),
+              attempt: attempt + 1,
+              totalAttempts: maxAttempts,
+              note: 'VaultTransaction exists - proceeding with validation',
+            });
+            
+            break; // Exit retry loop - VaultTransaction found
+          } catch (fetchError: any) {
+            // VaultTransaction not found yet - retry if we have attempts remaining
+            if (attempt < maxAttempts - 1) {
+              enhancedLogger.info('⏳ ATOMIC PROPOSAL CREATION: VaultTransaction not found yet, retrying...', {
+                vaultAddress,
+                transactionPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                attempt: attempt + 1,
+                totalAttempts: maxAttempts,
+                nextRetryInMs: retryDelayMs,
+                error: fetchError?.message || String(fetchError),
+              });
+              
+              // Wait before next attempt
+              await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            } else {
+              // Final attempt failed - this is a HARD FAILURE
+              enhancedLogger.error('❌ FATAL: VaultTransaction never appeared after all retries', {
+                vaultAddress,
+                transactionPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                multisigPda: multisigAddress.toString(),
+                creationTxSig: signature,
+                totalAttempts: maxAttempts,
+                retryDelayMs,
+                finalError: fetchError?.message || String(fetchError),
+                note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation. This prevents all downstream failures.',
+              });
+              
+              throw new Error(
+                `❌ FATAL: VaultTransaction never appeared for proposal creation. ` +
+                `proposalPda=unknown (not created yet) ` +
+                `vaultTxPda=${transactionPda.toString()} ` +
+                `transactionIndex=${transactionIndex.toString()} ` +
+                `multisigPda=${multisigAddress.toString()} ` +
+                `creationTxSig=${signature} ` +
+                `attempts=${maxAttempts} ` +
+                `This match cannot proceed - VaultTransaction must exist before proposal creation.`
+              );
+            }
+          }
+        }
+        
+        // ✅ RUNTIME ASSERTION #1: VaultTransaction account exists and is decodable
+        if (!vaultTxFound || !vaultTxAccount) {
+          // This should never happen due to the retry loop above, but add as safety check
+          enhancedLogger.error('❌ RUNTIME ASSERTION #1 FAILED: VaultTransaction account missing after retry loop', {
             vaultAddress,
             transactionPda: transactionPda.toString(),
             transactionIndex: transactionIndex.toString(),
             multisigPda: multisigAddress.toString(),
-            error: vaultTxFetchError?.message || String(vaultTxFetchError),
-            note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation',
+            note: 'ABORTING MATCH CREATION - This should never happen if retry loop worked correctly',
           });
           throw new Error(
             `❌ VaultTransaction account missing after creation. ` +
@@ -1302,6 +1361,12 @@ export class SquadsVaultService {
             `multisigPda=${multisigAddress.toString()}`
           );
         }
+        
+        enhancedLogger.info('✅ RUNTIME ASSERTION #1 PASSED: VaultTransaction account exists and is decodable', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          transactionIndex: transactionIndex.toString(),
+        });
         
         // RUNTIME ASSERTION #2: Ensure VaultTransaction has at least 1 instruction
         if (!vaultTxAccount.message || !vaultTxAccount.message.instructions || 
@@ -2229,39 +2294,98 @@ export class SquadsVaultService {
           programId: this.programId,
         });
 
-        // CRITICAL: Wait for account AND verify transaction index is readable
-        // This ensures the vault transaction is fully indexed on-chain before proposalCreate
-        await this.waitForAccountAvailability(
-          transactionPda,
-          'tie refund vault transaction',
-          vaultAddress
-        );
-        
-        // Verify the transaction account can be decoded and has an index field
-        // This prevents race conditions where account exists but isn't fully indexed
-        await this.verifyVaultTransactionIndex(transactionPda, transactionIndex, 'tie refund');
-        
-        // RUNTIME ASSERTION #1: Ensure VaultTransaction account exists and can be decoded
+        // ⭐ ATOMIC PROPOSAL CREATION: Wait for VaultTransaction with robust retry logic
+        // This is THE critical fix - VaultTransaction MUST exist before proposal creation
+        // Retry for up to 30 seconds (12 attempts × 2.5s) to handle RPC propagation delays
         let vaultTxAccount;
-        try {
-          vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
-            this.connection,
-            transactionPda,
-            'confirmed'
-          );
-          enhancedLogger.info('✅ RUNTIME ASSERTION #1 PASSED (tie refund): VaultTransaction account exists and is decodable', {
-            vaultAddress,
-            transactionPda: transactionPda.toString(),
-            transactionIndex: transactionIndex.toString(),
-          });
-        } catch (vaultTxFetchError: any) {
-          enhancedLogger.error('❌ RUNTIME ASSERTION #1 FAILED (tie refund): VaultTransaction account missing after creation', {
+        let vaultTxFound = false;
+        const maxAttempts = 12;
+        const retryDelayMs = 2500; // 2.5 seconds between attempts
+        
+        enhancedLogger.info('🔍 ATOMIC PROPOSAL CREATION (tie refund): Waiting for VaultTransaction to appear on-chain...', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          transactionIndex: transactionIndex.toString(),
+          multisigPda: multisigAddress.toString(),
+          creationTxSig: signature,
+          maxAttempts,
+          retryDelayMs,
+          note: 'This ensures VaultTransaction exists before proposal creation - prevents all downstream failures',
+        });
+        
+        for (let attempt = 0; attempt < maxAttempts; attempt++) {
+          try {
+            vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+              this.connection,
+              transactionPda,
+              'confirmed'
+            );
+            
+            // ✅ VaultTransaction found - verify it's fully hydrated
+            vaultTxFound = true;
+            
+            enhancedLogger.info('✅ ATOMIC PROPOSAL CREATION (tie refund): VaultTransaction found on-chain', {
+              vaultAddress,
+              transactionPda: transactionPda.toString(),
+              transactionIndex: transactionIndex.toString(),
+              attempt: attempt + 1,
+              totalAttempts: maxAttempts,
+              note: 'VaultTransaction exists - proceeding with validation',
+            });
+            
+            break; // Exit retry loop - VaultTransaction found
+          } catch (fetchError: any) {
+            // VaultTransaction not found yet - retry if we have attempts remaining
+            if (attempt < maxAttempts - 1) {
+              enhancedLogger.info('⏳ ATOMIC PROPOSAL CREATION (tie refund): VaultTransaction not found yet, retrying...', {
+                vaultAddress,
+                transactionPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                attempt: attempt + 1,
+                totalAttempts: maxAttempts,
+                nextRetryInMs: retryDelayMs,
+                error: fetchError?.message || String(fetchError),
+              });
+              
+              // Wait before next attempt
+              await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+            } else {
+              // Final attempt failed - this is a HARD FAILURE
+              enhancedLogger.error('❌ FATAL (tie refund): VaultTransaction never appeared after all retries', {
+                vaultAddress,
+                transactionPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                multisigPda: multisigAddress.toString(),
+                creationTxSig: signature,
+                totalAttempts: maxAttempts,
+                retryDelayMs,
+                finalError: fetchError?.message || String(fetchError),
+                note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation. This prevents all downstream failures.',
+              });
+              
+              throw new Error(
+                `❌ FATAL: VaultTransaction never appeared for proposal creation (tie refund). ` +
+                `proposalPda=unknown (not created yet) ` +
+                `vaultTxPda=${transactionPda.toString()} ` +
+                `transactionIndex=${transactionIndex.toString()} ` +
+                `multisigPda=${multisigAddress.toString()} ` +
+                `creationTxSig=${signature} ` +
+                `attempts=${maxAttempts} ` +
+                `This match cannot proceed - VaultTransaction must exist before proposal creation.`
+              );
+            }
+          }
+        }
+        
+        // ✅ RUNTIME ASSERTION #1: VaultTransaction account exists and is decodable
+        if (!vaultTxFound || !vaultTxAccount) {
+          // This should never happen due to the retry loop above, but add as safety check
+          enhancedLogger.error('❌ RUNTIME ASSERTION #1 FAILED (tie refund): VaultTransaction account missing after retry loop', {
             vaultAddress,
             transactionPda: transactionPda.toString(),
             transactionIndex: transactionIndex.toString(),
             multisigPda: multisigAddress.toString(),
-            error: vaultTxFetchError?.message || String(vaultTxFetchError),
-            note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation',
+            note: 'ABORTING MATCH CREATION - This should never happen if retry loop worked correctly',
           });
           throw new Error(
             `❌ VaultTransaction account missing after creation (tie refund). ` +
@@ -2270,6 +2394,12 @@ export class SquadsVaultService {
             `multisigPda=${multisigAddress.toString()}`
           );
         }
+        
+        enhancedLogger.info('✅ RUNTIME ASSERTION #1 PASSED (tie refund): VaultTransaction account exists and is decodable', {
+          vaultAddress,
+          transactionPda: transactionPda.toString(),
+          transactionIndex: transactionIndex.toString(),
+        });
         
         // RUNTIME ASSERTION #2: Ensure VaultTransaction has at least 1 instruction
         if (!vaultTxAccount.message || !vaultTxAccount.message.instructions || 
