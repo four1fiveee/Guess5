@@ -765,7 +765,7 @@ export const adminExecuteProposal = async (req: Request, res: Response) => {
       matchId,
       adminId,
       timestamp: new Date().toISOString(),
-      ip: req.ip || 'unknown',
+      ip: (req as any).ip || req.headers['x-forwarded-for'] || req.headers['x-real-ip'] || 'unknown',
     });
     
     console.log('🔧 Admin manual execution requested', { matchId, adminId });
