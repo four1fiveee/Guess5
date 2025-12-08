@@ -12246,8 +12246,9 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
     // CRITICAL FIX: Fetch VaultTransaction account to extract remaining accounts
     // Squads v4 requires ALL remaining accounts from VaultTransaction to be included in approval instruction
     let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
+    let transactionPda: PublicKey | null = null;
     try {
-      const [transactionPda] = getTransactionPda({
+      [transactionPda] = getTransactionPda({
         multisigPda: multisigAddress,
         transactionIndex,
         programId,
@@ -12317,6 +12318,23 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         });
       }
     } catch (vaultTxError: any) {
+      // If transactionPda wasn't derived yet, try to derive it now for diagnostics
+      if (!transactionPda) {
+        try {
+          [transactionPda] = getTransactionPda({
+            multisigPda: multisigAddress,
+            transactionIndex,
+            programId,
+          });
+        } catch (deriveError: any) {
+          // If derivation also fails, transactionPda will remain null
+          console.error('❌ Failed to derive transactionPda for diagnostics', {
+            matchId,
+            error: deriveError?.message,
+          });
+        }
+      }
+      
       // CRITICAL DIAGNOSTIC: Check proposal state to understand why VaultTransaction is missing
       let proposalDiagnostics: any = {};
       try {
