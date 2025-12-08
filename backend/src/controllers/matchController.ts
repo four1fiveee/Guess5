@@ -13173,7 +13173,6 @@ module.exports = {
   checkPendingClaimsHandler,
   voidMatchHandler,
 };
-              value: { err: null },
               context: { slot: txStatus.value.slot || 0 },
             };
           } else if (txStatus?.value?.err) {
