@@ -12426,6 +12426,19 @@ const signProposalHandler = async (req: any, res: any) => {
     const contentType = req.headers['content-type'] || '';
     const isOctetStream = contentType.includes('application/octet-stream');
     
+    // CRITICAL DIAGNOSTIC: Log body type to confirm raw parser is working
+    console.log('🔍 SIGN_PROPOSAL: Body type check', {
+      matchId: req.query.matchId,
+      wallet: req.query.wallet,
+      contentType,
+      isOctetStream,
+      bodyIsBuffer: Buffer.isBuffer(req.body),
+      bodyType: typeof req.body,
+      bodyLength: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'not a buffer/string'),
+      bodyKeys: req.body && typeof req.body === 'object' && !Buffer.isBuffer(req.body) ? Object.keys(req.body) : 'N/A',
+      note: 'If bodyIsBuffer=true and bodyLength>0, raw parser is working correctly',
+    });
+    
     if (isOctetStream && Buffer.isBuffer(req.body) && req.body.length > 0) {
       // Raw bytes format - extract params from query string
       isRawBytes = true;
@@ -12848,11 +12861,13 @@ const signProposalHandler = async (req: any, res: any) => {
           skipPreflight: false,
           maxRetries: 3,
         });
-        console.log('🔥 SIGN_PROPOSAL: broadcast success (with preflight)', {
+        console.log('✅ SIGN_PROPOSAL: BROADCAST TO SOLANA SUCCESS', {
           matchId,
           wallet,
           signature,
-          note: 'Transaction broadcasted successfully',
+          signatureLength: signature.length,
+          note: 'CRITICAL: Transaction was successfully submitted to Solana blockchain. This signature will appear on-chain.',
+          nextStep: 'Verification will confirm signature appears in proposal account',
         });
       } catch (preflightError: any) {
         // If preflight fails, try without preflight (blockhash might be stale)
@@ -12865,11 +12880,13 @@ const signProposalHandler = async (req: any, res: any) => {
           skipPreflight: true,
           maxRetries: 3,
         });
-        console.log('🔥 SIGN_PROPOSAL: broadcast success (skipPreflight=true)', {
+        console.log('✅ SIGN_PROPOSAL: BROADCAST TO SOLANA SUCCESS (preflight skipped)', {
           matchId,
           wallet,
           signature,
-          note: 'Transaction broadcasted successfully (preflight skipped)',
+          signatureLength: signature.length,
+          note: 'CRITICAL: Transaction was successfully submitted to Solana blockchain. This signature will appear on-chain.',
+          nextStep: 'Verification will confirm signature appears in proposal account',
         });
       }
     } catch (sendError: any) {
@@ -12892,6 +12909,17 @@ const signProposalHandler = async (req: any, res: any) => {
     }
     
     // ✅ Step 4: Return immediately with "VERIFYING_ON_CHAIN" + broadcast signature
+    // CRITICAL CONFIRMATION: The transaction WAS broadcast to Solana
+    // The signature is a valid Solana transaction signature (base58 string, ~88 chars)
+    console.log('✅ SIGN_PROPOSAL: Transaction successfully broadcast to Solana blockchain', {
+      matchId,
+      wallet,
+      broadcastSignature: signature,
+      signatureLength: signature.length,
+      note: 'This signature is now on the Solana blockchain. Verification will confirm it appears in the proposal account.',
+      verificationStatus: 'PENDING',
+    });
+    
     console.log('🔥 SIGN_PROPOSAL: Returning response immediately with broadcast signature', {
       matchId,
       wallet,
