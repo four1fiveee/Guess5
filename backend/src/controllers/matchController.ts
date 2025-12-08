@@ -12241,18 +12241,122 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       throw new Error(`Failed to get blockhash: ${blockhashError?.message || String(blockhashError)}`);
     }
 
-    const { instructions, generated, getProposalPda } = sqdsModule;
+    const { instructions, generated, getProposalPda, getTransactionPda, accounts } = sqdsModule;
+
+    // CRITICAL FIX: Fetch VaultTransaction account to extract remaining accounts
+    // Squads v4 requires ALL remaining accounts from VaultTransaction to be included in approval instruction
+    let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
+    try {
+      const [transactionPda] = getTransactionPda({
+        multisigPda: multisigAddress,
+        transactionIndex,
+        programId,
+      });
+
+      console.log('🔍 Fetching VaultTransaction account to extract remaining accounts...', {
+        matchId,
+        transactionPda: transactionPda.toString(),
+        transactionIndex: transactionIndex.toString(),
+      });
+
+      const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+        connection,
+        transactionPda,
+        'confirmed'
+      );
+
+      // Extract remaining accounts from the message
+      if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
+        const accountKeys = (vaultTxAccount.message as any).accountKeys;
+        
+        // CRITICAL: Ordering matters - must match message.accountKeys[] order exactly
+        remainingAccounts = accountKeys.map((key: any, index: number) => {
+          let pubkey: PublicKey | null = null;
+          
+          // Extract pubkey
+          if (key instanceof PublicKey) {
+            pubkey = key;
+          } else if (key?.pubkey) {
+            pubkey = key.pubkey instanceof PublicKey ? key.pubkey : new PublicKey(key.pubkey);
+          } else if (typeof key === 'string') {
+            pubkey = new PublicKey(key);
+          } else if (key && typeof key === 'object' && key.pubkey) {
+            pubkey = key.pubkey instanceof PublicKey ? key.pubkey : new PublicKey(key.pubkey);
+          }
+          
+          if (!pubkey) {
+            return null;
+          }
+          
+          // Extract isWritable and isSigner from the message - preserve actual flags
+          const isWritable = key?.isWritable !== undefined ? key.isWritable : 
+                            (key?.writable !== undefined ? key.writable : true);
+          const isSigner = key?.isSigner !== undefined ? key.isSigner : 
+                          (key?.signer !== undefined ? key.signer : false);
+          
+          return {
+            pubkey,
+            isWritable,
+            isSigner,
+          };
+        }).filter((meta: any): meta is { pubkey: PublicKey; isWritable: boolean; isSigner: boolean } => meta !== null);
+        
+        console.log('✅ Extracted remaining accounts from VaultTransaction', {
+          matchId,
+          remainingAccountsCount: remainingAccounts.length,
+          remainingAccounts: remainingAccounts.map(a => ({
+            pubkey: a.pubkey.toString().slice(0, 8) + '...',
+            isWritable: a.isWritable,
+            isSigner: a.isSigner,
+          })),
+        });
+      } else {
+        console.warn('⚠️ VaultTransaction message does not have accountKeys', {
+          matchId,
+          hasMessage: !!vaultTxAccount.message,
+        });
+      }
+    } catch (vaultTxError: any) {
+      console.error('❌ Failed to fetch VaultTransaction account for remaining accounts', {
+        matchId,
+        error: vaultTxError?.message,
+        stack: vaultTxError?.stack,
+        note: 'Approval instruction will be built without remaining accounts - this may cause transaction failure',
+      });
+      // Continue without remaining accounts - transaction may fail but we'll see the error
+    }
 
     let approveIx;
     try {
       if (instructions && typeof instructions.proposalApprove === 'function') {
         console.log('✅ Using SDK instructions.proposalApprove');
+        // Build the instruction first (SDK may not support remainingAccounts parameter)
         approveIx = instructions.proposalApprove({
           multisigPda: multisigAddress,
           transactionIndex,
           member: memberPublicKey,
           programId,
         });
+        
+        // CRITICAL: Manually add remaining accounts to the instruction keys
+        // Squads v4 requires all remaining accounts from VaultTransaction
+        if (remainingAccounts.length > 0) {
+          approveIx.keys.push(...remainingAccounts.map(acc => ({
+            pubkey: acc.pubkey,
+            isSigner: acc.isSigner,
+            isWritable: acc.isWritable,
+          })));
+          console.log('✅ Added remaining accounts to approval instruction', {
+            hasRemainingAccounts: true,
+            remainingAccountsCount: remainingAccounts.length,
+            totalKeys: approveIx.keys.length,
+          });
+        } else {
+          console.warn('⚠️ No remaining accounts to add - approval may fail if Squads v4 requires them', {
+            matchId,
+          });
+        }
+        
         console.log('✅ Approval instruction created via SDK');
       } else {
         throw new Error('instructions.proposalApprove not available in SDK');
@@ -12281,6 +12385,24 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
           { args: { memo: null } },
           programId,
         );
+        
+        // CRITICAL: Manually add remaining accounts to the instruction
+        if (remainingAccounts.length > 0) {
+          approveIx.keys.push(...remainingAccounts.map(acc => ({
+            pubkey: acc.pubkey,
+            isSigner: acc.isSigner,
+            isWritable: acc.isWritable,
+          })));
+          console.log('✅ Added remaining accounts to approval instruction via generated helper', {
+            remainingAccountsCount: remainingAccounts.length,
+            totalKeys: approveIx.keys.length,
+          });
+        } else {
+          console.warn('⚠️ No remaining accounts to add - approval may fail if Squads v4 requires them', {
+            matchId,
+          });
+        }
+        
         console.log('✅ Approval instruction created via generated helper');
       } catch (fallbackError: any) {
         console.error('❌ Failed to build approval instruction via generated helper:', {
@@ -12291,10 +12413,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       }
     }
 
-    // NOTE: VaultTransaction approval is handled separately on the backend after Proposal approval
-    // We don't include it in the player-signed transaction because the instruction structure is not
-    // publicly documented and may cause transaction failures
-    // The backend will automatically approve VaultTransaction after Proposal is confirmed
+    // CRITICAL FIX: Removed outdated comment - remaining accounts ARE now included
+    // Squads v4 requires all remaining accounts from VaultTransaction in the approval instruction
     
     let messageV0;
     try {
