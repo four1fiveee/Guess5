@@ -237,6 +237,15 @@ router.get('/get-proposal-approval-transaction',
 router.options('/sign-proposal', (req: any, res: any) => {
   const origin = resolveCorsOrigin(req.headers.origin);
   const originToUse = origin || 'https://guess5.io';
+  
+  console.log('✅ OPTIONS preflight for /sign-proposal', {
+    url: req.url,
+    origin: req.headers.origin,
+    resolvedOrigin: origin,
+    originToUse,
+    timestamp: new Date().toISOString(),
+  });
+  
   res.header('Access-Control-Allow-Origin', originToUse);
   res.header('Vary', 'Origin');
   res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, Cache-Control, Pragma, Origin, X-Requested-With, x-recaptcha-token');

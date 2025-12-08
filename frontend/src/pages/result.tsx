@@ -1087,8 +1087,32 @@ const Result: React.FC = () => {
   };
 
   const handleSignProposal = async () => {
+    // CRITICAL: Log function entry to verify button click is working
+    console.log('🖱️ handleSignProposal called', {
+      timestamp: new Date().toISOString(),
+      hasProposalId: !!payoutData?.proposalId,
+      hasVaultAddress: !!payoutData?.vaultAddress,
+      hasPublicKey: !!publicKey,
+      hasSignTransaction: !!signTransaction,
+      proposalId: payoutData?.proposalId,
+      vaultAddress: payoutData?.vaultAddress,
+      wallet: publicKey?.toString(),
+    });
+    
     if (!payoutData?.proposalId || !payoutData?.vaultAddress || !publicKey || !signTransaction) {
-      setError('Missing required data for proposal signing');
+      const missingFields = [];
+      if (!payoutData?.proposalId) missingFields.push('proposalId');
+      if (!payoutData?.vaultAddress) missingFields.push('vaultAddress');
+      if (!publicKey) missingFields.push('publicKey');
+      if (!signTransaction) missingFields.push('signTransaction');
+      
+      const errorMsg = `Missing required data for proposal signing: ${missingFields.join(', ')}`;
+      console.error('❌', errorMsg, {
+        payoutData: payoutData ? Object.keys(payoutData) : null,
+        hasPublicKey: !!publicKey,
+        hasSignTransaction: !!signTransaction,
+      });
+      setError(errorMsg);
       return;
     }
 
@@ -1099,6 +1123,15 @@ const Result: React.FC = () => {
       // Get the approval transaction from backend (backend has access to rpc.vaultTransactionApprove)
       const matchId = router.query.matchId as string;
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      
+      // CRITICAL: Log API URL configuration
+      console.log('🔧 API Configuration', {
+        apiUrl,
+        envVar: process.env.NEXT_PUBLIC_API_URL,
+        isConfigured: !!apiUrl && apiUrl.trim() !== '',
+        matchId,
+        timestamp: new Date().toISOString(),
+      });
       
       // CRITICAL: Re-fetch latest match status to ensure we have the latest proposal ID
       // This prevents signing a stale proposal if a new one was created
@@ -1185,12 +1218,26 @@ const Result: React.FC = () => {
       // This ensures the backend receives the exact bytes from Phantom and can broadcast directly
       // Format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
       // Body: raw signed transaction bytes (Uint8Array)
+      // CRITICAL: Verify API URL is set
+      if (!apiUrl || apiUrl.trim() === '') {
+        const errorMsg = 'API URL is not configured. Please check NEXT_PUBLIC_API_URL environment variable.';
+        console.error('❌', errorMsg, { apiUrl, envVar: process.env.NEXT_PUBLIC_API_URL });
+        throw new Error(errorMsg);
+      }
+      
+      const requestUrl = `${apiUrl}/api/match/sign-proposal?matchId=${encodeURIComponent(matchId)}&wallet=${encodeURIComponent(publicKey.toString())}`;
+      
       console.log('📤 Submitting signed proposal transaction to backend (raw bytes format)', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData.proposalId,
         transactionSize: proposalSerialized.length,
         format: 'raw-bytes',
+        apiUrl,
+        requestUrl,
+        bodyType: proposalSerialized instanceof Uint8Array ? 'Uint8Array' : typeof proposalSerialized,
+        bodyLength: proposalSerialized.length,
+        timestamp: new Date().toISOString(),
       });
       
       // CRITICAL: Retry logic with exponential backoff for network/CORS errors
@@ -1203,19 +1250,48 @@ const Result: React.FC = () => {
         try {
           if (attempt > 0) {
             const delay = Math.min(1000 * Math.pow(2, attempt - 1), 5000); // Exponential backoff, max 5s
-            console.log(`🔄 Retrying sign-proposal request (attempt ${attempt + 1}/${maxRetries}) after ${delay}ms...`);
+            console.log(`🔄 Retrying sign-proposal request (attempt ${attempt + 1}/${maxRetries}) after ${delay}ms...`, {
+              matchId,
+              wallet: publicKey.toString(),
+              requestUrl,
+            });
             await new Promise(resolve => setTimeout(resolve, delay));
           }
           
+          console.log('🌐 Sending POST request to backend', {
+            attempt: attempt + 1,
+            maxRetries,
+            matchId,
+            wallet: publicKey.toString(),
+            requestUrl,
+            contentType: 'application/octet-stream',
+            bodyLength: proposalSerialized.length,
+            timestamp: new Date().toISOString(),
+          });
+          
           // CRITICAL: Send raw bytes with application/octet-stream content type
           // Backend will broadcast, confirm, then update DB
-          response = await fetch(`${apiUrl}/api/match/sign-proposal?matchId=${encodeURIComponent(matchId)}&wallet=${encodeURIComponent(publicKey.toString())}`, {
+          const fetchStartTime = Date.now();
+          response = await fetch(requestUrl, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/octet-stream',
             },
             credentials: 'include',
             body: proposalSerialized, // Raw Uint8Array bytes
+          });
+          
+          const fetchDuration = Date.now() - fetchStartTime;
+          console.log('📡 POST request completed', {
+            attempt: attempt + 1,
+            matchId,
+            wallet: publicKey.toString(),
+            status: response.status,
+            statusText: response.statusText,
+            ok: response.ok,
+            duration: `${fetchDuration}ms`,
+            headers: Object.fromEntries(response.headers.entries()),
+            timestamp: new Date().toISOString(),
           });
           
           // CRITICAL: Check if response is ok before parsing
@@ -1279,20 +1355,40 @@ const Result: React.FC = () => {
         } catch (fetchError: any) {
           lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
           
+          // CRITICAL: Log ALL error details to diagnose HTTP communication failure
+          console.error(`❌ Fetch error on sign-proposal (attempt ${attempt + 1}/${maxRetries})`, {
+            matchId,
+            wallet: publicKey.toString(),
+            requestUrl,
+            error: fetchError.message || 'Unknown error',
+            errorType: fetchError.constructor?.name,
+            errorName: fetchError.name,
+            errorStack: fetchError.stack,
+            isTypeError: fetchError instanceof TypeError,
+            isNetworkError: fetchError instanceof TypeError || fetchError.message?.includes('Failed to fetch'),
+            isCORSError: fetchError.message?.includes('CORS') || fetchError.message?.includes('Access-Control'),
+            attempt: attempt + 1,
+            maxRetries,
+            timestamp: new Date().toISOString(),
+          });
+          
           // Check if it's a network/CORS error
           const isNetworkError = 
             fetchError instanceof TypeError || 
             fetchError.message?.includes('Failed to fetch') ||
             fetchError.message?.includes('NetworkError') ||
             fetchError.message?.includes('CORS') ||
+            fetchError.message?.includes('Access-Control') ||
             !fetchError.message; // No message often indicates network error
           
           if (isNetworkError) {
-            console.error(`❌ Network/CORS error on sign-proposal (attempt ${attempt + 1}/${maxRetries})`, {
+            console.error(`❌ Network/CORS error confirmed (attempt ${attempt + 1}/${maxRetries})`, {
               matchId,
               wallet: publicKey.toString(),
+              requestUrl,
               error: fetchError.message || 'Network request failed',
               errorType: fetchError.constructor?.name,
+              note: 'This indicates the request never reached the backend. Check CORS configuration and network connectivity.',
               attempt: attempt + 1,
               maxRetries,
             });
@@ -1302,13 +1398,22 @@ const Result: React.FC = () => {
               continue; // Retry
             } else {
               // Final attempt failed
-              throw new Error(`Network error: Failed to send signed transaction to backend. Please check your connection and try again.`);
+              const errorMsg = `Network error: Failed to send signed transaction to backend. The request never reached the server. Please check your connection, CORS configuration, and API URL (${apiUrl}).`;
+              console.error('❌ Final network error - all retries exhausted', {
+                matchId,
+                wallet: publicKey.toString(),
+                requestUrl,
+                error: errorMsg,
+                totalAttempts: maxRetries,
+              });
+              throw new Error(errorMsg);
             }
           } else {
             // Non-network error - don't retry
             console.error('❌ Non-network error on sign-proposal (not retrying)', {
               matchId,
               wallet: publicKey.toString(),
+              requestUrl,
               error: fetchError.message,
               errorType: fetchError.constructor?.name,
               attempt: attempt + 1,
