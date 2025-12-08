@@ -12317,13 +12317,26 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         });
       }
     } catch (vaultTxError: any) {
-      console.error('❌ Failed to fetch VaultTransaction account for remaining accounts', {
+      console.error('❌ CRITICAL: Failed to fetch VaultTransaction account for remaining accounts', {
         matchId,
+        transactionPda: transactionPda?.toString(),
+        transactionIndex: transactionIndex?.toString(),
+        multisigPda: multisigAddress?.toString(),
         error: vaultTxError?.message,
         stack: vaultTxError?.stack,
-        note: 'Approval instruction will be built without remaining accounts - this may cause transaction failure',
+        note: 'Squads v4 REQUIRES remainingAccounts in approval instruction. Without them, the approval will fail silently and the signer will NOT be added to the proposal.',
       });
-      // Continue without remaining accounts - transaction may fail but we'll see the error
+      
+      // CRITICAL: Do NOT proceed without remainingAccounts - the approval will fail
+      // Return an error to the client so they know the transaction cannot be built
+      sendResponse(500, {
+        error: 'Failed to fetch VaultTransaction account',
+        details: 'The VaultTransaction account required for building the approval instruction does not exist on-chain. This may indicate the proposal was created incorrectly or the transaction index is wrong.',
+        transactionPda: transactionPda?.toString(),
+        transactionIndex: transactionIndex?.toString(),
+        matchId,
+      });
+      return;
     }
 
     let approveIx;
