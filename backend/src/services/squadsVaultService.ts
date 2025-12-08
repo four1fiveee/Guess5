@@ -1330,7 +1330,8 @@ export class SquadsVaultService {
                 note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation. This prevents all downstream failures.',
               });
               
-              throw new Error(
+              // Create a structured error that can be detected by callers
+              const fatalError: any = new Error(
                 `❌ FATAL: VaultTransaction never appeared for proposal creation. ` +
                 `proposalPda=unknown (not created yet) ` +
                 `vaultTxPda=${transactionPda.toString()} ` +
@@ -1340,6 +1341,24 @@ export class SquadsVaultService {
                 `attempts=${maxAttempts} ` +
                 `This match cannot proceed - VaultTransaction must exist before proposal creation.`
               );
+              
+              // Mark as irrecoverable failure - no retries will fix this
+              fatalError.code = 'VAULT_TX_CREATION_FAILED';
+              fatalError.fatal = true;
+              fatalError.retryable = false;
+              fatalError.cause = 'VAULT_TX_CREATION_FAILED';
+              fatalError.details = {
+                proposalPda: 'unknown (not created yet)',
+                vaultTxPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                multisigPda: multisigAddress.toString(),
+                creationTxSig: signature,
+                attempts: maxAttempts,
+                retryDelayMs,
+                note: 'VaultTransaction account was never created on-chain. This is an irrecoverable proposal creation failure. No amount of retries will fix this.',
+              };
+              
+              throw fatalError;
             }
           }
         }
@@ -1690,6 +1709,35 @@ export class SquadsVaultService {
 
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
+      
+      // CRITICAL: Detect irrecoverable VaultTransaction creation failures
+      const isVaultTxCreationFailed = (error as any)?.code === 'VAULT_TX_CREATION_FAILED' ||
+                                      (error as any)?.fatal === true ||
+                                      (error as any)?.cause === 'VAULT_TX_CREATION_FAILED' ||
+                                      errorMessage.includes('VaultTransaction never appeared');
+      
+      if (isVaultTxCreationFailed) {
+        enhancedLogger.error('❌ FATAL: Irrecoverable proposal creation failure (VAULT_TX_CREATION_FAILED)', {
+          vaultAddress,
+          error: errorMessage,
+          errorCode: (error as any)?.code,
+          errorDetails: (error as any)?.details,
+          note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
+        });
+        
+        return {
+          success: false,
+          error: errorMessage,
+          errorCode: 'VAULT_TX_CREATION_FAILED',
+          fatal: true,
+          retryable: false,
+          cause: 'VAULT_TX_CREATION_FAILED',
+          details: (error as any)?.details || {
+            note: 'VaultTransaction account was never created on-chain. This is an irrecoverable proposal creation failure.',
+          },
+        };
+      }
+      
       enhancedLogger.error('❌ Failed to propose winner payout', {
         vaultAddress,
         error: errorMessage,
@@ -2363,7 +2411,8 @@ export class SquadsVaultService {
                 note: 'ABORTING MATCH CREATION - VaultTransaction must exist before proposal creation. This prevents all downstream failures.',
               });
               
-              throw new Error(
+              // Create a structured error that can be detected by callers
+              const fatalError: any = new Error(
                 `❌ FATAL: VaultTransaction never appeared for proposal creation (tie refund). ` +
                 `proposalPda=unknown (not created yet) ` +
                 `vaultTxPda=${transactionPda.toString()} ` +
@@ -2373,6 +2422,24 @@ export class SquadsVaultService {
                 `attempts=${maxAttempts} ` +
                 `This match cannot proceed - VaultTransaction must exist before proposal creation.`
               );
+              
+              // Mark as irrecoverable failure - no retries will fix this
+              fatalError.code = 'VAULT_TX_CREATION_FAILED';
+              fatalError.fatal = true;
+              fatalError.retryable = false;
+              fatalError.cause = 'VAULT_TX_CREATION_FAILED';
+              fatalError.details = {
+                proposalPda: 'unknown (not created yet)',
+                vaultTxPda: transactionPda.toString(),
+                transactionIndex: transactionIndex.toString(),
+                multisigPda: multisigAddress.toString(),
+                creationTxSig: signature,
+                attempts: maxAttempts,
+                retryDelayMs,
+                note: 'VaultTransaction account was never created on-chain. This is an irrecoverable proposal creation failure. No amount of retries will fix this.',
+              };
+              
+              throw fatalError;
             }
           }
         }
@@ -2718,6 +2785,38 @@ export class SquadsVaultService {
     } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
+      
+      // CRITICAL: Detect irrecoverable VaultTransaction creation failures
+      const isVaultTxCreationFailed = (error as any)?.code === 'VAULT_TX_CREATION_FAILED' ||
+                                      (error as any)?.fatal === true ||
+                                      (error as any)?.cause === 'VAULT_TX_CREATION_FAILED' ||
+                                      errorMessage.includes('VaultTransaction never appeared');
+      
+      if (isVaultTxCreationFailed) {
+        enhancedLogger.error('❌ FATAL: Irrecoverable proposal creation failure (VAULT_TX_CREATION_FAILED) - tie refund', {
+          vaultAddress,
+          player1: player1.toString(),
+          player2: player2.toString(),
+          refundAmount,
+          error: errorMessage,
+          errorCode: (error as any)?.code,
+          errorDetails: (error as any)?.details,
+          note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
+        });
+        
+        return {
+          success: false,
+          error: errorMessage,
+          errorCode: 'VAULT_TX_CREATION_FAILED',
+          fatal: true,
+          retryable: false,
+          cause: 'VAULT_TX_CREATION_FAILED',
+          needsSignatures: 0,
+          details: (error as any)?.details || {
+            note: 'VaultTransaction account was never created on-chain. This is an irrecoverable proposal creation failure.',
+          },
+        };
+      }
       
       enhancedLogger.error('❌ Failed to propose tie refund', {
         vaultAddress,
