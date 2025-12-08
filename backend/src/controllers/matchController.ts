@@ -12752,7 +12752,19 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
             transactionIndexMatch: proposalDiagnostics.transactionIndexMatch,
             proposalHasInstructions: proposalDiagnostics.proposalHasInstructions,
             creationTxSucceeded: proposalDiagnostics.creationTxSucceeded,
+            proposalCreatedAt: matchRow.proposalCreatedAt,
+            proposalTransactionId: matchRow.proposalTransactionId,
             note: 'This is a retryable error - VaultTransaction will appear after propagation delay. Frontend should retry.',
+            diagnosticInfo: {
+              proposalExists: true,
+              vaultTransactionExists: false,
+              isRetryable: true,
+              recommendedAction: proposalDiagnostics.proposalAgeSeconds && proposalDiagnostics.proposalAgeSeconds < 30
+                ? 'Wait for VaultTransaction to propagate (normal delay 5-15s)'
+                : proposalDiagnostics.proposalAgeSeconds && proposalDiagnostics.proposalAgeSeconds < 60
+                ? 'VaultTransaction taking longer than expected - may indicate RPC delay or network issue'
+                : 'VaultTransaction missing for extended period - check proposal creation logs',
+            },
           });
           
           sendResponse(500, {
