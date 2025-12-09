@@ -267,6 +267,49 @@ export class RedisMatchmakingService {
     return match;
   }
 
+  /**
+   * Extend match expiration time to allow proposal creation to complete
+   * CRITICAL: Call this when proposal creation starts to prevent premature expiration
+   */
+  async extendMatchExpirationForProposalCreation(matchId: string, additionalMinutes: number = 10): Promise<void> {
+    try {
+      await this.ensureInitialized();
+      if (!this.redis) {
+        throw new Error('Redis client not initialized');
+      }
+
+      const matchKey = `match:${matchId}`;
+      const matchDataJson = await this.redis.hGet(matchKey, 'data');
+      
+      if (matchDataJson) {
+        const matchData: MatchData = JSON.parse(matchDataJson as string);
+        
+        // Extend expiration time
+        const newExpiresAt = Date.now() + (additionalMinutes * 60 * 1000);
+        matchData.expiresAt = newExpiresAt;
+        
+        // Update match data with new expiration
+        await this.redis.hSet(matchKey, 'data', JSON.stringify(matchData));
+        
+        // Extend Redis TTL (additionalMinutes + buffer for proposal creation)
+        const ttlSeconds = (additionalMinutes + 2) * 60; // Add 2 minute buffer
+        await this.redis.expire(matchKey, ttlSeconds);
+        
+        enhancedLogger.info(`⏰ Extended match expiration for proposal creation: ${matchId}`, {
+          matchId,
+          newExpiresAt: new Date(newExpiresAt).toISOString(),
+          additionalMinutes,
+          ttlSeconds
+        });
+      } else {
+        enhancedLogger.warn(`⚠️ Could not extend expiration for match ${matchId} - match not found in Redis`);
+      }
+    } catch (error: unknown) {
+      enhancedLogger.error(`❌ Error extending match expiration for ${matchId}:`, error);
+      // Don't throw - this is a best-effort operation
+    }
+  }
+
   async updateMatchStatus(matchId: string, status: MatchData['status']): Promise<void> {
     try {
       await this.ensureInitialized();
@@ -347,13 +390,62 @@ export class RedisMatchmakingService {
       }
 
       // Clean up expired matches
+      // CRITICAL: Don't expire matches if proposal creation is pending or in progress
       const matchKeys = await this.redis.keys('match:*');
       for (const matchKey of matchKeys) {
-                 const matchDataJson = await this.redis.hGet(matchKey, 'data');
-         if (matchDataJson) {
-           const matchData: MatchData = JSON.parse(matchDataJson as string);
+        const matchDataJson = await this.redis.hGet(matchKey, 'data');
+        if (matchDataJson) {
+          const matchData: MatchData = JSON.parse(matchDataJson as string);
           
           if (now > matchData.expiresAt) {
+            // CRITICAL: Check database to see if proposal creation is pending/in progress
+            // Don't expire matches that need proposal creation
+            try {
+              const { AppDataSource } = require('../db/index');
+              const { Match } = require('../db/entities/Match');
+              const matchRepository = AppDataSource.getRepository(Match);
+              
+              const dbMatchRows = await matchRepository.query(`
+                SELECT "proposalStatus", "isCompleted", "player1Result", "player2Result"
+                FROM "match"
+                WHERE id = $1
+              `, [matchData.matchId]);
+              
+              if (dbMatchRows && dbMatchRows.length > 0) {
+                const dbMatch = dbMatchRows[0];
+                const bothPlayersHaveResults = !!dbMatch.player1Result && !!dbMatch.player2Result;
+                const isCompleted = dbMatch.isCompleted;
+                const proposalStatus = dbMatch.proposalStatus;
+                
+                // Don't expire if:
+                // 1. Match is completed but proposal creation is pending/in progress
+                // 2. Both players have results but no proposal exists yet (proposal creation should start)
+                const shouldExpire = !(
+                  (isCompleted || bothPlayersHaveResults) && 
+                  (!proposalStatus || proposalStatus === 'PENDING' || proposalStatus === 'ACTIVE')
+                );
+                
+                if (!shouldExpire) {
+                  enhancedLogger.info(`⏸️ Skipping expiration for match ${matchData.matchId} — proposal creation pending/in progress`, {
+                    matchId: matchData.matchId,
+                    proposalStatus,
+                    isCompleted,
+                    bothPlayersHaveResults,
+                    expiresAt: new Date(matchData.expiresAt).toISOString(),
+                    now: new Date(now).toISOString()
+                  });
+                  continue; // Skip expiration for this match
+                }
+              }
+            } catch (dbError: any) {
+              // If database check fails, log but don't block expiration (fail-safe)
+              enhancedLogger.warn(`⚠️ Could not check proposal status for match ${matchData.matchId} before expiration:`, {
+                error: dbError?.message,
+                matchId: matchData.matchId
+              });
+            }
+            
+            // Match can be safely expired
             await this.redis.del(matchKey);
             await this.redis.del(`player:${matchData.player1}`);
             await this.redis.del(`player:${matchData.player2}`);

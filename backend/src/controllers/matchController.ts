@@ -2592,13 +2592,23 @@ const submitResultHandler = async (req: any, res: any) => {
         const matchRepository = AppDataSource.getRepository(Match);
         const finalMatchRows = await matchRepository.query(`
           SELECT id, winner, "isCompleted", "player1Result", "player2Result", 
-                 "player1", "player2", "entryFee", "squadsVaultAddress"
+                 "player1", "player2", "entryFee", "squadsVaultAddress", "proposalStatus"
           FROM "match"
           WHERE id = $1
         `, [matchId]);
         updatedMatch = finalMatchRows?.[0];
         if (!updatedMatch) {
           throw new Error('Match not found after transaction');
+        }
+        
+        // CRITICAL: Check if proposal creation is already in progress to prevent duplicate creation
+        if (updatedMatch.proposalStatus === 'PENDING' || updatedMatch.proposalStatus === 'ACTIVE') {
+          console.log('⏸️ Proposal creation already in progress — skipping', {
+            matchId: updatedMatch.id,
+            currentProposalStatus: updatedMatch.proposalStatus,
+            timestamp: new Date().toISOString()
+          });
+          return; // Exit - proposal creation is already running
         }
         
         // CRITICAL: Add helper methods to raw SQL result object
@@ -2690,39 +2700,133 @@ const submitResultHandler = async (req: any, res: any) => {
             // CRITICAL FIX: Make proposal creation NON-BLOCKING to prevent HTTP timeout
             // Start proposal creation in background and return response immediately
             // Frontend will poll for proposalId - it will appear in database when ready
-            console.log('🚀 Starting winner payout proposal creation (NON-BLOCKING)', {
+            console.log('📌 Scheduling proposal creation for match', {
               matchId: updatedMatch.id,
               winner,
               winnerAmount,
               feeAmount,
               vaultAddress: updatedMatch.squadsVaultAddress,
+              timestamp: new Date().toISOString()
             });
             
-            // Set status to PENDING immediately so frontend knows proposal is being created
+            // CRITICAL: Set status to PENDING and proposalCreatedAt immediately
+            // This lets expiration logic know proposal creation has begun
+            const proposalStartTime = new Date();
             await matchRepository.query(`
               UPDATE "match"
               SET "proposalStatus" = $1,
                   "matchStatus" = $2,
-                  "updatedAt" = $3
-              WHERE id = $4
-            `, ['PENDING', 'PROPOSAL_PENDING', new Date(), updatedMatch.id]);
+                  "proposalCreatedAt" = $3,
+                  "updatedAt" = $4
+              WHERE id = $5
+            `, ['PENDING', 'PROPOSAL_PENDING', proposalStartTime, proposalStartTime, updatedMatch.id]);
+            
+            console.log('✅ Set proposalStatus to PENDING and proposalCreatedAt immediately', {
+              matchId: updatedMatch.id,
+              proposalCreatedAt: proposalStartTime.toISOString(),
+              proposalStatus: 'PENDING'
+            });
+            
+            // CRITICAL: Extend match expiration to allow proposal creation to complete
+            // Proposal creation can take up to 90 seconds, so extend by 10 minutes to be safe
+            try {
+              await redisMatchmakingService.extendMatchExpirationForProposalCreation(updatedMatch.id, 10);
+            } catch (extendError: any) {
+              // Log but don't fail - expiration check in cleanup will still protect the match
+              console.warn('⚠️ Failed to extend match expiration for proposal creation:', {
+                matchId: updatedMatch.id,
+                error: extendError?.message
+              });
+            }
             
             // Start proposal creation in background - don't await it
+            // CRITICAL: Wrap entire IIFE in try-catch to ensure it always starts and logs
             (async () => {
-              // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
-              const { AppDataSource } = require('../db/index');
-              const backgroundMatchRepository = AppDataSource.getRepository(Match);
+              // CRITICAL: Acquire Redis lock to prevent concurrent proposal creation
+              const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
+              let lockAcquired = false;
               
-              const backgroundTaskStartTime = Date.now();
-              console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
+              try {
+                console.log('🔒 Acquiring proposal-creation lock', {
+                  matchId: updatedMatch.id,
+                  timestamp: new Date().toISOString()
+                });
+                lockAcquired = await getProposalLock(updatedMatch.id);
+                if (!lockAcquired) {
+                  console.warn('⚠️ Proposal creation lock already held — retrying', {
+                    matchId: updatedMatch.id,
+                    timestamp: new Date().toISOString()
+                  });
+                  // Check if proposal was created by another process
+                  const checkRows = await matchRepository.query(`
+                    SELECT "payoutProposalId", "proposalStatus"
+                    FROM "match"
+                    WHERE id = $1
+                  `, [updatedMatch.id]);
+                  
+                  if (checkRows && checkRows.length > 0 && checkRows[0].payoutProposalId) {
+                    console.log('✅ Proposal already exists (created by another process), exiting background task', {
+                      matchId: updatedMatch.id,
+                      proposalId: checkRows[0].payoutProposalId,
+                      proposalStatus: checkRows[0].proposalStatus
+                    });
+                    return; // Exit - proposal already exists
+                  }
+                  
+                  // If no proposal exists but lock couldn't be acquired, wait a bit and retry once
+                  await new Promise(resolve => setTimeout(resolve, 1000));
+                  lockAcquired = await getProposalLock(updatedMatch.id);
+                  
+                  if (!lockAcquired) {
+                    console.warn('⚠️ Proposal creation lock already held — skipping', {
+                      matchId: updatedMatch.id,
+                      note: 'Another process is creating the proposal'
+                    });
+                    return; // Exit to prevent duplicate creation
+                  }
+                  console.log('✅ Proposal lock acquired after retry', {
+                    matchId: updatedMatch.id
+                  });
+                }
+                console.log('✅ Proposal lock acquired', {
+                  matchId: updatedMatch.id
+                });
+              } catch (lockError: any) {
+                console.error('❌ Error acquiring proposal lock:', {
+                  matchId: updatedMatch.id,
+                  error: lockError?.message
+                });
+                // Continue anyway - lock acquisition failure shouldn't block proposal creation
+                // The PENDING status check will prevent duplicates
+              }
+              
+              // Log immediately when IIFE starts - this confirms the task was scheduled
+              console.log('⏳ Calling proposeWinnerPayout service...', {
                 matchId: updatedMatch.id,
                 timestamp: new Date().toISOString(),
                 winner,
                 winnerAmount,
                 feeAmount,
                 vaultAddress: updatedMatch.squadsVaultAddress,
-                vaultPda: updatedMatch.squadsVaultPda
+                vaultPda: updatedMatch.squadsVaultPda,
+                lockAcquired
               });
+              
+              try {
+                // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
+                const { AppDataSource } = require('../db/index');
+                const backgroundMatchRepository = AppDataSource.getRepository(Match);
+                
+                const backgroundTaskStartTime = Date.now();
+                console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
+                  matchId: updatedMatch.id,
+                  timestamp: new Date().toISOString(),
+                  winner,
+                  winnerAmount,
+                  feeAmount,
+                  vaultAddress: updatedMatch.squadsVaultAddress,
+                  vaultPda: updatedMatch.squadsVaultPda
+                });
               
               try {
                 // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
@@ -2747,11 +2851,6 @@ const submitResultHandler = async (req: any, res: any) => {
                 }
                 
                 // Add timeout to prevent hanging forever
-                console.log('⏳ Calling proposeWinnerPayout service...', {
-                  matchId: updatedMatch.id,
-                  vaultAddress: updatedMatch.squadsVaultAddress
-                });
-                
                 const proposalPromise = squadsVaultService.proposeWinnerPayout(
                   updatedMatch.squadsVaultAddress,
                   new PublicKey(winner),
@@ -2905,6 +3004,14 @@ const submitResultHandler = async (req: any, res: any) => {
                         proposalId: proposalResult.proposalId,
                         attempts: maxVerificationAttempts
                       });
+                    } else {
+                      // CRITICAL: Log completion after VaultTransaction is confirmed on-chain
+                      console.log('🎉 Proposal creation complete — VaultTransaction confirmed on-chain', {
+                        matchId: updatedMatch.id,
+                        proposalId: proposalResult.proposalId,
+                        proposalStatus: 'ACTIVE',
+                        timestamp: new Date().toISOString()
+                      });
                     }
                   } catch (updateError: any) {
                     console.error('❌ Failed to update match with proposal information:', {
@@ -2912,7 +3019,36 @@ const submitResultHandler = async (req: any, res: any) => {
                       error: updateError?.message,
                       stack: updateError?.stack
                     });
+                    
+                    // Release lock even if update fails
+                    if (lockAcquired) {
+                      try {
+                        await releaseProposalLock(updatedMatch.id);
+                      } catch (releaseError: any) {
+                        console.warn('⚠️ Failed to release proposal lock after update error:', {
+                          matchId: updatedMatch.id,
+                          error: releaseError?.message
+                        });
+                      }
+                    }
+                    
                     throw updateError; // Re-throw to be caught by outer catch
+                  }
+                  
+                  // CRITICAL: Release lock after successful proposal creation
+                  if (lockAcquired) {
+                    try {
+                      await releaseProposalLock(updatedMatch.id);
+                      console.log('🔓 Lock released', {
+                        matchId: updatedMatch.id,
+                        note: 'Proposal creation completed successfully'
+                      });
+                    } catch (releaseError: any) {
+                      console.warn('⚠️ Failed to release proposal lock after success:', {
+                        matchId: updatedMatch.id,
+                        error: releaseError?.message
+                      });
+                    }
                   }
                 } else {
                   // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
@@ -3020,7 +3156,9 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                   }
                 } else {
-                  console.error(`❌ BACKGROUND TASK ERROR: Proposal creation failed after ${elapsedTime}ms`, {
+                  console.error('❌ Proposal creation failed', {
+                    matchId: updatedMatch.id,
+                    elapsedTimeMs: elapsedTime,
                     matchId: updatedMatch.id,
                     error: errorMessage,
                     errorType: error instanceof Error ? error.constructor.name : typeof error,
@@ -3047,6 +3185,65 @@ const submitResultHandler = async (req: any, res: any) => {
                       matchId: updatedMatch.id,
                       updateError: updateError?.message,
                       updateStack: updateError?.stack
+                    });
+                  }
+                  
+                  // CRITICAL: Release lock after proposal creation failure
+                  if (lockAcquired) {
+                    try {
+                      await releaseProposalLock(updatedMatch.id);
+                      console.log('🔓 Lock released', {
+                        matchId: updatedMatch.id,
+                        note: 'Proposal creation failed'
+                      });
+                    } catch (releaseError: any) {
+                      console.warn('⚠️ Failed to release proposal lock after failure:', {
+                        matchId: updatedMatch.id,
+                        error: releaseError?.message
+                      });
+                    }
+                  }
+                }
+              } catch (outerError: any) {
+                // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
+                console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
+                  matchId: updatedMatch.id,
+                  error: outerError?.message || String(outerError),
+                  errorType: outerError instanceof Error ? outerError.constructor.name : typeof outerError,
+                  stack: outerError?.stack,
+                  timestamp: new Date().toISOString()
+                });
+                
+                // Try to mark match as failed if we can
+                try {
+                  const { AppDataSource } = require('../db/index');
+                  const errorMatchRepository = AppDataSource.getRepository(Match);
+                  await errorMatchRepository.query(`
+                    UPDATE "match"
+                    SET "proposalStatus" = $1,
+                        "matchStatus" = $2,
+                        "updatedAt" = $3
+                    WHERE id = $4
+                  `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                } catch (updateError: any) {
+                  console.error('❌ Failed to update match status after IIFE error:', {
+                    matchId: updatedMatch.id,
+                    updateError: updateError?.message
+                  });
+                }
+                
+                // CRITICAL: Release lock in outer catch (IIFE setup failure)
+                if (lockAcquired) {
+                  try {
+                    await releaseProposalLock(updatedMatch.id);
+                    console.log('🔓 Lock released', {
+                      matchId: updatedMatch.id,
+                      note: 'IIFE setup failed'
+                    });
+                  } catch (releaseError: any) {
+                    console.warn('⚠️ Failed to release proposal lock after IIFE error:', {
+                      matchId: updatedMatch.id,
+                      error: releaseError?.message
                     });
                   }
                 }
