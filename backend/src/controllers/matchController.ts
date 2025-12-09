@@ -2794,11 +2794,11 @@ const submitResultHandler = async (req: any, res: any) => {
                 console.log('✅ Proposal lock acquired', {
                   matchId: updatedMatch.id
                 });
-              } catch (lockError: any) {
-                console.error('❌ Error acquiring proposal lock:', {
-                  matchId: updatedMatch.id,
-                  error: lockError?.message
-                });
+                } catch (lockError: any) {
+                  console.error('❌ Error acquiring proposal lock:', {
+                    matchId: updatedMatch.id,
+                    error: lockError?.message
+                  });
                   // Continue anyway - lock acquisition failure shouldn't block proposal creation
                   // The PENDING status check will prevent duplicates
                 }
@@ -2817,22 +2817,22 @@ const submitResultHandler = async (req: any, res: any) => {
                 
                 // Inner try block for proposal creation
                 try {
-                // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
-                const { AppDataSource } = require('../db/index');
-                const backgroundMatchRepository = AppDataSource.getRepository(Match);
+                  // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
+                  const { AppDataSource } = require('../db/index');
+                  const backgroundMatchRepository = AppDataSource.getRepository(Match);
+                  
+                  const backgroundTaskStartTime = Date.now();
+                  console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
+                    matchId: updatedMatch.id,
+                    timestamp: new Date().toISOString(),
+                    winner,
+                    winnerAmount,
+                    feeAmount,
+                    vaultAddress: updatedMatch.squadsVaultAddress,
+                    vaultPda: updatedMatch.squadsVaultPda
+                  });
                 
-                const backgroundTaskStartTime = Date.now();
-                console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
-                  matchId: updatedMatch.id,
-                  timestamp: new Date().toISOString(),
-                  winner,
-                  winnerAmount,
-                  feeAmount,
-                  vaultAddress: updatedMatch.squadsVaultAddress,
-                  vaultPda: updatedMatch.squadsVaultPda
-                });
-              
-              try {
+                  try {
                 // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
                 const proposalCheckRows = await backgroundMatchRepository.query(`
                   SELECT "payoutProposalId", "tieRefundProposalId"
