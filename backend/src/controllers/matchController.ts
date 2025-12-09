@@ -3279,6 +3279,7 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
           }
+        }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
