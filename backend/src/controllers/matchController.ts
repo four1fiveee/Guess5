@@ -2833,287 +2833,287 @@ const submitResultHandler = async (req: any, res: any) => {
                   });
                 
                   try {
-                // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
-                const proposalCheckRows = await backgroundMatchRepository.query(`
-                  SELECT "payoutProposalId", "tieRefundProposalId"
-                  FROM "match"
-                  WHERE id = $1
-                  FOR UPDATE
-                  LIMIT 1
-                `, [updatedMatch.id]);
-                
-                const hasExistingProposal = proposalCheckRows && proposalCheckRows.length > 0 && 
-                                            (proposalCheckRows[0].payoutProposalId || proposalCheckRows[0].tieRefundProposalId);
-                
-                if (hasExistingProposal) {
-                  console.log('✅ Proposal already exists (submitResultHandler background), skipping creation', {
-                    matchId: updatedMatch.id,
-                    payoutProposalId: proposalCheckRows[0].payoutProposalId,
-                    tieRefundProposalId: proposalCheckRows[0].tieRefundProposalId,
-                  });
-                  return; // Proposal already exists, don't create another one
-                }
-                
-                // Add timeout to prevent hanging forever
-                const proposalPromise = squadsVaultService.proposeWinnerPayout(
-                  updatedMatch.squadsVaultAddress,
-                  new PublicKey(winner),
-                  winnerAmount,
-                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                  feeAmount,
-                  updatedMatch.squadsVaultPda ?? undefined
-                );
-                
-                // CRITICAL: Increase timeout to 90 seconds to account for:
-                // - vaultTransactionCreate: ~5-10s
-                // - Account availability wait: ~2-5s
-                // - Transaction index verification: ~2-5s
-                // - proposalCreate: ~5-10s
-                // - Proposal confirmation: ~2-5s
-                // - Proposal verification (up to 5 retries with delays): ~30s
-                // Total: ~50-65s, so 90s provides a safe buffer
-                const timeoutPromise = new Promise((_, reject) => {
-                  setTimeout(() => reject(new Error('Proposal creation timeout (90s)')), 90000);
-                });
-                
-                console.log('⏳ Waiting for proposal creation (with 30s timeout)...', {
-                  matchId: updatedMatch.id
-                });
-                
-                const proposalResult = await Promise.race([proposalPromise, timeoutPromise]) as any;
-                
-                const elapsedTime = Date.now() - backgroundTaskStartTime;
-                console.log('⏱️ Proposal creation completed', {
-                  matchId: updatedMatch.id,
-                  elapsedMs: elapsedTime,
-                  success: proposalResult?.success,
-                  proposalId: proposalResult?.proposalId,
-                  error: proposalResult?.error
-                });
-                
-                if (proposalResult && proposalResult.success) {
-                  console.log('✅ Squads winner payout proposal created (background):', proposalResult.proposalId);
-                
-                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-
-                  // Update match with proposal information using raw SQL
-                  try {
-                    console.log('💾 Executing UPDATE query to set proposalStatus to ACTIVE', {
-                      matchId: updatedMatch.id,
-                      proposalId: proposalResult.proposalId,
-                      proposalStatus: 'ACTIVE',
-                      needsSignatures: proposalState.normalizedNeeds
-                    });
+                    // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
+                    const proposalCheckRows = await backgroundMatchRepository.query(`
+                      SELECT "payoutProposalId", "tieRefundProposalId"
+                      FROM "match"
+                      WHERE id = $1
+                      FOR UPDATE
+                      LIMIT 1
+                    `, [updatedMatch.id]);
                     
-                    const updateResult = await backgroundMatchRepository.query(`
-                    UPDATE "match"
-                    SET "payoutProposalId" = $1,
-                        "proposalCreatedAt" = $2,
-                        "proposalStatus" = $3,
-                        "needsSignatures" = $4,
-                        "proposalSigners" = $5,
-                        "matchStatus" = $6,
-                        "updatedAt" = $7
-                    WHERE id = $8
-                  `, [
-                    proposalResult.proposalId,
-                    new Date(),
-                    'ACTIVE',
-                    proposalState.normalizedNeeds,
-                    proposalState.signersJson,
-                    'PROPOSAL_CREATED',
-                    new Date(),
-                    updatedMatch.id
-                  ]);
-                  
-                    // CRITICAL: Check if UPDATE actually affected rows
-                    const rowsAffected = Array.isArray(updateResult) ? updateResult[1] : (updateResult?.rowCount || 0);
-                    console.log('📊 UPDATE query result:', {
-                      matchId: updatedMatch.id,
-                      rowsAffected: rowsAffected,
-                      updateResultType: Array.isArray(updateResult) ? 'array' : typeof updateResult,
-                      updateResult: JSON.stringify(updateResult).substring(0, 200)
-                    });
+                    const hasExistingProposal = proposalCheckRows && proposalCheckRows.length > 0 && 
+                                                (proposalCheckRows[0].payoutProposalId || proposalCheckRows[0].tieRefundProposalId);
                     
-                    if (rowsAffected === 0) {
-                      console.error('❌ CRITICAL: UPDATE query affected 0 rows!', {
+                    if (hasExistingProposal) {
+                      console.log('✅ Proposal already exists (submitResultHandler background), skipping creation', {
                         matchId: updatedMatch.id,
-                        proposalId: proposalResult.proposalId,
-                        query: 'UPDATE match SET proposalStatus = ACTIVE WHERE id = ...'
+                        payoutProposalId: proposalCheckRows[0].payoutProposalId,
+                        tieRefundProposalId: proposalCheckRows[0].tieRefundProposalId,
                       });
+                      return; // Proposal already exists, don't create another one
                     }
                     
-                    console.log('✅ Match saved with proposal information (background):', {
-                    matchId: updatedMatch.id,
-                    proposalId: proposalResult.proposalId,
-                    proposalStatus: 'ACTIVE',
-                    needsSignatures: proposalState.normalizedNeeds,
-                      rowsAffected: rowsAffected
+                    // Add timeout to prevent hanging forever
+                    const proposalPromise = squadsVaultService.proposeWinnerPayout(
+                      updatedMatch.squadsVaultAddress,
+                      new PublicKey(winner),
+                      winnerAmount,
+                      new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                      feeAmount,
+                      updatedMatch.squadsVaultPda ?? undefined
+                    );
+                    
+                    // CRITICAL: Increase timeout to 90 seconds to account for:
+                    // - vaultTransactionCreate: ~5-10s
+                    // - Account availability wait: ~2-5s
+                    // - Transaction index verification: ~2-5s
+                    // - proposalCreate: ~5-10s
+                    // - Proposal confirmation: ~2-5s
+                    // - Proposal verification (up to 5 retries with delays): ~30s
+                    // Total: ~50-65s, so 90s provides a safe buffer
+                    const timeoutPromise = new Promise((_, reject) => {
+                      setTimeout(() => reject(new Error('Proposal creation timeout (90s)')), 90000);
                     });
                     
-                    // CRITICAL: Verify the update actually worked and retry if needed
-                    let verificationAttempts = 0;
-                    const maxVerificationAttempts = 3;
-                    let statusCorrect = false;
+                    console.log('⏳ Waiting for proposal creation (with 30s timeout)...', {
+                      matchId: updatedMatch.id
+                    });
                     
-                    while (!statusCorrect && verificationAttempts < maxVerificationAttempts) {
-                      await new Promise(resolve => setTimeout(resolve, 500 * (verificationAttempts + 1))); // Wait before verification
-                      
-                      const verifyResult = await backgroundMatchRepository.query(`
-                        SELECT "proposalStatus", "payoutProposalId" 
-                        FROM "match" 
-                        WHERE id = $1
-                      `, [updatedMatch.id]);
-                      
-                      if (verifyResult && verifyResult.length > 0) {
-                        const actualStatus = verifyResult[0].proposalStatus;
-                        if (actualStatus === 'ACTIVE') {
-                          statusCorrect = true;
-                          console.log('✅ Verified proposalStatus is ACTIVE', {
+                    const proposalResult = await Promise.race([proposalPromise, timeoutPromise]) as any;
+                    
+                    const elapsedTime = Date.now() - backgroundTaskStartTime;
+                    console.log('⏱️ Proposal creation completed', {
+                      matchId: updatedMatch.id,
+                      elapsedMs: elapsedTime,
+                      success: proposalResult?.success,
+                      proposalId: proposalResult?.proposalId,
+                      error: proposalResult?.error
+                    });
+                    
+                    if (proposalResult && proposalResult.success) {
+                      console.log('✅ Squads winner payout proposal created (background):', proposalResult.proposalId);
+                    
+                      const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
+
+                      // Update match with proposal information using raw SQL
+                      try {
+                        console.log('💾 Executing UPDATE query to set proposalStatus to ACTIVE', {
+                          matchId: updatedMatch.id,
+                          proposalId: proposalResult.proposalId,
+                          proposalStatus: 'ACTIVE',
+                          needsSignatures: proposalState.normalizedNeeds
+                        });
+                        
+                        const updateResult = await backgroundMatchRepository.query(`
+                          UPDATE "match"
+                          SET "payoutProposalId" = $1,
+                              "proposalCreatedAt" = $2,
+                              "proposalStatus" = $3,
+                              "needsSignatures" = $4,
+                              "proposalSigners" = $5,
+                              "matchStatus" = $6,
+                              "updatedAt" = $7
+                          WHERE id = $8
+                        `, [
+                          proposalResult.proposalId,
+                          new Date(),
+                          'ACTIVE',
+                          proposalState.normalizedNeeds,
+                          proposalState.signersJson,
+                          'PROPOSAL_CREATED',
+                          new Date(),
+                          updatedMatch.id
+                        ]);
+                        
+                        // CRITICAL: Check if UPDATE actually affected rows
+                        const rowsAffected = Array.isArray(updateResult) ? updateResult[1] : (updateResult?.rowCount || 0);
+                        console.log('📊 UPDATE query result:', {
+                          matchId: updatedMatch.id,
+                          rowsAffected: rowsAffected,
+                          updateResultType: Array.isArray(updateResult) ? 'array' : typeof updateResult,
+                          updateResult: JSON.stringify(updateResult).substring(0, 200)
+                        });
+                        
+                        if (rowsAffected === 0) {
+                          console.error('❌ CRITICAL: UPDATE query affected 0 rows!', {
                             matchId: updatedMatch.id,
-                            attempt: verificationAttempts + 1
-                  });
-                } else {
-                          console.error(`❌ CRITICAL: proposalStatus is ${actualStatus || 'NULL'} instead of ACTIVE (attempt ${verificationAttempts + 1}/${maxVerificationAttempts})`, {
-                            matchId: updatedMatch.id,
-                            expected: 'ACTIVE',
-                            actual: actualStatus,
-                            payoutProposalId: verifyResult[0].payoutProposalId,
-                            proposalId: proposalResult.proposalId
+                            proposalId: proposalResult.proposalId,
+                            query: 'UPDATE match SET proposalStatus = ACTIVE WHERE id = ...'
                           });
+                        }
+                        
+                        console.log('✅ Match saved with proposal information (background):', {
+                          matchId: updatedMatch.id,
+                          proposalId: proposalResult.proposalId,
+                          proposalStatus: 'ACTIVE',
+                          needsSignatures: proposalState.normalizedNeeds,
+                          rowsAffected: rowsAffected
+                        });
+                        
+                        // CRITICAL: Verify the update actually worked and retry if needed
+                        let verificationAttempts = 0;
+                        const maxVerificationAttempts = 3;
+                        let statusCorrect = false;
+                        
+                        while (!statusCorrect && verificationAttempts < maxVerificationAttempts) {
+                          await new Promise(resolve => setTimeout(resolve, 500 * (verificationAttempts + 1))); // Wait before verification
                           
-                          // Retry the update with explicit NULL check
-                          const retryResult = await backgroundMatchRepository.query(`
-                            UPDATE "match"
-                            SET "proposalStatus" = $1,
-                                "updatedAt" = $2
-                            WHERE id = $3 
-                              AND "payoutProposalId" = $4
-                              AND ("proposalStatus" IS NULL OR "proposalStatus" != $1)
-                          `, ['ACTIVE', new Date(), updatedMatch.id, proposalResult.proposalId]);
+                          const verifyResult = await backgroundMatchRepository.query(`
+                            SELECT "proposalStatus", "payoutProposalId" 
+                            FROM "match" 
+                            WHERE id = $1
+                          `, [updatedMatch.id]);
                           
-                          console.log('🔧 Retried setting proposalStatus to ACTIVE', {
+                          if (verifyResult && verifyResult.length > 0) {
+                            const actualStatus = verifyResult[0].proposalStatus;
+                            if (actualStatus === 'ACTIVE') {
+                              statusCorrect = true;
+                              console.log('✅ Verified proposalStatus is ACTIVE', {
+                                matchId: updatedMatch.id,
+                                attempt: verificationAttempts + 1
+                              });
+                            } else {
+                              console.error(`❌ CRITICAL: proposalStatus is ${actualStatus || 'NULL'} instead of ACTIVE (attempt ${verificationAttempts + 1}/${maxVerificationAttempts})`, {
+                                matchId: updatedMatch.id,
+                                expected: 'ACTIVE',
+                                actual: actualStatus,
+                                payoutProposalId: verifyResult[0].payoutProposalId,
+                                proposalId: proposalResult.proposalId
+                              });
+                              
+                              // Retry the update with explicit NULL check
+                              const retryResult = await backgroundMatchRepository.query(`
+                                UPDATE "match"
+                                SET "proposalStatus" = $1,
+                                    "updatedAt" = $2
+                                WHERE id = $3 
+                                  AND "payoutProposalId" = $4
+                                  AND ("proposalStatus" IS NULL OR "proposalStatus" != $1)
+                              `, ['ACTIVE', new Date(), updatedMatch.id, proposalResult.proposalId]);
+                              
+                              console.log('🔧 Retried setting proposalStatus to ACTIVE', {
+                                matchId: updatedMatch.id,
+                                rowsAffected: retryResult?.[1] || 'unknown',
+                                attempt: verificationAttempts + 1
+                              });
+                            }
+                          }
+                          verificationAttempts++;
+                        }
+                        
+                        if (!statusCorrect) {
+                          console.error('❌ CRITICAL: Failed to set proposalStatus to ACTIVE after all retries!', {
                             matchId: updatedMatch.id,
-                            rowsAffected: retryResult?.[1] || 'unknown',
-                            attempt: verificationAttempts + 1
+                            proposalId: proposalResult.proposalId,
+                            attempts: maxVerificationAttempts
+                          });
+                        } else {
+                          // CRITICAL: Log completion after VaultTransaction is confirmed on-chain
+                          console.log('🎉 Proposal creation complete — VaultTransaction confirmed on-chain', {
+                            matchId: updatedMatch.id,
+                            proposalId: proposalResult.proposalId,
+                            proposalStatus: 'ACTIVE',
+                            timestamp: new Date().toISOString()
+                          });
+                        }
+                      } catch (updateError: any) {
+                        console.error('❌ Failed to update match with proposal information:', {
+                          matchId: updatedMatch.id,
+                          error: updateError?.message,
+                          stack: updateError?.stack
+                        });
+                        
+                        // Release lock even if update fails
+                        if (lockAcquired) {
+                          try {
+                            await releaseProposalLock(updatedMatch.id);
+                          } catch (releaseError: any) {
+                            console.warn('⚠️ Failed to release proposal lock after update error:', {
+                              matchId: updatedMatch.id,
+                              error: releaseError?.message
+                            });
+                          }
+                        }
+                        
+                        throw updateError; // Re-throw to be caught by outer catch
+                      }
+                      
+                      // CRITICAL: Release lock after successful proposal creation
+                      if (lockAcquired) {
+                        try {
+                          await releaseProposalLock(updatedMatch.id);
+                          console.log('🔓 Lock released', {
+                            matchId: updatedMatch.id,
+                            note: 'Proposal creation completed successfully'
+                          });
+                        } catch (releaseError: any) {
+                          console.warn('⚠️ Failed to release proposal lock after success:', {
+                            matchId: updatedMatch.id,
+                            error: releaseError?.message
                           });
                         }
                       }
-                      verificationAttempts++;
-                    }
-                    
-                    if (!statusCorrect) {
-                      console.error('❌ CRITICAL: Failed to set proposalStatus to ACTIVE after all retries!', {
-                        matchId: updatedMatch.id,
-                        proposalId: proposalResult.proposalId,
-                        attempts: maxVerificationAttempts
-                      });
                     } else {
-                      // CRITICAL: Log completion after VaultTransaction is confirmed on-chain
-                      console.log('🎉 Proposal creation complete — VaultTransaction confirmed on-chain', {
-                        matchId: updatedMatch.id,
-                        proposalId: proposalResult.proposalId,
-                        proposalStatus: 'ACTIVE',
-                        timestamp: new Date().toISOString()
-                      });
-                    }
-                  } catch (updateError: any) {
-                    console.error('❌ Failed to update match with proposal information:', {
-                      matchId: updatedMatch.id,
-                      error: updateError?.message,
-                      stack: updateError?.stack
-                    });
-                    
-                    // Release lock even if update fails
-                    if (lockAcquired) {
-                      try {
-                        await releaseProposalLock(updatedMatch.id);
-                      } catch (releaseError: any) {
-                        console.warn('⚠️ Failed to release proposal lock after update error:', {
+                      // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
+                      const isVaultTxCreationFailed = proposalResult?.errorCode === 'VAULT_TX_CREATION_FAILED' ||
+                                                       proposalResult?.fatal === true ||
+                                                       proposalResult?.cause === 'VAULT_TX_CREATION_FAILED' ||
+                                                       (proposalResult?.error && proposalResult.error.includes('VaultTransaction never appeared'));
+                      
+                      if (isVaultTxCreationFailed) {
+                        console.error('❌ FATAL: Irrecoverable proposal creation failure (VAULT_TX_CREATION_FAILED)', {
                           matchId: updatedMatch.id,
-                          error: releaseError?.message
+                          error: proposalResult?.error,
+                          errorCode: proposalResult?.errorCode,
+                          details: proposalResult?.details,
+                          note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
                         });
+                        
+                        // Mark match as irrecoverably failed - frontend should show "Match failed to initialize"
+                        try {
+                          await backgroundMatchRepository.query(`
+                            UPDATE "match"
+                            SET "proposalStatus" = $1,
+                                "matchStatus" = $2,
+                                "updatedAt" = $3
+                            WHERE id = $4
+                          `, ['VAULT_TX_CREATION_FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                          console.log('✅ Updated match status to VAULT_TX_CREATION_FAILED (irrecoverable)', {
+                            matchId: updatedMatch.id,
+                            error: proposalResult?.error,
+                            errorCode: proposalResult?.errorCode,
+                            note: 'Frontend should detect this and show "Match failed to initialize" message',
+                          });
+                        } catch (updateError: any) {
+                          console.error('❌ Failed to update match status after VAULT_TX_CREATION_FAILED:', {
+                            matchId: updatedMatch.id,
+                            updateError: updateError?.message
+                          });
+                        }
+                      } else {
+                        console.error('❌ Squads proposal creation failed (background):', proposalResult?.error || 'Unknown error');
+                        // Update status to indicate failure - CRITICAL: Use backgroundMatchRepository (fresh instance)
+                        try {
+                          await backgroundMatchRepository.query(`
+                            UPDATE "match"
+                            SET "proposalStatus" = $1,
+                                "matchStatus" = $2,
+                                "updatedAt" = $3
+                            WHERE id = $4
+                          `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                          console.log('✅ Updated match status to FAILED after proposal creation failure', {
+                            matchId: updatedMatch.id,
+                            error: proposalResult?.error
+                          });
+                        } catch (updateError: any) {
+                          console.error('❌ Failed to update match status after proposal creation failure:', {
+                            matchId: updatedMatch.id,
+                            updateError: updateError?.message
+                          });
+                        }
                       }
                     }
-                    
-                    throw updateError; // Re-throw to be caught by outer catch
-                  }
-                  
-                  // CRITICAL: Release lock after successful proposal creation
-                  if (lockAcquired) {
-                    try {
-                      await releaseProposalLock(updatedMatch.id);
-                      console.log('🔓 Lock released', {
-                        matchId: updatedMatch.id,
-                        note: 'Proposal creation completed successfully'
-                      });
-                    } catch (releaseError: any) {
-                      console.warn('⚠️ Failed to release proposal lock after success:', {
-                        matchId: updatedMatch.id,
-                        error: releaseError?.message
-                      });
-                    }
-                  }
-                } else {
-                  // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
-                  const isVaultTxCreationFailed = proposalResult?.errorCode === 'VAULT_TX_CREATION_FAILED' ||
-                                                   proposalResult?.fatal === true ||
-                                                   proposalResult?.cause === 'VAULT_TX_CREATION_FAILED' ||
-                                                   (proposalResult?.error && proposalResult.error.includes('VaultTransaction never appeared'));
-                  
-                  if (isVaultTxCreationFailed) {
-                    console.error('❌ FATAL: Irrecoverable proposal creation failure (VAULT_TX_CREATION_FAILED)', {
-                      matchId: updatedMatch.id,
-                      error: proposalResult?.error,
-                      errorCode: proposalResult?.errorCode,
-                      details: proposalResult?.details,
-                      note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
-                    });
-                    
-                    // Mark match as irrecoverably failed - frontend should show "Match failed to initialize"
-                    try {
-                      await backgroundMatchRepository.query(`
-                        UPDATE "match"
-                        SET "proposalStatus" = $1,
-                            "matchStatus" = $2,
-                            "updatedAt" = $3
-                        WHERE id = $4
-                      `, ['VAULT_TX_CREATION_FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                      console.log('✅ Updated match status to VAULT_TX_CREATION_FAILED (irrecoverable)', {
-                        matchId: updatedMatch.id,
-                        error: proposalResult?.error,
-                        errorCode: proposalResult?.errorCode,
-                        note: 'Frontend should detect this and show "Match failed to initialize" message',
-                      });
-                    } catch (updateError: any) {
-                      console.error('❌ Failed to update match status after VAULT_TX_CREATION_FAILED:', {
-                        matchId: updatedMatch.id,
-                        updateError: updateError?.message
-                      });
-                    }
-                  } else {
-                    console.error('❌ Squads proposal creation failed (background):', proposalResult?.error || 'Unknown error');
-                    // Update status to indicate failure - CRITICAL: Use backgroundMatchRepository (fresh instance)
-                    try {
-                      await backgroundMatchRepository.query(`
-                        UPDATE "match"
-                        SET "proposalStatus" = $1,
-                            "matchStatus" = $2,
-                            "updatedAt" = $3
-                        WHERE id = $4
-                      `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                      console.log('✅ Updated match status to FAILED after proposal creation failure', {
-                        matchId: updatedMatch.id,
-                        error: proposalResult?.error
-                      });
-                    } catch (updateError: any) {
-                      console.error('❌ Failed to update match status after proposal creation failure:', {
-                        matchId: updatedMatch.id,
-                        updateError: updateError?.message
-                      });
-                    }
-                  }
-                }
               } catch (error: unknown) {
                 const elapsedTime = Date.now() - backgroundTaskStartTime;
                 const errorMessage = error instanceof Error ? error.message : String(error);
