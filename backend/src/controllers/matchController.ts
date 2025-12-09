@@ -2746,7 +2746,10 @@ const submitResultHandler = async (req: any, res: any) => {
               const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
               let lockAcquired = false;
               
+              // Outer try block to catch all errors
               try {
+                // Lock acquisition try-catch
+                try {
                 console.log('🔒 Acquiring proposal-creation lock', {
                   matchId: updatedMatch.id,
                   timestamp: new Date().toISOString()
@@ -2796,23 +2799,24 @@ const submitResultHandler = async (req: any, res: any) => {
                   matchId: updatedMatch.id,
                   error: lockError?.message
                 });
-                // Continue anyway - lock acquisition failure shouldn't block proposal creation
-                // The PENDING status check will prevent duplicates
-              }
-              
-              // Log immediately when IIFE starts - this confirms the task was scheduled
-              console.log('⏳ Calling proposeWinnerPayout service...', {
-                matchId: updatedMatch.id,
-                timestamp: new Date().toISOString(),
-                winner,
-                winnerAmount,
-                feeAmount,
-                vaultAddress: updatedMatch.squadsVaultAddress,
-                vaultPda: updatedMatch.squadsVaultPda,
-                lockAcquired
-              });
-              
-              try {
+                  // Continue anyway - lock acquisition failure shouldn't block proposal creation
+                  // The PENDING status check will prevent duplicates
+                }
+                
+                // Log immediately when IIFE starts - this confirms the task was scheduled
+                console.log('⏳ Calling proposeWinnerPayout service...', {
+                  matchId: updatedMatch.id,
+                  timestamp: new Date().toISOString(),
+                  winner,
+                  winnerAmount,
+                  feeAmount,
+                  vaultAddress: updatedMatch.squadsVaultAddress,
+                  vaultPda: updatedMatch.squadsVaultPda,
+                  lockAcquired
+                });
+                
+                // Inner try block for proposal creation
+                try {
                 // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
                 const { AppDataSource } = require('../db/index');
                 const backgroundMatchRepository = AppDataSource.getRepository(Match);
