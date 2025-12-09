@@ -1675,19 +1675,17 @@ const Matchmaking: React.FC = () => {
 
           {status === 'active' && countdown !== null && countdown > 0 && (
             <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
-              {/* Clean countdown display - matching gameplay page style */}
-              <div className="relative flex items-center justify-center mb-8">
+              {/* Clean countdown display - matching gameplay page style - no container boxes */}
+              <div className="relative mb-8">
                 {/* Subtle glow effect without borders */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-72 h-72 rounded-full bg-accent/5 animate-pulse"></div>
+                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                  <div className="w-96 h-96 rounded-full bg-accent/5 animate-pulse"></div>
                 </div>
                 
-                {/* Main countdown number - no border box */}
-                <div className="relative z-10">
-                  <span className="text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none">
-                    {countdown}
-                  </span>
-                </div>
+                {/* Main countdown number - directly displayed, no nested containers */}
+                <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none block">
+                  {countdown}
+                </span>
               </div>
               
               {/* Clean text matching gameplay page */}
