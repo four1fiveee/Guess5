@@ -2,7 +2,20 @@ const { enhancedLogger } = require('../utils/enhancedLogger');
 
 // Async handler wrapper for Express routes
 const asyncHandler = (fn: any) => (req: any, res: any, next: any) => {
-  Promise.resolve(fn(req, res, next)).catch(next);
+  Promise.resolve(fn(req, res, next)).catch((err: any) => {
+    // CRITICAL: Log errors immediately to catch silent failures
+    console.error('🔥 Async handler error:', {
+      error: err?.message || err,
+      stack: err?.stack,
+      url: req?.url,
+      method: req?.method,
+      path: req?.path,
+      route: req?.route?.path,
+      contentType: req?.headers?.['content-type'],
+      timestamp: new Date().toISOString(),
+    });
+    next(err);
+  });
 };
 
 // Enhanced error types for better frontend compatibility

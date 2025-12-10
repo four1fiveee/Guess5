@@ -259,7 +259,37 @@ router.options('/sign-proposal', (req: any, res: any) => {
 // Format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
 // Body: raw signed transaction bytes (Uint8Array serialized)
 router.post('/sign-proposal',
+  // CRITICAL: Log route entry to confirm routing works
+  (req: any, res: any, next: any) => {
+    console.log('🚚 Request reached sign-proposal route', {
+      url: req.url,
+      method: req.method,
+      path: req.path,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      query: req.query,
+      timestamp: new Date().toISOString(),
+      note: 'Route matched - request will proceed to raw parser and handler',
+    });
+    next();
+  },
+  // CRITICAL: express.raw() must run BEFORE any JSON parsing
+  // This middleware is scoped to this route only
   express.raw({ type: 'application/octet-stream', limit: '10mb' }),
+  // CRITICAL: Log after raw parser to confirm body was parsed
+  (req: any, res: any, next: any) => {
+    console.log('📦 Raw parser completed for sign-proposal', {
+      url: req.url,
+      contentType: req.headers['content-type'],
+      bodyType: typeof req.body,
+      isBuffer: Buffer.isBuffer(req.body),
+      bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 'not a buffer',
+      hasBody: !!req.body,
+      timestamp: new Date().toISOString(),
+      note: 'If isBuffer=true and bodyLength>0, raw parser worked correctly',
+    });
+    next();
+  },
   asyncHandlerWrapper(matchController.signProposalHandler)
 );
 

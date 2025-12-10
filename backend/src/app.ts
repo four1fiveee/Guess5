@@ -57,9 +57,14 @@ app.use((req: any, res: any, next: any) => {
 
 // Security middleware with reduced limits
 // CRITICAL: Skip JSON parsing for application/octet-stream to allow raw body parsing
+// Also skip sign-proposal route entirely to prevent any interference
 app.use(express.json({ 
   limit: '1mb',
   type: (req: any) => {
+    // CRITICAL: Skip sign-proposal route entirely (uses raw body parser)
+    if (req.path?.includes('/sign-proposal') || req.url?.includes('/sign-proposal')) {
+      return false;
+    }
     // Only parse JSON content types, skip octet-stream
     const contentType = req.headers['content-type'] || '';
     return contentType.includes('application/json') && !contentType.includes('application/octet-stream');
