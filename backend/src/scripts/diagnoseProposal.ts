@@ -174,9 +174,15 @@ async function diagnoseProposal() {
           // Check if VaultTransaction was created in this transaction
           if (creationTx.meta?.innerInstructions) {
             // Use getAccountKeys() method for VersionedMessage
-            const accountKeys = creationTx.transaction.message.version === 'legacy'
-              ? creationTx.transaction.message.accountKeys
-              : creationTx.transaction.message.getAccountKeys();
+            let accountKeys: any[];
+            if (creationTx.transaction.message.version === 'legacy') {
+              accountKeys = creationTx.transaction.message.accountKeys;
+            } else {
+              const keys = creationTx.transaction.message.getAccountKeys();
+              // getAccountKeys() returns PublicKey[] | MessageAccountKeys
+              // Convert to array if needed
+              accountKeys = Array.isArray(keys) ? keys : Array.from(keys.staticAccountKeys || []);
+            }
             const allAccounts = accountKeys.map((key: any) => 
               typeof key === 'string' ? key : key.pubkey?.toString() || key.toString()
             );
