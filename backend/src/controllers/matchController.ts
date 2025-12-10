@@ -14120,8 +14120,18 @@ const signProposalHandler = async (req: any, res: any) => {
               fixResult: mismatchFixResult,
             });
             
-            // Still proceed - the signature might be valid for a different proposal
-            // The verification step will catch if it's wrong
+            // ✅ Frontend hint: Return helpful error so frontend can prompt user to refresh
+            return res.status(400).json({
+              success: false,
+              status: 'SIGNED_WRONG_PROPOSAL',
+              error: 'Stale proposal detected. You signed an outdated proposal.',
+              message: 'The match proposal has been updated. Please refresh the page and try again.',
+              dbProposalId: proposalIdString,
+              signedProposalId: signedProposalId,
+              correctProposalId: mismatchFixResult?.onChainProposalId || proposalIdString,
+              matchId,
+              note: 'Frontend should refresh match status and prompt user to sign the correct proposal',
+            });
           }
         } catch (mismatchFixError: any) {
           console.warn('⚠️ [sign-proposal] Error attempting to fix proposal mismatch', {
