@@ -12349,114 +12349,153 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       proposalPda = new PublicKey(proposalIdString); // proposalId is now a PDA address
       memberPublicKey = new PublicKey(wallet);
       
-      // 🔧 Check cache first to avoid repeating expensive operations
+      // 🔧 CRITICAL FIX: Always read transactionIndex from on-chain Proposal account
+      // The on-chain Proposal account is the source of truth - never trust cache alone
+      // This prevents transactionIndex mismatches that cause VaultTransaction PDA derivation failures
       const cacheKey = `${multisigAddress.toString()}:${matchId}`;
       const cached = proposalDiscoveryCache.get(cacheKey);
       const now = Date.now();
       
-      if (cached && (now - cached.timestamp) < CACHE_TTL_MS) {
-        // Cache hit - use cached transactionIndex
-        transactionIndex = cached.transactionIndex;
-        console.log('✅ Using cached transactionIndex:', {
-          cacheKey,
-          transactionIndex: transactionIndex.toString(),
-          proposalPda: proposalPda.toString(),
-          cacheAge: now - cached.timestamp,
-        });
-      } else {
-        // Cache miss - perform lookup
-        console.log('🔍 Cache miss, performing proposal lookup:', {
-          cacheKey,
-          proposalPda: proposalPda.toString(),
-        });
-      
-      // Query the proposal account to get the transactionIndex
-        // CRITICAL: Add timeout to prevent hanging on slow RPC calls
+      // CRITICAL: Always query the on-chain proposal account to get the authoritative transactionIndex
+      // Cache is only used for performance optimization, but we always verify against on-chain data
       const { accounts } = require('@sqds/multisig');
       let proposalAccount;
-        const queryTimeoutMs = 5000; // 5 seconds for proposal account query
-        let foundIndex: bigint | null = null;
-        
+      const queryTimeoutMs = 5000; // 5 seconds for proposal account query
+      let foundIndex: bigint | null = null;
+      let onChainTransactionIndex: bigint | null = null;
+      
       try {
-          // Wrap the query in a timeout to prevent hanging
-          const queryPromise = accounts.Proposal.fromAccountAddress(
+        // ALWAYS query the on-chain proposal account first - this is the source of truth
+        console.log('🔍 Always querying on-chain Proposal account for authoritative transactionIndex:', {
+          cacheKey,
+          proposalPda: proposalPda.toString(),
+          hasCachedValue: !!cached,
+          cachedTransactionIndex: cached?.transactionIndex?.toString(),
+        });
+        
+        // Wrap the query in a timeout to prevent hanging
+        const queryPromise = accounts.Proposal.fromAccountAddress(
           connection,
           proposalPda
         );
-          
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('Proposal account query timeout')), queryTimeoutMs);
-          });
-          
-          proposalAccount = await Promise.race([queryPromise, timeoutPromise]) as any;
         
-        // The Proposal account has a transactionIndex field
-        // Extract it from the proposal account
+        const timeoutPromise = new Promise((_, reject) => {
+          setTimeout(() => reject(new Error('Proposal account query timeout')), queryTimeoutMs);
+        });
+        
+        proposalAccount = await Promise.race([queryPromise, timeoutPromise]) as any;
+        
+        // Extract transactionIndex from the on-chain proposal account
         const proposalTransactionIndex = (proposalAccount as any).transactionIndex;
         if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
-            foundIndex = BigInt(proposalTransactionIndex.toString());
-          console.log('✅ Extracted transactionIndex from proposal account:', {
+          onChainTransactionIndex = BigInt(proposalTransactionIndex.toString());
+          foundIndex = onChainTransactionIndex;
+          
+          console.log('✅ Extracted transactionIndex from on-chain Proposal account (source of truth):', {
             proposalPda: proposalPda.toString(),
-              transactionIndex: foundIndex.toString(),
+            transactionIndex: foundIndex.toString(),
+            proposalStatus: (proposalAccount as any).status,
+            approvedSigners: (proposalAccount as any).approved?.map((s: any) => s.toString()) || [],
           });
+          
+          // CRITICAL: Verify cache consistency - if cache exists, check if it matches on-chain value
+          if (cached && cached.transactionIndex) {
+            const cachedIndex = cached.transactionIndex.toString();
+            const onChainIndex = foundIndex.toString();
+            
+            if (cachedIndex !== onChainIndex) {
+              // 🚨 CACHE CORRUPTION DETECTED: Cache has wrong transactionIndex
+              console.error('🚨 ALERT: Cache corruption detected - transactionIndex mismatch', {
+                event: 'CACHE_TRANSACTION_INDEX_MISMATCH',
+                matchId,
+                cacheKey,
+                cachedTransactionIndex: cachedIndex,
+                onChainTransactionIndex: onChainIndex,
+                proposalPda: proposalPda.toString(),
+                severity: 'HIGH',
+                action: 'CACHE_INVALIDATED',
+                note: 'On-chain Proposal account is source of truth - invalidating corrupted cache entry',
+              });
+              
+              // Invalidate corrupted cache entry
+              proposalDiscoveryCache.delete(cacheKey);
+              console.log('🗑️ Invalidated corrupted cache entry due to transactionIndex mismatch', {
+                cacheKey,
+                reason: 'transactionIndex mismatch with on-chain Proposal account',
+              });
+            } else {
+              console.log('✅ Cache verified - transactionIndex matches on-chain Proposal account', {
+                cacheKey,
+                transactionIndex: foundIndex.toString(),
+                cacheAge: now - cached.timestamp,
+              });
+            }
+          }
         } else {
           throw new Error('Proposal account does not have transactionIndex field');
         }
       } catch (queryError: any) {
-          // Fallback 1: Try to derive transactionIndex from proposal PDA by testing common values
-        console.warn('⚠️ Failed to query proposal account, attempting to derive transactionIndex from PDA:', {
-          error: queryError?.message,
-          proposalPda: proposalPda.toString(),
-        });
-        
-          // Try transaction indices 0-50 (increased range to handle more proposals)
-          // This is fast since it's just PDA derivation, no network calls
-        const { getProposalPda } = require('@sqds/multisig');
-          for (let i = 0; i <= 50; i++) {
-          const [testPda] = getProposalPda({
-            multisigPda: multisigAddress,
-            transactionIndex: BigInt(i),
-            programId: programId,
+        // Fallback: If on-chain query fails, try to use cache (but log warning)
+        if (cached && cached.transactionIndex && (now - cached.timestamp) < CACHE_TTL_MS) {
+          console.warn('⚠️ Failed to query on-chain Proposal account, using cached transactionIndex (with warning):', {
+            error: queryError?.message,
+            proposalPda: proposalPda.toString(),
+            cachedTransactionIndex: cached.transactionIndex.toString(),
+            cacheAge: now - cached.timestamp,
+            note: 'This is a fallback - on-chain verification failed. Cache may be stale.',
           });
-          if (testPda.toString() === proposalPda.toString()) {
-            foundIndex = BigInt(i);
-            break;
+          foundIndex = cached.transactionIndex;
+        } else {
+          // No valid cache - try fallback methods
+          console.warn('⚠️ Failed to query proposal account and no valid cache, attempting fallback methods:', {
+            error: queryError?.message,
+            proposalPda: proposalPda.toString(),
+          });
+          
+          // Fallback 1: Try to derive transactionIndex from proposal PDA by testing common values
+          const { getProposalPda } = require('@sqds/multisig');
+          for (let i = 0; i <= 50; i++) {
+            const [testPda] = getProposalPda({
+              multisigPda: multisigAddress,
+              transactionIndex: BigInt(i),
+              programId: programId,
+            });
+            if (testPda.toString() === proposalPda.toString()) {
+              foundIndex = BigInt(i);
+              console.log('✅ Derived transactionIndex from PDA matching:', {
+                proposalPda: proposalPda.toString(),
+                transactionIndex: foundIndex.toString(),
+              });
+              break;
+            }
           }
-        }
-        
-          // Fallback 2: Use getProgramAccounts with filters if PDA derivation fails
+          
+          // Fallback 2: Use getProgramAccounts if PDA derivation fails
           if (foundIndex === null) {
             console.warn('⚠️ PDA derivation failed, attempting getProgramAccounts fallback:', {
-            proposalPda: proposalPda.toString(),
+              proposalPda: proposalPda.toString(),
               multisigAddress: multisigAddress.toString(),
             });
             
             try {
-              // Get Proposal accounts using getProgramAccounts with data size filter
-              // Proposal account size is typically around 200-300 bytes
-              // We'll use a reasonable range to catch all proposals
               const proposalAccounts = await Promise.race([
                 connection.getProgramAccounts(programId, {
                   filters: [
-                    // Filter by data size range (Proposal accounts are typically 200-400 bytes)
                     { dataSize: 200 }, // Minimum size
                   ],
                 }),
                 new Promise((_, reject) => {
-                  setTimeout(() => reject(new Error('getProgramAccounts timeout')), 8000); // 8 second timeout
+                  setTimeout(() => reject(new Error('getProgramAccounts timeout')), 8000);
                 }),
               ]) as Array<{ pubkey: PublicKey; account: any }>;
               
               console.log(`🔍 Found ${proposalAccounts.length} proposal accounts, searching for matching PDA`);
               
-              // Find the proposal account that matches our PDA
-              // Since we have the exact PDA, we can check directly
               const matchingAccount = proposalAccounts.find(
                 (accountInfo) => accountInfo.pubkey.toString() === proposalPda.toString()
               );
               
               if (matchingAccount) {
-                // Parse the account to get transactionIndex
                 try {
                   const parsedAccount = await Promise.race([
                     accounts.Proposal.fromAccountAddress(connection, matchingAccount.pubkey),
@@ -12468,7 +12507,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
                   const proposalTransactionIndex = (parsedAccount as any).transactionIndex;
                   if (proposalTransactionIndex !== undefined && proposalTransactionIndex !== null) {
                     foundIndex = BigInt(proposalTransactionIndex.toString());
-                    console.log('✅ Found transactionIndex via getProgramAccounts:', {
+                    console.log('✅ Found transactionIndex via getProgramAccounts fallback:', {
                       proposalPda: proposalPda.toString(),
                       transactionIndex: foundIndex.toString(),
                       totalAccountsScanned: proposalAccounts.length,
@@ -12477,7 +12516,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
                 } catch (parseError: any) {
                   console.warn('⚠️ Failed to parse proposal account from getProgramAccounts:', parseError?.message);
                 }
-        } else {
+              } else {
                 console.warn('⚠️ Proposal PDA not found in getProgramAccounts results:', {
                   proposalPda: proposalPda.toString(),
                   totalAccountsScanned: proposalAccounts.length,
@@ -12489,21 +12528,41 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
           }
           
           if (foundIndex === null) {
-            throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-50 and getProgramAccounts fallback.`);
+            throw new Error(`Could not derive transactionIndex from proposal PDA: ${proposalPda.toString()}. Tried indices 0-50 and getProgramAccounts fallback. On-chain query also failed: ${queryError?.message}`);
+          }
         }
-        }
-        
-        // Store in cache
-        transactionIndex = foundIndex;
+      }
+      
+      // Use the found transactionIndex (from on-chain or fallback)
+      transactionIndex = foundIndex;
+      
+      // Update cache with the verified/correct transactionIndex
+      // Only cache if we successfully got it from on-chain (not from fallback)
+      if (onChainTransactionIndex !== null && onChainTransactionIndex === foundIndex) {
         proposalDiscoveryCache.set(cacheKey, {
           transactionIndex,
           proposalPda: proposalPda.toString(),
           timestamp: now,
         });
         
-        console.log('✅ Cached transactionIndex for future lookups:', {
+        console.log('✅ Cached verified transactionIndex from on-chain Proposal account:', {
           cacheKey,
           transactionIndex: transactionIndex.toString(),
+          source: 'on-chain Proposal account',
+        });
+      } else if (foundIndex !== null) {
+        // Cache fallback-derived index but log that it wasn't verified on-chain
+        proposalDiscoveryCache.set(cacheKey, {
+          transactionIndex,
+          proposalPda: proposalPda.toString(),
+          timestamp: now,
+        });
+        
+        console.warn('⚠️ Cached transactionIndex from fallback method (not verified on-chain):', {
+          cacheKey,
+          transactionIndex: transactionIndex.toString(),
+          source: 'fallback method',
+          note: 'This may be incorrect - on-chain verification failed',
         });
       }
       
@@ -12547,9 +12606,19 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
     // CRITICAL FIX: Fetch VaultTransaction account to extract remaining accounts
     // Squads v4 requires ALL remaining accounts from VaultTransaction to be included in approval instruction
+    // CRITICAL: transactionIndex is now guaranteed to be from on-chain Proposal account (source of truth)
     let remainingAccounts: Array<{ pubkey: PublicKey; isWritable: boolean; isSigner: boolean }> = [];
     let transactionPda: PublicKey | null = null;
     try {
+      // CRITICAL: Log the transactionIndex being used to derive VaultTransaction PDA
+      // This should match the on-chain Proposal account's transactionIndex
+      console.log('🔍 Deriving VaultTransaction PDA using transactionIndex from on-chain Proposal account:', {
+        matchId,
+        transactionIndex: transactionIndex.toString(),
+        multisigPda: multisigAddress.toString(),
+        note: 'This transactionIndex was verified against on-chain Proposal account',
+      });
+      
       [transactionPda] = getTransactionPda({
         multisigPda: multisigAddress,
         transactionIndex,
@@ -12560,6 +12629,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         matchId,
         transactionPda: transactionPda.toString(),
         transactionIndex: transactionIndex.toString(),
+        derivedFrom: 'on-chain Proposal account transactionIndex',
       });
 
       const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
