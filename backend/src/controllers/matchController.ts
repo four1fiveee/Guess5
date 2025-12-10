@@ -3211,49 +3211,49 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               } catch (outerError: any) {
-                  // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
-                  console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
+                // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
+                console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
+                  matchId: updatedMatch.id,
+                  error: outerError?.message || String(outerError),
+                  errorType: outerError instanceof Error ? outerError.constructor.name : typeof outerError,
+                  stack: outerError?.stack,
+                  timestamp: new Date().toISOString()
+                });
+                
+                // Try to mark match as failed if we can
+                try {
+                  const { AppDataSource } = require('../db/index');
+                  const errorMatchRepository = AppDataSource.getRepository(Match);
+                  await errorMatchRepository.query(`
+                    UPDATE "match"
+                    SET "proposalStatus" = $1,
+                        "matchStatus" = $2,
+                        "updatedAt" = $3
+                    WHERE id = $4
+                  `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                } catch (updateError: any) {
+                  console.error('❌ Failed to update match status after IIFE error:', {
                     matchId: updatedMatch.id,
-                    error: outerError?.message || String(outerError),
-                    errorType: outerError instanceof Error ? outerError.constructor.name : typeof outerError,
-                    stack: outerError?.stack,
-                    timestamp: new Date().toISOString()
+                    updateError: updateError?.message
                   });
-                  
-                  // Try to mark match as failed if we can
+                }
+                
+                // CRITICAL: Release lock in outer catch (IIFE setup failure)
+                if (lockAcquired) {
                   try {
-                    const { AppDataSource } = require('../db/index');
-                    const errorMatchRepository = AppDataSource.getRepository(Match);
-                    await errorMatchRepository.query(`
-                      UPDATE "match"
-                      SET "proposalStatus" = $1,
-                          "matchStatus" = $2,
-                          "updatedAt" = $3
-                      WHERE id = $4
-                    `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                  } catch (updateError: any) {
-                    console.error('❌ Failed to update match status after IIFE error:', {
+                    await releaseProposalLock(updatedMatch.id);
+                    console.log('🔓 Lock released', {
                       matchId: updatedMatch.id,
-                      updateError: updateError?.message
+                      note: 'IIFE setup failed'
+                    });
+                  } catch (releaseError: any) {
+                    console.warn('⚠️ Failed to release proposal lock after IIFE error:', {
+                      matchId: updatedMatch.id,
+                      error: releaseError?.message
                     });
                   }
-                  
-                  // CRITICAL: Release lock in outer catch (IIFE setup failure)
-                  if (lockAcquired) {
-                    try {
-                      await releaseProposalLock(updatedMatch.id);
-                      console.log('🔓 Lock released', {
-                        matchId: updatedMatch.id,
-                        note: 'IIFE setup failed'
-                      });
-                    } catch (releaseError: any) {
-                      console.warn('⚠️ Failed to release proposal lock after IIFE error:', {
-                        matchId: updatedMatch.id,
-                        error: releaseError?.message
-                      });
-                    }
-                  }
                 }
+              }
               })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
