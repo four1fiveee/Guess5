@@ -69,6 +69,16 @@ const uint8ArrayToBase64 = (bytes: Uint8Array): string => {
   }
 };
 
+// Helper function to calculate rounded USD amounts (5, 20, 50, 100)
+const calculateRoundedUSD = (solAmount: number, solPrice: number | null): number | null => {
+  if (!solPrice) return null;
+  const usdAmount = solAmount * solPrice;
+  const categories = [5, 20, 50, 100];
+  return categories.reduce((prev, curr) => 
+    Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+  );
+};
+
 const normalizeProposalSigners = (value: any): string[] => {
   const normalize = (input: any): string[] => {
     if (!input) {
@@ -2151,11 +2161,15 @@ const Result: React.FC = () => {
                               <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
                                 <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
                                 <div className="text-white text-lg font-semibold">
-                                  {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
-                                  {solPrice && payoutData.entryFee && (
-                                    <span className="text-white/60 text-sm ml-2">
-                                      (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
-                                    </span>
+                                  {solPrice && payoutData.entryFee ? (
+                                    <>
+                                      ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
+                                      <span className="text-white/60 text-sm ml-2">
+                                        ({payoutData.entryFee.toFixed(4)} SOL)
+                                      </span>
+                                    </>
+                                  ) : (
+                                    `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
                                   )}
                                 </div>
                               </div>
@@ -2369,16 +2383,29 @@ const Result: React.FC = () => {
                           <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
                             <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
                             <div className="text-white text-lg font-semibold">
-                              {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
-                              {solPrice && payoutData.entryFee && (
-                                <span className="text-white/60 text-sm ml-2">
-                                  (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
-                                </span>
+                              {solPrice && payoutData.entryFee ? (
+                                <>
+                                  ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
+                                  <span className="text-white/60 text-sm ml-2">
+                                    ({payoutData.entryFee.toFixed(4)} SOL)
+                                  </span>
+                                </>
+                              ) : (
+                                `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
                               )}
                             </div>
                           </div>
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
-                            {payoutData.winnerAmount?.toFixed(4)} SOL
+                            {solPrice && payoutData.winnerAmount ? (
+                              <>
+                                ${calculateRoundedUSD(payoutData.winnerAmount, solPrice)} USD
+                                <span className="text-yellow-300 text-xl ml-2">
+                                  ({payoutData.winnerAmount.toFixed(4)} SOL)
+                                </span>
+                              </>
+                            ) : (
+                              `${payoutData.winnerAmount?.toFixed(4) || '0.0000'} SOL`
+                            )}
                           </div>
                           {payoutData.entryFee && payoutData.winnerAmount && (
                             <div className={`text-sm mb-2 ${
@@ -2682,11 +2709,15 @@ const Result: React.FC = () => {
                               <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
                                 <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
                                 <div className="text-white text-lg font-semibold">
-                                  {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
-                                  {solPrice && payoutData.entryFee && (
-                                    <span className="text-white/60 text-sm ml-2">
-                                      (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
-                                    </span>
+                                  {solPrice && payoutData.entryFee ? (
+                                    <>
+                                      ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
+                                      <span className="text-white/60 text-sm ml-2">
+                                        ({payoutData.entryFee.toFixed(4)} SOL)
+                                      </span>
+                                    </>
+                                  ) : (
+                                    `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
                                   )}
                                 </div>
                               </div>
@@ -2740,11 +2771,15 @@ const Result: React.FC = () => {
                               <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
                                 <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
                                 <div className="text-white text-lg font-semibold">
-                                  {payoutData.entryFee?.toFixed(4) || '0.0000'} SOL
-                                  {solPrice && payoutData.entryFee && (
-                                    <span className="text-white/60 text-sm ml-2">
-                                      (${(payoutData.entryFee * solPrice).toFixed(2)} USD)
-                                    </span>
+                                  {solPrice && payoutData.entryFee ? (
+                                    <>
+                                      ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
+                                      <span className="text-white/60 text-sm ml-2">
+                                        ({payoutData.entryFee.toFixed(4)} SOL)
+                                      </span>
+                                    </>
+                                  ) : (
+                                    `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
                                   )}
                                 </div>
                               </div>

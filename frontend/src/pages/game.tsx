@@ -37,6 +37,7 @@ const Game: React.FC = () => {
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
   const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
+  const [solPrice, setSolPrice] = useState<number | null>(null);
 
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
   const [startTime, setStartTime] = useState<number>(0);
@@ -653,6 +654,28 @@ const Game: React.FC = () => {
     initializeGame();
   }, [publicKey, router, entryFee]);
 
+  // Fetch SOL price
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://guess5.onrender.com';
+        const response = await fetch(`${API_URL}/api/match/sol-price`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.price && typeof data.price === 'number' && data.price > 0) {
+            setSolPrice(data.price);
+          }
+        }
+      } catch (error) {
+        console.error('Failed to fetch SOL price:', error);
+      }
+    };
+    
+    fetchSolPrice();
+    const interval = setInterval(fetchSolPrice, 30000); // Refresh every 30 seconds
+    return () => clearInterval(interval);
+  }, []);
+
   // Update activity tracking
   useEffect(() => {
     const updateActivity = () => {
@@ -1171,22 +1194,53 @@ const Game: React.FC = () => {
           </div>
         )}
 
-        {/* Winner Pot Display - Only show during active gameplay */}
-        {gameState === 'playing' && entryFee > 0 && (
-          <div className="mb-4 flex justify-center">
-            <div className="bg-gradient-to-r from-accent/20 via-yellow-500/20 to-accent/20 backdrop-blur-sm rounded-xl px-6 py-3 border border-accent/30 shadow-lg">
-              <div className="flex items-center gap-3">
-                <span className="text-accent text-2xl">💰</span>
-                <div className="flex flex-col">
-                  <span className="text-white/70 text-xs font-medium">Winner Takes</span>
-                  <span className="text-accent text-lg font-bold">
-                    {(entryFee * 2 * 0.95).toFixed(4)} SOL
-                  </span>
+        {/* Entry Fee & Potential Winnings Display - Only show during active gameplay */}
+        {gameState === 'playing' && entryFee > 0 && (() => {
+          const calculateRoundedUSD = (solAmount: number, solPrice: number | null): number | null => {
+            if (!solPrice) return null;
+            const usdAmount = solAmount * solPrice;
+            const categories = [5, 20, 50, 100];
+            return categories.reduce((prev, curr) => 
+              Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+            );
+          };
+          const entryFeeUSD = calculateRoundedUSD(entryFee, solPrice);
+          const potentialWinningsSOL = entryFee * 2 * 0.95;
+          const potentialWinningsUSD = calculateRoundedUSD(potentialWinningsSOL, solPrice);
+          
+          return (
+            <div className="mb-4 flex justify-center gap-3 flex-wrap">
+              <div className="bg-gradient-to-r from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-xl px-5 py-3 border border-white/20 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-white text-xl">💵</span>
+                  <div className="flex flex-col">
+                    <span className="text-white/60 text-xs font-medium">Entry Fee</span>
+                    <span className="text-white text-lg font-bold">
+                      {entryFeeUSD ? `$${entryFeeUSD}` : '—'} USD
+                    </span>
+                    <span className="text-white/50 text-xs">
+                      ({entryFee.toFixed(4)} SOL)
+                    </span>
+                  </div>
+                </div>
+              </div>
+              <div className="bg-gradient-to-r from-accent/20 via-yellow-500/20 to-accent/20 backdrop-blur-sm rounded-xl px-5 py-3 border border-accent/30 shadow-lg">
+                <div className="flex items-center gap-3">
+                  <span className="text-accent text-2xl">💰</span>
+                  <div className="flex flex-col">
+                    <span className="text-white/70 text-xs font-medium">Potential Winnings</span>
+                    <span className="text-accent text-lg font-bold">
+                      {potentialWinningsUSD ? `$${potentialWinningsUSD}` : '—'} USD
+                    </span>
+                    <span className="text-accent/70 text-xs">
+                      ({potentialWinningsSOL.toFixed(4)} SOL)
+                    </span>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        )}
+          );
+        })()}
 
         {/* Game Grid - No box wrapper */}
         {gameState === 'playing' && (

@@ -1447,7 +1447,18 @@ const Matchmaking: React.FC = () => {
                 <div className="bg-secondary bg-opacity-20 rounded-lg p-4 border border-accent/20">
                   <div className="text-white/60 text-xs uppercase tracking-wide mb-1">Entry Fee</div>
                   <div className="text-accent text-lg font-semibold">
-                    {solPrice && entryFee ? `$${(entryFee * solPrice).toFixed(2)} USD` : '—'}
+                    {(() => {
+                      if (!solPrice || !entryFee) return '—';
+                      const calculateRoundedUSD = (solAmount: number, solPrice: number): number => {
+                        const usdAmount = solAmount * solPrice;
+                        const categories = [5, 20, 50, 100];
+                        return categories.reduce((prev, curr) => 
+                          Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+                        );
+                      };
+                      const roundedUSD = calculateRoundedUSD(entryFee, solPrice);
+                      return `$${roundedUSD} USD`;
+                    })()}
                   </div>
                   <div className="text-white/70 text-sm mt-1">
                     {entryFee} SOL
@@ -1675,15 +1686,15 @@ const Matchmaking: React.FC = () => {
 
           {status === 'active' && countdown !== null && countdown > 0 && (
             <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
-              {/* Clean countdown display - matching gameplay page style - no container boxes */}
+              {/* Clean countdown display - no boxes, no outlines, just the number */}
               <div className="relative mb-8">
-                {/* Subtle glow effect without borders */}
+                {/* Subtle glow effect without any borders or containers */}
                 <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                   <div className="w-96 h-96 rounded-full bg-accent/5 animate-pulse"></div>
                 </div>
                 
-                {/* Main countdown number - directly displayed, no nested containers */}
-                <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none block">
+                {/* Main countdown number - directly displayed, no containers, no borders */}
+                <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none">
                   {countdown}
                 </span>
               </div>

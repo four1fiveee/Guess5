@@ -785,15 +785,7 @@ export default function Lobby() {
                   <div className="text-white/70 text-sm text-center max-w-3xl mx-auto mb-6">
                     {canCoverHighestTier && highestTierData ? (
                       <>
-                        You already cover{' '}
-                        <span
-                          className={`${getTierHighlightTextClass(
-                            highestTierData
-                          )} font-semibold`}
-                        >
-                          {highestTierData.title}
-                        </span>
-                        . Jump in now and play for
+                        Jump in now and play for
                         <span className="text-green-300 font-semibold">
                           {' '}
                           ${highestTierData.totalWinUsd.toFixed(2)}
