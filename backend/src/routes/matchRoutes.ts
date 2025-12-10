@@ -258,6 +258,18 @@ router.options('/sign-proposal', (req: any, res: any) => {
 // This allows frontend to send serialized transaction directly from Phantom
 // Format: POST /api/match/sign-proposal?matchId=xxx&wallet=xxx
 // Body: raw signed transaction bytes (Uint8Array serialized)
+
+// Test route to verify routing works
+router.get('/sign-proposal-test', (req: any, res: any) => {
+  res.json({ 
+    success: true, 
+    message: 'Route is registered correctly',
+    path: req.path,
+    url: req.url,
+    originalUrl: req.originalUrl
+  });
+});
+
 router.post('/sign-proposal',
   // CRITICAL: Log route entry to confirm routing works
   (req: any, res: any, next: any) => {
