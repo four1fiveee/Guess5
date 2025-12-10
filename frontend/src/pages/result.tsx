@@ -1151,10 +1151,12 @@ const Result: React.FC = () => {
     setSigningProposal(true);
     setError(null);
     
+    // CRITICAL: Declare matchId and apiUrl outside try block so they're accessible in catch block
+    const matchId = router.query.matchId as string;
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+    
     try {
       // Get the approval transaction from backend (backend has access to rpc.vaultTransactionApprove)
-      const matchId = router.query.matchId as string;
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
       
       // CRITICAL: Log API URL configuration
       console.log('🔧 API Configuration', {
