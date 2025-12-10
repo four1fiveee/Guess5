@@ -2074,6 +2074,11 @@ const Result: React.FC = () => {
                           <div className="text-white/60 text-xs">Guesses Used</div>
                           <div className="text-white text-2xl font-semibold">
                             {payoutData.numGuesses || 0}/7
+                            {payoutData.numGuesses === 7 && (
+                              <span className="text-white/50 text-sm ml-2 block mt-1">
+                                {payoutData.won ? '✓ Solved on last guess' : '✗ Used all guesses'}
+                              </span>
+                            )}
                           </div>
                   </div>
                   <div>
@@ -2091,6 +2096,11 @@ const Result: React.FC = () => {
                           <div className="text-white/60 text-xs">Guesses Used</div>
                           <div className="text-white text-2xl font-semibold">
                             {payoutData.opponentGuesses || 0}/7
+                            {payoutData.opponentGuesses === 7 && (
+                              <span className="text-white/50 text-sm ml-2 block mt-1">
+                                {payoutData.winner !== 'tie' && payoutData.winner !== publicKey?.toString() ? '✓ Solved on last guess' : '✗ Used all guesses'}
+                              </span>
+                            )}
                           </div>
                   </div>
                   <div>
@@ -2396,16 +2406,37 @@ const Result: React.FC = () => {
                             </div>
                           </div>
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
-                            {solPrice && payoutData.winnerAmount ? (
-                              <>
-                                ${(payoutData.winnerAmount * solPrice).toFixed(2)} USD
-                                <span className="text-yellow-300 text-xl ml-2">
-                                  ({payoutData.winnerAmount.toFixed(4)} SOL)
-                                </span>
-                              </>
-                            ) : (
-                              `${payoutData.winnerAmount?.toFixed(4) || '0.0000'} SOL`
-                            )}
+                            {(() => {
+                              // Calculate winnings USD as 95% of (entryFeeUSD * 2) for tier matches
+                              // Entry fee USD is rounded to 5, 20, 50, 100 categories
+                              const entryFeeUSD = solPrice && payoutData.entryFee 
+                                ? calculateRoundedUSD(payoutData.entryFee, solPrice) 
+                                : null;
+                              
+                              if (entryFeeUSD && payoutData.winnerAmount) {
+                                // Show winnings as 95% of (entryFeeUSD * 2)
+                                const winningsUSD = (entryFeeUSD * 2 * 0.95).toFixed(2);
+                                return (
+                                  <>
+                                    ${winningsUSD} USD
+                                    <span className="text-yellow-300 text-xl ml-2">
+                                      ({payoutData.winnerAmount.toFixed(4)} SOL)
+                                    </span>
+                                  </>
+                                );
+                              } else if (solPrice && payoutData.winnerAmount) {
+                                return (
+                                  <>
+                                    ${(payoutData.winnerAmount * solPrice).toFixed(2)} USD
+                                    <span className="text-yellow-300 text-xl ml-2">
+                                      ({payoutData.winnerAmount.toFixed(4)} SOL)
+                                    </span>
+                                  </>
+                                );
+                              } else {
+                                return `${payoutData.winnerAmount?.toFixed(4) || '0.0000'} SOL`;
+                              }
+                            })()}
                           </div>
                           {payoutData.entryFee && payoutData.winnerAmount && (
                             <div className={`text-sm mb-2 ${

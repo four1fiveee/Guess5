@@ -1686,21 +1686,19 @@ const Matchmaking: React.FC = () => {
 
           {status === 'active' && countdown !== null && countdown > 0 && (
             <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
-              {/* Clean countdown display - no boxes, no outlines, just the number */}
-              <div className="relative mb-8">
-                {/* Subtle glow effect without any borders or containers */}
-                <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                  <div className="w-96 h-96 rounded-full bg-accent/5 animate-pulse"></div>
-                </div>
-                
-                {/* Main countdown number - directly displayed, no containers, no borders */}
-                <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none">
-                  {countdown}
-                </span>
+              {/* Clean countdown display - absolutely no containers, borders, or boxes */}
+              {/* Subtle glow effect - positioned absolutely, no container */}
+              <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
+                <div className="w-96 h-96 rounded-full bg-accent/5 animate-pulse"></div>
               </div>
               
+              {/* Main countdown number - directly displayed, no wrapper divs */}
+              <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none mb-8">
+                {countdown}
+              </span>
+              
               {/* Clean text matching gameplay page */}
-              <div className="text-center space-y-3">
+              <div className="text-center space-y-3 relative z-10">
                 <h2 className="text-3xl font-bold text-accent drop-shadow-lg">Match Starting</h2>
                 <p className="text-white/70 text-lg">Get ready to play!</p>
               </div>
