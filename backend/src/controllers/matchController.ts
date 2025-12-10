@@ -2065,11 +2065,23 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
 };
 
 const submitResultHandler = async (req: any, res: any) => {
+  // #region agent log
+  const fs4 = require('fs');
+  const logPath4 = 'c:\\Users\\henry\\OneDrive\\Desktop\\Guess5\\.cursor\\debug.log';
+  try {
+    fs4.appendFileSync(logPath4, JSON.stringify({location:'matchController.ts:2067',message:'submitResultHandler entry',data:{matchId:req.body?.matchId,wallet:req.body?.wallet,hasResult:!!req.body?.result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})+'\n');
+  } catch(e) {}
+  // #endregion
   try {
     const { matchId, wallet, result } = req.body;
     const correlationId = `submit-result-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     if (!matchId || !wallet || !result) {
+      // #region agent log
+      try {
+        fs4.appendFileSync(logPath4, JSON.stringify({location:'matchController.ts:2072',message:'submitResultHandler missing fields',data:{matchId:!!matchId,wallet:!!wallet,result:!!result},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})+'\n');
+      } catch(e) {}
+      // #endregion
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
@@ -13240,6 +13252,13 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 // Handler for getting VaultTransaction approval transaction (step 2 of two-step approval)
 const signProposalHandler = async (req: any, res: any) => {
   // CRITICAL: Log incoming request for debugging CORS issues
+  // #region agent log
+  const fs3 = require('fs');
+  const logPath3 = 'c:\\Users\\henry\\OneDrive\\Desktop\\Guess5\\.cursor\\debug.log';
+  try {
+    fs3.appendFileSync(logPath3, JSON.stringify({location:'matchController.ts:13243',message:'POST /sign-proposal received in handler',data:{url:req.url,matchId:req.query?.matchId,wallet:req.query?.wallet,hasBody:!!req.body},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})+'\n');
+  } catch(e) {}
+  // #endregion
   console.log('🔥 POST /sign-proposal received in handler', {
     url: req.url,
     method: req.method,
@@ -13808,6 +13827,13 @@ const signProposalHandler = async (req: any, res: any) => {
           skipPreflight: false,
           maxRetries: 3,
         });
+        // #region agent log
+        const fs = require('fs');
+        const logPath = 'c:\\Users\\henry\\OneDrive\\Desktop\\Guess5\\.cursor\\debug.log';
+        try {
+          fs.appendFileSync(logPath, JSON.stringify({location:'matchController.ts:13811',message:'BROADCAST TO SOLANA SUCCESS',data:{matchId,wallet,signature},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})+'\n');
+        } catch(e) {}
+        // #endregion
         console.log('✅ SIGN_PROPOSAL: BROADCAST TO SOLANA SUCCESS', {
           matchId,
           wallet,
@@ -13892,6 +13918,13 @@ const signProposalHandler = async (req: any, res: any) => {
     setImmediate(() => {
       (async () => {
         try {
+          // #region agent log
+          const fs2 = require('fs');
+          const logPath2 = 'c:\\Users\\henry\\OneDrive\\Desktop\\Guess5\\.cursor\\debug.log';
+          try {
+            fs2.appendFileSync(logPath2, JSON.stringify({location:'matchController.ts:13895',message:'BACKGROUND_VERIFICATION STARTED',data:{matchId,wallet,proposalId:proposalIdString},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'E'})+'\n');
+          } catch(e) {}
+          // #endregion
           console.log('🚀 BACKGROUND_VERIFICATION: Starting verification after broadcast', {
             event: 'BACKGROUND_VERIFICATION_STARTED',
             matchId,

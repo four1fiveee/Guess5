@@ -377,7 +377,7 @@ const Result: React.FC = () => {
             // Preserve valid states like EXECUTING, signed status, etc.
             const currentPayoutData = payoutData || {};
             const currentUserWallet = publicKey?.toString() || '';
-            const currentSigners = Array.isArray(currentPayoutData.proposalSigners) 
+            const currentSigners = Array.isArray(currentPayoutData?.proposalSigners) 
               ? currentPayoutData.proposalSigners 
               : [];
             const newSigners = normalizeProposalSigners(matchData.proposalSigners);
@@ -393,40 +393,40 @@ const Result: React.FC = () => {
             // CRITICAL: Preserve EXECUTING status if it exists in current state
             // Don't overwrite with null/undefined from backend
             const preservedStatus = 
-              currentPayoutData.proposalStatus === 'EXECUTING' && !matchData.proposalStatus
+              currentPayoutData?.proposalStatus === 'EXECUTING' && !matchData.proposalStatus
                 ? 'EXECUTING'
-                : (matchData.proposalStatus || currentPayoutData.proposalStatus);
+                : (matchData.proposalStatus || currentPayoutData?.proposalStatus);
             
             // CRITICAL: Preserve needsSignatures if it's 0 in current state and backend hasn't updated yet
             const preservedNeedsSignatures = 
-              currentPayoutData.needsSignatures === 0 && 
+              currentPayoutData?.needsSignatures === 0 && 
               (matchData.needsSignatures === null || matchData.needsSignatures === undefined)
                 ? 0
-                : (matchData.needsSignatures ?? currentPayoutData.needsSignatures ?? 0);
+                : (matchData.needsSignatures ?? currentPayoutData?.needsSignatures ?? 0);
             
             const updatedPayoutData = {
-              ...currentPayoutData, // Preserve existing state
+              ...(currentPayoutData || {}), // Preserve existing state (handle null)
               won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
               isTie: matchData.winner === 'tie',
               winner: matchData.winner,
-              numGuesses: playerResult?.numGuesses || currentPayoutData.numGuesses || 0,
-              entryFee: matchData.entryFee || currentPayoutData.entryFee || 0,
-              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : (currentPayoutData.timeElapsed || 'N/A'),
-              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : (currentPayoutData.opponentTimeElapsed || 'N/A'),
-              opponentGuesses: opponentResult?.numGuesses || currentPayoutData.opponentGuesses || 0,
-              winnerAmount: matchData.payout?.winnerAmount || currentPayoutData.winnerAmount || 0,
-              feeAmount: matchData.payout?.feeAmount || currentPayoutData.feeAmount || 0,
-              refundAmount: matchData.payout?.refundAmount || currentPayoutData.refundAmount || 0,
-              isWinningTie: matchData.payout?.isWinningTie ?? currentPayoutData.isWinningTie ?? false,
-              feeWallet: matchData.payout?.feeWallet || currentPayoutData.feeWallet || '',
-              transactions: matchData.payout?.transactions || currentPayoutData.transactions || [],
-              vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress || currentPayoutData.vaultAddress,
-              vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || currentPayoutData.vaultDepositAddress || null,
-              proposalId: extractedProposalId || currentPayoutData.proposalId,
+              numGuesses: playerResult?.numGuesses || currentPayoutData?.numGuesses || 0,
+              entryFee: matchData.entryFee || currentPayoutData?.entryFee || 0,
+              timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : (currentPayoutData?.timeElapsed || 'N/A'),
+              opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : (currentPayoutData?.opponentTimeElapsed || 'N/A'),
+              opponentGuesses: opponentResult?.numGuesses || currentPayoutData?.opponentGuesses || 0,
+              winnerAmount: matchData.payout?.winnerAmount || currentPayoutData?.winnerAmount || 0,
+              feeAmount: matchData.payout?.feeAmount || currentPayoutData?.feeAmount || 0,
+              refundAmount: matchData.payout?.refundAmount || currentPayoutData?.refundAmount || 0,
+              isWinningTie: matchData.payout?.isWinningTie ?? currentPayoutData?.isWinningTie ?? false,
+              feeWallet: matchData.payout?.feeWallet || currentPayoutData?.feeWallet || '',
+              transactions: matchData.payout?.transactions || currentPayoutData?.transactions || [],
+              vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress || currentPayoutData?.vaultAddress,
+              vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || currentPayoutData?.vaultDepositAddress || null,
+              proposalId: extractedProposalId || currentPayoutData?.proposalId,
               proposalStatus: preservedStatus,
               proposalSigners: mergedSigners,
               needsSignatures: preservedNeedsSignatures,
-              proposalExecutedAt: matchData.proposalExecutedAt || currentPayoutData.proposalExecutedAt,
+              proposalExecutedAt: matchData.proposalExecutedAt || currentPayoutData?.proposalExecutedAt,
               proposalTransactionId: matchData.proposalTransactionId || currentPayoutData.proposalTransactionId,
               automatedPayout: matchData.payout?.paymentSuccess ?? currentPayoutData.automatedPayout ?? false,
               payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || currentPayoutData.payoutSignature || null,
@@ -471,6 +471,9 @@ const Result: React.FC = () => {
                 proposalTransactionId: updatedPayoutData.proposalTransactionId !== currentPayoutData.proposalTransactionId,
                 proposalSigners: JSON.stringify(updatedPayoutData.proposalSigners) !== JSON.stringify(currentPayoutData.proposalSigners),
               });
+              // #region agent log
+              fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:474',message:'setPayoutData called',data:{hasProposalId:!!updatedPayoutData?.proposalId,proposalId:updatedPayoutData?.proposalId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+              // #endregion
               setPayoutData(updatedPayoutData);
             } else {
               console.log('⏸️ Skipping state update - no meaningful changes', {
@@ -514,7 +517,7 @@ const Result: React.FC = () => {
                 matchId,
                 startTime: new Date(startTime).toISOString(),
                 bothPlayersHaveResults,
-                hasProposal: !!payoutData.proposalId,
+                hasProposal: !!payoutData?.proposalId,
                 note: 'This ensures both players see consistent progress percentages'
               });
             }
@@ -541,7 +544,7 @@ const Result: React.FC = () => {
             console.log('🔄 Polling Decision (API):', {
               matchId: router.query.matchId,
               keepPolling,
-              proposalId: updatedPayoutData.proposalId,
+              proposalId: updatedPayoutData?.proposalId,
               proposalStatus: updatedPayoutData.proposalStatus,
               bothPlayersHaveResults,
               isPolling: isPolling,
@@ -678,6 +681,9 @@ const Result: React.FC = () => {
         
         data._isStaleFallback = true;
         
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:681',message:'setPayoutData from localStorage',data:{hasProposalId:!!data?.proposalId,proposalId:data?.proposalId,dataIsNull:!data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
         setPayoutData(data);
         setLoading(false);
         // CRITICAL FIX: Continue polling until proposal is executed or user has signed
@@ -1020,15 +1026,25 @@ const Result: React.FC = () => {
 
   // Debug logging for payout data
   useEffect(() => {
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1022',message:'payoutData useEffect entry',data:{hasPayoutData:!!payoutData,proposalId:payoutData?.proposalId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+    // #endregion
     if (payoutData) {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1025',message:'payoutData render log',data:{proposalId:payoutData?.proposalId,hasProposalId:!!payoutData?.proposalId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
       console.log('💰 Payout data in render:', {
         won: payoutData.won,
         isTie: payoutData.isTie,
         isWinningTie: payoutData.isWinningTie,
         refundAmount: payoutData.refundAmount,
-        proposalId: payoutData.proposalId,
+        proposalId: payoutData?.proposalId,
         bonus: payoutData.bonus
       });
+    } else {
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1033',message:'payoutData is null',data:{payoutDataIsNull:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
     }
   }, [payoutData]);
 
@@ -1153,7 +1169,7 @@ const Result: React.FC = () => {
       // This prevents signing a stale proposal if a new one was created
       console.log('🔍 Re-fetching latest match status to get current proposal ID...', {
         matchId,
-        currentProposalId: payoutData.proposalId,
+        currentProposalId: payoutData?.proposalId,
       });
       
       const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}`, {
@@ -1172,10 +1188,10 @@ const Result: React.FC = () => {
       }
       
       // CRITICAL: If proposal ID changed, update payoutData and warn user
-      if (latestProposalId !== payoutData.proposalId) {
+      if (latestProposalId !== payoutData?.proposalId) {
         console.warn('⚠️ Proposal ID changed! Updating to latest proposal', {
           matchId,
-          oldProposalId: payoutData.proposalId,
+          oldProposalId: payoutData?.proposalId,
           newProposalId: latestProposalId,
           note: 'This can happen if a new proposal was created after the page loaded',
         });
@@ -1316,7 +1332,7 @@ const Result: React.FC = () => {
       console.log('✅ Proposal transaction signed', {
         matchId,
         wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
+        proposalId: payoutData?.proposalId,
         transactionSize: proposalSerialized.length,
       });
       
@@ -1338,10 +1354,13 @@ const Result: React.FC = () => {
       
       const requestUrl = `${apiUrl}/api/match/sign-proposal?matchId=${encodeURIComponent(matchId)}&wallet=${encodeURIComponent(publicKey.toString())}`;
       
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1341',message:'sign-proposal request starting',data:{matchId,wallet:publicKey?.toString(),proposalId:payoutData?.proposalId,requestUrl,bodyLength:proposalSerialized.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+      // #endregion
       console.log('📤 Submitting signed proposal transaction to backend (raw bytes format)', {
         matchId,
         wallet: publicKey.toString(),
-        proposalId: payoutData.proposalId,
+        proposalId: payoutData?.proposalId,
         transactionSize: proposalSerialized.length,
         format: 'raw-bytes',
         apiUrl,
@@ -1415,6 +1434,9 @@ const Result: React.FC = () => {
             });
             clearTimeout(timeoutId);
             
+            // #region agent log
+            fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1431',message:'sign-proposal response received',data:{status:response.status,ok:response.ok,matchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+            // #endregion
             console.log('🌐 sign-proposal response', {
               status: response.status,
               ok: response.ok,
@@ -2550,7 +2572,7 @@ const Result: React.FC = () => {
                                 
                                 console.log('🔍 WINNER Sign Button Debug:', {
                                   hasProposalId,
-                                  proposalId: payoutData.proposalId,
+                                  proposalId: payoutData?.proposalId,
                                   userHasSigned,
                                   normalizedUserSigned,
                                   rawUserSigned,
@@ -2794,7 +2816,7 @@ const Result: React.FC = () => {
                                 
                                 console.log('🔍 TIE Sign Button Debug:', {
                                   hasProposalId,
-                                  proposalId: payoutData.proposalId,
+                                  proposalId: payoutData?.proposalId,
                                   userHasSigned,
                                   normalizedUserSigned,
                                   rawUserSigned,
