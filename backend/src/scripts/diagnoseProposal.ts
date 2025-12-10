@@ -77,10 +77,10 @@ async function diagnoseProposal() {
     console.log('  - Transaction Index:', proposalAccount.transactionIndex?.toString());
     console.log('  - Status:', JSON.stringify(proposalAccount.status));
     console.log('  - Multisig:', proposalAccount.multisig.toString());
-    console.log('  - Creator:', proposalAccount.creator.toString());
+    console.log('  - Creator:', (proposalAccount as any).creator?.toString() || 'N/A');
     console.log('  - Approved:', proposalAccount.approved);
     console.log('  - Rejected:', proposalAccount.rejected);
-    console.log('  - Executed:', proposalAccount.executed);
+    console.log('  - Executed:', (proposalAccount as any).executed || false);
     
     // Check signers
     if (proposalAccount.approved) {
@@ -105,9 +105,14 @@ async function diagnoseProposal() {
     console.log('  - Using transactionIndex from proposal:', transactionIndex.toString());
     console.log('  - Multisig PDA:', multisigAddress.toString());
     
+    // Convert transactionIndex to BigInt if needed
+    const txIndexBigInt = typeof transactionIndex === 'bigint' 
+      ? transactionIndex 
+      : BigInt(transactionIndex.toString());
+    
     const [vaultTxPda] = getTransactionPda({
       multisigPda: multisigAddress,
-      index: transactionIndex,
+      index: txIndexBigInt,
       programId,
     });
     
@@ -168,8 +173,12 @@ async function diagnoseProposal() {
           
           // Check if VaultTransaction was created in this transaction
           if (creationTx.meta?.innerInstructions) {
-            const allAccounts = creationTx.transaction.message.accountKeys.map((key: any) => 
-              typeof key === 'string' ? key : key.pubkey.toString()
+            // Use getAccountKeys() method for VersionedMessage
+            const accountKeys = creationTx.transaction.message.version === 'legacy'
+              ? creationTx.transaction.message.accountKeys
+              : creationTx.transaction.message.getAccountKeys();
+            const allAccounts = accountKeys.map((key: any) => 
+              typeof key === 'string' ? key : key.pubkey?.toString() || key.toString()
             );
             const createdAccounts = creationTx.meta.innerInstructions
               .flatMap((ix: any) => ix.instructions || [])
