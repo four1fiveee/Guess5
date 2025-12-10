@@ -6818,6 +6818,34 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     res.header('Access-Control-Allow-Credentials', 'true');
     applyNoCacheHeaders();
     
+    // 🔍 PROPOSAL DESYNC DETECTION: Check if database proposal ID matches on-chain reality
+    // Run in background to avoid blocking response
+    if ((match as any).payoutProposalId && (match as any).squadsVaultAddress) {
+      (async () => {
+        try {
+          const { detectProposalDesync } = require('../utils/proposalSync');
+          const desyncResult = await detectProposalDesync(
+            match.id,
+            (match as any).payoutProposalId,
+            (match as any).squadsVaultAddress
+          );
+          
+          if (desyncResult.desynced) {
+            console.warn('⚠️ Proposal desync detected', {
+              matchId: match.id,
+              dbProposalId: (match as any).payoutProposalId,
+              onChainProposalId: desyncResult.onChainProposalId,
+              error: desyncResult.error,
+              note: 'Database proposal ID may be stale or invalid. Consider running syncMatchProposal() to correct.',
+            });
+          }
+        } catch (desyncError: any) {
+          // Don't log errors from desync detection - it's non-critical
+          // Silently fail to avoid noise in logs
+        }
+      })();
+    }
+    
     res.json({
     status: playerSpecificStatus,
       player1: match.player1,
