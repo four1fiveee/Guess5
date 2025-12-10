@@ -12619,9 +12619,12 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         note: 'This transactionIndex was verified against on-chain Proposal account',
       });
       
+      // CRITICAL: getTransactionPda() requires 'index' parameter, NOT 'transactionIndex'
+      // Using wrong parameter name causes silent failure and incorrect PDA derivation
+      // See: backend/src/services/squadsVaultService.ts deriveVaultTransactionPda() for type-safe wrapper
       [transactionPda] = getTransactionPda({
         multisigPda: multisigAddress,
-        transactionIndex,
+        index: transactionIndex, // ✅ Correct parameter name
         programId,
       });
 
@@ -12695,7 +12698,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
         try {
           [transactionPda] = getTransactionPda({
             multisigPda: multisigAddress,
-            transactionIndex,
+            index: transactionIndex,
             programId,
           });
         } catch (deriveError: any) {
@@ -12777,7 +12780,7 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
           try {
             [transactionPda] = getTransactionPda({
               multisigPda: multisigAddress,
-              transactionIndex,
+              index: transactionIndex,
               programId,
             });
             

@@ -5762,6 +5762,71 @@ export class SquadsVaultService {
 }
 
 // Export singleton instance
+/**
+ * Type-safe wrapper for getTransactionPda to prevent parameter name errors.
+ * 
+ * CRITICAL: The Squads SDK's getTransactionPda() expects 'index', not 'transactionIndex'.
+ * This wrapper enforces the correct parameter name and adds validation/logging.
+ * 
+ * @param params - PDA derivation parameters
+ * @param params.multisigPda - The multisig PDA address
+ * @param params.transactionIndex - The transaction index (will be passed as 'index' to SDK)
+ * @param params.programId - The Squads program ID
+ * @returns [PublicKey, number] - The derived VaultTransaction PDA and bump seed
+ * 
+ * @example
+ * const [vaultTxPda] = deriveVaultTransactionPda({
+ *   multisigPda: multisigAddress,
+ *   transactionIndex: BigInt(3),
+ *   programId: programId,
+ * });
+ */
+export function deriveVaultTransactionPda(params: {
+  multisigPda: PublicKey;
+  transactionIndex: bigint | number;
+  programId: PublicKey;
+}): [PublicKey, number] {
+  const { multisigPda, transactionIndex, programId } = params;
+  
+  // Runtime validation
+  if (!multisigPda || !(multisigPda instanceof PublicKey)) {
+    throw new Error('deriveVaultTransactionPda: multisigPda must be a PublicKey');
+  }
+  if (transactionIndex === undefined || transactionIndex === null) {
+    throw new Error('deriveVaultTransactionPda: transactionIndex is required');
+  }
+  if (!programId || !(programId instanceof PublicKey)) {
+    throw new Error('deriveVaultTransactionPda: programId must be a PublicKey');
+  }
+  
+  // Convert to BigInt if needed
+  const index = typeof transactionIndex === 'bigint' ? transactionIndex : BigInt(transactionIndex);
+  
+  // Log the derivation for debugging
+  enhancedLogger.debug('🔍 Deriving VaultTransaction PDA', {
+    multisigPda: multisigPda.toString(),
+    transactionIndex: index.toString(),
+    programId: programId.toString(),
+    note: 'Using type-safe wrapper - parameter name is guaranteed correct',
+  });
+  
+  // CRITICAL: Use 'index' parameter name (not 'transactionIndex')
+  const [pda, bump] = getTransactionPda({
+    multisigPda,
+    index, // ✅ Correct parameter name
+    programId,
+  });
+  
+  enhancedLogger.debug('✅ VaultTransaction PDA derived', {
+    pda: pda.toString(),
+    bump,
+    transactionIndex: index.toString(),
+    multisigPda: multisigPda.toString(),
+  });
+  
+  return [pda, bump];
+}
+
 export const squadsVaultService = new SquadsVaultService();
 export const getSquadsVaultService = () => squadsVaultService;
 
