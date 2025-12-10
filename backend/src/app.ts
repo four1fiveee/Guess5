@@ -374,8 +374,19 @@ app.use((req: any, res: any, next: any) => {
       baseUrl: req.baseUrl,
       route: req.route,
       query: req.query,
+      headers: {
+        'content-type': req.headers['content-type'],
+        'content-length': req.headers['content-length'],
+      },
       timestamp: new Date().toISOString(),
       note: 'This request should have matched /api/match/sign-proposal',
+    });
+    
+    // Also check if routes are registered
+    console.error('🔍 Route debugging info', {
+      matchRoutesRegistered: !!matchRoutes,
+      matchRoutesType: typeof matchRoutes,
+      availableRoutes: matchRoutes ? Object.keys(matchRoutes) : 'N/A',
     });
   }
   next();
