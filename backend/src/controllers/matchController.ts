@@ -3114,101 +3114,102 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                     }
-              } catch (error: unknown) {
-                const elapsedTime = Date.now() - backgroundTaskStartTime;
-                const errorMessage = error instanceof Error ? error.message : String(error);
-                const errorStack = error instanceof Error ? error.stack : String(error);
-                
-                // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
-                const isVaultTxCreationFailed = (error as any)?.code === 'VAULT_TX_CREATION_FAILED' ||
-                                                (error as any)?.fatal === true ||
-                                                (error as any)?.cause === 'VAULT_TX_CREATION_FAILED' ||
-                                                errorMessage.includes('VaultTransaction never appeared');
-                
-                if (isVaultTxCreationFailed) {
-                  console.error(`❌ FATAL: Irrecoverable proposal creation failure (VAULT_TX_CREATION_FAILED) after ${elapsedTime}ms`, {
-                    matchId: updatedMatch.id,
-                    error: errorMessage,
-                    errorCode: (error as any)?.code,
-                    errorDetails: (error as any)?.details,
-                    errorType: error instanceof Error ? error.constructor.name : typeof error,
-                    stack: errorStack,
-                    timestamp: new Date().toISOString(),
-                    note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
-                  });
-                  
-                  // Mark match as irrecoverably failed - frontend should show "Match failed to initialize"
-                  try {
-                    await backgroundMatchRepository.query(`
-                      UPDATE "match"
-                      SET "proposalStatus" = $1,
-                          "matchStatus" = $2,
-                          "updatedAt" = $3
-                      WHERE id = $4
-                    `, ['VAULT_TX_CREATION_FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                    console.log('✅ Updated match status to VAULT_TX_CREATION_FAILED (irrecoverable)', {
-                      matchId: updatedMatch.id,
-                      status: 'VAULT_TX_CREATION_FAILED',
-                      matchStatus: 'PROPOSAL_FAILED',
-                      note: 'Frontend should detect this and show "Match failed to initialize" message',
-                    });
-                  } catch (updateError: any) {
-                    console.error('❌ Failed to update match status after VAULT_TX_CREATION_FAILED:', {
-                      matchId: updatedMatch.id,
-                      updateError: updateError?.message,
-                      updateStack: updateError?.stack
-                    });
-                  }
-                } else {
-                  console.error('❌ Proposal creation failed', {
-                    matchId: updatedMatch.id,
-                    elapsedTimeMs: elapsedTime,
-                    matchId: updatedMatch.id,
-                    error: errorMessage,
-                    errorType: error instanceof Error ? error.constructor.name : typeof error,
-                    stack: errorStack,
-                    timestamp: new Date().toISOString()
-                  });
-                  
-                  // Update status to indicate failure - CRITICAL: Use backgroundMatchRepository (fresh instance)
-                  try {
-                    await backgroundMatchRepository.query(`
-                      UPDATE "match"
-                      SET "proposalStatus" = $1,
-                          "matchStatus" = $2,
-                          "updatedAt" = $3
-                      WHERE id = $4
-                    `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
-                    console.log('✅ Updated match status to FAILED after proposal creation error', {
-                      matchId: updatedMatch.id,
-                      status: 'FAILED',
-                      matchStatus: 'PROPOSAL_FAILED'
-                    });
-                  } catch (updateError: any) {
-                    console.error('❌ Failed to update match status after proposal creation error:', {
-                      matchId: updatedMatch.id,
-                      updateError: updateError?.message,
-                      updateStack: updateError?.stack
-                    });
-                  }
-                  
-                  // CRITICAL: Release lock after proposal creation failure
-                  if (lockAcquired) {
-                    try {
-                      await releaseProposalLock(updatedMatch.id);
-                      console.log('🔓 Lock released', {
+                  } catch (error: unknown) {
+                    const elapsedTime = Date.now() - backgroundTaskStartTime;
+                    const errorMessage = error instanceof Error ? error.message : String(error);
+                    const errorStack = error instanceof Error ? error.stack : String(error);
+                    
+                    // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
+                    const isVaultTxCreationFailed = (error as any)?.code === 'VAULT_TX_CREATION_FAILED' ||
+                                                    (error as any)?.fatal === true ||
+                                                    (error as any)?.cause === 'VAULT_TX_CREATION_FAILED' ||
+                                                    errorMessage.includes('VaultTransaction never appeared');
+                    
+                    if (isVaultTxCreationFailed) {
+                      console.error(`❌ FATAL: Irrecoverable proposal creation failure (VAULT_TX_CREATION_FAILED) after ${elapsedTime}ms`, {
                         matchId: updatedMatch.id,
-                        note: 'Proposal creation failed'
+                        error: errorMessage,
+                        errorCode: (error as any)?.code,
+                        errorDetails: (error as any)?.details,
+                        errorType: error instanceof Error ? error.constructor.name : typeof error,
+                        stack: errorStack,
+                        timestamp: new Date().toISOString(),
+                        note: 'VaultTransaction was never created on-chain. This match cannot proceed. No amount of retries will fix this.',
                       });
-                    } catch (releaseError: any) {
-                      console.warn('⚠️ Failed to release proposal lock after failure:', {
+                      
+                      // Mark match as irrecoverably failed - frontend should show "Match failed to initialize"
+                      try {
+                        await backgroundMatchRepository.query(`
+                          UPDATE "match"
+                          SET "proposalStatus" = $1,
+                              "matchStatus" = $2,
+                              "updatedAt" = $3
+                          WHERE id = $4
+                        `, ['VAULT_TX_CREATION_FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                        console.log('✅ Updated match status to VAULT_TX_CREATION_FAILED (irrecoverable)', {
+                          matchId: updatedMatch.id,
+                          status: 'VAULT_TX_CREATION_FAILED',
+                          matchStatus: 'PROPOSAL_FAILED',
+                          note: 'Frontend should detect this and show "Match failed to initialize" message',
+                        });
+                      } catch (updateError: any) {
+                        console.error('❌ Failed to update match status after VAULT_TX_CREATION_FAILED:', {
+                          matchId: updatedMatch.id,
+                          updateError: updateError?.message,
+                          updateStack: updateError?.stack
+                        });
+                      }
+                    } else {
+                      console.error('❌ Proposal creation failed', {
                         matchId: updatedMatch.id,
-                        error: releaseError?.message
+                        elapsedTimeMs: elapsedTime,
+                        matchId: updatedMatch.id,
+                        error: errorMessage,
+                        errorType: error instanceof Error ? error.constructor.name : typeof error,
+                        stack: errorStack,
+                        timestamp: new Date().toISOString()
                       });
+                      
+                      // Update status to indicate failure - CRITICAL: Use backgroundMatchRepository (fresh instance)
+                      try {
+                        await backgroundMatchRepository.query(`
+                          UPDATE "match"
+                          SET "proposalStatus" = $1,
+                              "matchStatus" = $2,
+                              "updatedAt" = $3
+                          WHERE id = $4
+                        `, ['FAILED', 'PROPOSAL_FAILED', new Date(), updatedMatch.id]);
+                        console.log('✅ Updated match status to FAILED after proposal creation error', {
+                          matchId: updatedMatch.id,
+                          status: 'FAILED',
+                          matchStatus: 'PROPOSAL_FAILED'
+                        });
+                      } catch (updateError: any) {
+                        console.error('❌ Failed to update match status after proposal creation error:', {
+                          matchId: updatedMatch.id,
+                          updateError: updateError?.message,
+                          updateStack: updateError?.stack
+                        });
+                      }
+                      
+                      // CRITICAL: Release lock after proposal creation failure
+                      if (lockAcquired) {
+                        try {
+                          await releaseProposalLock(updatedMatch.id);
+                          console.log('🔓 Lock released', {
+                            matchId: updatedMatch.id,
+                            note: 'Proposal creation failed'
+                          });
+                        } catch (releaseError: any) {
+                          console.warn('⚠️ Failed to release proposal lock after failure:', {
+                            matchId: updatedMatch.id,
+                            error: releaseError?.message
+                          });
+                        }
+                      }
                     }
                   }
-                }
-              } catch (outerError: any) {
+                } catch (outerError: any) {
                 // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
                 console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
                   matchId: updatedMatch.id,
