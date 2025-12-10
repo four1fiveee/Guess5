@@ -13906,8 +13906,16 @@ const signProposalHandler = async (req: any, res: any) => {
     // This ensures we're working with the latest proposal state, not stale DB data
     if (matchRow.squadsVaultAddress && (matchRow.payoutProposalId || matchRow.tieRefundProposalId)) {
       try {
-        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
         const proposalIdToSync = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+        
+        console.log('🔁 [sign-proposal] Running syncProposalIfNeeded...', {
+          matchId,
+          vaultAddress: matchRow.squadsVaultAddress,
+          dbProposalId: proposalIdToSync,
+          dbStatus: matchRow.proposalStatus,
+        });
+        
+        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
         
         const syncResult = await syncProposalIfNeeded(
           matchId,
@@ -13915,8 +13923,17 @@ const signProposalHandler = async (req: any, res: any) => {
           proposalIdToSync
         );
         
+        console.log('✅ [sign-proposal] Sync completed', {
+          matchId,
+          syncSuccess: syncResult.success,
+          synced: syncResult.synced,
+          dbStatus: syncResult.dbStatus,
+          onChainStatus: syncResult.onChainStatus,
+          hasChanges: !!syncResult.changes,
+        });
+        
         if (syncResult.synced && syncResult.changes) {
-          console.log('✅ SYNC: Updated proposal status in sign-proposal handler', {
+          console.log('✅ [sign-proposal] SYNC: Updated proposal status', {
             matchId,
             changes: syncResult.changes,
           });
@@ -13937,16 +13954,26 @@ const signProposalHandler = async (req: any, res: any) => {
           }
         } else if (!syncResult.success || matchRow.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
           // Try auto-fix if sync failed or status is still FAILED
+          console.log('🔄 [sign-proposal] Attempting auto-fix: Searching for Approved proposal', {
+            matchId,
+            currentProposalId: proposalIdToSync,
+            currentStatus: matchRow.proposalStatus,
+            syncSuccess: syncResult.success,
+            reason: !syncResult.success ? 'sync failed' : 'status is SIGNATURE_VERIFICATION_FAILED',
+          });
+          
           const autoFixResult = await findAndSyncApprovedProposal(
             matchId,
             matchRow.squadsVaultAddress
           );
           
           if (autoFixResult && autoFixResult.synced) {
-            console.log('✅ AUTO-FIX: Found Approved proposal in sign-proposal handler', {
+            console.log('✅ [sign-proposal] AUTO-FIX: Found and synced Approved proposal', {
               matchId,
+              oldProposalId: proposalIdToSync,
               newProposalId: autoFixResult.onChainProposalId,
               newStatus: autoFixResult.onChainStatus,
+              changes: autoFixResult.changes,
             });
             
             // Reload match data after auto-fix
