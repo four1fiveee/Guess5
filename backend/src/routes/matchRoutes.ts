@@ -280,22 +280,92 @@ router.post('/sign-proposal',
     });
     next();
   },
-  // CRITICAL: express.raw() must run BEFORE any JSON parsing
-  // This middleware is scoped to this route only
-  express.raw({ type: 'application/octet-stream', limit: '10mb' }),
-  // CRITICAL: Log after raw parser to confirm body was parsed
+  // ✅ FIX 3: Verify Content-Type strictness before parser
   (req: any, res: any, next: any) => {
-    console.log('📦 Raw parser completed for sign-proposal', {
-      url: req.url,
-      contentType: req.headers['content-type'],
-      bodyType: typeof req.body,
-      isBuffer: Buffer.isBuffer(req.body),
-      bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 'not a buffer',
-      hasBody: !!req.body,
+    const contentType = req.headers['content-type'];
+    const expectedContentType = 'application/octet-stream';
+    
+    console.log('🔍 Content-Type validation', {
+      contentType,
+      expected: expectedContentType,
+      matches: contentType === expectedContentType,
+      matchId: req.query?.matchId,
       timestamp: new Date().toISOString(),
-      note: 'If isBuffer=true and bodyLength>0, raw parser worked correctly',
     });
+    
+    if (contentType !== expectedContentType) {
+      console.warn('⚠️ Content-Type mismatch for sign-proposal', {
+        received: contentType,
+        expected: expectedContentType,
+        matchId: req.query?.matchId,
+        wallet: req.query?.wallet,
+      });
+      // Don't block, but log the warning - parser will handle it
+    }
     next();
+  },
+  // ✅ FIX 1: Wrap express.raw() with proper error handling
+  (req: any, res: any, next: any) => {
+    try {
+      // Create the raw parser middleware
+      const rawParser = express.raw({ type: 'application/octet-stream', limit: '10mb' });
+      
+      // Execute it with error handling
+      rawParser(req, res, (err: any) => {
+        if (err) {
+          console.error('❌ Raw parser middleware error', {
+            error: err?.message,
+            stack: err?.stack,
+            errorType: err?.constructor?.name,
+            contentType: req.headers['content-type'],
+            contentLength: req.headers['content-length'],
+            matchId: req.query?.matchId,
+            wallet: req.query?.wallet,
+            url: req.url,
+            timestamp: new Date().toISOString(),
+          });
+          
+          // ✅ FIX 4: Expose parser errors via response
+          return res.status(400).json({ 
+            error: 'Raw body parser failed',
+            errorType: 'BODY_PARSER_ERROR',
+            details: err?.message || 'Failed to parse request body',
+            matchId: req.query?.matchId,
+          });
+        }
+        
+        // Log successful parsing
+        console.log('📦 Raw parser completed for sign-proposal', {
+          url: req.url,
+          contentType: req.headers['content-type'],
+          bodyType: typeof req.body,
+          isBuffer: Buffer.isBuffer(req.body),
+          bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 'not a buffer',
+          hasBody: !!req.body,
+          matchId: req.query?.matchId,
+          timestamp: new Date().toISOString(),
+          note: 'If isBuffer=true and bodyLength>0, raw parser worked correctly',
+        });
+        
+        next();
+      });
+    } catch (e: any) {
+      console.error('❌ Unexpected raw parser wrapper error', {
+        error: e?.message,
+        stack: e?.stack,
+        errorType: e?.constructor?.name,
+        matchId: req.query?.matchId,
+        timestamp: new Date().toISOString(),
+      });
+      
+      // ✅ FIX 4: Expose wrapper errors via response
+      return res.status(500).json({ 
+        error: 'Middleware crash',
+        errorType: 'MIDDLEWARE_ERROR',
+        details: e?.message || 'Unexpected error in raw parser wrapper',
+        matchId: req.query?.matchId,
+      });
+    }
   },
   asyncHandlerWrapper(matchController.signProposalHandler)
 );

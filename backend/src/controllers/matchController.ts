@@ -14056,6 +14056,18 @@ const signProposalHandler = async (req: any, res: any) => {
                 WHERE id = $1
               `, [matchId]);
               
+              // ✅ FIX 5: Add internal alerting/logging if signature missing
+              console.error('🚨 Proposal signature missing after expected POST', {
+                matchId,
+                wallet,
+                proposalId: proposalIdString,
+                transactionSignature: signature,
+                event: 'SIGNATURE_VERIFICATION_FAILED',
+                alertLevel: 'HIGH',
+                note: 'No POST /sign-proposal request was received or signature failed to appear on-chain. Check logs for POST /sign-proposal requests around proposal creation time.',
+                timestamp: new Date().toISOString(),
+              });
+              
               console.error('❌ VERIFICATION_FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
                 matchId,
                 wallet,
