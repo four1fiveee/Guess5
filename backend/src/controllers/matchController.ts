@@ -2109,7 +2109,8 @@ const submitResultHandler = async (req: any, res: any) => {
       return latestRows && latestRows.length > 0 ? latestRows[0] : null;
     };
     const matchRows = await matchRepository.query(`
-      SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime", "isCompleted", status
+      SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime", "isCompleted", status,
+             "squadsVaultAddress", "payoutProposalId", "proposalStatus"
       FROM "match"
       WHERE id = $1
     `, [matchId]);
@@ -2119,6 +2120,78 @@ const submitResultHandler = async (req: any, res: any) => {
     }
 
     const match = matchRows[0];
+    
+    // ✅ SELF-HEALING: Sync proposal status from on-chain before any proposal checks
+    // This prevents failures due to stale database state (e.g., SIGNATURE_VERIFICATION_FAILED when proposal is actually Approved)
+    if (match.squadsVaultAddress && match.payoutProposalId) {
+      try {
+        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+        
+        // First, try to sync the existing proposal
+        const syncResult = await syncProposalIfNeeded(
+          matchId,
+          match.squadsVaultAddress,
+          match.payoutProposalId
+        );
+        
+        // If sync failed or proposal is still SIGNATURE_VERIFICATION_FAILED, try to find an Approved proposal
+        if (!syncResult.success || match.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+          console.log('🔄 Attempting auto-fix: Searching for Approved proposal', {
+            matchId,
+            currentProposalId: match.payoutProposalId,
+            currentStatus: match.proposalStatus,
+          });
+          
+          const autoFixResult = await findAndSyncApprovedProposal(
+            matchId,
+            match.squadsVaultAddress
+          );
+          
+          if (autoFixResult && autoFixResult.synced) {
+            console.log('✅ AUTO-FIX: Found and synced Approved proposal in submit-result', {
+              matchId,
+              newProposalId: autoFixResult.onChainProposalId,
+              newStatus: autoFixResult.onChainStatus,
+            });
+            
+            // Reload match data after sync
+            const refreshedMatchRows = await matchRepository.query(`
+              SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime", "isCompleted", status,
+                     "squadsVaultAddress", "payoutProposalId", "proposalStatus"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            
+            if (refreshedMatchRows && refreshedMatchRows.length > 0) {
+              Object.assign(match, refreshedMatchRows[0]);
+            }
+          }
+        } else if (syncResult.synced && syncResult.changes) {
+          console.log('✅ SYNC: Updated proposal status in submit-result', {
+            matchId,
+            changes: syncResult.changes,
+          });
+          
+          // Reload match data after sync
+          const refreshedMatchRows = await matchRepository.query(`
+            SELECT id, "player1", "player2", "player1Result", "player2Result", "gameStartTime", "isCompleted", status,
+                   "squadsVaultAddress", "payoutProposalId", "proposalStatus"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          
+          if (refreshedMatchRows && refreshedMatchRows.length > 0) {
+            Object.assign(match, refreshedMatchRows[0]);
+          }
+        }
+      } catch (syncError: any) {
+        // Don't fail submit-result if sync fails - log and continue
+        console.warn('⚠️ Proposal sync failed in submit-result (non-blocking)', {
+          matchId,
+          error: syncError?.message,
+        });
+      }
+    }
     
     // Check if match is already completed in database
     // CRITICAL FIX: Allow player to submit even if match is marked as completed,
@@ -2604,7 +2677,8 @@ const submitResultHandler = async (req: any, res: any) => {
         const matchRepository = AppDataSource.getRepository(Match);
         const finalMatchRows = await matchRepository.query(`
           SELECT id, winner, "isCompleted", "player1Result", "player2Result", 
-                 "player1", "player2", "entryFee", "squadsVaultAddress", "proposalStatus"
+                 "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
+                 "payoutProposalId", "proposalStatus"
           FROM "match"
           WHERE id = $1
         `, [matchId]);
@@ -2613,14 +2687,79 @@ const submitResultHandler = async (req: any, res: any) => {
           throw new Error('Match not found after transaction');
         }
         
+        // ✅ SELF-HEALING: Sync proposal status before checking if creation is needed
+        // This ensures we don't skip proposal creation due to stale database state
+        if (updatedMatch.squadsVaultAddress && updatedMatch.payoutProposalId) {
+          try {
+            const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+            
+            const syncResult = await syncProposalIfNeeded(
+              matchId,
+              updatedMatch.squadsVaultAddress,
+              updatedMatch.payoutProposalId
+            );
+            
+            if (syncResult.synced && syncResult.changes) {
+              console.log('✅ SYNC: Updated proposal status before proposal creation check', {
+                matchId,
+                changes: syncResult.changes,
+              });
+              
+              // Reload match data after sync
+              const refreshedRows = await matchRepository.query(`
+                SELECT "payoutProposalId", "proposalStatus"
+                FROM "match"
+                WHERE id = $1
+              `, [matchId]);
+              
+              if (refreshedRows && refreshedRows.length > 0) {
+                updatedMatch.payoutProposalId = refreshedRows[0].payoutProposalId;
+                updatedMatch.proposalStatus = refreshedRows[0].proposalStatus;
+              }
+            } else if (!syncResult.success || updatedMatch.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+              // Try auto-fix if sync failed or status is still FAILED
+              const autoFixResult = await findAndSyncApprovedProposal(
+                matchId,
+                updatedMatch.squadsVaultAddress
+              );
+              
+              if (autoFixResult && autoFixResult.synced) {
+                console.log('✅ AUTO-FIX: Found Approved proposal before proposal creation check', {
+                  matchId,
+                  newProposalId: autoFixResult.onChainProposalId,
+                  newStatus: autoFixResult.onChainStatus,
+                });
+                
+                // Reload match data after auto-fix
+                const refreshedRows = await matchRepository.query(`
+                  SELECT "payoutProposalId", "proposalStatus"
+                  FROM "match"
+                  WHERE id = $1
+                `, [matchId]);
+                
+                if (refreshedRows && refreshedRows.length > 0) {
+                  updatedMatch.payoutProposalId = refreshedRows[0].payoutProposalId;
+                  updatedMatch.proposalStatus = refreshedRows[0].proposalStatus;
+                }
+              }
+            }
+          } catch (syncError: any) {
+            console.warn('⚠️ Proposal sync failed before proposal creation check (non-blocking)', {
+              matchId,
+              error: syncError?.message,
+            });
+          }
+        }
+        
         // CRITICAL: Check if proposal creation is already in progress to prevent duplicate creation
-        if (updatedMatch.proposalStatus === 'PENDING' || updatedMatch.proposalStatus === 'ACTIVE') {
-          console.log('⏸️ Proposal creation already in progress — skipping', {
+        if (updatedMatch.proposalStatus === 'PENDING' || updatedMatch.proposalStatus === 'ACTIVE' || updatedMatch.proposalStatus === 'APPROVED') {
+          console.log('⏸️ Proposal creation already in progress or completed — skipping', {
             matchId: updatedMatch.id,
             currentProposalStatus: updatedMatch.proposalStatus,
+            payoutProposalId: updatedMatch.payoutProposalId,
             timestamp: new Date().toISOString()
           });
-          return; // Exit - proposal creation is already running
+          return; // Exit - proposal creation is already running or completed
         }
         
         // CRITICAL: Add helper methods to raw SQL result object
@@ -9321,6 +9460,58 @@ const manualExecuteProposalHandler = async (req: any, res: any) => {
       return res.status(404).json({ error: 'Match not found' });
     }
     
+    // ✅ SELF-HEALING: Sync proposal status before execution
+    if ((match as any).squadsVaultAddress && ((match as any).payoutProposalId || (match as any).tieRefundProposalId)) {
+      try {
+        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+        const proposalIdToSync = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
+        
+        const syncResult = await syncProposalIfNeeded(
+          matchId,
+          (match as any).squadsVaultAddress,
+          proposalIdToSync
+        );
+        
+        if (syncResult.synced && syncResult.changes) {
+          console.log('✅ SYNC: Updated proposal status before manual execution', {
+            matchId,
+            changes: syncResult.changes,
+          });
+          
+          // Reload match data after sync
+          const refreshedMatch = await matchRepository.findOne({ where: { id: matchId } });
+          if (refreshedMatch) {
+            Object.assign(match, refreshedMatch);
+          }
+        } else if (!syncResult.success || (match as any).proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+          // Try auto-fix if sync failed or status is still FAILED
+          const autoFixResult = await findAndSyncApprovedProposal(
+            matchId,
+            (match as any).squadsVaultAddress
+          );
+          
+          if (autoFixResult && autoFixResult.synced) {
+            console.log('✅ AUTO-FIX: Found Approved proposal before manual execution', {
+              matchId,
+              newProposalId: autoFixResult.onChainProposalId,
+              newStatus: autoFixResult.onChainStatus,
+            });
+            
+            // Reload match data after auto-fix
+            const refreshedMatch = await matchRepository.findOne({ where: { id: matchId } });
+            if (refreshedMatch) {
+              Object.assign(match, refreshedMatch);
+            }
+          }
+        }
+      } catch (syncError: any) {
+        console.warn('⚠️ Proposal sync failed before manual execution (non-blocking)', {
+          matchId,
+          error: syncError?.message,
+        });
+      }
+    }
+    
     const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
     if (!proposalId) {
       return res.status(400).json({ error: 'No proposal found for this match' });
@@ -13673,6 +13864,78 @@ const signProposalHandler = async (req: any, res: any) => {
     }
     
     const matchRow = matchRows[0];
+    
+    // ✅ SELF-HEALING: Sync proposal status from on-chain before processing signature
+    // This ensures we're working with the latest proposal state, not stale DB data
+    if (matchRow.squadsVaultAddress && (matchRow.payoutProposalId || matchRow.tieRefundProposalId)) {
+      try {
+        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+        const proposalIdToSync = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+        
+        const syncResult = await syncProposalIfNeeded(
+          matchId,
+          matchRow.squadsVaultAddress,
+          proposalIdToSync
+        );
+        
+        if (syncResult.synced && syncResult.changes) {
+          console.log('✅ SYNC: Updated proposal status in sign-proposal handler', {
+            matchId,
+            changes: syncResult.changes,
+          });
+          
+          // Reload match data after sync
+          const refreshedRows = await matchRepository.query(`
+            SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          
+          if (refreshedRows && refreshedRows.length > 0) {
+            matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+            matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+            matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+            matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+            matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+          }
+        } else if (!syncResult.success || matchRow.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+          // Try auto-fix if sync failed or status is still FAILED
+          const autoFixResult = await findAndSyncApprovedProposal(
+            matchId,
+            matchRow.squadsVaultAddress
+          );
+          
+          if (autoFixResult && autoFixResult.synced) {
+            console.log('✅ AUTO-FIX: Found Approved proposal in sign-proposal handler', {
+              matchId,
+              newProposalId: autoFixResult.onChainProposalId,
+              newStatus: autoFixResult.onChainStatus,
+            });
+            
+            // Reload match data after auto-fix
+            const refreshedRows = await matchRepository.query(`
+              SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            
+            if (refreshedRows && refreshedRows.length > 0) {
+              matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+              matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+              matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+              matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+              matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+            }
+          }
+        }
+      } catch (syncError: any) {
+        // Don't fail sign-proposal if sync fails - log and continue
+        console.warn('⚠️ Proposal sync failed in sign-proposal handler (non-blocking)', {
+          matchId,
+          error: syncError?.message,
+        });
+      }
+    }
 
     // Verify player is part of this match (case-insensitive for safety)
     const isPlayer1 = matchRow.player1 && matchRow.player1.toLowerCase() === wallet.toLowerCase();
