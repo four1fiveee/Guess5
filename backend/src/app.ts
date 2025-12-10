@@ -362,6 +362,25 @@ if (process.env.NODE_ENV === 'development') {
   app.get('/api/debug/matchmaking', require('./controllers/matchController').debugMatchmakingHandler);
 }
 
+// Debug middleware to log unmatched routes before 404
+app.use((req: any, res: any, next: any) => {
+  // Only log POST requests to sign-proposal to avoid noise
+  if (req.method === 'POST' && req.originalUrl.includes('/sign-proposal')) {
+    console.error('❌ 404: Request did not match any route', {
+      method: req.method,
+      url: req.url,
+      originalUrl: req.originalUrl,
+      path: req.path,
+      baseUrl: req.baseUrl,
+      route: req.route,
+      query: req.query,
+      timestamp: new Date().toISOString(),
+      note: 'This request should have matched /api/match/sign-proposal',
+    });
+  }
+  next();
+});
+
 // 404 handler
 app.use((req: any, res: any) => {
   res.status(404).json({ error: `Not found - ${req.originalUrl}` });
