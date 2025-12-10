@@ -261,6 +261,13 @@ router.options('/sign-proposal', (req: any, res: any) => {
 router.post('/sign-proposal',
   // CRITICAL: Log route entry to confirm routing works
   (req: any, res: any, next: any) => {
+    // #region agent log
+    const fs = require('fs');
+    const logPath = 'c:\\Users\\henry\\OneDrive\\Desktop\\Guess5\\.cursor\\debug.log';
+    try {
+      fs.appendFileSync(logPath, JSON.stringify({location:'matchRoutes.ts:264',message:'Request reached sign-proposal route',data:{url:req.url,matchId:req.query?.matchId,wallet:req.query?.wallet},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})+'\n');
+    } catch(e) {}
+    // #endregion
     console.log('🚚 Request reached sign-proposal route', {
       url: req.url,
       method: req.method,

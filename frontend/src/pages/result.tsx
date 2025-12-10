@@ -1354,6 +1354,17 @@ const Result: React.FC = () => {
       
       const requestUrl = `${apiUrl}/api/match/sign-proposal?matchId=${encodeURIComponent(matchId)}&wallet=${encodeURIComponent(publicKey.toString())}`;
       
+      // ✅ EXPERT RECOMMENDATION: Log what's actually being sent before sending
+      console.log('Sending sign-proposal POST', {
+        matchId,
+        proposalId: payoutData?.proposalId,
+        wallet: publicKey.toString(),
+        apiUrl,
+        bodyLength: proposalSerialized.length,
+        requestUrl,
+        timestamp: new Date().toISOString(),
+      });
+      
       // #region agent log
       fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1341',message:'sign-proposal request starting',data:{matchId,wallet:publicKey?.toString(),proposalId:payoutData?.proposalId,requestUrl,bodyLength:proposalSerialized.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
       // #endregion
@@ -1534,7 +1545,8 @@ const Result: React.FC = () => {
         } catch (fetchError: any) {
           lastError = fetchError instanceof Error ? fetchError : new Error(String(fetchError));
           
-          // CRITICAL: Log ALL error details to diagnose HTTP communication failure
+          // ✅ EXPERT RECOMMENDATION: Enhanced catch() with error tracking
+          // Log ALL error details to diagnose HTTP communication failure
           console.error(`❌ Fetch error on sign-proposal (attempt ${attempt + 1}/${maxRetries})`, {
             matchId,
             wallet: publicKey.toString(),
@@ -1752,8 +1764,23 @@ const Result: React.FC = () => {
       // Only reset if there's an error
       console.log('✅ Signing completed successfully - button will be hidden on next render');
     } catch (err) {
-      console.error('❌ Error signing proposal:', err);
+      // ✅ EXPERT RECOMMENDATION: Enhanced catch() with comprehensive error tracking
       const errorMessage = err instanceof Error ? err.message : 'Failed to sign proposal';
+      const errorName = err instanceof Error ? err.name : 'Unknown';
+      const errorStack = err instanceof Error ? err.stack : undefined;
+      
+      console.error('❌ Error signing proposal:', {
+        error: err,
+        errorMessage,
+        errorName,
+        errorType: err?.constructor?.name,
+        errorStack,
+        matchId,
+        wallet: publicKey?.toString(),
+        proposalId: payoutData?.proposalId,
+        apiUrl,
+        timestamp: new Date().toISOString(),
+      });
       
       // CRITICAL: Check if it's a FATAL error (match failed to initialize)
       const isFatalError = 
@@ -1767,7 +1794,8 @@ const Result: React.FC = () => {
         errorMessage.includes('Network error') ||
         errorMessage.includes('Failed to fetch') ||
         errorMessage.includes('CORS') ||
-        errorMessage.includes('Network request failed');
+        errorMessage.includes('Network request failed') ||
+        errorMessage.includes('request never reached the server');
       
       if (isFatalError) {
         // FATAL ERROR: Match initialization failure - show clear message

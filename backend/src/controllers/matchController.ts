@@ -13251,6 +13251,31 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
 
 // Handler for getting VaultTransaction approval transaction (step 2 of two-step approval)
 const signProposalHandler = async (req: any, res: any) => {
+  // 🔒 DEBUG HOOK: Log ALL incoming POSTs to /sign-proposal, even if malformed
+  // This lets us confirm whether any data hits the backend at all, even if parsing fails later
+  try {
+    console.log('[DEBUG] Received sign-proposal request', {
+      matchId: req.query?.matchId || req.params?.matchId || 'unknown',
+      wallet: req.query?.wallet || 'unknown',
+      isBuffer: Buffer.isBuffer(req.body),
+      length: Buffer.isBuffer(req.body) ? req.body.length : (typeof req.body === 'string' ? req.body.length : 'not buffer/string'),
+      bodyType: typeof req.body,
+      contentType: req.headers['content-type'],
+      method: req.method,
+      url: req.url,
+      hasBody: !!req.body,
+      timestamp: new Date().toISOString(),
+      note: 'This log confirms ANY request reached the handler, even if malformed',
+    });
+  } catch (debugLogError: any) {
+    // If even debug logging fails, log minimal info
+    console.error('[DEBUG] Failed to log incoming request:', {
+      error: debugLogError?.message,
+      matchId: req.query?.matchId || 'unknown',
+      wallet: req.query?.wallet || 'unknown',
+    });
+  }
+
   // CRITICAL: Log incoming request for debugging CORS issues
   // #region agent log
   const fs3 = require('fs');
