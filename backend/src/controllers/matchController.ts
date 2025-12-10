@@ -13991,15 +13991,152 @@ const signProposalHandler = async (req: any, res: any) => {
       });
     }
 
+    // ✅ PROPOSAL MISMATCH DETECTION: Log DB proposal vs what user is signing
+    console.log('🔍 [sign-proposal] Proposal ID comparison', {
+      matchId,
+      wallet,
+      dbProposalId: proposalIdString,
+      dbProposalStatus: matchRow.proposalStatus,
+      dbProposalSigners: matchRow.proposalSigners,
+      dbNeedsSignatures: matchRow.needsSignatures,
+      note: 'After sync, DB proposal should match what user is signing',
+    });
+
     // Check on-chain proposal state before attempting to sign
     try {
       const { PublicKey, Connection } = require('@solana/web3.js');
-      const { PROGRAM_ID, getTransactionPda } = require('@sqds/multisig');
+      const { PROGRAM_ID, getTransactionPda, getProposalPda } = require('@sqds/multisig');
       
       const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
       const programId = process.env.SQUADS_PROGRAM_ID 
         ? new PublicKey(process.env.SQUADS_PROGRAM_ID)
         : PROGRAM_ID;
+      
+      // ✅ Try to extract proposal ID from signed transaction for comparison
+      // This helps detect if user signed a different proposal than DB has
+      let signedProposalId: string | null = null;
+      try {
+        // Deserialize transaction temporarily to extract account keys
+        let signedTxBuffer: Buffer;
+        if (isRawBytes && Buffer.isBuffer(signedTransaction)) {
+          signedTxBuffer = signedTransaction;
+        } else if (typeof signedTransaction === 'string') {
+          signedTxBuffer = Buffer.from(signedTransaction, 'base64');
+        } else {
+          throw new Error('Cannot extract proposal ID - invalid transaction format');
+        }
+        
+        const { VersionedTransaction } = require('@solana/web3.js');
+        const tempTx = VersionedTransaction.deserialize(signedTxBuffer);
+        const accountKeys = tempTx.message.staticAccountKeys.map((key: any) => key.toString());
+        
+        // Try to find proposal PDA in account keys by checking common transaction indices
+        for (let i = 0; i <= 10; i++) {
+          try {
+            const [testProposalPda] = getProposalPda({
+              multisigPda: multisigAddress,
+              transactionIndex: BigInt(i),
+              programId,
+            });
+            if (accountKeys.includes(testProposalPda.toString())) {
+              signedProposalId = testProposalPda.toString();
+              console.log('✅ [sign-proposal] Extracted proposal ID from signed transaction', {
+                matchId,
+                signedProposalId,
+                transactionIndex: i,
+                note: 'This is the proposal the user actually signed',
+              });
+              break;
+            }
+          } catch (e) {
+            // Continue checking other indices
+          }
+        }
+        
+        if (!signedProposalId) {
+          console.warn('⚠️ [sign-proposal] Could not extract proposal ID from signed transaction', {
+            matchId,
+            accountKeysCount: accountKeys.length,
+            note: 'Will proceed with DB proposal ID',
+          });
+        }
+      } catch (extractError: any) {
+        console.warn('⚠️ [sign-proposal] Failed to extract proposal ID from transaction', {
+          matchId,
+          error: extractError?.message,
+          note: 'Will proceed with DB proposal ID',
+        });
+      }
+      
+      // ✅ Compare DB proposal with signed proposal
+      if (signedProposalId && signedProposalId !== proposalIdString) {
+        console.error('🚨 [sign-proposal] PROPOSAL MISMATCH DETECTED', {
+          matchId,
+          dbProposalId: proposalIdString,
+          signedProposalId,
+          mismatch: true,
+          note: 'User signed a different proposal than DB has - this indicates stale frontend data or multiple proposals',
+        });
+        
+        // Try to find and sync the proposal the user actually signed
+        try {
+          const { findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+          const mismatchFixResult = await findAndSyncApprovedProposal(
+            matchId,
+            matchRow.squadsVaultAddress
+          );
+          
+          if (mismatchFixResult && mismatchFixResult.synced && mismatchFixResult.onChainProposalId === signedProposalId) {
+            console.log('✅ [sign-proposal] MISMATCH FIXED: Found and synced the proposal user signed', {
+              matchId,
+              oldDbProposalId: proposalIdString,
+              newDbProposalId: mismatchFixResult.onChainProposalId,
+              signedProposalId,
+            });
+            
+            // Update proposalIdString to match what user signed
+            proposalIdString = mismatchFixResult.onChainProposalId;
+            
+            // Reload match data
+            const refreshedRows = await matchRepository.query(`
+              SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            
+            if (refreshedRows && refreshedRows.length > 0) {
+              matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+              matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+              matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+              matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+              matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+              proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+            }
+          } else {
+            console.warn('⚠️ [sign-proposal] Could not auto-fix proposal mismatch', {
+              matchId,
+              dbProposalId: proposalIdString,
+              signedProposalId,
+              fixResult: mismatchFixResult,
+            });
+            
+            // Still proceed - the signature might be valid for a different proposal
+            // The verification step will catch if it's wrong
+          }
+        } catch (mismatchFixError: any) {
+          console.warn('⚠️ [sign-proposal] Error attempting to fix proposal mismatch', {
+            matchId,
+            error: mismatchFixError?.message,
+          });
+        }
+      } else if (signedProposalId) {
+        console.log('✅ [sign-proposal] Proposal IDs match', {
+          matchId,
+          dbProposalId: proposalIdString,
+          signedProposalId,
+          match: true,
+        });
+      }
       
       // Try to get transaction PDA to verify it exists
       let transactionPda;

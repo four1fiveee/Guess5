@@ -271,6 +271,22 @@ router.get('/sign-proposal-test', (req: any, res: any) => {
 });
 
 router.post('/sign-proposal',
+  // ✅ CRITICAL: Explicit route match confirmation - FIRST middleware
+  (req: any, res: any, next: any) => {
+    console.log('✅✅✅ ROUTE MATCHED: POST /sign-proposal', {
+      method: req.method,
+      url: req.url,
+      originalUrl: req.originalUrl,
+      path: req.path,
+      baseUrl: req.baseUrl,
+      query: req.query,
+      contentType: req.headers['content-type'],
+      contentLength: req.headers['content-length'],
+      timestamp: new Date().toISOString(),
+      note: 'THIS LOG CONFIRMS THE ROUTE IS MATCHING - if you see this, routing works',
+    });
+    next();
+  },
   // CRITICAL: Log route entry to confirm routing works
   (req: any, res: any, next: any) => {
     // #region agent log
