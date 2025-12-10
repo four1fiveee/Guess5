@@ -65,15 +65,24 @@ export async function syncProposalIfNeeded(
 
     const dbStatus = (match as any).proposalStatus || 'PENDING';
     
-    // If status is already APPROVED or EXECUTED, skip sync (optimization)
+    // CRITICAL: Always sync if status is SIGNATURE_VERIFICATION_FAILED - this indicates a desync
+    // Even if status is APPROVED or EXECUTED, we should still verify on-chain state matches
+    // (Optimization: Skip if already APPROVED/EXECUTED AND we have recent update, but always check FAILED)
     if (dbStatus === 'APPROVED' || dbStatus === 'EXECUTED') {
-      return {
-        success: true,
-        synced: true,
+      // Still verify on-chain matches DB, but don't force update if already correct
+      // This is an optimization - we'll still fetch on-chain status below
+      console.log('ℹ️ [syncProposalIfNeeded] DB status is already APPROVED/EXECUTED, verifying on-chain matches', {
+        matchId,
+        dbStatus,
+        dbProposalId: currentDbProposalId,
+      });
+    } else if (dbStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+      // CRITICAL: SIGNATURE_VERIFICATION_FAILED indicates a desync - always attempt to find Approved proposal
+      console.log('🚨 [syncProposalIfNeeded] DB status is SIGNATURE_VERIFICATION_FAILED - attempting auto-fix', {
         matchId,
         dbProposalId: currentDbProposalId,
-        dbStatus,
-      };
+        note: 'This may indicate database points to wrong proposal - will search for Approved proposal',
+      });
     }
 
     // Fetch on-chain proposal status
@@ -123,7 +132,9 @@ export async function syncProposalIfNeeded(
         dbStatus !== statusString ||
         JSON.stringify(dbSigners.sort()) !== JSON.stringify(onChainSigners.sort());
 
-      if (!needsUpdate) {
+      // CRITICAL: Even if status matches, if DB status is SIGNATURE_VERIFICATION_FAILED,
+      // we should still check if there's an Approved proposal elsewhere (desync scenario)
+      if (!needsUpdate && dbStatus !== 'SIGNATURE_VERIFICATION_FAILED') {
         return {
           success: true,
           synced: true,
@@ -133,6 +144,35 @@ export async function syncProposalIfNeeded(
           dbStatus,
           onChainStatus: statusString,
         };
+      }
+      
+      // If DB status is SIGNATURE_VERIFICATION_FAILED but on-chain proposal is also Active/not Approved,
+      // this means the DB proposal ID might be wrong - try to find Approved proposal
+      if (dbStatus === 'SIGNATURE_VERIFICATION_FAILED' && statusString !== 'APPROVED') {
+        console.log('🔄 [syncProposalIfNeeded] DB proposal is FAILED and on-chain is not Approved - searching for Approved proposal', {
+          matchId,
+          dbProposalId: currentDbProposalId,
+          onChainStatus: statusString,
+          note: 'DB proposal may be wrong - attempting to find Approved proposal',
+        });
+        
+        // Try to find Approved proposal as fallback
+        try {
+          const autoFixResult = await findAndSyncApprovedProposal(matchId, vaultAddress);
+          if (autoFixResult && autoFixResult.synced) {
+            console.log('✅ [syncProposalIfNeeded] Found Approved proposal after detecting FAILED status', {
+              matchId,
+              oldProposalId: currentDbProposalId,
+              newProposalId: autoFixResult.onChainProposalId,
+            });
+            return autoFixResult;
+          }
+        } catch (autoFixError: any) {
+          console.warn('⚠️ [syncProposalIfNeeded] Failed to find Approved proposal after FAILED status', {
+            matchId,
+            error: autoFixError?.message,
+          });
+        }
       }
 
       // Update database
@@ -180,12 +220,47 @@ export async function syncProposalIfNeeded(
       };
 
     } catch (onChainError: any) {
-      console.error('❌ SYNC: Failed to fetch on-chain proposal status', {
+      console.error('❌ [syncProposalIfNeeded] Failed to fetch on-chain proposal status', {
         matchId,
         dbProposalId: currentDbProposalId,
         vaultAddress,
+        dbStatus,
         error: onChainError?.message,
       });
+
+      // CRITICAL: If DB status is SIGNATURE_VERIFICATION_FAILED and we can't fetch the proposal,
+      // it likely means the DB proposal ID is stale/wrong - try to find Approved proposal
+      if (dbStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+        console.log('🔄 [syncProposalIfNeeded] DB proposal not found on-chain, attempting to find Approved proposal', {
+          matchId,
+          dbProposalId: currentDbProposalId,
+          note: 'DB proposal may be stale - searching for Approved proposal as fallback',
+        });
+        
+        try {
+          const autoFixResult = await findAndSyncApprovedProposal(matchId, vaultAddress);
+          if (autoFixResult && autoFixResult.synced) {
+            console.log('✅ [syncProposalIfNeeded] Auto-fix succeeded after proposal fetch failure', {
+              matchId,
+              newProposalId: autoFixResult.onChainProposalId,
+              newStatus: autoFixResult.onChainStatus,
+            });
+            return autoFixResult;
+          } else {
+            console.warn('⚠️ [syncProposalIfNeeded] Desync detected but no Approved proposal found', {
+              matchId,
+              dbProposalId: currentDbProposalId,
+              dbStatus,
+              note: 'Proposal may remain in FAILED state - manual intervention may be required',
+            });
+          }
+        } catch (autoFixError: any) {
+          console.error('❌ [syncProposalIfNeeded] Auto-fix failed after proposal fetch error', {
+            matchId,
+            error: autoFixError?.message,
+          });
+        }
+      }
 
       return {
         success: false,
@@ -222,6 +297,12 @@ export async function findAndSyncApprovedProposal(
   vaultAddress: string
 ): Promise<ProposalSyncResult | null> {
   try {
+    console.log('🔍 [findAndSyncApprovedProposal] Searching for Approved proposal...', {
+      matchId,
+      vaultAddress,
+      searchRange: 'transaction indices 0-10',
+    });
+    
     const { getMultisigPda, getProposalPda, accounts } = require('@sqds/multisig');
     const connection = new Connection(
       process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
@@ -232,6 +313,13 @@ export async function findAndSyncApprovedProposal(
     const multisigPda = getMultisigPda({
       createKey: vaultPubkey,
     })[0];
+    
+    // Get current DB state for comparison
+    const matchRepository = AppDataSource.getRepository('Match');
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    const oldProposalId = (match as any)?.payoutProposalId;
+    const oldStatus = (match as any)?.proposalStatus;
+    const oldSigners = JSON.parse((match as any)?.proposalSigners || '[]');
     
     // Search transaction indices 0-10 for Approved proposal with both signatures
     for (let i = 0; i <= 10; i++) {
@@ -250,9 +338,30 @@ export async function findAndSyncApprovedProposal(
         const approved = (proposalAccount as any).approved || [];
         const approvedPubkeys = approved.map((p: PublicKey) => p.toString());
         
+        // Log each proposal found for debugging
+        if (status === 'Approved' || status === 'Active' || status === 'ExecuteReady') {
+          console.log('🔍 [findAndSyncApprovedProposal] Found proposal', {
+            matchId,
+            transactionIndex: i,
+            proposalId: proposalPda.toString(),
+            status,
+            approvedCount: approvedPubkeys.length,
+            approvedSigners: approvedPubkeys,
+          });
+        }
+        
         // Found Approved proposal with both signatures
         if (status === 'Approved' && approvedPubkeys.length >= 2) {
-          const matchRepository = AppDataSource.getRepository('Match');
+          console.log('✅ [findAndSyncApprovedProposal] Found Approved proposal with both signatures!', {
+            matchId,
+            transactionIndex: i,
+            proposalId: proposalPda.toString(),
+            signers: approvedPubkeys,
+            oldProposalId,
+            oldStatus,
+            oldSigners,
+          });
+          
           await matchRepository.update(matchId, {
             payoutProposalId: proposalPda.toString(),
             proposalStatus: 'APPROVED',
@@ -262,37 +371,63 @@ export async function findAndSyncApprovedProposal(
             updatedAt: new Date(),
           });
           
-          console.log('✅ AUTO-FIX: Found and synced Approved proposal', {
+          const changes: ProposalSyncResult['changes'] = {};
+          if (oldProposalId !== proposalPda.toString()) {
+            changes.proposalId = { from: oldProposalId || 'unknown', to: proposalPda.toString() };
+          }
+          if (oldStatus !== 'APPROVED') {
+            changes.proposalStatus = { from: oldStatus || 'unknown', to: 'APPROVED' };
+          }
+          if (JSON.stringify(oldSigners.sort()) !== JSON.stringify(approvedPubkeys.sort())) {
+            changes.signers = { from: oldSigners, to: approvedPubkeys };
+          }
+          
+          console.log('✅ [findAndSyncApprovedProposal] AUTO-FIX: Database updated', {
             matchId,
             proposalId: proposalPda.toString(),
             transactionIndex: i,
             signers: approvedPubkeys,
+            changes,
           });
           
           return {
             success: true,
             synced: true,
             matchId,
-            dbProposalId: proposalPda.toString(),
+            dbProposalId: oldProposalId || undefined,
             onChainProposalId: proposalPda.toString(),
+            dbStatus: oldStatus,
             onChainStatus: 'APPROVED',
-            changes: {
-              proposalId: { from: 'unknown', to: proposalPda.toString() },
-              proposalStatus: { from: 'unknown', to: 'APPROVED' },
-            },
+            changes,
           };
         }
-      } catch (e) {
+      } catch (e: any) {
         // Proposal doesn't exist at this index, continue
+        // Only log if it's not a "not found" error
+        if (e?.message && !e.message.includes('AccountNotFound') && !e.message.includes('Invalid account')) {
+          console.debug('🔍 [findAndSyncApprovedProposal] Error checking transaction index', {
+            matchId,
+            transactionIndex: i,
+            error: e?.message,
+          });
+        }
         continue;
       }
     }
     
+    console.warn('❌ [findAndSyncApprovedProposal] No Approved proposal found in range 0-10', {
+      matchId,
+      vaultAddress,
+      note: 'Searched all transaction indices but no Approved proposal with both signatures found',
+    });
+    
     return null;
   } catch (error: any) {
-    console.warn('⚠️ AUTO-FIX: Failed to search for Approved proposal', {
+    console.error('❌ [findAndSyncApprovedProposal] Failed to search for Approved proposal', {
       matchId,
+      vaultAddress,
       error: error?.message,
+      stack: error?.stack,
     });
     return null;
   }

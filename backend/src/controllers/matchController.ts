@@ -2125,6 +2125,13 @@ const submitResultHandler = async (req: any, res: any) => {
     // This prevents failures due to stale database state (e.g., SIGNATURE_VERIFICATION_FAILED when proposal is actually Approved)
     if (match.squadsVaultAddress && match.payoutProposalId) {
       try {
+        console.log('🔁 [submit-result] Running syncProposalIfNeeded...', {
+          matchId,
+          vaultAddress: match.squadsVaultAddress,
+          dbProposalId: match.payoutProposalId,
+          dbStatus: match.proposalStatus,
+        });
+        
         const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
         
         // First, try to sync the existing proposal
@@ -2134,12 +2141,24 @@ const submitResultHandler = async (req: any, res: any) => {
           match.payoutProposalId
         );
         
-        // If sync failed or proposal is still SIGNATURE_VERIFICATION_FAILED, try to find an Approved proposal
+        console.log('✅ [submit-result] Sync completed', {
+          matchId,
+          syncSuccess: syncResult.success,
+          synced: syncResult.synced,
+          dbStatus: syncResult.dbStatus,
+          onChainStatus: syncResult.onChainStatus,
+          hasChanges: !!syncResult.changes,
+        });
+        
+        // CRITICAL: If sync failed or proposal is still SIGNATURE_VERIFICATION_FAILED, try to find an Approved proposal
+        // This handles cases where DB points to wrong proposal (e.g., index 03 when index 01 is Approved)
         if (!syncResult.success || match.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
-          console.log('🔄 Attempting auto-fix: Searching for Approved proposal', {
+          console.log('🔄 [submit-result] Attempting auto-fix: Searching for Approved proposal', {
             matchId,
             currentProposalId: match.payoutProposalId,
             currentStatus: match.proposalStatus,
+            syncSuccess: syncResult.success,
+            reason: !syncResult.success ? 'sync failed' : 'status is SIGNATURE_VERIFICATION_FAILED',
           });
           
           const autoFixResult = await findAndSyncApprovedProposal(
@@ -2148,10 +2167,12 @@ const submitResultHandler = async (req: any, res: any) => {
           );
           
           if (autoFixResult && autoFixResult.synced) {
-            console.log('✅ AUTO-FIX: Found and synced Approved proposal in submit-result', {
+            console.log('✅ [submit-result] AUTO-FIX: Found and synced Approved proposal', {
               matchId,
+              oldProposalId: match.payoutProposalId,
               newProposalId: autoFixResult.onChainProposalId,
               newStatus: autoFixResult.onChainStatus,
+              changes: autoFixResult.changes,
             });
             
             // Reload match data after sync
@@ -2165,9 +2186,17 @@ const submitResultHandler = async (req: any, res: any) => {
             if (refreshedMatchRows && refreshedMatchRows.length > 0) {
               Object.assign(match, refreshedMatchRows[0]);
             }
+          } else {
+            // CRITICAL: Warn if desync detected but no fix found
+            console.warn('⚠️ [submit-result] Desync detected but no Approved proposal found', {
+              matchId,
+              currentProposalId: match.payoutProposalId,
+              currentStatus: match.proposalStatus,
+              note: 'Proposal may remain in FAILED state - manual intervention may be required',
+            });
           }
         } else if (syncResult.synced && syncResult.changes) {
-          console.log('✅ SYNC: Updated proposal status in submit-result', {
+          console.log('✅ [submit-result] SYNC: Updated proposal status', {
             matchId,
             changes: syncResult.changes,
           });
@@ -2186,11 +2215,19 @@ const submitResultHandler = async (req: any, res: any) => {
         }
       } catch (syncError: any) {
         // Don't fail submit-result if sync fails - log and continue
-        console.warn('⚠️ Proposal sync failed in submit-result (non-blocking)', {
+        console.error('❌ [submit-result] Proposal sync failed (non-blocking)', {
           matchId,
           error: syncError?.message,
+          stack: syncError?.stack,
+          note: 'Continuing with submit-result despite sync failure',
         });
       }
+    } else {
+      console.log('ℹ️ [submit-result] Skipping sync - no vault address or proposal ID', {
+        matchId,
+        hasVaultAddress: !!match.squadsVaultAddress,
+        hasProposalId: !!match.payoutProposalId,
+      });
     }
     
     // Check if match is already completed in database
