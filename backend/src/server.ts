@@ -199,6 +199,15 @@ async function startServer() {
     } catch (error: any) {
       enhancedLogger.warn('⚠️ Failed to start proposal execution services (optional):', error?.message || error);
     }
+
+    // Start proposal execution monitor (optional - watches for Approved proposals)
+    try {
+      const { startProposalExecutionMonitor } = require('./services/proposalExecutionMonitor');
+      startProposalExecutionMonitor();
+      enhancedLogger.info('✅ Proposal execution monitor started');
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Failed to start proposal execution monitor (optional):', error?.message || error);
+    }
     
     // CRITICAL: Handle server listen errors
     server.on('error', (error: any) => {
@@ -238,6 +247,15 @@ async function startServer() {
           enhancedLogger.info('✅ Proposal execution services stopped');
         } catch (error) {
           enhancedLogger.warn('⚠️ Failed to stop proposal execution services:', error);
+        }
+
+        // Stop proposal execution monitor
+        try {
+          const { stopProposalExecutionMonitor } = require('./services/proposalExecutionMonitor');
+          stopProposalExecutionMonitor();
+          enhancedLogger.info('✅ Proposal execution monitor stopped');
+        } catch (error) {
+          enhancedLogger.warn('⚠️ Failed to stop proposal execution monitor:', error);
         }
         
         await closeRedis();
