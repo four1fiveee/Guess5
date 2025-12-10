@@ -3252,7 +3252,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                   }
                 }
-                }
+              }
               })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
