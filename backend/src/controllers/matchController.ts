@@ -3209,7 +3209,6 @@ const submitResultHandler = async (req: any, res: any) => {
                       }
                     }
                   }
-                }
               } catch (outerError: any) {
                 // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
                 console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
