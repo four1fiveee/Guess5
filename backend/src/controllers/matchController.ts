@@ -3209,6 +3209,10 @@ const submitResultHandler = async (req: any, res: any) => {
                       }
                     }
                   }
+                } catch (innerProposalError: any) {
+                  // Re-throw to outer catch - this catch exists only for syntax requirements
+                  throw innerProposalError;
+                }
               } catch (outerError: any) {
                 // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
                 console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
