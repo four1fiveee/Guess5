@@ -1196,7 +1196,7 @@ const Game: React.FC = () => {
 
         {/* Entry Fee & Potential Winnings Display - Only show during active gameplay */}
         {gameState === 'playing' && entryFee > 0 && (() => {
-          const calculateRoundedUSD = (solAmount: number, solPrice: number | null): number | null => {
+          const calculateRoundedEntryFeeUSD = (solAmount: number, solPrice: number | null): number | null => {
             if (!solPrice) return null;
             const usdAmount = solAmount * solPrice;
             const categories = [5, 20, 50, 100];
@@ -1204,9 +1204,9 @@ const Game: React.FC = () => {
               Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
             );
           };
-          const entryFeeUSD = calculateRoundedUSD(entryFee, solPrice);
+          const entryFeeUSD = calculateRoundedEntryFeeUSD(entryFee, solPrice);
           const potentialWinningsSOL = entryFee * 2 * 0.95;
-          const potentialWinningsUSD = calculateRoundedUSD(potentialWinningsSOL, solPrice);
+          const potentialWinningsUSD = solPrice ? (potentialWinningsSOL * solPrice).toFixed(2) : null;
           
           return (
             <div className="mb-4 flex justify-center gap-3 flex-wrap">

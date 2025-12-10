@@ -783,16 +783,7 @@ export default function Lobby() {
 
                 {walletBalanceUSD !== null && (
                   <div className="text-white/70 text-sm text-center max-w-3xl mx-auto mb-6">
-                    {canCoverHighestTier && highestTierData ? (
-                      <>
-                        Jump in now and play for
-                        <span className="text-green-300 font-semibold">
-                          {' '}
-                          ${highestTierData.totalWinUsd.toFixed(2)}
-                        </span>
-                        {' '}including our platform bonus.
-                      </>
-                    ) : nextTierToUnlock && amountToUnlock !== null ? (
+                    {canCoverHighestTier && highestTierData ? null : nextTierToUnlock && amountToUnlock !== null ? (
                       <>
                         Deposit{' '}
                         <span className="text-accent font-semibold">

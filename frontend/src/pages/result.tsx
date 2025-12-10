@@ -2398,7 +2398,7 @@ const Result: React.FC = () => {
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {solPrice && payoutData.winnerAmount ? (
                               <>
-                                ${calculateRoundedUSD(payoutData.winnerAmount, solPrice)} USD
+                                ${(payoutData.winnerAmount * solPrice).toFixed(2)} USD
                                 <span className="text-yellow-300 text-xl ml-2">
                                   ({payoutData.winnerAmount.toFixed(4)} SOL)
                                 </span>
