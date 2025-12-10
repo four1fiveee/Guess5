@@ -3252,6 +3252,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                   }
                 }
+                }
               })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
@@ -3611,9 +3612,10 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                   }
                 }
+                }
               })();
-              
-              // Set proposalStatus to PENDING in response so frontend knows to poll
+            
+            // Set proposalStatus to PENDING in response so frontend knows to poll
               (payoutResult as any).proposalStatus = 'PENDING';
               (payoutResult as any).tieRefundProposalId = null; // Will be populated when background process completes
               (payoutResult as any).proposalId = null; // Will be populated when background process completes
