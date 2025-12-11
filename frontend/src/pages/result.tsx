@@ -1234,8 +1234,8 @@ const Result: React.FC = () => {
     setError(null);
     
     // CRITICAL: Declare matchId and apiUrl outside try block so they're accessible in catch block
-    const matchId = router.query.matchId as string;
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
+      const matchId = router.query.matchId as string;
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || '';
     
     try {
       // Get the approval transaction from backend (backend has access to rpc.vaultTransactionApprove)
@@ -2277,9 +2277,9 @@ const Result: React.FC = () => {
                                   {solPrice && payoutData.entryFee ? (
                                     <>
                                       ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
-                                      <span className="text-white/60 text-sm ml-2">
+                                    <span className="text-white/60 text-sm ml-2">
                                         ({payoutData.entryFee.toFixed(4)} SOL)
-                                      </span>
+                                    </span>
                                     </>
                                   ) : (
                                     `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
@@ -2499,9 +2499,9 @@ const Result: React.FC = () => {
                               {solPrice && payoutData.entryFee ? (
                                 <>
                                   ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
-                                  <span className="text-white/60 text-sm ml-2">
+                                <span className="text-white/60 text-sm ml-2">
                                     ({payoutData.entryFee.toFixed(4)} SOL)
-                                  </span>
+                                </span>
                                 </>
                               ) : (
                                 `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
@@ -2529,7 +2529,7 @@ const Result: React.FC = () => {
                                       <span className="text-yellow-300 text-xl ml-2">
                                         (Expected)
                                       </span>
-                                    </div>
+                          </div>
                                     <div className="text-2xl text-yellow-300/80 mt-2">
                                       {payoutData.winnerAmount.toFixed(4)} SOL
                                       {actualSOLUSD && (
@@ -2595,12 +2595,12 @@ const Result: React.FC = () => {
                                   <>
                                     {/* Show expected USD based on tier */}
                                     {payoutData.bonus.tier && BONUS_USD_BY_TIER[payoutData.bonus.tier] !== undefined ? (
-                                      <div className="text-green-300 font-bold text-lg">
+                                    <div className="text-green-300 font-bold text-lg">
                                         +${BONUS_USD_BY_TIER[payoutData.bonus.tier].toFixed(2)} USD
                                         <span className="text-green-200 text-base ml-2">
                                           (Expected)
                                         </span>
-                                      </div>
+                                    </div>
                                     ) : null}
                                     {/* Show actual SOL received */}
                                     {payoutData.bonus.amountSol ? (
@@ -2642,8 +2642,8 @@ const Result: React.FC = () => {
                                       </div>
                                     ) : null}
                                     <div className="text-yellow-300 text-sm text-center mt-1">
-                                      Bonus triggered! +{payoutData.bonus.expectedSol?.toFixed(4)} SOL arriving when the proposal executes.
-                                    </div>
+                                    Bonus triggered! +{payoutData.bonus.expectedSol?.toFixed(4)} SOL arriving when the proposal executes.
+                                  </div>
                                   </>
                                 )}
                               </div>
@@ -2918,9 +2918,9 @@ const Result: React.FC = () => {
                                   {solPrice && payoutData.entryFee ? (
                                     <>
                                       ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
-                                      <span className="text-white/60 text-sm ml-2">
+                                    <span className="text-white/60 text-sm ml-2">
                                         ({payoutData.entryFee.toFixed(4)} SOL)
-                                      </span>
+                                    </span>
                                     </>
                                   ) : (
                                     `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
@@ -2980,9 +2980,9 @@ const Result: React.FC = () => {
                                   {solPrice && payoutData.entryFee ? (
                                     <>
                                       ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
-                                      <span className="text-white/60 text-sm ml-2">
+                                    <span className="text-white/60 text-sm ml-2">
                                         ({payoutData.entryFee.toFixed(4)} SOL)
-                                      </span>
+                                    </span>
                                     </>
                                   ) : (
                                     `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
