@@ -2509,10 +2509,12 @@ const Result: React.FC = () => {
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {(() => {
                               // Calculate expected USD based on entry fee tier (stable, doesn't fluctuate)
-                              // CRITICAL: Use tier amount directly, not calculated from current SOL price
-                              const entryFeeUSD = solPrice && payoutData.entryFee 
-                                ? getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) 
-                                : null;
+                              // CRITICAL: Use entryFeeUSD from database if available, otherwise calculate from SOL
+                              const entryFeeUSD = payoutData.entryFeeUSD 
+                                ? Number(payoutData.entryFeeUSD)  // Use database value if available
+                                : (solPrice && payoutData.entryFee 
+                                  ? getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) 
+                                  : null);
                               const expectedWinningsUSD = getExpectedWinningsUSD(
                                 entryFeeUSD, 
                                 payoutData.entryFee || null, 
