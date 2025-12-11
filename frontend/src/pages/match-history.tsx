@@ -56,10 +56,27 @@ export default function MatchHistoryPage() {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5-backend.onrender.com';
       
-      // Load stats and proposals in parallel
+      // Add cache-busting timestamp to ensure fresh data
+      const timestamp = Date.now();
+      
+      // Load stats and proposals in parallel with cache-busting
       const [statsResponse, proposalsResponse] = await Promise.all([
-        fetch(`${apiUrl}/api/match/player-stats?wallet=${walletAddress}`),
-        fetch(`${apiUrl}/api/match/outstanding-proposals?wallet=${walletAddress}`),
+        fetch(`${apiUrl}/api/match/player-stats?wallet=${walletAddress}&_t=${timestamp}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        }),
+        fetch(`${apiUrl}/api/match/outstanding-proposals?wallet=${walletAddress}&_t=${timestamp}`, {
+          cache: 'no-store',
+          headers: {
+            'Cache-Control': 'no-cache, no-store, must-revalidate',
+            'Pragma': 'no-cache',
+            'Expires': '0'
+          }
+        }),
       ]);
 
       if (statsResponse.ok) {

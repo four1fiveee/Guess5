@@ -392,19 +392,19 @@ router.post('/sign-proposal',
         }
         
         // Log successful parsing
-        console.log('📦 Raw parser completed for sign-proposal', {
-          url: req.url,
-          contentType: req.headers['content-type'],
-          bodyType: typeof req.body,
-          isBuffer: Buffer.isBuffer(req.body),
-          bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 'not a buffer',
-          hasBody: !!req.body,
+    console.log('📦 Raw parser completed for sign-proposal', {
+      url: req.url,
+      contentType: req.headers['content-type'],
+      bodyType: typeof req.body,
+      isBuffer: Buffer.isBuffer(req.body),
+      bodyLength: Buffer.isBuffer(req.body) ? req.body.length : 'not a buffer',
+      hasBody: !!req.body,
           matchId: req.query?.matchId,
-          timestamp: new Date().toISOString(),
-          note: 'If isBuffer=true and bodyLength>0, raw parser worked correctly',
-        });
+      timestamp: new Date().toISOString(),
+      note: 'If isBuffer=true and bodyLength>0, raw parser worked correctly',
+    });
         
-        next();
+    next();
       });
     } catch (e: any) {
       console.error('❌ Unexpected raw parser wrapper error', {
