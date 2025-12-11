@@ -81,9 +81,9 @@ WHERE
 - ✅ `proposalExecutedAt` IS NULL
 - ✅ `proposalTransactionId` IS NULL
 - ✅ `payoutProposalId` = `'6ywM5xUgxFmu7JkZGemwSSbTbULD3u1UaZRJZZ8xjt8z'`
-- ⚠️ **CRITICAL**: `updatedAt` must be within last 30 minutes
+- ✅ **`updatedAt`**: `2025-12-11T21:15:32.071Z` (15.5 minutes ago) ✅ **WITHIN 30-MINUTE WINDOW**
 
-**Potential Issue**: If `updatedAt` is older than 30 minutes, the monitor will **skip** this proposal.
+**Status**: Proposal is **eligible** for monitor processing. Age filter is **NOT** blocking execution.
 
 ---
 
@@ -165,19 +165,20 @@ The code uses `rpc.vaultTransactionExecute()` which:
 
 ### **Most Likely Causes**
 
-#### **1. Monitor Age Filter** 🔴 **HIGH PROBABILITY**
+#### **1. Monitor Age Filter** 🟢 **RULED OUT**
 - Proposal created: `2025-12-11T21:10:06.98206Z`
-- Current time: Unknown (need to check)
-- If > 30 minutes elapsed, monitor **skips** this proposal
+- Last updated: `2025-12-11T21:15:32.071Z` (15.5 minutes ago)
+- ✅ **WITHIN 30-MINUTE WINDOW** - Age filter is **NOT** blocking execution
 
-**Fix**: Increase `MAX_AGE_MINUTES` or remove age filter for `APPROVED` proposals.
+**Status**: ✅ Age filter is not the issue.
 
-#### **2. ExecuteReady State Check** 🟡 **MEDIUM PROBABILITY**
-- Monitor may be checking for `ExecuteReady` status
-- Proposal is `Approved` but not `ExecuteReady`
-- Monitor skips execution
+#### **2. ExecuteReady State Check** 🔴 **HIGH PROBABILITY**
+- Monitor code shows it **DOES** execute `Approved` proposals when threshold is met (lines 287-328)
+- However, the execution service (`squadsVaultService.ts`) may still be blocking
+- Proposal is `Approved` with 2/2 signatures (threshold met)
+- Monitor should attempt execution, but `executeProposal()` may be failing
 
-**Fix**: Update monitor to execute `Approved` proposals when threshold is met.
+**Fix**: Verify execution service allows execution from `Approved` status (code shows it should at line 4434).
 
 #### **3. Retry Limit Reached** 🟡 **MEDIUM PROBABILITY**
 - Monitor attempted execution 3 times
