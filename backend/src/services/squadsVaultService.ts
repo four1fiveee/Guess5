@@ -25,6 +25,7 @@ import { sendAndLogRawTransaction, pollTxAndLog, subscribeToProgramLogs, logExec
 // Import execution DAG logger and RPC failover utilities
 import { executionDAGLogger } from '../utils/executionDagLogger';
 import { verifyOnBothRPCs, createRPCConnections } from '../utils/rpcFailover';
+import { withRetry, fromAccountAddressWithRetry } from '../utils/rpcRetry';
 // import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
 // import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
 
@@ -412,7 +413,8 @@ export class SquadsVaultService {
       // This prevents "AlreadyInUse" errors (custom error 0)
       let existingMultisig: any = null;
       try {
-        existingMultisig = await accounts.Multisig.fromAccountAddress(
+        existingMultisig = await fromAccountAddressWithRetry(
+          accounts.Multisig,
           this.connection,
           multisigPda
         );
@@ -664,7 +666,10 @@ export class SquadsVaultService {
         // Wait a bit for the account to be available
         await new Promise(resolve => setTimeout(resolve, 2000));
 
-        const multisigAccountInfo = await this.connection.getAccountInfo(multisigPda, 'confirmed');
+        const multisigAccountInfo = await withRetry(
+          () => this.connection.getAccountInfo(multisigPda, 'confirmed'),
+          { maxAttempts: 3, baseDelayMs: 250 }
+        );
         
         if (!multisigAccountInfo) {
           enhancedLogger.error('❌ Multisig account does not exist after creation', {
@@ -952,7 +957,8 @@ export class SquadsVaultService {
       let transactionIndex: bigint;
       try {
         // First try: Use the account deserialization method
-        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+        const multisigInfo = await fromAccountAddressWithRetry(
+          accounts.Multisig,
           this.connection,
           multisigAddress,
           { commitment: 'confirmed' }
@@ -992,7 +998,10 @@ export class SquadsVaultService {
       const feeWalletKey = typeof feeWallet === 'string' ? new PublicKey(feeWallet) : feeWallet;
 
       // Ensure we leave the rent-exempt reserve in the vault PDA
-      const vaultAccountInfo = await this.connection.getAccountInfo(vaultPdaKey, 'confirmed');
+      const vaultAccountInfo = await withRetry(
+        () => this.connection.getAccountInfo(vaultPdaKey, 'confirmed'),
+        { maxAttempts: 3, baseDelayMs: 250 }
+      );
       if (!vaultAccountInfo) {
         const errorMsg = `Vault account ${vaultPdaKey.toString()} not found on-chain`;
         enhancedLogger.error('❌ ' + errorMsg, {
@@ -1282,7 +1291,8 @@ export class SquadsVaultService {
         
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+            vaultTxAccount = await fromAccountAddressWithRetry(
+              accounts.VaultTransaction,
               this.connection,
               transactionPda,
               'confirmed'
@@ -1541,10 +1551,14 @@ export class SquadsVaultService {
           while (!proposalVerified && retryCount < maxRetries) {
             await new Promise(resolve => setTimeout(resolve, baseDelay * (retryCount + 1)));
             
-            const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            const proposalAccount = await withRetry(
+              () => this.connection.getAccountInfo(proposalPda, 'confirmed'),
+              { maxAttempts: 3, baseDelayMs: 250 }
+            );
             if (proposalAccount) {
               try {
-                const proposal = await accounts.Proposal.fromAccountAddress(
+                const proposal = await fromAccountAddressWithRetry(
+                  accounts.Proposal,
                   this.connection,
                   proposalPda
                 );
@@ -1592,7 +1606,10 @@ export class SquadsVaultService {
             // Final check - if still 0 transactions, log warning but don't fail
             // The proposal was created with transactionIndex, so the linking should work
             // even if it's not immediately visible due to blockchain indexing delays
-            const finalProposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            const finalProposalAccount = await withRetry(
+              () => this.connection.getAccountInfo(proposalPda, 'confirmed'),
+              { maxAttempts: 3, baseDelayMs: 250 }
+            );
             if (finalProposalAccount) {
               try {
                 const finalProposal = await accounts.Proposal.fromAccountAddress(
@@ -1886,7 +1903,10 @@ export class SquadsVaultService {
       // CRITICAL: Check vault PDA account status before using it
       // In Squads v4, the vault PDA should be created lazily, but let's verify its status
       try {
-        const vaultAccountInfo = await this.connection.getAccountInfo(vaultPda, 'confirmed');
+        const vaultAccountInfo = await withRetry(
+          () => this.connection.getAccountInfo(vaultPda, 'confirmed'),
+          { maxAttempts: 3, baseDelayMs: 250 }
+        );
         if (vaultAccountInfo) {
           enhancedLogger.info('🔍 Vault PDA account exists', {
             vaultPda: vaultPda.toString(),
@@ -1927,7 +1947,8 @@ export class SquadsVaultService {
       let transactionIndex: bigint;
       try {
         // First try: Use the account deserialization method
-        const multisigInfo = await accounts.Multisig.fromAccountAddress(
+        const multisigInfo = await fromAccountAddressWithRetry(
+          accounts.Multisig,
           this.connection,
           multisigAddress,
           { commitment: 'confirmed' }
@@ -1973,7 +1994,10 @@ export class SquadsVaultService {
 
       const refundLamportsBig = BigInt(Math.floor(refundAmount * LAMPORTS_PER_SOL));
 
-      const vaultAccountInfo = await this.connection.getAccountInfo(vaultPdaKey, 'confirmed');
+      const vaultAccountInfo = await withRetry(
+        () => this.connection.getAccountInfo(vaultPdaKey, 'confirmed'),
+        { maxAttempts: 3, baseDelayMs: 250 }
+      );
       if (!vaultAccountInfo) {
         const errorMsg = `Vault account ${vaultPdaKey.toString()} not found on-chain`;
         enhancedLogger.error('❌ ' + errorMsg, {
@@ -2126,7 +2150,10 @@ export class SquadsVaultService {
       // CRITICAL: Verify multisig account ownership before creating transaction
       // The AccountOwnedByWrongProgram error suggests a program ID mismatch
       try {
-        const multisigAccountInfo = await this.connection.getAccountInfo(multisigAddress, 'confirmed');
+        const multisigAccountInfo = await withRetry(
+          () => this.connection.getAccountInfo(multisigAddress, 'confirmed'),
+          { maxAttempts: 3, baseDelayMs: 250 }
+        );
         if (multisigAccountInfo) {
           enhancedLogger.info('🔍 Multisig account ownership check', {
             multisigAddress: multisigAddress.toString(),
@@ -2363,7 +2390,8 @@ export class SquadsVaultService {
         
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+            vaultTxAccount = await fromAccountAddressWithRetry(
+              accounts.VaultTransaction,
               this.connection,
               transactionPda,
               'confirmed'
@@ -2616,10 +2644,14 @@ export class SquadsVaultService {
           while (!proposalVerified && retryCount < maxRetries) {
             await new Promise(resolve => setTimeout(resolve, baseDelay * (retryCount + 1)));
             
-            const proposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            const proposalAccount = await withRetry(
+              () => this.connection.getAccountInfo(proposalPda, 'confirmed'),
+              { maxAttempts: 3, baseDelayMs: 250 }
+            );
             if (proposalAccount) {
               try {
-                const proposal = await accounts.Proposal.fromAccountAddress(
+                const proposal = await fromAccountAddressWithRetry(
+                  accounts.Proposal,
                   this.connection,
                   proposalPda
                 );
@@ -2667,7 +2699,10 @@ export class SquadsVaultService {
             // Final check - if still 0 transactions, log warning but don't fail
             // The proposal was created with transactionIndex, so the linking should work
             // even if it's not immediately visible due to blockchain indexing delays
-            const finalProposalAccount = await this.connection.getAccountInfo(proposalPda, 'confirmed');
+            const finalProposalAccount = await withRetry(
+              () => this.connection.getAccountInfo(proposalPda, 'confirmed'),
+              { maxAttempts: 3, baseDelayMs: 250 }
+            );
             if (finalProposalAccount) {
               try {
                 const finalProposal = await accounts.Proposal.fromAccountAddress(
@@ -2854,8 +2889,9 @@ export class SquadsVaultService {
       try {
         proposalPda = new PublicKey(proposalId);
         
-        // Query the proposal account to get the transactionIndex
-        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+        // Query the proposal account to get the transactionIndex (with retry for rate limits)
+        const proposalAccount = await fromAccountAddressWithRetry(
+          accounts.Proposal,
           this.connection,
           proposalPda
         );
@@ -2927,7 +2963,10 @@ export class SquadsVaultService {
       });
 
       // Fetch the transaction account
-      const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+      const transactionAccount = await withRetry(
+        () => this.connection.getAccountInfo(transactionPda, 'confirmed'),
+        { maxAttempts: 3, baseDelayMs: 250 }
+      );
       
       if (!transactionAccount) {
         // Transaction account doesn't exist - likely executed (accounts are closed after execution)
@@ -2950,7 +2989,8 @@ export class SquadsVaultService {
       
       try {
         // Try using fromAccountAddress if available
-        const transaction = await accounts.VaultTransaction.fromAccountAddress(
+        const transaction = await fromAccountAddressWithRetry(
+          accounts.VaultTransaction,
           this.connection,
           transactionPda
         );
@@ -3514,7 +3554,10 @@ export class SquadsVaultService {
           programId: this.programId,
         });
         
-        const transactionAccount = await this.connection.getAccountInfo(transactionPda, 'confirmed');
+        const transactionAccount = await withRetry(
+        () => this.connection.getAccountInfo(transactionPda, 'confirmed'),
+        { maxAttempts: 3, baseDelayMs: 250 }
+      );
         if (transactionAccount) {
           const vt = await accounts.VaultTransaction.fromAccountAddress(
             this.connection,
@@ -3620,7 +3663,8 @@ export class SquadsVaultService {
     let transactionIndex: bigint;
     try {
       const proposalPda = new PublicKey(proposalId);
-      const proposalAccount = await accounts.Proposal.fromAccountAddress(
+      const proposalAccount = await fromAccountAddressWithRetry(
+        accounts.Proposal,
         this.connection,
         proposalPda
       );
@@ -3858,7 +3902,8 @@ export class SquadsVaultService {
         }
 
         // Proposal status determines ExecuteReady state
-        const proposal = await accounts.Proposal.fromAccountAddress(
+        const proposal = await fromAccountAddressWithRetry(
+          accounts.Proposal,
           this.connection,
           proposalPda,
           'confirmed'
