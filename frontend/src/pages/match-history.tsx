@@ -196,7 +196,7 @@ export default function MatchHistoryPage() {
           <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Match Statistics</h2>
           {loading ? (
             <p className="text-white/70">Loading...</p>
-          ) : stats ? (
+          ) : (
             <div className="space-y-4 text-white/90">
               {/* Games Played & Win Rate */}
               <div className="bg-white/5 rounded-xl p-4 border border-white/10">
@@ -204,23 +204,23 @@ export default function MatchHistoryPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Games Played:</span>
-                    <span className="text-accent font-bold">{stats.gamesPlayed}</span>
+                    <span className="text-accent font-bold">{stats?.gamesPlayed || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Win Rate:</span>
-                    <span className="text-accent font-bold">{stats.winPercentage.toFixed(1)}%</span>
+                    <span className="text-accent font-bold">{stats?.winPercentage ? stats.winPercentage.toFixed(1) : '0.0'}%</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Wins:</span>
-                    <span className="text-green-400 font-semibold">{stats.wins}</span>
+                    <span className="text-green-400 font-semibold">{stats?.wins || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Losses:</span>
-                    <span className="text-red-400 font-semibold">{stats.losses}</span>
+                    <span className="text-red-400 font-semibold">{stats?.losses || 0}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Ties:</span>
-                    <span className="text-blue-400 font-semibold">{stats.ties}</span>
+                    <span className="text-blue-400 font-semibold">{stats?.ties || 0}</span>
                   </div>
                 </div>
               </div>
@@ -231,22 +231,22 @@ export default function MatchHistoryPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Total Entry Fees:</span>
-                    <span className="text-white font-semibold">{formatUSD(stats.totalEntryFeesSpentUSD)}</span>
+                    <span className="text-white font-semibold">{formatUSD(stats?.totalEntryFeesSpentUSD || 0)}</span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Amount Received:</span>
-                    <span className="text-green-400 font-semibold">{formatUSD(stats.totalPayoutsReceivedUSD)}</span>
+                    <span className="text-green-400 font-semibold">{formatUSD(stats?.totalPayoutsReceivedUSD || 0)}</span>
                   </div>
                 </div>
                 <div className="mt-3 pt-3 border-t border-white/10">
                   <div className="flex justify-between items-center">
                     <span className="text-white/90 font-semibold">Net Profit:</span>
-                    <span className={`text-xl font-bold ${stats.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {formatUSD(stats.netProfitUSD)}
+                    <span className={`text-xl font-bold ${(stats?.netProfitUSD || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {formatUSD(stats?.netProfitUSD || 0)}
                     </span>
                   </div>
                   <div className="text-white/60 text-xs mt-1">
-                    ({formatSOL(stats.netProfit)})
+                    ({formatSOL(stats?.netProfit || 0)})
                   </div>
                   <div className="text-white/50 text-xs mt-2 italic">
                     Net Profit = Amount Received from Vaults - Entry Fees Paid
@@ -254,8 +254,6 @@ export default function MatchHistoryPage() {
                 </div>
               </div>
             </div>
-          ) : (
-            <p className="text-white/70">No match data available.</p>
           )}
         </div>
 
