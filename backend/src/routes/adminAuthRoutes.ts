@@ -1,5 +1,6 @@
-import { Router } from 'express';
-import { adminLogin, adminLogout, adminAuthStatus } from '../middleware/adminAuth';
+// @ts-nocheck
+const { Router } = require('express');
+const { adminLogin, adminLogout, adminAuthStatus } = require('../middleware/adminAuth');
 
 const router = Router();
 
@@ -8,5 +9,4 @@ router.post('/login', adminLogin);
 router.post('/logout', adminLogout);
 router.get('/status', adminAuthStatus);
 
-export default router;
-
+module.exports = router;

@@ -1,5 +1,6 @@
-import { Router } from 'express';
-import {
+// @ts-nocheck
+const { Router } = require('express');
+const {
   adminDeleteMatch,
   adminDeleteAllMatches,
   adminBackfillReferrals,
@@ -19,8 +20,8 @@ import {
   adminCheckLockStatus,
   adminCleanupStaleLocks,
   adminExecuteProposal
-} from '../controllers/adminController';
-import { requireAdminAuth } from '../middleware/adminAuth';
+} = require('../controllers/adminController');
+const { requireAdminAuth } = require('../middleware/adminAuth');
 
 const router = Router();
 
@@ -56,5 +57,4 @@ router.post('/payouts/send/:batchId', adminSendPayoutBatch);
 router.get('/payouts/batches', adminGetPayoutBatches);
 router.get('/payouts/batch/:id', adminGetPayoutBatch);
 
-export default router;
-
+module.exports = router;
