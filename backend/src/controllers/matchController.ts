@@ -14869,11 +14869,13 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
         "payoutAmount",
         "payoutAmountUSD",
         "proposalExecutedAt",
+        "proposalTransactionId",
         "createdAt",
         "tieRefundProposalId",
         "payoutProposalId",
         "player1Paid",
-        "player2Paid"
+        "player2Paid",
+        "refundReason"
       FROM "match"
       WHERE ("player1" = $1 OR "player2" = $2)
         AND ("player1Paid" = true OR "player2Paid" = true)
@@ -14902,9 +14904,23 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
       
       // Only count entry fees if player actually paid
       const playerPaid = (isPlayer1 && match.player1Paid) || (isPlayer2 && match.player2Paid);
-      if (playerPaid) {
+      if (playerPaid && entryFee > 0) {
         totalEntryFeesSpent += entryFee;
         totalEntryFeesSpentUSD += entryFeeUSD;
+      }
+      
+      // ✅ FIX: Handle refunds for cancelled matches (where one player paid but match was cancelled)
+      const isCancelled = match.status === 'cancelled';
+      const hasRefundProposal = !!match.tieRefundProposalId;
+      const refundExecuted = !!match.proposalExecutedAt || !!match.proposalTransactionId;
+      
+      // If match was cancelled and refund was executed, count refund as payout
+      if (isCancelled && hasRefundProposal && refundExecuted && playerPaid) {
+        // Player paid but match cancelled - they got refunded
+        // Count refund as payout (entry fee back)
+        totalPayoutsReceived += entryFee;
+        totalPayoutsReceivedUSD += entryFeeUSD;
+        // Don't count as a game played (it was cancelled before game started)
       }
       
       // Only count completed matches for game statistics
