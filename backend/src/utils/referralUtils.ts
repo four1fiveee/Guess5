@@ -86,3 +86,85 @@ export function formatPayoutDate(date: Date): string {
   });
 }
 
+/**
+ * Get current time in EST (returns Date object with EST timezone info)
+ */
+export function getCurrentEST(): Date {
+  const now = new Date();
+  // Convert to EST/EDT timezone
+  // Use toLocaleString to get EST time, then parse components
+  const estParts = now.toLocaleString('en-US', { 
+    timeZone: 'America/New_York',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  }).split(/[/,\s:]/);
+  
+  // Create new date in EST (month is 0-indexed in JS Date)
+  const estDate = new Date(
+    parseInt(estParts[2]), // year
+    parseInt(estParts[0]) - 1, // month (0-indexed)
+    parseInt(estParts[1]), // day
+    parseInt(estParts[3]), // hour
+    parseInt(estParts[4]), // minute
+    parseInt(estParts[5]) // second
+  );
+  
+  return estDate;
+}
+
+/**
+ * Check if current time is within lock window (Sunday 9am-9pm EST)
+ */
+export function isWithinLockWindow(): boolean {
+  const estNow = getCurrentEST();
+  const day = estNow.getDay(); // 0 = Sunday
+  const hour = estNow.getHours();
+  
+  return day === 0 && hour >= 9 && hour < 21; // Sunday, 9am-9pm EST
+}
+
+/**
+ * Check if current time is within execute window (Sunday 9am-11pm EST)
+ */
+export function isWithinExecuteWindow(): boolean {
+  const estNow = getCurrentEST();
+  const day = estNow.getDay(); // 0 = Sunday
+  const hour = estNow.getHours();
+  
+  return day === 0 && hour >= 9 && hour < 23; // Sunday, 9am-11pm EST
+}
+
+/**
+ * Get time until next lock window opens
+ */
+export function getTimeUntilLockWindow(): { days: number; hours: number; minutes: number; seconds: number } {
+  const estNow = getCurrentEST();
+  const now = new Date();
+  
+  // Calculate next Sunday 9am EST
+  const daysUntilSunday = (7 - estNow.getDay()) % 7;
+  const nextSunday = new Date(estNow);
+  
+  if (daysUntilSunday === 0 && estNow.getHours() < 9) {
+    // Today is Sunday and it's before 9am
+    nextSunday.setHours(9, 0, 0, 0);
+  } else {
+    const daysToAdd = daysUntilSunday === 0 ? 7 : daysUntilSunday;
+    nextSunday.setDate(estNow.getDate() + daysToAdd);
+    nextSunday.setHours(9, 0, 0, 0);
+  }
+  
+  const diffMs = nextSunday.getTime() - now.getTime();
+  const days = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const hours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+  const seconds = Math.floor((diffMs % (1000 * 60)) / 1000);
+  
+  return { days, hours, minutes, seconds };
+}
+

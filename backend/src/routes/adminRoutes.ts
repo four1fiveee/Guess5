@@ -24,7 +24,9 @@ const {
   adminGetFinancialMetrics,
   adminGetFeeWalletBalance,
   adminGetReferralPayoutExecution,
-  adminLockReferralsWeek
+  adminLockReferralsWeek,
+  adminExecutePayout,
+  adminGetPayoutLockStatus
 } = require('../controllers/adminController');
 const { requireAdminAuth } = require('../middleware/adminAuth');
 
@@ -71,6 +73,8 @@ router.get('/financial/fee-wallet-balance', adminGetFeeWalletBalance);
 
 // Referral payout execution
 router.get('/referrals/payout-execution', adminGetReferralPayoutExecution);
+router.get('/referrals/payout-lock-status', adminGetPayoutLockStatus);
 router.post('/referrals/lock-week', adminLockReferralsWeek);
+router.post('/referrals/execute-payout', adminExecutePayout);
 
 module.exports = router;

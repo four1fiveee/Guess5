@@ -9,6 +9,7 @@ import { Referral } from '../models/Referral'
 import { ReferralUpline } from '../models/ReferralUpline'
 import { ReferralEarning } from '../models/ReferralEarning'
 import { PayoutBatch } from '../models/PayoutBatch'
+import { PayoutLock } from '../models/PayoutLock'
 import { MatchSubscriber } from '../subscribers/matchSubscriber'
 import * as dotenv from 'dotenv'
 
@@ -30,7 +31,7 @@ validateDatabaseConfig();
 export const AppDataSource = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL!,
-  entities: [Match, Guess, Transaction, MatchAttestation, MatchAuditLog, User, Referral, ReferralUpline, ReferralEarning, PayoutBatch],
+  entities: [Match, Guess, Transaction, MatchAttestation, MatchAuditLog, User, Referral, ReferralUpline, ReferralEarning, PayoutBatch, PayoutLock],
   subscribers: [MatchSubscriber],
   migrations: ['dist/db/migrations/*.js'],
   synchronize: false, // Use migrations instead of synchronize
@@ -133,6 +134,38 @@ export const initializeDatabase = async () => {
         // Ignore if columns already exist or other non-critical errors
         if (!columnError?.message?.includes('already exists') && !columnError?.message?.includes('duplicate')) {
           console.warn('⚠️ Could not ensure referral tier tracking columns:', columnError?.message);
+        }
+      }
+
+      // Ensure payout_lock table exists
+      try {
+        await AppDataSource.query(`
+          CREATE TABLE IF NOT EXISTS "payout_lock" (
+            "id" uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+            "lockDate" timestamp NOT NULL UNIQUE,
+            "totalAmountUSD" decimal(12,2) NOT NULL,
+            "totalAmountSOL" decimal(12,6) NOT NULL,
+            "referrerCount" integer NOT NULL,
+            "lockedAt" timestamp,
+            "executedAt" timestamp,
+            "transactionSignature" text,
+            "executedByAdmin" text,
+            "autoExecuted" boolean NOT NULL DEFAULT false,
+            "createdAt" timestamp NOT NULL DEFAULT now(),
+            "updatedAt" timestamp NOT NULL DEFAULT now()
+          )
+        `);
+        
+        // Add indexes if they don't exist
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_payout_lock_lockDate" ON "payout_lock" ("lockDate");
+          CREATE INDEX IF NOT EXISTS "IDX_payout_lock_executedAt" ON "payout_lock" ("executedAt");
+        `);
+        console.log('✅ Ensured payout_lock table exists');
+      } catch (tableError: any) {
+        // Ignore if table already exists or other non-critical errors
+        if (!tableError?.message?.includes('already exists') && !tableError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure payout_lock table:', tableError?.message);
         }
       }
 

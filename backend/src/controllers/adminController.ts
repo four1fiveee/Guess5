@@ -11,7 +11,8 @@ import { AntiAbuseService } from '../services/antiAbuseService';
 import { getRedisMM } from '../config/redis';
 import { forceReleaseLock, checkLockStatus, cleanupStaleLocks, getLockStats } from '../utils/proposalLocks';
 import { UserService } from '../services/userService';
-import { getNextSunday1300EST } from '../utils/referralUtils';
+import { getNextSunday1300EST, isWithinLockWindow, isWithinExecuteWindow, getCurrentEST, getTimeUntilLockWindow } from '../utils/referralUtils';
+import { PayoutLock } from '../models/PayoutLock';
 import { notifyAdmin } from '../services/notificationService';
 import * as fs from 'fs';
 // csv-parse will be installed as dependency
@@ -1343,34 +1344,276 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
 /**
  * Lock referrals for the week (to ensure referrals during payout review are tracked for next week)
  * POST /api/admin/referrals/lock-week
+ * Only available Sunday 9am-9pm EST
  */
 export const adminLockReferralsWeek = async (req: Request, res: Response) => {
   try {
+    // Check if within lock window (Sunday 9am-9pm EST)
+    if (!isWithinLockWindow()) {
+      const estNow = getCurrentEST();
+      const timeUntil = getTimeUntilLockWindow();
+      return res.status(400).json({ 
+        error: 'Lock window is only available on Sunday between 9am-9pm EST',
+        currentTime: estNow.toISOString(),
+        timeUntilNextWindow: timeUntil,
+        note: 'If you miss the lock window, funds will roll over to next week'
+      });
+    }
+
     if (!AppDataSource.isInitialized) {
       await AppDataSource.initialize();
     }
 
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
-    const now = new Date();
+    const lockRepository = AppDataSource.getRepository(PayoutLock);
+    const estNow = getCurrentEST();
     
-    // Get all unpaid referrals
-    const unpaidEarnings = await earningRepository.find({
-      where: { paid: false },
+    // Get current Sunday date (lock date)
+    const lockDate = new Date(estNow);
+    lockDate.setHours(0, 0, 0, 0); // Start of Sunday
+
+    // Check if lock already exists for this Sunday
+    const existingLock = await lockRepository.findOne({
+      where: { lockDate },
     });
 
-    // Mark them as "locked" for this week's payout review
-    // This ensures any new referrals during review period are tracked for next week
-    const lockedCount = unpaidEarnings.length;
+    if (existingLock && existingLock.executedAt) {
+      return res.status(400).json({ 
+        error: 'Payout for this week has already been executed',
+        lockId: existingLock.id,
+        executedAt: existingLock.executedAt
+      });
+    }
+
+    if (existingLock) {
+      return res.json({
+        success: true,
+        message: 'Lock already exists for this week',
+        lock: {
+          id: existingLock.id,
+          lockDate: existingLock.lockDate,
+          lockedAt: existingLock.lockedAt,
+          totalAmountUSD: existingLock.totalAmountUSD,
+          totalAmountSOL: existingLock.totalAmountSOL,
+          referrerCount: existingLock.referrerCount,
+        },
+        countdownExpiresAt: existingLock.lockedAt ? new Date(existingLock.lockedAt.getTime() + 2 * 60 * 60 * 1000).toISOString() : null,
+      });
+    }
+
+    // Get all unpaid referrals
+    const unpaidResult = await earningRepository.query(`
+      SELECT 
+        SUM(amount_usd) as total_usd,
+        SUM(amount_sol) as total_sol,
+        COUNT(DISTINCT upline_wallet) as referrer_count
+      FROM referral_earning
+      WHERE paid = false
+        AND amount_usd IS NOT NULL
+    `);
+
+    const totalUSD = parseFloat(unpaidResult[0]?.total_usd || 0);
+    const totalSOL = parseFloat(unpaidResult[0]?.total_sol || 0);
+    const referrerCount = parseInt(unpaidResult[0]?.referrer_count || 0);
+
+    // Create lock
+    const lock = lockRepository.create({
+      lockDate,
+      totalAmountUSD: totalUSD,
+      totalAmountSOL: totalSOL,
+      referrerCount,
+      lockedAt: new Date(),
+    });
+
+    const savedLock = await lockRepository.save(lock);
+
+    const countdownExpiresAt = new Date(savedLock.lockedAt!.getTime() + 2 * 60 * 60 * 1000); // 2 hours from lock
 
     return res.json({
       success: true,
-      message: `Locked ${lockedCount} unpaid referrals for current week review`,
-      lockedCount,
-      lockedAt: now.toISOString(),
-      note: 'These referrals will be included in next week\'s payout batch',
+      message: `Locked ${referrerCount} referrers with $${totalUSD.toFixed(2)} USD for payout`,
+      lock: {
+        id: savedLock.id,
+        lockDate: savedLock.lockDate,
+        lockedAt: savedLock.lockedAt,
+        totalAmountUSD: savedLock.totalAmountUSD,
+        totalAmountSOL: savedLock.totalAmountSOL,
+        referrerCount: savedLock.referrerCount,
+      },
+      countdownExpiresAt: countdownExpiresAt.toISOString(),
+      note: 'You have 2 hours to review and execute. After 2 hours, payout will auto-execute.',
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error locking referrals:', errorMessage);
     return res.status(500).json({ error: 'Failed to lock referrals week', details: errorMessage });
   }
 };
+
+/**
+ * Execute locked payout
+ * POST /api/admin/referrals/execute-payout
+ * Only available Sunday 9am-11pm EST, requires lock to exist
+ */
+export const adminExecutePayout = async (req: Request, res: Response) => {
+  try {
+    // Check if within execute window (Sunday 9am-11pm EST)
+    if (!isWithinExecuteWindow()) {
+      return res.status(400).json({ 
+        error: 'Execute window is only available on Sunday between 9am-11pm EST',
+        currentTime: getCurrentEST().toISOString(),
+      });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const lockRepository = AppDataSource.getRepository(PayoutLock);
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+    const estNow = getCurrentEST();
+    
+    // Get current Sunday date
+    const lockDate = new Date(estNow);
+    lockDate.setHours(0, 0, 0, 0);
+
+    // Find lock for this Sunday
+    const lock = await lockRepository.findOne({
+      where: { lockDate },
+    });
+
+    if (!lock) {
+      return res.status(400).json({ 
+        error: 'No lock found for this week. Please lock referrals first.',
+        note: 'Lock window is Sunday 9am-9pm EST'
+      });
+    }
+
+    if (lock.executedAt) {
+      return res.status(400).json({ 
+        error: 'Payout for this week has already been executed',
+        executedAt: lock.executedAt,
+        transactionSignature: lock.transactionSignature
+      });
+    }
+
+    // Check if countdown has expired (2 hours after lock)
+    const countdownExpiresAt = lock.lockedAt ? new Date(lock.lockedAt.getTime() + 2 * 60 * 60 * 1000) : null;
+    const autoExecute = countdownExpiresAt && new Date() >= countdownExpiresAt;
+
+    // Prepare payout batch
+    const adminHeader = (req as any).headers?.['x-admin-user'] as string | undefined;
+    const executedByAdmin = adminHeader || (autoExecute ? 'auto' : 'admin');
+    
+    const sendAt = new Date(); // Execute immediately
+    const batch = await referralPayoutService.preparePayoutBatch(sendAt, 0, executedByAdmin); // minPayout = 0 to include all
+
+    // Approve batch
+    batch.status = PayoutBatchStatus.REVIEWED;
+    batch.reviewedByAdmin = executedByAdmin;
+    batch.reviewedAt = new Date();
+    await batchRepository.save(batch);
+
+    // Generate transaction
+    const transaction = await referralPayoutService.generateBatchTransaction(batch.id);
+
+    // For now, return transaction for admin to sign
+    // In production, you might want to auto-sign if using a hot wallet
+    const transactionBuffer = transaction.serialize({
+      requireAllSignatures: false,
+      verifySignatures: false,
+    });
+
+    // Update lock
+    lock.executedAt = new Date();
+    lock.executedByAdmin = executedByAdmin;
+    lock.autoExecuted = autoExecute;
+    await lockRepository.save(lock);
+
+    return res.json({
+      success: true,
+      message: autoExecute ? 'Payout auto-executed after countdown expired' : 'Payout transaction prepared',
+      lock: {
+        id: lock.id,
+        executedAt: lock.executedAt,
+        autoExecuted: lock.autoExecuted,
+      },
+      batch: {
+        id: batch.id,
+        totalAmountUSD: batch.totalAmountUSD,
+        totalAmountSOL: batch.totalAmountSOL,
+      },
+      transaction: {
+        buffer: Array.from(transactionBuffer),
+        note: 'Transaction needs to be signed and sent. Use sendPayoutBatch endpoint with transaction signature.',
+      },
+      autoExecuted,
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error executing payout:', errorMessage);
+    return res.status(500).json({ error: 'Failed to execute payout', details: errorMessage });
+  }
+};
+
+/**
+ * Get payout lock status
+ * GET /api/admin/referrals/payout-lock-status
+ */
+export const adminGetPayoutLockStatus = async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const lockRepository = AppDataSource.getRepository(PayoutLock);
+    const estNow = getCurrentEST();
+    
+    // Get current Sunday date
+    const lockDate = new Date(estNow);
+    lockDate.setHours(0, 0, 0, 0);
+
+    // Find lock for this Sunday
+    const lock = await lockRepository.findOne({
+      where: { lockDate },
+      order: { createdAt: 'DESC' },
+    });
+
+    const isLockWindow = isWithinLockWindow();
+    const isExecuteWindow = isWithinExecuteWindow();
+    const countdownExpiresAt = lock?.lockedAt ? new Date(lock.lockedAt.getTime() + 2 * 60 * 60 * 1000) : null;
+    const countdownRemaining = countdownExpiresAt && countdownExpiresAt > new Date() 
+      ? Math.max(0, Math.floor((countdownExpiresAt.getTime() - new Date().getTime()) / 1000))
+      : null;
+
+    return res.json({
+      success: true,
+      lock: lock ? {
+        id: lock.id,
+        lockDate: lock.lockDate,
+        lockedAt: lock.lockedAt,
+        executedAt: lock.executedAt,
+        totalAmountUSD: lock.totalAmountUSD,
+        totalAmountSOL: lock.totalAmountSOL,
+        referrerCount: lock.referrerCount,
+        autoExecuted: lock.autoExecuted,
+        transactionSignature: lock.transactionSignature,
+      } : null,
+      windows: {
+        isLockWindow,
+        isExecuteWindow,
+        currentTimeEST: estNow.toISOString(),
+      },
+      countdown: countdownRemaining !== null ? {
+        expiresAt: countdownExpiresAt?.toISOString(),
+        remainingSeconds: countdownRemaining,
+        expired: countdownRemaining === 0,
+      } : null,
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to get payout lock status', details: errorMessage });
+  }
+};
+

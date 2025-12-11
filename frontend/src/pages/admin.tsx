@@ -53,6 +53,30 @@ interface ReferralPayoutExecution {
   historicalPayouts: any[];
 }
 
+interface PayoutLockStatus {
+  lock: {
+    id: string;
+    lockDate: string;
+    lockedAt: string | null;
+    executedAt: string | null;
+    totalAmountUSD: number;
+    totalAmountSOL: number;
+    referrerCount: number;
+    autoExecuted: boolean;
+    transactionSignature: string | null;
+  } | null;
+  windows: {
+    isLockWindow: boolean;
+    isExecuteWindow: boolean;
+    currentTimeEST: string;
+  };
+  countdown: {
+    expiresAt: string;
+    remainingSeconds: number;
+    expired: boolean;
+  } | null;
+}
+
 export default function AdminPage() {
   const router = useRouter();
   const [username, setUsername] = useState('');
@@ -68,7 +92,9 @@ export default function AdminPage() {
   const [financialMetrics, setFinancialMetrics] = useState<FinancialMetrics | null>(null);
   const [feeWalletBalance, setFeeWalletBalance] = useState<FeeWalletBalance | null>(null);
   const [referralPayoutExecution, setReferralPayoutExecution] = useState<ReferralPayoutExecution | null>(null);
+  const [payoutLockStatus, setPayoutLockStatus] = useState<PayoutLockStatus | null>(null);
   const [loadingData, setLoadingData] = useState(false);
+  const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
 
   // Check if already authenticated on mount
   useEffect(() => {
@@ -96,11 +122,12 @@ export default function AdminPage() {
       const headers = { 'Authorization': `Bearer ${token}` };
       
       // Load all data in parallel
-      const [healthRes, financialRes, walletRes, referralRes] = await Promise.all([
+      const [healthRes, financialRes, walletRes, referralRes, lockStatusRes] = await Promise.all([
         fetch(`${API_URL}/api/admin/health/status`, { headers }),
         fetch(`${API_URL}/api/admin/financial/metrics`, { headers }),
         fetch(`${API_URL}/api/admin/financial/fee-wallet-balance`, { headers }),
         fetch(`${API_URL}/api/admin/referrals/payout-execution`, { headers }),
+        fetch(`${API_URL}/api/admin/referrals/payout-lock-status`, { headers }),
       ]);
 
       if (healthRes.ok) {
@@ -118,6 +145,17 @@ export default function AdminPage() {
       if (referralRes.ok) {
         const referralData = await referralRes.json();
         setReferralPayoutExecution(referralData);
+      }
+
+      if (lockStatusRes.ok) {
+        const lockData = await lockStatusRes.json();
+        setPayoutLockStatus(lockData);
+        if (lockData.countdown && lockData.countdown.remainingSeconds > 0) {
+          setCountdownSeconds(lockData.countdown.remainingSeconds);
+        } else if (lockData.countdown && lockData.countdown.expired && lockData.lock && !lockData.lock.executedAt) {
+          // Auto-execute if countdown expired
+          handleExecutePayout();
+        }
       }
     } catch (err) {
       console.error('Failed to load dashboard data:', err);
@@ -566,13 +604,109 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Lock Referrals Button */}
-              <div className="flex justify-end">
+              {/* Lock Status and Countdown */}
+              {payoutLockStatus && (
+                <div className="p-4 bg-blue-500/20 rounded-lg border border-blue-500/50">
+                  <h3 className="text-lg font-bold text-white mb-2">Payout Lock Status</h3>
+                  {payoutLockStatus.lock ? (
+                    <div className="space-y-2">
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Lock Date:</span>
+                        <span className="text-white font-semibold">{new Date(payoutLockStatus.lock.lockDate).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Amount Locked:</span>
+                        <span className="text-white font-bold">${payoutLockStatus.lock.totalAmountUSD.toFixed(2)} USD ({payoutLockStatus.lock.totalAmountSOL.toFixed(6)} SOL)</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Referrers:</span>
+                        <span className="text-white font-semibold">{payoutLockStatus.lock.referrerCount}</span>
+                      </div>
+                      {payoutLockStatus.lock.executedAt ? (
+                        <div className="mt-3 p-2 bg-green-500/20 rounded border border-green-500/50">
+                          <p className="text-green-300 font-semibold">✅ Payout Executed</p>
+                          <p className="text-white/70 text-sm">Executed: {new Date(payoutLockStatus.lock.executedAt).toLocaleString()}</p>
+                          {payoutLockStatus.lock.autoExecuted && (
+                            <p className="text-yellow-300 text-sm">⚠️ Auto-executed after countdown expired</p>
+                          )}
+                          {payoutLockStatus.lock.transactionSignature && (
+                            <p className="text-white/70 text-xs font-mono break-all mt-1">Tx: {payoutLockStatus.lock.transactionSignature}</p>
+                          )}
+                        </div>
+                      ) : payoutLockStatus.countdown && countdownSeconds !== null ? (
+                        <div className="mt-3 p-2 bg-yellow-500/20 rounded border border-yellow-500/50">
+                          <div className="flex justify-between items-center">
+                            <span className="text-white/70">Time Remaining:</span>
+                            <span className={`text-2xl font-mono font-bold ${countdownSeconds < 300 ? 'text-red-400' : 'text-yellow-300'}`}>
+                              {formatCountdown(countdownSeconds)}
+                            </span>
+                          </div>
+                          <p className="text-white/70 text-xs mt-1">
+                            {countdownSeconds < 300 
+                              ? '⚠️ Less than 5 minutes remaining - payout will auto-execute soon!'
+                              : 'Payout will auto-execute when countdown reaches zero'}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
+                  ) : (
+                    <div>
+                      <p className="text-white/70">No lock for this week</p>
+                      {!payoutLockStatus.windows.isLockWindow && (
+                        <p className="text-white/50 text-sm mt-1">
+                          Lock window: Sunday 9am-9pm EST
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Lock and Execute Buttons */}
+              <div className="flex gap-4 justify-end">
                 <button
                   onClick={handleLockReferrals}
-                  className="px-6 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors border border-purple-500/30"
+                  disabled={!payoutLockStatus?.windows.isLockWindow || (payoutLockStatus?.lock !== null && !payoutLockStatus.lock.executedAt)}
+                  className={`px-6 py-2 rounded-lg transition-colors border ${
+                    payoutLockStatus?.windows.isLockWindow && (payoutLockStatus?.lock === null || payoutLockStatus.lock.executedAt)
+                      ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border-purple-500/30 cursor-pointer'
+                      : 'bg-gray-500/20 text-gray-400 border-gray-500/30 cursor-not-allowed'
+                  }`}
+                  title={
+                    !payoutLockStatus?.windows.isLockWindow
+                      ? 'Lock window is only available on Sunday between 9am-9pm EST'
+                      : payoutLockStatus?.lock && !payoutLockStatus.lock.executedAt
+                      ? 'Lock already exists for this week'
+                      : 'Lock referrals for payout'
+                  }
                 >
                   🔒 Lock Referrals for Week
+                </button>
+                <button
+                  onClick={handleExecutePayout}
+                  disabled={
+                    !payoutLockStatus?.windows.isExecuteWindow || 
+                    !payoutLockStatus?.lock || 
+                    payoutLockStatus.lock.executedAt !== null
+                  }
+                  className={`px-6 py-2 rounded-lg transition-colors border ${
+                    payoutLockStatus?.windows.isExecuteWindow && 
+                    payoutLockStatus?.lock && 
+                    !payoutLockStatus.lock.executedAt
+                      ? 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30 cursor-pointer'
+                      : 'bg-gray-500/20 text-gray-400 border-gray-500/30 cursor-not-allowed'
+                  }`}
+                  title={
+                    !payoutLockStatus?.windows.isExecuteWindow
+                      ? 'Execute window is only available on Sunday between 9am-11pm EST'
+                      : !payoutLockStatus?.lock
+                      ? 'Please lock referrals first'
+                      : payoutLockStatus.lock.executedAt
+                      ? 'Payout already executed'
+                      : 'Execute payout transaction'
+                  }
+                >
+                  💰 Execute Payout
                 </button>
               </div>
             </div>
