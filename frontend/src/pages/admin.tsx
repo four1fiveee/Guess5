@@ -81,6 +81,7 @@ export default function AdminPage() {
     setAuthenticated(false);
     setAuthStatus(null);
     setPassword('');
+    setUsername('');
   };
 
   if (!authenticated) {
@@ -161,12 +162,9 @@ export default function AdminPage() {
           <div className="flex items-center justify-between">
             <div>
               <h1 className="text-3xl font-bold text-white mb-2">Admin Dashboard</h1>
-              <p className="text-white/70 text-sm">
+              <p className="text-white/70 text-sm mb-4">
                 {authStatus && (
-                  <>
-                    IP: {authStatus.ip} • 
-                    {authStatus.ipWhitelisted === 'all' ? ' All IPs allowed' : ` IP Whitelisted: ${authStatus.ipWhitelisted ? 'Yes' : 'No'}`}
-                  </>
+                  <>IP: {authStatus.ip}</>
                 )}
               </p>
             </div>
@@ -266,4 +264,3 @@ export default function AdminPage() {
     </div>
   );
 }
-
