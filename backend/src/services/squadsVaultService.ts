@@ -4615,8 +4615,10 @@ export class SquadsVaultService {
             // Use rpc.vaultTransactionExecute() - it handles everything internally
             // This method builds the transaction, signs it, and sends it automatically
             // CRITICAL: member must be PublicKey (not Keypair) - same pattern as instructions.proposalApprove
+            // feePayer is the Keypair that signs and pays for the execution transaction
             executionSignature = await rpc.vaultTransactionExecute({
               connection: this.connection,
+              feePayer: executor, // Keypair that signs and pays for execution (matches vaultTransactionCreate pattern)
               multisigPda: multisigAddress,
               transactionIndex: transactionIndexNumber,
               member: executor.publicKey, // Use PublicKey, not Keypair (matches proposalApprove pattern)
