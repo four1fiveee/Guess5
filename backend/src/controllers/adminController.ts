@@ -963,3 +963,350 @@ export const adminExecuteProposal = async (req: Request, res: Response) => {
     });
   }
 };
+
+/**
+ * Get health status for Vercel and Render
+ * GET /api/admin/health/status
+ */
+export const adminGetHealthStatus = async (req: Request, res: Response) => {
+  try {
+    const vercelStatus = {
+      status: 'unknown' as 'up' | 'down' | 'unknown',
+      lastChecked: new Date().toISOString(),
+      url: 'https://guess5.io',
+    };
+
+    const renderStatus = {
+      status: 'unknown' as 'up' | 'down' | 'unknown',
+      lastChecked: new Date().toISOString(),
+      url: 'https://guess5.onrender.com',
+    };
+
+    // Check Vercel (frontend)
+    try {
+      const vercelResponse = await fetch('https://guess5.io', { 
+        method: 'HEAD',
+        signal: AbortSignal.timeout(5000)
+      });
+      vercelStatus.status = vercelResponse.ok ? 'up' : 'down';
+    } catch (err) {
+      vercelStatus.status = 'down';
+    }
+
+    // Check Render (backend)
+    try {
+      const renderResponse = await fetch('https://guess5.onrender.com/health', { 
+        method: 'GET',
+        signal: AbortSignal.timeout(5000)
+      });
+      renderStatus.status = renderResponse.ok ? 'up' : 'down';
+    } catch (err) {
+      renderStatus.status = 'down';
+    }
+
+    return res.json({
+      success: true,
+      vercel: vercelStatus,
+      render: renderStatus,
+      overall: vercelStatus.status === 'up' && renderStatus.status === 'up' ? 'up' : 'down',
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to get health status', details: errorMessage });
+  }
+};
+
+/**
+ * Get financial metrics (YTD, QTD, weekly)
+ * GET /api/admin/financial/metrics
+ */
+export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const matchRepository = AppDataSource.getRepository(Match);
+    const now = new Date();
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+
+    const startOfQuarter = new Date(now);
+    const currentQuarter = Math.floor(now.getMonth() / 3);
+    startOfQuarter.setMonth(currentQuarter * 3, 1);
+    startOfQuarter.setHours(0, 0, 0, 0);
+
+    const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+    // Get all matches with payments
+    const allMatches = await matchRepository.query(`
+      SELECT 
+        "entryFee",
+        "entryFeeUSD",
+        "payoutAmount",
+        "payoutAmountUSD",
+        "bonusAmount",
+        "bonusAmountUSD",
+        "player1Paid",
+        "player2Paid",
+        "createdAt",
+        "isCompleted",
+        status,
+        winner,
+        "proposalExecutedAt"
+      FROM "match"
+      WHERE ("player1Paid" = true OR "player2Paid" = true)
+        AND "createdAt" >= $1
+      ORDER BY "createdAt" DESC
+    `, [startOfYear]);
+
+    const calculateMetrics = (matches: any[], startDate: Date) => {
+      const filtered = matches.filter(m => new Date(m.createdAt) >= startDate);
+      
+      let matchesPlayed = 0;
+      let totalEntryFees = 0;
+      let totalEntryFeesUSD = 0;
+      let totalPayouts = 0;
+      let totalPayoutsUSD = 0;
+      let totalBonus = 0;
+      let totalBonusUSD = 0;
+
+      for (const match of filtered) {
+        const entryFee = parseFloat(match.entryFee) || 0;
+        const entryFeeUSD = parseFloat(match.entryFeeUSD) || 0;
+        
+        // Count entry fees (both players pay)
+        if (match.player1Paid && match.player2Paid) {
+          totalEntryFees += entryFee * 2;
+          totalEntryFeesUSD += entryFeeUSD * 2;
+        } else if (match.player1Paid || match.player2Paid) {
+          totalEntryFees += entryFee;
+          totalEntryFeesUSD += entryFeeUSD;
+        }
+
+        // Count completed matches
+        if (match.isCompleted || match.status === 'completed') {
+          matchesPlayed++;
+          
+          // Count payouts (winners get payout, ties get refund)
+          if (match.winner === 'tie' && match.proposalExecutedAt) {
+            // Both players get refund
+            totalPayouts += entryFee * 2;
+            totalPayoutsUSD += entryFeeUSD * 2;
+          } else if (match.winner && match.proposalExecutedAt) {
+            const payoutAmount = parseFloat(match.payoutAmount) || 0;
+            const payoutAmountUSD = parseFloat(match.payoutAmountUSD) || 0;
+            totalPayouts += payoutAmount;
+            totalPayoutsUSD += payoutAmountUSD;
+          }
+
+          // Count bonus
+          if (match.bonusAmount) {
+            totalBonus += parseFloat(match.bonusAmount) || 0;
+            totalBonusUSD += parseFloat(match.bonusAmountUSD) || 0;
+          }
+        }
+      }
+
+      const netProfit = totalPayouts - totalEntryFees;
+      const netProfitUSD = totalPayoutsUSD - totalEntryFeesUSD;
+
+      return {
+        matchesPlayed,
+        totalEntryFees,
+        totalEntryFeesUSD: parseFloat(totalEntryFeesUSD.toFixed(2)),
+        totalPayouts,
+        totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
+        totalBonus,
+        totalBonusUSD: parseFloat(totalBonusUSD.toFixed(2)),
+        netProfit,
+        netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
+      };
+    };
+
+    const weekly = calculateMetrics(allMatches, startOfWeek);
+    const quarterly = calculateMetrics(allMatches, startOfQuarter);
+    const yearly = calculateMetrics(allMatches, startOfYear);
+
+    return res.json({
+      success: true,
+      weekly,
+      quarterly,
+      yearly,
+      period: {
+        weekStart: startOfWeek.toISOString(),
+        quarterStart: startOfQuarter.toISOString(),
+        yearStart: startOfYear.toISOString(),
+        currentDate: now.toISOString(),
+      },
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to get financial metrics', details: errorMessage });
+  }
+};
+
+/**
+ * Get fee wallet balance
+ * GET /api/admin/financial/fee-wallet-balance
+ */
+export const adminGetFeeWalletBalance = async (req: Request, res: Response) => {
+  try {
+    const { Connection, PublicKey, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+    const { getFeeWalletAddress } = require('../config/wallet');
+    
+    const networkUrl = process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com';
+    const connection = new Connection(networkUrl, 'confirmed');
+    const feeWalletAddress = getFeeWalletAddress();
+    const feeWalletPublicKey = new PublicKey(feeWalletAddress);
+    
+    const balance = await connection.getBalance(feeWalletPublicKey);
+    const balanceSOL = balance / LAMPORTS_PER_SOL;
+
+    // Get current SOL price (simplified - you might want to cache this)
+    let solPriceUSD = 0;
+    try {
+      const priceResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+      const priceData = await priceResponse.json();
+      solPriceUSD = priceData.solana?.usd || 0;
+    } catch (err) {
+      console.warn('Failed to fetch SOL price:', err);
+    }
+
+    return res.json({
+      success: true,
+      wallet: feeWalletAddress,
+      balanceSOL: parseFloat(balanceSOL.toFixed(6)),
+      balanceUSD: parseFloat((balanceSOL * solPriceUSD).toFixed(2)),
+      solPriceUSD: parseFloat(solPriceUSD.toFixed(2)),
+      lastChecked: new Date().toISOString(),
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to get fee wallet balance', details: errorMessage });
+  }
+};
+
+/**
+ * Get referral payout execution data
+ * GET /api/admin/referrals/payout-execution
+ */
+export const adminGetReferralPayoutExecution = async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const batchRepository = AppDataSource.getRepository(PayoutBatch);
+
+    // Get current amount owed
+    const owedResult = await earningRepository.query(`
+      SELECT 
+        upline_wallet,
+        SUM(amount_usd) as total_usd,
+        SUM(amount_sol) as total_sol,
+        COUNT(*) as match_count
+      FROM referral_earning
+      WHERE paid = false
+        AND amount_usd IS NOT NULL
+      GROUP BY upline_wallet
+      ORDER BY total_usd DESC
+    `);
+
+    const totalOwedUSD = owedResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_usd || 0), 0);
+    const totalOwedSOL = owedResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_sol || 0), 0);
+
+    // Get paid referrals
+    const paidResult = await earningRepository.query(`
+      SELECT 
+        upline_wallet,
+        SUM(amount_usd) as total_usd,
+        SUM(amount_sol) as total_sol,
+        COUNT(*) as match_count
+      FROM referral_earning
+      WHERE paid = true
+        AND amount_usd IS NOT NULL
+      GROUP BY upline_wallet
+      ORDER BY total_usd DESC
+    `);
+
+    const totalPaidUSD = paidResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_usd || 0), 0);
+    const totalPaidSOL = paidResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_sol || 0), 0);
+
+    // Get historical payouts (from batches)
+    const batches = await batchRepository.find({
+      where: { status: 'EXECUTED' },
+      order: { createdAt: 'DESC' },
+      take: 20,
+    });
+
+    return res.json({
+      success: true,
+      currentOwed: {
+        totalUSD: parseFloat(totalOwedUSD.toFixed(2)),
+        totalSOL: parseFloat(totalOwedSOL.toFixed(6)),
+        count: owedResult.length,
+        breakdown: owedResult.map((row: any) => ({
+          uplineWallet: row.upline_wallet,
+          totalUSD: parseFloat(row.total_usd || 0),
+          totalSOL: parseFloat(row.total_sol || 0),
+          matchCount: parseInt(row.match_count || 0),
+        })),
+      },
+      totalPaid: {
+        totalUSD: parseFloat(totalPaidUSD.toFixed(2)),
+        totalSOL: parseFloat(totalPaidSOL.toFixed(6)),
+        count: paidResult.length,
+      },
+      historicalPayouts: batches.map(batch => ({
+        id: batch.id,
+        totalAmountUSD: batch.totalAmountUSD,
+        totalAmountSOL: batch.totalAmountSOL,
+        status: batch.status,
+        createdAt: batch.createdAt,
+        executedAt: batch.executedAt,
+        recipientCount: batch.recipientCount,
+      })),
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to get referral payout execution data', details: errorMessage });
+  }
+};
+
+/**
+ * Lock referrals for the week (to ensure referrals during payout review are tracked for next week)
+ * POST /api/admin/referrals/lock-week
+ */
+export const adminLockReferralsWeek = async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const earningRepository = AppDataSource.getRepository(ReferralEarning);
+    const now = new Date();
+    
+    // Get all unpaid referrals
+    const unpaidEarnings = await earningRepository.find({
+      where: { paid: false },
+    });
+
+    // Mark them as "locked" for this week's payout review
+    // This ensures any new referrals during review period are tracked for next week
+    const lockedCount = unpaidEarnings.length;
+
+    return res.json({
+      success: true,
+      message: `Locked ${lockedCount} unpaid referrals for current week review`,
+      lockedCount,
+      lockedAt: now.toISOString(),
+      note: 'These referrals will be included in next week\'s payout batch',
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ error: 'Failed to lock referrals week', details: errorMessage });
+  }
+};

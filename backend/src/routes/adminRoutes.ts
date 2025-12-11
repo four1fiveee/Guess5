@@ -19,7 +19,12 @@ const {
   adminGetLockStats,
   adminCheckLockStatus,
   adminCleanupStaleLocks,
-  adminExecuteProposal
+  adminExecuteProposal,
+  adminGetHealthStatus,
+  adminGetFinancialMetrics,
+  adminGetFeeWalletBalance,
+  adminGetReferralPayoutExecution,
+  adminLockReferralsWeek
 } = require('../controllers/adminController');
 const { requireAdminAuth } = require('../middleware/adminAuth');
 
@@ -56,5 +61,16 @@ router.post('/payouts/approve/:batchId', adminApprovePayoutBatch);
 router.post('/payouts/send/:batchId', adminSendPayoutBatch);
 router.get('/payouts/batches', adminGetPayoutBatches);
 router.get('/payouts/batch/:id', adminGetPayoutBatch);
+
+// Health monitoring
+router.get('/health/status', adminGetHealthStatus);
+
+// Financial metrics
+router.get('/financial/metrics', adminGetFinancialMetrics);
+router.get('/financial/fee-wallet-balance', adminGetFeeWalletBalance);
+
+// Referral payout execution
+router.get('/referrals/payout-execution', adminGetReferralPayoutExecution);
+router.post('/referrals/lock-week', adminLockReferralsWeek);
 
 module.exports = router;
