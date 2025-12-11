@@ -496,8 +496,14 @@ router.post('/run-security-migration', asyncHandlerWrapper(async (req: any, res:
   }
 }));
 
-// Match report endpoint (CSV export)
+// Match report endpoint (CSV export) - now filtered by wallet
 router.get('/generate-report', asyncHandlerWrapper(matchController.generateReportHandler));
+
+// Player match statistics dashboard
+router.get('/player-stats', asyncHandlerWrapper(matchController.getPlayerMatchStatsHandler));
+
+// Outstanding proposals (refunds/payouts needing signature)
+router.get('/outstanding-proposals', asyncHandlerWrapper(matchController.getOutstandingProposalsHandler));
 
 // Blockchain verification endpoint
 router.post('/verify-blockchain/:matchId', asyncHandlerWrapper(matchController.verifyBlockchainDataHandler));

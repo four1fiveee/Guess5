@@ -236,17 +236,6 @@ export default function Info() {
           </div>
 
           <div className="text-center">
-            <a 
-              href="https://guess5.onrender.com/api/match/generate-report" 
-              target="_blank" 
-              rel="noopener noreferrer"
-              className="inline-flex items-center bg-accent text-primary text-sm font-bold px-6 py-3 rounded-lg shadow hover:bg-yellow-400 transition-colors"
-            >
-              📥 Download Complete Match History (CSV)
-            </a>
-            <p className="text-sm text-white/70 mt-3">
-              Complete match data with game results, winner amounts, blockchain verification links, and vault addresses
-            </p>
           </div>
         </div>
 

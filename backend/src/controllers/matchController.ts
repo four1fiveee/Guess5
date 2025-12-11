@@ -10511,7 +10511,7 @@ const getFiscalInfo = (date: any) => {
 const generateReportHandler = async (req: any, res: any) => {
   try {
     // Default to 11/4/2025 to only include recent matches (after migration/testing)
-    const { startDate = '2025-11-04', endDate } = req.query;
+    const { startDate = '2025-11-04', endDate, wallet } = req.query;
     
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
@@ -10523,7 +10523,13 @@ const generateReportHandler = async (req: any, res: any) => {
       dateFilter += ` AND DATE("createdAt") <= '${endDate}'`;
     }
     
-    console.log(`📅 CSV Export Date Filter: ${dateFilter}`);
+    // ✅ NEW: Filter by wallet if provided (only show matches where player is player1 or player2)
+    let walletFilter = '';
+    if (wallet) {
+      walletFilter = ` AND ("player1" = '${wallet}' OR "player2" = '${wallet}')`;
+    }
+    
+    console.log(`📅 CSV Export Date Filter: ${dateFilter}${walletFilter ? `, Wallet Filter: ${wallet}` : ''}`);
     
     // Try to get matches with all columns, but fallback to minimal query if columns don't exist
     let matches: any[];
@@ -10592,7 +10598,7 @@ const generateReportHandler = async (req: any, res: any) => {
           "bonusSignature",
           "bonusPaidAt"
       FROM "match" 
-      WHERE ${dateFilter}
+      WHERE ${dateFilter}${walletFilter}
         AND "squadsVaultAddress" IS NOT NULL
         AND (
             -- Executed payouts (most complete data)
@@ -10653,7 +10659,7 @@ const generateReportHandler = async (req: any, res: any) => {
             "proposalExecutedAt",
             "needsSignatures"
           FROM "match" 
-          WHERE ${dateFilter}
+          WHERE ${dateFilter}${walletFilter}
             AND "squadsVaultAddress" IS NOT NULL
           ORDER BY "createdAt" DESC
           LIMIT 100
@@ -10705,7 +10711,7 @@ const generateReportHandler = async (req: any, res: any) => {
             "gameStartTimeUtc",
             "gameEndTimeUtc"
           FROM "match" 
-          WHERE ${dateFilter}
+          WHERE ${dateFilter}${walletFilter}
             AND "squadsVaultAddress" IS NOT NULL
             AND (
               -- Executed payouts
@@ -10763,7 +10769,7 @@ const generateReportHandler = async (req: any, res: any) => {
             "needsSignatures",
             "proposalSigners"
           FROM "match" 
-          WHERE ${dateFilter}
+          WHERE ${dateFilter}${walletFilter}
             AND "squadsVaultAddress" IS NOT NULL
             AND (
               -- Executed payouts
@@ -14834,6 +14840,227 @@ const signProposalHandler = async (req: any, res: any) => {
   }
 };
 
+/**
+ * Get player match statistics dashboard
+ */
+const getPlayerMatchStatsHandler = async (req: any, res: any) => {
+  try {
+    const { wallet } = req.query;
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+
+    // Get all matches where player is player1 or player2
+    const matches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        "entryFee",
+        "entryFeeUSD",
+        winner,
+        "isCompleted",
+        status,
+        "payoutResult",
+        "payoutAmount",
+        "payoutAmountUSD",
+        "proposalExecutedAt",
+        "createdAt",
+        "tieRefundProposalId",
+        "payoutProposalId"
+      FROM "match"
+      WHERE ("player1" = $1 OR "player2" = $2)
+        AND ("player1Paid" = true OR "player2Paid" = true)
+      ORDER BY "createdAt" DESC
+    `, [wallet, wallet]);
+
+    // Calculate statistics
+    let gamesPlayed = 0;
+    let wins = 0;
+    let losses = 0;
+    let ties = 0;
+    let totalEntryFeesSpent = 0;
+    let totalEntryFeesSpentUSD = 0;
+    let totalPayoutsReceived = 0;
+    let totalPayoutsReceivedUSD = 0;
+
+    for (const match of matches) {
+      const isPlayer1 = match.player1?.toLowerCase() === wallet.toLowerCase();
+      const isPlayer2 = match.player2?.toLowerCase() === wallet.toLowerCase();
+      
+      if (!isPlayer1 && !isPlayer2) continue;
+      
+      // Only count completed matches
+      if (match.isCompleted || match.status === 'completed') {
+        gamesPlayed++;
+        
+        // Calculate entry fee spent
+        const entryFee = parseFloat(match.entryFee) || 0;
+        const entryFeeUSD = parseFloat(match.entryFeeUSD) || 0;
+        totalEntryFeesSpent += entryFee;
+        totalEntryFeesSpentUSD += entryFeeUSD;
+
+        // Determine outcome
+        if (match.winner === 'tie') {
+          ties++;
+          // For ties, player gets refund (entry fee back)
+          totalPayoutsReceived += entryFee;
+          totalPayoutsReceivedUSD += entryFeeUSD;
+        } else if (match.winner && match.winner.toLowerCase() === wallet.toLowerCase()) {
+          wins++;
+          // Winner gets payout amount
+          const payoutAmount = parseFloat(match.payoutAmount) || 0;
+          const payoutAmountUSD = parseFloat(match.payoutAmountUSD) || 0;
+          totalPayoutsReceived += payoutAmount;
+          totalPayoutsReceivedUSD += payoutAmountUSD;
+        } else {
+          losses++;
+          // Loser gets nothing
+        }
+      }
+    }
+
+    const winPercentage = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
+    const netProfit = totalPayoutsReceived - totalEntryFeesSpent;
+    const netProfitUSD = totalPayoutsReceivedUSD - totalEntryFeesSpentUSD;
+
+    res.json({
+      success: true,
+      stats: {
+        gamesPlayed,
+        wins,
+        losses,
+        ties,
+        winPercentage: parseFloat(winPercentage.toFixed(2)),
+        totalEntryFeesSpent,
+        totalEntryFeesSpentUSD: parseFloat(totalEntryFeesSpentUSD.toFixed(2)),
+        totalPayoutsReceived,
+        totalPayoutsReceivedUSD: parseFloat(totalPayoutsReceivedUSD.toFixed(2)),
+        netProfit,
+        netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
+      },
+      matches: matches.map((m: any) => ({
+        matchId: m.id,
+        opponent: m.player1?.toLowerCase() === wallet.toLowerCase() ? m.player2 : m.player1,
+        entryFee: m.entryFee,
+        entryFeeUSD: m.entryFeeUSD,
+        winner: m.winner,
+        status: m.status,
+        isCompleted: m.isCompleted,
+        createdAt: m.createdAt,
+        payoutAmount: m.payoutAmount,
+        payoutAmountUSD: m.payoutAmountUSD,
+      })),
+    });
+  } catch (error: any) {
+    console.error('❌ Error getting player match stats:', error);
+    res.status(500).json({ error: 'Failed to get player match stats', details: error?.message });
+  }
+};
+
+/**
+ * Get outstanding proposals for a player (refunds and payouts that need signing)
+ */
+const getOutstandingProposalsHandler = async (req: any, res: any) => {
+  try {
+    const { wallet } = req.query;
+    
+    if (!wallet) {
+      return res.status(400).json({ error: 'Wallet address required' });
+    }
+
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+
+    // Get matches with proposals that need player signature
+    const matches = await matchRepository.query(`
+      SELECT 
+        id,
+        "player1",
+        "player2",
+        "entryFee",
+        "entryFeeUSD",
+        winner,
+        status,
+        "payoutProposalId",
+        "tieRefundProposalId",
+        "proposalStatus",
+        "proposalSigners",
+        "needsSignatures",
+        "proposalExecutedAt",
+        "proposalTransactionId",
+        "createdAt",
+        "squadsVaultAddress"
+      FROM "match"
+      WHERE ("player1" = $1 OR "player2" = $2)
+        AND (
+          "payoutProposalId" IS NOT NULL 
+          OR "tieRefundProposalId" IS NOT NULL
+        )
+        AND "proposalExecutedAt" IS NULL
+        AND "proposalTransactionId" IS NULL
+      ORDER BY "createdAt" DESC
+    `, [wallet, wallet]);
+
+    const outstandingProposals = [];
+
+    for (const match of matches) {
+      const isPlayer1 = match.player1?.toLowerCase() === wallet.toLowerCase();
+      const isPlayer2 = match.player2?.toLowerCase() === wallet.toLowerCase();
+      
+      if (!isPlayer1 && !isPlayer2) continue;
+
+      // Parse proposal signers
+      let proposalSigners: string[] = [];
+      try {
+        proposalSigners = typeof match.proposalSigners === 'string' 
+          ? JSON.parse(match.proposalSigners) 
+          : (match.proposalSigners || []);
+      } catch {
+        proposalSigners = [];
+      }
+
+      // Check if player has signed
+      const normalizedSigners = proposalSigners.map((s: string) => s?.toLowerCase());
+      const playerHasSigned = normalizedSigners.includes(wallet.toLowerCase());
+
+      // Determine proposal type
+      const isTieRefund = match.winner === 'tie' || match.status === 'cancelled';
+      const proposalId = isTieRefund ? match.tieRefundProposalId : match.payoutProposalId;
+      const isWinnerPayout = !isTieRefund && match.winner && match.winner.toLowerCase() === wallet.toLowerCase();
+
+      if (proposalId && !playerHasSigned) {
+        outstandingProposals.push({
+          matchId: match.id,
+          proposalId,
+          proposalType: isTieRefund ? 'refund' : (isWinnerPayout ? 'payout' : 'refund'),
+          entryFee: match.entryFee,
+          entryFeeUSD: match.entryFeeUSD,
+          amount: isTieRefund ? match.entryFee : match.payoutAmount,
+          amountUSD: isTieRefund ? match.entryFeeUSD : match.payoutAmountUSD,
+          status: match.proposalStatus,
+          needsSignatures: match.needsSignatures,
+          createdAt: match.createdAt,
+          vaultAddress: match.squadsVaultAddress,
+        });
+      }
+    }
+
+    res.json({
+      success: true,
+      proposals: outstandingProposals,
+      count: outstandingProposals.length,
+    });
+  } catch (error: any) {
+    console.error('❌ Error getting outstanding proposals:', error);
+    res.status(500).json({ error: 'Failed to get outstanding proposals', details: error?.message });
+  }
+};
+
 module.exports = {
   requestMatchHandler,
   submitResultHandler,
@@ -14872,6 +15099,8 @@ module.exports = {
   processAutomatedRefunds,
   walletBalanceSSEHandler,
   verifyPaymentTransaction,
+  getPlayerMatchStatsHandler,
+  getOutstandingProposalsHandler,
 
   // findAndClaimWaitingPlayer, // Removed - replaced with Redis matchmaking
   websocketStatsHandler,

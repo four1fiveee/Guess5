@@ -113,7 +113,12 @@ export default function Home() {
         <div className="flex gap-4 mt-6 sm:mt-8 mb-6 sm:mb-8 flex-wrap justify-center">
           <Link href="/info">
             <button className="bg-gradient-to-r from-white/10 to-white/5 hover:from-white/20 hover:to-white/10 text-white text-sm sm:text-base font-semibold px-6 py-3 sm:py-3.5 rounded-xl shadow-lg border border-white/20 hover:border-white/40 transition-all duration-300 min-h-[48px] flex items-center justify-center transform hover:scale-105 active:scale-95">
-              📚 Rules, FAQ & Match History
+              📚 Rules & FAQ
+            </button>
+          </Link>
+          <Link href="/match-history">
+            <button className="bg-gradient-to-r from-blue-500 to-cyan-500 hover:from-blue-400 hover:to-cyan-400 text-white text-sm sm:text-base font-semibold px-6 py-3 sm:py-3.5 rounded-xl shadow-lg border border-blue-400/40 hover:border-blue-300/60 transition-all duration-300 min-h-[48px] flex items-center justify-center transform hover:scale-105 active:scale-95">
+              📊 Match History
             </button>
           </Link>
           <Link href="/referrals">
