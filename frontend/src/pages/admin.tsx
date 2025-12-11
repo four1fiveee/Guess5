@@ -62,6 +62,7 @@ export default function AdminPage() {
       const interval = setInterval(loadDashboardData, 30000);
       return () => clearInterval(interval);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, token]);
 
   const loadDashboardData = async () => {

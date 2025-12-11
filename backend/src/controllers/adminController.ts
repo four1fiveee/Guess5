@@ -970,6 +970,7 @@ export const adminExecuteProposal = async (req: Request, res: Response) => {
  */
 export const adminGetHealthStatus = async (req: Request, res: Response) => {
   try {
+    const axios = require('axios');
     const vercelStatus = {
       status: 'unknown' as 'up' | 'down' | 'unknown',
       lastChecked: new Date().toISOString(),
@@ -984,22 +985,20 @@ export const adminGetHealthStatus = async (req: Request, res: Response) => {
 
     // Check Vercel (frontend)
     try {
-      const vercelResponse = await fetch('https://guess5.io', { 
-        method: 'HEAD',
-        signal: AbortSignal.timeout(5000)
+      const vercelResponse = await axios.head('https://guess5.io', { 
+        timeout: 5000
       });
-      vercelStatus.status = vercelResponse.ok ? 'up' : 'down';
+      vercelStatus.status = vercelResponse.status === 200 ? 'up' : 'down';
     } catch (err) {
       vercelStatus.status = 'down';
     }
 
     // Check Render (backend)
     try {
-      const renderResponse = await fetch('https://guess5.onrender.com/health', { 
-        method: 'GET',
-        signal: AbortSignal.timeout(5000)
+      const renderResponse = await axios.get('https://guess5.onrender.com/health', { 
+        timeout: 5000
       });
-      renderStatus.status = renderResponse.ok ? 'up' : 'down';
+      renderStatus.status = renderResponse.status === 200 ? 'up' : 'down';
     } catch (err) {
       renderStatus.status = 'down';
     }
@@ -1165,11 +1164,11 @@ export const adminGetFeeWalletBalance = async (req: Request, res: Response) => {
     const balanceSOL = balance / LAMPORTS_PER_SOL;
 
     // Get current SOL price (simplified - you might want to cache this)
+    const axios = require('axios');
     let solPriceUSD = 0;
     try {
-      const priceResponse = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
-      const priceData = await priceResponse.json();
-      solPriceUSD = priceData.solana?.usd || 0;
+      const priceResponse = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+      solPriceUSD = priceResponse.data.solana?.usd || 0;
     } catch (err) {
       console.warn('Failed to fetch SOL price:', err);
     }
@@ -1237,7 +1236,7 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
 
     // Get historical payouts (from batches)
     const batches = await batchRepository.find({
-      where: { status: 'EXECUTED' },
+      where: { status: 'EXECUTED' as PayoutBatchStatus },
       order: { createdAt: 'DESC' },
       take: 20,
     });
@@ -1260,14 +1259,14 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
         totalSOL: parseFloat(totalPaidSOL.toFixed(6)),
         count: paidResult.length,
       },
-      historicalPayouts: batches.map(batch => ({
+      historicalPayouts: batches.map((batch: any) => ({
         id: batch.id,
         totalAmountUSD: batch.totalAmountUSD,
         totalAmountSOL: batch.totalAmountSOL,
         status: batch.status,
         createdAt: batch.createdAt,
-        executedAt: batch.executedAt,
-        recipientCount: batch.recipientCount,
+        executedAt: batch.executedAt || null,
+        recipientCount: batch.recipientCount || 0,
       })),
     });
   } catch (error: unknown) {
