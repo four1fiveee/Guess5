@@ -87,9 +87,22 @@ const getExpectedEntryFeeUSD = (solAmount: number, solPrice: number | null): num
 };
 
 // Helper function to calculate expected winnings USD (95% of 2x entry fee)
-const getExpectedWinningsUSD = (entryFeeUSD: number | null): number | null => {
-  if (!entryFeeUSD) return null;
-  return entryFeeUSD * 2 * 0.95;
+// CRITICAL: Uses entry fee tier amount directly, not calculated from SOL
+const getExpectedWinningsUSD = (entryFeeUSD: number | null, entryFeeSOL: number | null, solPrice: number | null): number | null => {
+  // If we have entryFeeUSD directly (from database), use it
+  if (entryFeeUSD) {
+    return entryFeeUSD * 2 * 0.95;
+  }
+  
+  // Otherwise, determine tier from SOL amount and use that tier amount
+  if (entryFeeSOL && solPrice) {
+    const tierUSD = getExpectedEntryFeeUSD(entryFeeSOL, solPrice);
+    if (tierUSD) {
+      return tierUSD * 2 * 0.95;
+    }
+  }
+  
+  return null;
 };
 
 const normalizeProposalSigners = (value: any): string[] => {
@@ -2511,10 +2524,15 @@ const Result: React.FC = () => {
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {(() => {
                               // Calculate expected USD based on entry fee tier (stable, doesn't fluctuate)
+                              // CRITICAL: Use tier amount directly, not calculated from current SOL price
                               const entryFeeUSD = solPrice && payoutData.entryFee 
                                 ? getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) 
                                 : null;
-                              const expectedWinningsUSD = getExpectedWinningsUSD(entryFeeUSD);
+                              const expectedWinningsUSD = getExpectedWinningsUSD(
+                                entryFeeUSD, 
+                                payoutData.entryFee || null, 
+                                solPrice
+                              );
                               
                               // Calculate current USD value of actual SOL received (for reference)
                               const actualSOLUSD = solPrice && payoutData.winnerAmount 
