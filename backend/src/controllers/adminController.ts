@@ -1548,7 +1548,7 @@ export const adminExecutePayout = async (req: Request, res: Response) => {
         buffer: Array.from(transactionBuffer),
         note: 'Transaction needs to be signed and sent. Use sendPayoutBatch endpoint with transaction signature.',
       },
-      autoExecuted,
+      autoExecuted: autoExecute,
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);

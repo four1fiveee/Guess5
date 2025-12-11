@@ -153,8 +153,8 @@ export default function AdminPage() {
         if (lockData.countdown && lockData.countdown.remainingSeconds > 0) {
           setCountdownSeconds(lockData.countdown.remainingSeconds);
         } else if (lockData.countdown && lockData.countdown.expired && lockData.lock && !lockData.lock.executedAt) {
-          // Auto-execute if countdown expired
-          handleExecutePayout();
+          // Auto-execute if countdown expired - will be handled by useEffect
+          setCountdownSeconds(0);
         }
       }
     } catch (err) {
@@ -253,11 +253,75 @@ export default function AdminPage() {
         headers: { 'Authorization': `Bearer ${token}` },
       });
       const data = await response.json();
-      alert(`Success: ${data.message}`);
-      loadDashboardData();
+      if (response.ok) {
+        alert(`Success: ${data.message}\n\nYou have 2 hours to review and execute. After 2 hours, payout will auto-execute.`);
+        loadDashboardData();
+      } else {
+        alert(`Error: ${data.error || 'Failed to lock referrals'}\n\n${data.note || ''}`);
+      }
     } catch (err: any) {
-      alert(`Error: ${err.message}`);
+      alert(`Error: ${err.message || 'Failed to lock referrals'}`);
     }
+  };
+
+  const handleExecutePayout = async () => {
+    if (!token) return;
+    if (!confirm('Are you sure you want to execute the payout? This will send funds to all locked referrers.')) {
+      return;
+    }
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/referrals/execute-payout`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+      if (response.ok) {
+        alert(`Success: ${data.message}\n\nBatch ID: ${data.batch.id}\nAmount: $${data.batch.totalAmountUSD.toFixed(2)} USD (${data.batch.totalAmountSOL.toFixed(6)} SOL)\n\n${data.transaction ? 'Transaction prepared. Please sign and send using the sendPayoutBatch endpoint.' : ''}`);
+        loadDashboardData();
+        setCountdownSeconds(null);
+      } else {
+        alert(`Error: ${data.error || 'Failed to execute payout'}\n\n${data.note || ''}`);
+      }
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to execute payout'}`);
+    }
+  };
+
+  // Countdown timer effect
+  useEffect(() => {
+    if (countdownSeconds !== null && countdownSeconds > 0) {
+      const interval = setInterval(() => {
+        setCountdownSeconds((prev) => {
+          if (prev === null || prev <= 1) {
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+
+      return () => clearInterval(interval);
+    }
+  }, [countdownSeconds]);
+
+  // Auto-execute effect when countdown expires
+  useEffect(() => {
+    if (countdownSeconds === 0 && payoutLockStatus?.lock && !payoutLockStatus.lock.executedAt && payoutLockStatus.windows.isExecuteWindow) {
+      handleExecutePayout();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [countdownSeconds, payoutLockStatus]);
+
+  const formatCountdown = (seconds: number | null): string => {
+    if (seconds === null || seconds <= 0) return '00:00:00';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = seconds % 60;
+    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
   };
 
   if (!authenticated) {
