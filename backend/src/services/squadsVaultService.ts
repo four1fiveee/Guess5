@@ -4391,7 +4391,31 @@ export class SquadsVaultService {
         
         const proposalStatus = (proposalAccount.status as any)?.__kind;
         const approvedSigners = proposalAccount.approved || [];
-        const threshold = proposalAccount.threshold;
+        
+        // CRITICAL: Fetch threshold from Multisig account, not Proposal account
+        // Proposal account doesn't have threshold field - it's stored on Multisig
+        let threshold = 2; // Default fallback
+        try {
+          const [multisigPda] = getMultisigPda({
+            createKey: multisigAddress,
+            programId: this.programId,
+          });
+          const multisigAccount = await fromAccountAddressWithRetry(
+            accounts.Multisig,
+            this.connection,
+            multisigPda,
+            'confirmed'
+          );
+          threshold = (multisigAccount as any).threshold || 2;
+        } catch (thresholdError: any) {
+          enhancedLogger.warn('⚠️ Could not fetch multisig threshold, using default', {
+            vaultAddress,
+            proposalId,
+            error: thresholdError?.message,
+            defaultThreshold: 2,
+            correlationId,
+          });
+        }
         
         enhancedLogger.info('📋 Pre-execution Proposal Status Check', {
           vaultAddress,
