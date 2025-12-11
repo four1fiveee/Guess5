@@ -4618,14 +4618,94 @@ export class SquadsVaultService {
               programId: this.programId,
             });
             
+            // Log all instruction keys for debugging
+            const instructionKeys = executionIx.keys?.map((key: any, idx: number) => ({
+              index: idx,
+              pubkey: key.pubkey?.toString() || 'unknown',
+              isSigner: key.isSigner || false,
+              isWritable: key.isWritable || false,
+            })) || [];
+            
             enhancedLogger.info('✅ Execution instruction created', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               correlationId,
-              instructionKeys: executionIx.keys?.length || 0,
+              instructionKeysCount: executionIx.keys?.length || 0,
               instructionProgramId: executionIx.programId?.toString(),
+              instructionDataLength: executionIx.data?.length || 0,
+              instructionKeys: instructionKeys,
             });
+            
+            // Preflight: Resolve all instruction account keys to identify any that fail
+            enhancedLogger.info('🔍 Preflight: Resolving instruction account keys', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              keysToResolve: instructionKeys.length,
+              correlationId,
+            });
+            
+            const accountResolutionResults = await Promise.allSettled(
+              instructionKeys.map(async (keyInfo: any, idx: number) => {
+                try {
+                  const pubkey = new PublicKey(keyInfo.pubkey);
+                  const accountInfo = await this.connection.getAccountInfo(pubkey);
+                  return {
+                    index: idx,
+                    pubkey: keyInfo.pubkey,
+                    resolved: true,
+                    accountExists: accountInfo !== null,
+                    accountDataLength: accountInfo?.data?.length || 0,
+                    accountOwner: accountInfo?.owner?.toString() || 'unknown',
+                  };
+                } catch (resolveError: any) {
+                  return {
+                    index: idx,
+                    pubkey: keyInfo.pubkey,
+                    resolved: false,
+                    error: resolveError?.message || String(resolveError),
+                  };
+                }
+              })
+            );
+            
+            const resolvedAccounts = accountResolutionResults
+              .filter((result) => result.status === 'fulfilled')
+              .map((result) => (result as PromiseFulfilledResult<any>).value);
+            
+            const failedAccounts = accountResolutionResults
+              .filter((result) => result.status === 'rejected' || 
+                     (result.status === 'fulfilled' && !(result as PromiseFulfilledResult<any>).value.resolved))
+              .map((result) => {
+                if (result.status === 'rejected') {
+                  return { error: result.reason?.message || String(result.reason) };
+                }
+                return (result as PromiseFulfilledResult<any>).value;
+              });
+            
+            enhancedLogger.info('📊 Account resolution preflight results', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              totalKeys: instructionKeys.length,
+              resolvedSuccessfully: resolvedAccounts.length,
+              failedResolutions: failedAccounts.length,
+              resolvedAccounts: resolvedAccounts,
+              failedAccounts: failedAccounts.length > 0 ? failedAccounts : undefined,
+              correlationId,
+            });
+            
+            if (failedAccounts.length > 0) {
+              enhancedLogger.warn('⚠️ Some instruction accounts failed to resolve during preflight', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                failedAccounts,
+                correlationId,
+                note: 'This may indicate PDAs that need derivation or accounts that don\'t exist yet',
+              });
+            }
             
             // Get latest blockhash
             const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
