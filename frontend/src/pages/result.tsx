@@ -2521,7 +2521,8 @@ const Result: React.FC = () => {
                                 ? payoutData.winnerAmount * solPrice 
                                 : null;
                               
-                              if (expectedWinningsUSD && payoutData.winnerAmount) {
+                              // Always show expected USD if we can calculate it, regardless of winnerAmount
+                              if (expectedWinningsUSD) {
                                 return (
                                   <>
                                     <div className="mb-1">
@@ -2529,15 +2530,17 @@ const Result: React.FC = () => {
                                       <span className="text-yellow-300 text-xl ml-2">
                                         (Expected)
                                       </span>
-                          </div>
-                                    <div className="text-2xl text-yellow-300/80 mt-2">
-                                      {payoutData.winnerAmount.toFixed(4)} SOL
-                                      {actualSOLUSD && (
-                                        <span className="text-yellow-200/60 text-lg ml-2">
-                                          (≈ ${actualSOLUSD.toFixed(2)} USD at current rate)
-                                        </span>
-                                      )}
                                     </div>
+                                    {payoutData.winnerAmount ? (
+                                      <div className="text-2xl text-yellow-300/80 mt-2">
+                                        {payoutData.winnerAmount.toFixed(4)} SOL
+                                        {actualSOLUSD && (
+                                          <span className="text-yellow-200/60 text-lg ml-2">
+                                            (≈ ${actualSOLUSD.toFixed(2)} USD at current rate)
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : null}
                                   </>
                                 );
                               } else if (solPrice && payoutData.winnerAmount) {
