@@ -4589,125 +4589,43 @@ export class SquadsVaultService {
               await new Promise(resolve => setTimeout(resolve, delay));
             }
             
-            // CRITICAL FIX: Use instructions.vaultTransactionExecute() per Squads documentation
-            // https://docs.squads.so/main/development/typescript/instructions/execute-vault-transaction
-            // This matches the pattern used for approval (instructions.proposalApprove)
-            // The instructions method works directly from Approved status (no activation needed)
-            enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (per Squads docs)', {
+            // CRITICAL FIX: Use rpc.vaultTransactionExecute() - handles account resolution internally
+            // This is the recommended approach per Squads docs as it handles:
+            // - Account resolution (getAccountInfo calls)
+            // - Transaction building and compilation
+            // - Signing and sending
+            // Works directly from Approved status (no ExecuteReady transition needed)
+            enhancedLogger.info('📝 Executing Proposal using rpc.vaultTransactionExecute (recommended SDK method)', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               executor: executor.publicKey.toString(),
               multisigPda: multisigAddress.toString(),
               programId: this.programId.toString(),
+              connectionRpcUrl: this.connection.rpcEndpoint,
+              connectionValid: typeof this.connection.getAccountInfo === 'function',
               correlationId,
-              note: 'Using instructions method per Squads docs - executes directly from Approved status',
+              note: 'Using rpc method - handles account resolution and transaction building internally',
             });
             
-            if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
-              throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
+            if (!rpc || typeof rpc.vaultTransactionExecute !== 'function') {
+              throw new Error('Squads SDK rpc.vaultTransactionExecute is unavailable');
             }
             
-            // Build the execution instruction (same pattern as approval - sync, not async)
-            const executionIx = instructions.vaultTransactionExecute({
-              multisigPda: multisigAddress,
+            // Use rpc.vaultTransactionExecute - handles everything internally including account resolution
+            executionSignature = await rpc.vaultTransactionExecute({
+              connection: this.connection,
+              multisig: multisigAddress,
               transactionIndex: BigInt(transactionIndexNumber),
-              member: executor.publicKey,
+              member: executor,
               programId: this.programId,
             });
             
-            enhancedLogger.info('✅ Execution instruction created', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              correlationId,
-            });
-            
-            // Get latest blockhash
-            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
-            
-            // Build transaction message
-            const message = new TransactionMessage({
-              payerKey: executor.publicKey,
-              recentBlockhash: blockhash,
-              instructions: [executionIx],
-            });
-            
-            // Compile to V0 message (required for Squads)
-            const compiledMessage = message.compileToV0Message();
-            const transaction = new VersionedTransaction(compiledMessage);
-            
-            // Sign the transaction
-            transaction.sign([executor]);
-            
-            // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
-            const serializedSize = transaction.serialize().length;
-            const maxTransactionSize = 1232; // Solana transaction size limit
-            
-            enhancedLogger.info('📏 Transaction Size Validation (Execution)', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              serializedSize,
-              maxSize: maxTransactionSize,
-              sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
-              executor: executor.publicKey.toString(),
-              correlationId,
-            });
-            
-            if (serializedSize > maxTransactionSize) {
-              const error = `Transaction size ${serializedSize} bytes exceeds Solana limit of ${maxTransactionSize} bytes`;
-              enhancedLogger.error('❌ Execution transaction too large - cannot send', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                serializedSize,
-                maxSize: maxTransactionSize,
-                correlationId,
-              });
-              throw new Error(error);
-            }
-            
-            // Send the transaction
-            enhancedLogger.info('📤 Sending execution transaction', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              executor: executor.publicKey.toString(),
-              correlationId,
-            });
-            
-            const serializedTx = transaction.serialize();
-            executionSignature = await this.connection.sendRawTransaction(serializedTx, {
-              skipPreflight: false,
-              maxRetries: 3,
-            });
-            
-            enhancedLogger.info('✅ Execution transaction sent, waiting for confirmation', {
+            enhancedLogger.info('✅ rpc.vaultTransactionExecute succeeded', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               signature: executionSignature,
-              correlationId,
-            });
-            
-            // Wait for confirmation
-            const confirmation = await this.connection.confirmTransaction({
-              signature: executionSignature,
-              blockhash,
-              lastValidBlockHeight,
-            }, 'confirmed');
-            
-            if (confirmation.value.err) {
-              throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-            }
-            
-            enhancedLogger.info('✅ Execution transaction confirmed', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              signature: executionSignature,
-              slot: confirmation.value.slot,
               correlationId,
             });
             
