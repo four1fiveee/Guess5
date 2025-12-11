@@ -180,3 +180,11 @@ function adminAuthStatus(req: any, res: any): void {
   });
 }
 
+module.exports = {
+  requireAdminAuth,
+  adminLogin,
+  adminLogout,
+  adminAuthStatus,
+  generateAdminToken,
+};
+
