@@ -12,22 +12,27 @@ This document outlines the secure web-based admin dashboard solution for Guess5.
 - All admin routes require valid JWT token in `Authorization: Bearer <token>` header
 - Tokens are stateless and cannot be revoked (logout is client-side)
 
-### 2. **IP Whitelisting (Optional)**
-- Configure `ADMIN_IP_WHITELIST` environment variable
-- Comma-separated list of allowed IP addresses
-- If not set, allows all authenticated users
-- Logs all access attempts for audit
+### 2. **Username + Password Authentication**
+- Requires both username and password to login
+- Username configured via `ADMIN_USERNAME` environment variable
+- Password configured via `ADMIN_PASSWORD` environment variable
+- Both must match to generate JWT token
 
 ### 3. **Environment Variables**
 
-Add these to your `.env` file:
+Add these to your Render dashboard environment variables:
 
 ```bash
 # Admin Dashboard Security
 ADMIN_SECRET=your-super-secret-jwt-key-change-this-in-production
+ADMIN_USERNAME=your-admin-username
 ADMIN_PASSWORD=your-strong-admin-password-change-this
-ADMIN_IP_WHITELIST=1.2.3.4,5.6.7.8  # Optional: comma-separated IPs, leave empty to allow all
 ```
+
+**Explanation:**
+- **ADMIN_SECRET**: Used to sign and verify JWT tokens. This is like a master key that ensures tokens haven't been tampered with. Keep this secret and never expose it.
+- **ADMIN_USERNAME**: The username required to login to the admin dashboard
+- **ADMIN_PASSWORD**: The password required to login to the admin dashboard
 
 ### 4. **Route Protection**
 
@@ -45,6 +50,7 @@ POST /api/admin/auth/login
 Content-Type: application/json
 
 {
+  "username": "your-admin-username",
   "password": "your-admin-password"
 }
 
@@ -65,8 +71,7 @@ Authorization: Bearer <token>
 Response:
 {
   "authenticated": true,
-  "ip": "1.2.3.4",
-  "ipWhitelisted": true
+  "ip": "1.2.3.4"
 }
 ```
 
@@ -125,13 +130,14 @@ Cons:
 
 ## Security Best Practices
 
-1. **Change Default Password**: Never use default `admin123`
-2. **Use Strong ADMIN_SECRET**: Generate a random 32+ character string
-3. **Enable IP Whitelisting**: Set `ADMIN_IP_WHITELIST` in production
-4. **Use HTTPS**: Always access admin dashboard over HTTPS
+1. **Change Default Credentials**: Never use default `admin` username or `admin123` password
+2. **Use Strong ADMIN_SECRET**: Generate a random 32+ character string (this signs your JWT tokens)
+3. **Use Strong Password**: Use a long, complex password for `ADMIN_PASSWORD`
+4. **Use HTTPS**: Always access admin dashboard over HTTPS (https://guess5.io/admin)
 5. **Monitor Logs**: Check backend logs for failed login attempts
-6. **Rotate Secrets**: Change `ADMIN_SECRET` periodically
-7. **Limit Access**: Only give admin password to trusted team members
+6. **Rotate Secrets**: Change `ADMIN_SECRET` periodically (will require re-login)
+7. **Limit Access**: Only give admin credentials to trusted team members
+8. **Keep Secret Secure**: Never commit `ADMIN_SECRET` or `ADMIN_PASSWORD` to Git
 
 ## Implementation Status
 
@@ -148,13 +154,19 @@ Cons:
 - Test authentication flow
 - Set up environment variables
 
+## Access URL
+
+**Admin Dashboard**: https://guess5.io/admin
+
+(Or https://guess5.vercel.app/admin if using Vercel preview)
+
 ## Testing
 
 ```bash
 # Test login
-curl -X POST https://your-backend.com/api/admin/auth/login \
+curl -X POST https://guess5-backend.onrender.com/api/admin/auth/login \
   -H "Content-Type: application/json" \
-  -d '{"password":"your-password"}'
+  -d '{"username":"your-username","password":"your-password"}'
 
 # Test protected route (with token)
 curl -X GET https://your-backend.com/api/admin/referrals/owed \

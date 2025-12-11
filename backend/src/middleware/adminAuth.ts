@@ -14,8 +14,8 @@ const jwt = require('jsonwebtoken');
 // }
 
 const ADMIN_SECRET = process.env.ADMIN_SECRET || 'change-me-in-production';
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME || 'admin';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin123'; // Change in production!
-const ADMIN_IP_WHITELIST = process.env.ADMIN_IP_WHITELIST?.split(',').map(ip => ip.trim()) || [];
 
 /**
  * Generate JWT token for admin session
@@ -44,15 +44,7 @@ function verifyAdminToken(token: string): boolean {
   }
 }
 
-/**
- * Check if IP is whitelisted (if whitelist is configured)
- */
-function isIpWhitelisted(ip: string): boolean {
-  if (ADMIN_IP_WHITELIST.length === 0) {
-    return true; // No whitelist = allow all (when authenticated)
-  }
-  return ADMIN_IP_WHITELIST.includes(ip);
-}
+// IP whitelisting removed - authentication is sufficient
 
 /**
  * Get client IP address
@@ -90,16 +82,7 @@ function requireAdminAuth(req: any, res: any, next: any): void {
     return;
   }
 
-  // Optional IP whitelisting check
-  const clientIp = getClientIp(req);
-  if (!isIpWhitelisted(clientIp)) {
-    console.warn(`⚠️ Admin access attempt from non-whitelisted IP: ${clientIp}`);
-    res.status(403).json({ 
-      error: 'Forbidden',
-      message: 'Your IP address is not authorized to access admin dashboard.'
-    });
-    return;
-  }
+  // IP whitelisting removed - JWT authentication is sufficient
 
   // Set admin context
   req.admin = {
@@ -115,16 +98,16 @@ function requireAdminAuth(req: any, res: any, next: any): void {
  * POST /api/admin/auth/login
  */
 function adminLogin(req: any, res: any): void {
-  const { password } = req.body;
+  const { username, password } = req.body;
 
-  if (!password) {
-    res.status(400).json({ error: 'Password required' });
+  if (!username || !password) {
+    res.status(400).json({ error: 'Username and password required' });
     return;
   }
 
-  if (password !== ADMIN_PASSWORD) {
-    console.warn(`⚠️ Failed admin login attempt from IP: ${getClientIp(req)}`);
-    res.status(401).json({ error: 'Invalid password' });
+  if (username !== ADMIN_USERNAME || password !== ADMIN_PASSWORD) {
+    console.warn(`⚠️ Failed admin login attempt from IP: ${getClientIp(req)} (username: ${username})`);
+    res.status(401).json({ error: 'Invalid username or password' });
     return;
   }
 
@@ -171,12 +154,10 @@ function adminAuthStatus(req: any, res: any): void {
   const token = authHeader.substring(7);
   const isValid = verifyAdminToken(token);
   const clientIp = getClientIp(req);
-  const ipAllowed = isIpWhitelisted(clientIp);
 
   res.json({
-    authenticated: isValid && ipAllowed,
+    authenticated: isValid,
     ip: clientIp,
-    ipWhitelisted: ADMIN_IP_WHITELIST.length === 0 ? 'all' : ipAllowed,
   });
 }
 
