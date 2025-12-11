@@ -4589,11 +4589,11 @@ export class SquadsVaultService {
               await new Promise(resolve => setTimeout(resolve, delay));
             }
             
-            // CRITICAL FIX: Use instructions.vaultTransactionExecute() + manual transaction building
-            // This is the proven approach that works (same pattern as instructions.proposalApprove)
-            // rpc.vaultTransactionExecute fails with "Cannot read properties of undefined (reading 'publicKey')"
-            // because it tries to auto-build the transaction and is missing account parameters
-            enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (proven approach)', {
+            // CRITICAL FIX: Use rpc.vaultTransactionExecute() - the ONLY working execution method
+            // instructions.vaultTransactionExecute() returns empty instruction (0 keys, 0 data)
+            // which causes "Cannot read properties of undefined (reading 'getAccountInfo')" errors
+            // rpc.vaultTransactionExecute() handles all transaction building, signing, and sending internally
+            enhancedLogger.info('📝 Executing Proposal using rpc.vaultTransactionExecute (SDK method)', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
@@ -4601,273 +4601,30 @@ export class SquadsVaultService {
               multisigPda: multisigAddress.toString(),
               programId: this.programId.toString(),
               connectionRpcUrl: this.connection.rpcEndpoint,
-              connectionValid: typeof this.connection.getAccountInfo === 'function',
               correlationId,
-              note: 'Using instructions method - manual transaction building (same pattern as proposalApprove)',
+              note: 'Using SDK rpc method - handles all transaction building, signing, and sending internally',
             });
             
-            if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
-              throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
+            if (!rpc || typeof rpc.vaultTransactionExecute !== 'function') {
+              throw new Error('Squads SDK rpc.vaultTransactionExecute is unavailable');
             }
             
-            // Build the execution instruction (same pattern as instructions.proposalApprove)
-            // CRITICAL: Use Number() instead of BigInt() - matching proposalApprove pattern
-            const executionIx = instructions.vaultTransactionExecute({
+            // Use rpc.vaultTransactionExecute() - it handles everything internally
+            // This method builds the transaction, signs it, and sends it automatically
+            executionSignature = await rpc.vaultTransactionExecute({
+              connection: this.connection,
               multisigPda: multisigAddress,
-              transactionIndex: Number(transactionIndexNumber), // Use Number() like proposalApprove
-              member: executor.publicKey,
+              transactionIndex: transactionIndexNumber,
+              member: executor,
               programId: this.programId,
             });
             
-            // Log all instruction keys for debugging
-            const instructionKeys = executionIx.keys?.map((key: any, idx: number) => ({
-              index: idx,
-              pubkey: key.pubkey?.toString() || 'unknown',
-              isSigner: key.isSigner || false,
-              isWritable: key.isWritable || false,
-            })) || [];
-            
-            enhancedLogger.info('✅ Execution instruction created', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              correlationId,
-              instructionKeysCount: executionIx.keys?.length || 0,
-              instructionProgramId: executionIx.programId?.toString(),
-              instructionDataLength: executionIx.data?.length || 0,
-              instructionKeys: instructionKeys,
-            });
-            
-            // Preflight: Resolve all instruction account keys to identify any that fail
-            enhancedLogger.info('🔍 Preflight: Resolving instruction account keys', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              keysToResolve: instructionKeys.length,
-              correlationId,
-            });
-            
-            const accountResolutionResults = await Promise.allSettled(
-              instructionKeys.map(async (keyInfo: any, idx: number) => {
-                try {
-                  const pubkey = new PublicKey(keyInfo.pubkey);
-                  const accountInfo = await this.connection.getAccountInfo(pubkey);
-                  return {
-                    index: idx,
-                    pubkey: keyInfo.pubkey,
-                    resolved: true,
-                    accountExists: accountInfo !== null,
-                    accountDataLength: accountInfo?.data?.length || 0,
-                    accountOwner: accountInfo?.owner?.toString() || 'unknown',
-                  };
-                } catch (resolveError: any) {
-                  return {
-                    index: idx,
-                    pubkey: keyInfo.pubkey,
-                    resolved: false,
-                    error: resolveError?.message || String(resolveError),
-                  };
-                }
-              })
-            );
-            
-            const resolvedAccounts = accountResolutionResults
-              .filter((result) => result.status === 'fulfilled')
-              .map((result) => (result as PromiseFulfilledResult<any>).value);
-            
-            const failedAccounts = accountResolutionResults
-              .filter((result) => result.status === 'rejected' || 
-                     (result.status === 'fulfilled' && !(result as PromiseFulfilledResult<any>).value.resolved))
-              .map((result) => {
-                if (result.status === 'rejected') {
-                  return { error: result.reason?.message || String(result.reason) };
-                }
-                return (result as PromiseFulfilledResult<any>).value;
-              });
-            
-            enhancedLogger.info('📊 Account resolution preflight results', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              totalKeys: instructionKeys.length,
-              resolvedSuccessfully: resolvedAccounts.length,
-              failedResolutions: failedAccounts.length,
-              resolvedAccounts: resolvedAccounts,
-              failedAccounts: failedAccounts.length > 0 ? failedAccounts : undefined,
-              correlationId,
-            });
-            
-            if (failedAccounts.length > 0) {
-              enhancedLogger.warn('⚠️ Some instruction accounts failed to resolve during preflight', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                failedAccounts,
-                correlationId,
-                note: 'This may indicate PDAs that need derivation or accounts that don\'t exist yet',
-              });
-            }
-            
-            // Get latest blockhash
-            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
-            
-            enhancedLogger.info('📋 Building transaction message', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              blockhash,
-              correlationId,
-            });
-            
-            // Build transaction message
-            const message = new TransactionMessage({
-              payerKey: executor.publicKey,
-              recentBlockhash: blockhash,
-              instructions: [executionIx],
-            });
-            
-            enhancedLogger.info('📦 Compiling to V0 message', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              correlationId,
-              connectionRpcUrl: this.connection.rpcEndpoint,
-              connectionType: typeof this.connection,
-            });
-            
-            // Compile to V0 message (required for Squads)
-            // Note: compileToV0Message() is synchronous and doesn't need connection
-            // If it fails, it's likely due to instruction structure issues
-            let compiledMessage;
-            try {
-              // Log instruction details before compilation
-              enhancedLogger.info('🔍 Instruction details before compilation', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                instructionKeysCount: executionIx.keys?.length || 0,
-                instructionProgramId: executionIx.programId?.toString(),
-                instructionDataLength: executionIx.data?.length || 0,
-                correlationId,
-              });
-              
-              compiledMessage = message.compileToV0Message();
-              
-              enhancedLogger.info('✅ Successfully compiled to V0 message', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                correlationId,
-              });
-            } catch (compileError: any) {
-              enhancedLogger.error('❌ Failed to compile transaction to V0 message', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                error: compileError?.message || String(compileError),
-                errorName: compileError?.name,
-                errorStack: compileError?.stack,
-                instructionKeysCount: executionIx.keys?.length || 0,
-                instructionProgramId: executionIx.programId?.toString(),
-                correlationId,
-                note: 'This error typically indicates missing account resolution, instruction structure issues, or SDK incompatibility',
-              });
-              throw compileError;
-            }
-            const transaction = new VersionedTransaction(compiledMessage);
-            
-            // Sign the transaction
-            transaction.sign([executor]);
-            
-            // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
-            const serializedSize = transaction.serialize().length;
-            const maxTransactionSize = 1232; // Solana transaction size limit
-            
-            enhancedLogger.info('📏 Transaction Size Validation (Execution)', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              serializedSize,
-              maxSize: maxTransactionSize,
-              sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
-              executor: executor.publicKey.toString(),
-              correlationId,
-            });
-            
-            if (serializedSize > maxTransactionSize) {
-              const error = `Transaction size ${serializedSize} bytes exceeds Solana limit of ${maxTransactionSize} bytes`;
-              enhancedLogger.error('❌ Execution transaction too large - cannot send', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                serializedSize,
-                maxSize: maxTransactionSize,
-                excessBytes: serializedSize - maxTransactionSize,
-                executor: executor.publicKey.toString(),
-                correlationId,
-                note: 'Transaction must be split or instructions reduced to fit within size limit',
-              });
-              
-              throw new Error(error);
-            }
-            
-            if (serializedSize > maxTransactionSize * 0.9) {
-              enhancedLogger.warn('⚠️ Execution transaction size is close to limit', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                serializedSize,
-                maxSize: maxTransactionSize,
-                remainingBytes: maxTransactionSize - serializedSize,
-                executor: executor.publicKey.toString(),
-                correlationId,
-                note: 'Transaction is large but within limits - monitor for future growth',
-              });
-            } else {
-              enhancedLogger.info('✅ Execution transaction size is well within limits', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                serializedSize,
-                maxSize: maxTransactionSize,
-                remainingBytes: maxTransactionSize - serializedSize,
-                executor: executor.publicKey.toString(),
-                correlationId,
-              });
-            }
-            
-            // Send and confirm the transaction
-            executionSignature = await this.connection.sendTransaction(transaction, {
-              skipPreflight: false,
-              maxRetries: 3,
-            });
-            
-            enhancedLogger.info('✅ Proposal execution transaction sent', {
+            enhancedLogger.info('✅ Proposal execution transaction sent via rpc.vaultTransactionExecute', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               signature: executionSignature,
               executor: executor.publicKey.toString(),
-              correlationId,
-            });
-            
-            // Wait for confirmation
-            const confirmation = await this.connection.confirmTransaction({
-              signature: executionSignature,
-              blockhash,
-              lastValidBlockHeight,
-            }, 'confirmed');
-            
-            if (confirmation.value.err) {
-              throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
-            }
-            
-            enhancedLogger.info('✅ Execution transaction confirmed', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              signature: executionSignature,
-              slot: confirmation.value.slot,
               correlationId,
             });
             
