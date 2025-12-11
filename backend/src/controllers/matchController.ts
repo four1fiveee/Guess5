@@ -14871,7 +14871,9 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
         "proposalExecutedAt",
         "createdAt",
         "tieRefundProposalId",
-        "payoutProposalId"
+        "payoutProposalId",
+        "player1Paid",
+        "player2Paid"
       FROM "match"
       WHERE ("player1" = $1 OR "player2" = $2)
         AND ("player1Paid" = true OR "player2Paid" = true)
