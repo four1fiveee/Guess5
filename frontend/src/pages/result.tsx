@@ -2506,21 +2506,6 @@ const Result: React.FC = () => {
                           <div className="text-3xl font-bold text-accent mb-3 animate-bounce">
                             🎉 YOU WON! 🎉
                           </div>
-                          <div className="mb-3 p-3 rounded-lg bg-white/5 border border-white/10">
-                            <div className="text-white/60 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee Paid</div>
-                            <div className="text-white text-lg font-semibold">
-                              {solPrice && payoutData.entryFee ? (
-                                <>
-                                  ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
-                                <span className="text-white/60 text-sm ml-2">
-                                    ({payoutData.entryFee.toFixed(4)} SOL)
-                                </span>
-                                </>
-                              ) : (
-                                `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
-                              )}
-                            </div>
-                          </div>
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {(() => {
                               // Calculate expected USD based on entry fee tier (stable, doesn't fluctuate)
@@ -2595,6 +2580,24 @@ const Result: React.FC = () => {
                               {Math.abs(payoutData.winnerAmount - (payoutData.entryFee * 2 - (payoutData.feeAmount || 0))) < 0.0001
                                 ? `✅ Payout verified: ${(payoutData.entryFee * 2).toFixed(4)} SOL (both entry fees) - ${(payoutData.feeAmount || 0).toFixed(4)} SOL (platform fee) = ${payoutData.winnerAmount.toFixed(4)} SOL`
                                 : `⚠️ Payout verification: Expected ~${((payoutData.entryFee * 2) - (payoutData.feeAmount || 0)).toFixed(4)} SOL, got ${payoutData.winnerAmount.toFixed(4)} SOL`}
+                            </div>
+                          )}
+                          {/* Entry Fee - moved down, smaller, category shown prominently */}
+                          {payoutData.entryFee && (
+                            <div className="mt-4 mb-3 p-2 rounded-lg bg-white/5 border border-white/10">
+                              <div className="text-white/50 text-xs uppercase tracking-[0.25em] mb-1">Entry Fee</div>
+                              <div className="text-white/80 text-sm font-medium">
+                                {solPrice && payoutData.entryFee ? (
+                                  <>
+                                    <span className="font-semibold">${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD</span>
+                                    <span className="text-white/50 text-xs ml-2">
+                                      ({payoutData.entryFee.toFixed(4)} SOL)
+                                    </span>
+                                  </>
+                                ) : (
+                                  `${payoutData.entryFee?.toFixed(4) || '0.0000'} SOL`
+                                )}
+                              </div>
                             </div>
                           )}
                           {payoutData.bonus?.eligible ? (
