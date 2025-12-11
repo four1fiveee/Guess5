@@ -4362,7 +4362,11 @@ export class SquadsVaultService {
         // CRITICAL: Only execute if proposal is in ExecuteReady state
         if (proposalStatus !== 'ExecuteReady') {
           const error = `Proposal is not in ExecuteReady state: ${proposalStatus}. Cannot execute until ExecuteReady.`;
-          enhancedLogger.error('❌ Proposal not ready for execution - aborting', {
+          
+          // ✅ Use INFO level instead of ERROR - this is a normal condition, not an error
+          // Proposals transition from Approved -> ExecuteReady, so this is expected during the transition
+          const logLevel = proposalStatus === 'Approved' ? 'info' : 'warn';
+          enhancedLogger[logLevel](`${proposalStatus === 'Approved' ? '⏳' : '⚠️'} Proposal not ready for execution - waiting for ExecuteReady state`, {
             vaultAddress,
             proposalId,
             proposalStatus,
@@ -4370,7 +4374,9 @@ export class SquadsVaultService {
             approvedSignersCount: approvedSigners.length,
             threshold,
             correlationId,
-            note: 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
+            note: proposalStatus === 'Approved' 
+              ? 'Proposal is Approved but not yet ExecuteReady - this is normal, will retry automatically'
+              : 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
           });
           
           return {

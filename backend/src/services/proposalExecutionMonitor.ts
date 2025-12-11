@@ -231,6 +231,7 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
           proposalId: proposalIdString,
           statusKind,
           approvedSigners: (proposalAccount as any).approved?.length || 0,
+          note: 'This is normal - proposals transition from Approved to ExecuteReady. Will check again on next scan.',
         });
         return; // Will check again on next scan
       } else {
@@ -238,9 +239,21 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
           matchId,
           proposalId: proposalIdString,
           statusKind,
+          note: 'Skipping execution - proposal must be ExecuteReady to execute',
         });
         return;
       }
+    }
+
+    // ✅ Double-check: Proposal must be ExecuteReady before calling executeProposal
+    // This prevents race conditions where status might change between check and execution
+    if (statusKind !== 'ExecuteReady') {
+      enhancedLogger.warn('⚠️ Proposal status changed between check and execution, aborting', {
+        matchId,
+        proposalId: proposalIdString,
+        statusKind,
+      });
+      return;
     }
 
     // Proposal is ExecuteReady - execute it
@@ -249,6 +262,7 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
       proposalId: proposalIdString,
       vaultAddress,
       statusKind: 'ExecuteReady',
+      note: 'Proposal is confirmed ExecuteReady - proceeding with execution',
     });
 
     const feeWalletKeypair = getFeeWalletKeypair();
