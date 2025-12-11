@@ -13,7 +13,6 @@ import { Match } from '../models/Match';
 import { getSquadsVaultService } from './squadsVaultService';
 import { getFeeWalletKeypair } from '../config/wallet';
 import { enhancedLogger } from '../utils/enhancedLogger';
-import { IsNull } from 'typeorm';
 
 interface ExecutionAttempt {
   matchId: string;
@@ -25,6 +24,27 @@ interface ExecutionAttempt {
 
 // Track execution attempts to prevent spam
 const executionAttempts = new Map<string, ExecutionAttempt>();
+
+// Metrics tracking
+interface MonitorMetrics {
+  proposalsChecked: number;
+  proposalsExecuted: number;
+  proposalsSkippedAwaitingReady: number;
+  proposalsSkippedOther: number;
+  proposalsAlreadyExecuted: number;
+  executionErrors: number;
+  lastScanTime: Date | null;
+}
+
+const metrics: MonitorMetrics = {
+  proposalsChecked: 0,
+  proposalsExecuted: 0,
+  proposalsSkippedAwaitingReady: 0,
+  proposalsSkippedOther: 0,
+  proposalsAlreadyExecuted: 0,
+  executionErrors: 0,
+  lastScanTime: null,
+};
 
 // Configuration
 const SCAN_INTERVAL_MS = 60000; // Scan every 60 seconds
@@ -124,20 +144,39 @@ async function scanAndExecuteProposals(): Promise<void> {
       return; // No proposals to process
     }
 
-    enhancedLogger.info(`🔍 Proposal execution monitor: Found ${approvedMatches.length} Approved proposals to check`);
+    enhancedLogger.info('🔍 Proposal execution monitor: Scanning for Approved proposals', {
+      found: approvedMatches.length,
+      scanInterval: `${SCAN_INTERVAL_MS / 1000}s`,
+      maxAge: `${MAX_AGE_MINUTES} minutes`,
+      metrics: {
+        checked: metrics.proposalsChecked,
+        executed: metrics.proposalsExecuted,
+        skippedAwaitingReady: metrics.proposalsSkippedAwaitingReady,
+        skippedOther: metrics.proposalsSkippedOther,
+        alreadyExecuted: metrics.proposalsAlreadyExecuted,
+        errors: metrics.executionErrors,
+      },
+    });
 
     for (const match of approvedMatches) {
       try {
+        metrics.proposalsChecked++;
         await processApprovedProposal(match, matchRepository);
       } catch (error: any) {
+        metrics.executionErrors++;
         enhancedLogger.error('❌ Error processing Approved proposal', {
           matchId: match.id,
+          proposalId: match.payoutProposalId || match.tieRefundProposalId,
+          vaultAddress: match.squadsVaultAddress,
           error: error?.message,
           stack: error?.stack,
+          attemptKey: `${match.id}:${match.payoutProposalId || match.tieRefundProposalId}`,
         });
         // Continue with next match - don't let one failure stop the monitor
       }
     }
+
+    metrics.lastScanTime = new Date();
   } catch (error: any) {
     enhancedLogger.error('❌ Error scanning for Approved proposals', {
       error: error?.message,
@@ -187,9 +226,14 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
 
     if (proposalStatus.executed) {
       // Already executed - update database
+      metrics.proposalsAlreadyExecuted++;
       enhancedLogger.info('✅ Proposal already executed on-chain, updating database', {
         matchId,
         proposalId: proposalIdString,
+        vaultAddress,
+        transactionIndex: proposalStatus.transactionIndex?.toString(),
+        executionSignature: proposalStatus.executionSignature,
+        note: 'Proposal was executed outside of monitor - syncing database state',
       });
 
       await matchRepository.query(`
@@ -226,20 +270,35 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
     if (statusKind !== 'ExecuteReady') {
       // Not ready yet - check if it's still Approved (might need transition)
       if (statusKind === 'Approved') {
+        metrics.proposalsSkippedAwaitingReady++;
         enhancedLogger.info('⏳ Proposal is Approved but not ExecuteReady yet, waiting', {
           matchId,
           proposalId: proposalIdString,
+          vaultAddress,
+          transactionIndex: transactionIndex?.toString(),
           statusKind,
           approvedSigners: (proposalAccount as any).approved?.length || 0,
+          approvedSignerPubkeys: (proposalAccount as any).approved?.map((s: any) => s.toString()) || [],
+          attemptKey,
+          nextRetry: new Date(Date.now() + SCAN_INTERVAL_MS).toISOString(),
           note: 'This is normal - proposals transition from Approved to ExecuteReady. Will check again on next scan.',
+          reason: 'AWAITING_EXECUTE_READY',
         });
-        return; // Will check again on next scan
+        return; // Will check again on next scan - silent retry loop continues
       } else {
+        metrics.proposalsSkippedOther++;
+        // ✅ WARN only for real anomalies (e.g., DB says APPROVED but on-chain is CANCELLED)
         enhancedLogger.warn('⚠️ Proposal is not in ExecuteReady or Approved state', {
           matchId,
           proposalId: proposalIdString,
+          vaultAddress,
+          transactionIndex: transactionIndex?.toString(),
           statusKind,
-          note: 'Skipping execution - proposal must be ExecuteReady to execute',
+          dbStatus: match.proposalStatus,
+          attemptKey,
+          note: 'Skipping execution - proposal must be ExecuteReady to execute. This may indicate a state mismatch.',
+          reason: 'UNEXPECTED_STATUS',
+          anomaly: statusKind !== 'Approved' && match.proposalStatus === 'APPROVED' ? 'DB_APPROVED_BUT_ONCHAIN_NOT_APPROVED' : 'NORMAL_SKIP',
         });
         return;
       }
@@ -261,8 +320,12 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
       matchId,
       proposalId: proposalIdString,
       vaultAddress,
+      transactionIndex: transactionIndex?.toString(),
       statusKind: 'ExecuteReady',
+      attemptKey,
+      attemptCount: existingAttempt?.attemptCount || 0,
       note: 'Proposal is confirmed ExecuteReady - proceeding with execution',
+      reason: 'EXECUTE_READY',
     });
 
     const feeWalletKeypair = getFeeWalletKeypair();
@@ -303,11 +366,19 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
         `, values);
       }
 
+      metrics.proposalsExecuted++;
       enhancedLogger.info('✅ Proposal executed successfully (monitor)', {
         matchId,
         proposalId: proposalIdString,
+        vaultAddress,
+        transactionIndex: transactionIndex?.toString(),
         executionSignature: executeResult.signature,
         slot: executeResult.slot,
+        attemptKey,
+        attemptCount: existingAttempt?.attemptCount || 0,
+        executedAt: executeResult.executedAt,
+        note: 'Proposal execution completed successfully',
+        reason: 'EXECUTION_SUCCESS',
       });
 
       executionAttempts.delete(attemptKey);
@@ -327,9 +398,15 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
       enhancedLogger.warn('⚠️ Proposal execution failed, will retry', {
         matchId,
         proposalId: proposalIdString,
+        vaultAddress,
+        transactionIndex: transactionIndex?.toString(),
         error: executeResult.error,
         attemptCount,
+        maxRetries: MAX_RETRY_ATTEMPTS,
         nextRetry: nextRetry.toISOString(),
+        attemptKey,
+        note: `Will retry up to ${MAX_RETRY_ATTEMPTS} times with exponential backoff`,
+        reason: 'EXECUTION_FAILED',
       });
     }
   } catch (error: any) {
@@ -348,11 +425,25 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
     enhancedLogger.error('❌ Error processing Approved proposal, will retry', {
       matchId,
       proposalId: proposalIdString,
+      vaultAddress,
       error: error?.message,
+      errorType: error?.constructor?.name,
+      stack: error?.stack,
       attemptCount,
+      maxRetries: MAX_RETRY_ATTEMPTS,
       nextRetry: nextRetry.toISOString(),
+      attemptKey,
+      note: `Will retry up to ${MAX_RETRY_ATTEMPTS} times with exponential backoff`,
+      reason: 'PROCESSING_ERROR',
     });
   }
+}
+
+/**
+ * Get current monitor metrics (for monitoring/dashboards)
+ */
+export function getMonitorMetrics(): MonitorMetrics {
+  return { ...metrics };
 }
 
 /**
@@ -368,4 +459,25 @@ setInterval(() => {
     }
   }
 }, 5 * 60 * 1000); // Clean up every 5 minutes
+
+/**
+ * Log metrics summary periodically (for monitoring)
+ */
+setInterval(() => {
+  if (isRunning && metrics.lastScanTime) {
+    enhancedLogger.info('📊 Proposal execution monitor metrics', {
+      metrics: {
+        proposalsChecked: metrics.proposalsChecked,
+        proposalsExecuted: metrics.proposalsExecuted,
+        proposalsSkippedAwaitingReady: metrics.proposalsSkippedAwaitingReady,
+        proposalsSkippedOther: metrics.proposalsSkippedOther,
+        proposalsAlreadyExecuted: metrics.proposalsAlreadyExecuted,
+        executionErrors: metrics.executionErrors,
+        activeAttempts: executionAttempts.size,
+        lastScanTime: metrics.lastScanTime.toISOString(),
+      },
+      note: 'Periodic metrics summary for monitoring/dashboards',
+    });
+  }
+}, 10 * 60 * 1000); // Log metrics every 10 minutes
 
