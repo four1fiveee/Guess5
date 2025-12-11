@@ -461,6 +461,41 @@ const Result: React.FC = () => {
               rawStatus: matchData.status || currentPayoutData.rawStatus || null
             };
             
+            // CRITICAL: Prevent regressions from rate-limited backend responses
+            // If backend returns 0 signers but we previously had signers, don't regress
+            const currentSignerCount = currentPayoutData?.proposalSigners?.length || 0;
+            const newSignerCount = updatedPayoutData.proposalSigners?.length || 0;
+            const isRegression = newSignerCount < currentSignerCount && currentSignerCount > 0;
+            
+            // If backend returns null/undefined status but we have a valid status, preserve it
+            const statusRegression = 
+              !matchData.proposalStatus && 
+              currentPayoutData?.proposalStatus && 
+              ['ACTIVE', 'APPROVED', 'EXECUTING', 'EXECUTED'].includes(currentPayoutData.proposalStatus);
+            
+            // If backend returns higher needsSignatures but we had 0, don't regress
+            const needsSignaturesRegression = 
+              updatedPayoutData.needsSignatures > 0 && 
+              currentPayoutData?.needsSignatures === 0;
+            
+            // Don't update if we detect a regression (likely due to rate limiting)
+            if (isRegression || statusRegression || needsSignaturesRegression) {
+              console.warn('⚠️ Preventing status regression (likely rate-limited backend response)', {
+                matchId,
+                isRegression,
+                statusRegression,
+                needsSignaturesRegression,
+                currentSignerCount,
+                newSignerCount,
+                currentStatus: currentPayoutData?.proposalStatus,
+                newStatus: matchData.proposalStatus,
+                currentNeedsSignatures: currentPayoutData?.needsSignatures,
+                newNeedsSignatures: matchData.needsSignatures,
+                note: 'Backend likely hit rate limit - preserving previous valid state',
+              });
+              return; // Don't update state with regressed data
+            }
+            
             // CRITICAL: Only update state if there are meaningful changes
             // This prevents UI flashing from unnecessary state updates
             // CRITICAL FIX: Use optional chaining to prevent null access errors
