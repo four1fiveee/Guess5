@@ -82,6 +82,45 @@ export const adminDeleteMatch = async (req: Request, res: Response) => {
 };
 
 /**
+ * Admin endpoint to delete all matches (for testing/cleanup)
+ * POST /api/admin/delete-all-matches
+ */
+export const adminDeleteAllMatches = async (req: Request, res: Response) => {
+  try {
+    console.log('🗑️ Admin deleting all matches...');
+    
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    
+    // Get count before deletion
+    const countBefore = await matchRepository.count();
+    
+    // Delete all matches
+    await matchRepository.query(`DELETE FROM "match"`);
+    
+    console.log(`✅ Deleted ${countBefore} matches`);
+    
+    return res.json({
+      success: true,
+      message: `Deleted ${countBefore} matches successfully`,
+      deletedCount: countBefore,
+    });
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to delete all matches:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+/**
  * Admin endpoint to backfill referrals from CSV
  * POST /api/admin/referral/backfill
  */

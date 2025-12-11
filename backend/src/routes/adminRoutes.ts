@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import {
   adminDeleteMatch,
+  adminDeleteAllMatches,
   adminBackfillReferrals,
   adminGetOwedReferrals,
   adminPreparePayoutBatch,
@@ -24,6 +25,7 @@ const router = Router();
 
 // Match management
 router.post('/delete-match/:matchId', adminDeleteMatch);
+router.post('/delete-all-matches', adminDeleteAllMatches);
 router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
 router.post('/clear-lock-and-delete/:matchId', adminClearLockAndDeleteMatch);
 
