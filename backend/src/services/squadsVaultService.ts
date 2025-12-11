@@ -3269,12 +3269,15 @@ export class SquadsVaultService {
     proposalId: string,
     signer: Keypair
   ): Promise<{ success: boolean; signature?: string; error?: string }> {
+    // Declare variables outside try block so they're accessible in catch block
+    let multisigAddress: PublicKey;
+    let transactionIndex: bigint | undefined;
+    let proposalPda: PublicKey | undefined;
+    
     try {
-      const multisigAddress = new PublicKey(vaultAddress);
+      multisigAddress = new PublicKey(vaultAddress);
       
       // proposalId is now a PDA address, extract transactionIndex AND keep proposalPda
-      let transactionIndex: bigint;
-      let proposalPda: PublicKey;
       try {
         proposalPda = new PublicKey(proposalId);
         const proposalAccount = await accounts.Proposal.fromAccountAddress(
@@ -3621,14 +3624,14 @@ export class SquadsVaultService {
         vaultAddress,
         proposalId,
         signer: signer.publicKey.toString(),
-        transactionIndex: transactionIndex.toString(),
+        transactionIndex: transactionIndex?.toString() || 'unknown',
         error: errorMessage,
         errorStack,
         errorDetails,
         connectionValid: !!this.connection,
         programIdValid: !!this.programId,
         programId: this.programId?.toString(),
-        multisigAddress: multisigAddress?.toString(),
+        multisigAddress: multisigAddress?.toString() || vaultAddress,
         signerPublicKey: signer.publicKey?.toString(),
         signerHasSecretKey: !!signer.secretKey,
       });
