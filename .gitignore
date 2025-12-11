@@ -27,6 +27,4 @@ OneDrive/**
 Thumbs.db
 desktop.ini
 
-# DASHBOARD IS LOCAL-ONLY - NEVER COMMIT
-/dashboard/
-dashboard/
+# Dashboard removed - now using web-based admin at /admin
