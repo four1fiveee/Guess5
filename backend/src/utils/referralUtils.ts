@@ -87,13 +87,13 @@ export function formatPayoutDate(date: Date): string {
 }
 
 /**
- * Get current time in EST (returns Date object with EST timezone info)
+ * Get current time in EST/EDT (America/New_York timezone)
+ * Returns a Date object representing the current EST time
  */
 export function getCurrentEST(): Date {
   const now = new Date();
-  // Convert to EST/EDT timezone
-  // Use toLocaleString to get EST time, then parse components
-  const estParts = now.toLocaleString('en-US', { 
+  // Get EST time string components
+  const estString = now.toLocaleString('en-US', { 
     timeZone: 'America/New_York',
     year: 'numeric',
     month: '2-digit',
@@ -102,19 +102,34 @@ export function getCurrentEST(): Date {
     minute: '2-digit',
     second: '2-digit',
     hour12: false
-  }).split(/[/,\s:]/);
+  });
   
-  // Create new date in EST (month is 0-indexed in JS Date)
-  const estDate = new Date(
-    parseInt(estParts[2]), // year
-    parseInt(estParts[0]) - 1, // month (0-indexed)
-    parseInt(estParts[1]), // day
-    parseInt(estParts[3]), // hour
-    parseInt(estParts[4]), // minute
-    parseInt(estParts[5]) // second
-  );
+  // Parse the EST string (format: MM/DD/YYYY, HH:MM:SS)
+  const [datePart, timePart] = estString.split(', ');
+  const [month, day, year] = datePart.split('/');
+  const [hour, minute, second] = timePart.split(':');
   
-  return estDate;
+  // Create Date object in UTC (JavaScript Date always stores UTC internally)
+  // We create it as if EST were UTC, then adjust
+  const estDate = new Date(Date.UTC(
+    parseInt(year),
+    parseInt(month) - 1, // month is 0-indexed
+    parseInt(day),
+    parseInt(hour),
+    parseInt(minute),
+    parseInt(second)
+  ));
+  
+  // Get UTC offset for EST/EDT
+  const estOffset = now.toLocaleString('en-US', { 
+    timeZone: 'America/New_York',
+    timeZoneName: 'short'
+  }).includes('EDT') ? -4 : -5; // EDT is UTC-4, EST is UTC-5
+  
+  // Adjust to get actual EST time
+  const adjustedDate = new Date(estDate.getTime() - (estOffset * 60 * 60 * 1000));
+  
+  return adjustedDate;
 }
 
 /**
