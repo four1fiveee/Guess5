@@ -1,6 +1,7 @@
 import { MigrationInterface, QueryRunner, TableIndex } from 'typeorm';
 
-export class SignatureTracking012 implements MigrationInterface {
+export class SignatureTracking0121733120000012 implements MigrationInterface {
+  name = 'SignatureTracking0121733120000012';
   public async up(queryRunner: QueryRunner): Promise<void> {
     // Add unique index on payment signatures to prevent duplicate use
     // Only index non-null values to allow multiple nulls
