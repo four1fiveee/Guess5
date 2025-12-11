@@ -1331,7 +1331,12 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    return res.status(500).json({ error: 'Failed to get referral payout execution data', details: errorMessage });
+    console.error('❌ Error in adminGetReferralPayoutExecution:', errorMessage);
+    return res.status(500).json({ 
+      error: 'Failed to get referral payout execution data', 
+      details: errorMessage,
+      note: 'Some tables may not exist yet. This is normal for new installations.'
+    });
   }
 };
 
