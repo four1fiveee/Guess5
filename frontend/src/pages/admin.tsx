@@ -668,84 +668,59 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Lock Status and Countdown */}
+              {/* Auto-Lock Status */}
               {payoutLockStatus && (
                 <div className="p-4 bg-blue-500/20 rounded-lg border border-blue-500/50">
-                  <h3 className="text-lg font-bold text-white mb-2">Payout Lock Status</h3>
+                  <h3 className="text-lg font-bold text-white mb-2">Auto-Lock Status</h3>
                   {payoutLockStatus.lock ? (
                     <div className="space-y-2">
                       <div className="flex justify-between">
-                        <span className="text-white/70">Lock Date:</span>
-                        <span className="text-white font-semibold">{new Date(payoutLockStatus.lock.lockDate).toLocaleDateString()}</span>
+                        <span className="text-white/70">Auto-Locked At:</span>
+                        <span className="text-white font-semibold">{new Date(payoutLockStatus.lock.lockDate).toLocaleDateString()} 12:00 AM EST</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-white/70">Amount Locked:</span>
                         <span className="text-white font-bold">${payoutLockStatus.lock.totalAmountUSD.toFixed(2)} USD ({payoutLockStatus.lock.totalAmountSOL.toFixed(6)} SOL)</span>
                       </div>
                       <div className="flex justify-between">
-                        <span className="text-white/70">Referrers:</span>
+                        <span className="text-white/70">Eligible Referrers (≥$10 USD):</span>
                         <span className="text-white font-semibold">{payoutLockStatus.lock.referrerCount}</span>
+                      </div>
+                      <div className="mt-2 p-2 bg-white/5 rounded border border-white/10">
+                        <p className="text-white/70 text-xs">
+                          <strong className="text-white">Note:</strong> Only referrers with ≥$10 USD owed are included. Others carry over to next week.
+                        </p>
                       </div>
                       {payoutLockStatus.lock.executedAt ? (
                         <div className="mt-3 p-2 bg-green-500/20 rounded border border-green-500/50">
                           <p className="text-green-300 font-semibold">✅ Payout Executed</p>
                           <p className="text-white/70 text-sm">Executed: {new Date(payoutLockStatus.lock.executedAt).toLocaleString()}</p>
-                          {payoutLockStatus.lock.autoExecuted && (
-                            <p className="text-yellow-300 text-sm">⚠️ Auto-executed after countdown expired</p>
-                          )}
                           {payoutLockStatus.lock.transactionSignature && (
                             <p className="text-white/70 text-xs font-mono break-all mt-1">Tx: {payoutLockStatus.lock.transactionSignature}</p>
                           )}
                         </div>
-                      ) : payoutLockStatus.countdown && countdownSeconds !== null ? (
+                      ) : (
                         <div className="mt-3 p-2 bg-yellow-500/20 rounded border border-yellow-500/50">
-                          <div className="flex justify-between items-center">
-                            <span className="text-white/70">Time Remaining:</span>
-                            <span className={`text-2xl font-mono font-bold ${countdownSeconds < 300 ? 'text-red-400' : 'text-yellow-300'}`}>
-                              {formatCountdown(countdownSeconds)}
-                            </span>
-                          </div>
+                          <p className="text-yellow-300 text-sm font-semibold">⏳ Ready to Execute</p>
                           <p className="text-white/70 text-xs mt-1">
-                            {countdownSeconds < 300 
-                              ? '⚠️ Less than 5 minutes remaining - payout will auto-execute soon!'
-                              : 'Payout will auto-execute when countdown reaches zero'}
+                            Execute window: Sunday 9:00 AM - 9:00 PM EST
                           </p>
                         </div>
-                      ) : null}
+                      )}
                     </div>
                   ) : (
                     <div>
-                      <p className="text-white/70">No lock for this week</p>
-                      {!payoutLockStatus.windows.isLockWindow && (
-                        <p className="text-white/50 text-sm mt-1">
-                          Lock window: Sunday 9am-9pm EST
-                        </p>
-                      )}
+                      <p className="text-white/70">No auto-lock for this week yet</p>
+                      <p className="text-white/50 text-sm mt-1">
+                        Auto-lock happens automatically at 12:00 AM EST every Sunday
+                      </p>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Lock and Execute Buttons */}
-              <div className="flex gap-4 justify-end">
-                <button
-                  onClick={handleLockReferrals}
-                  disabled={!payoutLockStatus?.windows.isLockWindow || (payoutLockStatus?.lock !== null && !payoutLockStatus.lock.executedAt)}
-                  className={`px-6 py-2 rounded-lg transition-colors border ${
-                    payoutLockStatus?.windows.isLockWindow && (payoutLockStatus?.lock === null || payoutLockStatus.lock.executedAt)
-                      ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border-purple-500/30 cursor-pointer'
-                      : 'bg-gray-500/20 text-gray-400 border-gray-500/30 cursor-not-allowed'
-                  }`}
-                  title={
-                    !payoutLockStatus?.windows.isLockWindow
-                      ? 'Lock window is only available on Sunday between 9am-9pm EST'
-                      : payoutLockStatus?.lock && !payoutLockStatus.lock.executedAt
-                      ? 'Lock already exists for this week'
-                      : 'Lock referrals for payout'
-                  }
-                >
-                  🔒 Lock Referrals for Week
-                </button>
+              {/* Execute Button */}
+              <div className="flex justify-end">
                 <button
                   onClick={handleExecutePayout}
                   disabled={
@@ -762,9 +737,9 @@ export default function AdminPage() {
                   }`}
                   title={
                     !payoutLockStatus?.windows.isExecuteWindow
-                      ? 'Execute window is only available on Sunday between 9am-11pm EST'
+                      ? 'Execute window is only available on Sunday between 9am-9pm EST'
                       : !payoutLockStatus?.lock
-                      ? 'Please lock referrals first'
+                      ? 'Auto-lock happens at 12:00 AM Sunday EST. Please wait for auto-lock.'
                       : payoutLockStatus.lock.executedAt
                       ? 'Payout already executed'
                       : 'Execute payout transaction'

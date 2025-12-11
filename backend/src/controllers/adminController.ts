@@ -1453,14 +1453,14 @@ export const adminLockReferralsWeek = async (req: Request, res: Response) => {
 /**
  * Execute locked payout
  * POST /api/admin/referrals/execute-payout
- * Only available Sunday 9am-11pm EST, requires lock to exist
+ * Only available Sunday 9am-9pm EST, requires auto-lock to exist
  */
 export const adminExecutePayout = async (req: Request, res: Response) => {
   try {
-    // Check if within execute window (Sunday 9am-11pm EST)
+    // Check if within execute window (Sunday 9am-9pm EST)
     if (!isWithinExecuteWindow()) {
       return res.status(400).json({ 
-        error: 'Execute window is only available on Sunday between 9am-11pm EST',
+        error: 'Execute window is only available on Sunday between 9am-9pm EST',
         currentTime: getCurrentEST().toISOString(),
       });
     }
@@ -1485,8 +1485,8 @@ export const adminExecutePayout = async (req: Request, res: Response) => {
 
     if (!lock) {
       return res.status(400).json({ 
-        error: 'No lock found for this week. Please lock referrals first.',
-        note: 'Lock window is Sunday 9am-9pm EST'
+        error: 'No auto-lock found for this week. Payouts are auto-locked at 12:00am Sunday EST.',
+        note: 'Only referrers with >= $10 USD owed are included in the payout.'
       });
     }
 
@@ -1498,16 +1498,13 @@ export const adminExecutePayout = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if countdown has expired (2 hours after lock)
-    const countdownExpiresAt = lock.lockedAt ? new Date(lock.lockedAt.getTime() + 2 * 60 * 60 * 1000) : null;
-    const autoExecute = countdownExpiresAt && new Date() >= countdownExpiresAt;
-
-    // Prepare payout batch
+    // Prepare payout batch using locked amounts (only >= $10 USD referrers)
     const adminHeader = (req as any).headers?.['x-admin-user'] as string | undefined;
-    const executedByAdmin = adminHeader || (autoExecute ? 'auto' : 'admin');
+    const executedByAdmin = adminHeader || 'admin';
     
     const sendAt = new Date(); // Execute immediately
-    const batch = await referralPayoutService.preparePayoutBatch(sendAt, 0, executedByAdmin); // minPayout = 0 to include all
+    // Use $10 minimum threshold to match auto-lock criteria
+    const batch = await referralPayoutService.preparePayoutBatch(sendAt, 10, executedByAdmin);
 
     // Approve batch
     batch.status = PayoutBatchStatus.REVIEWED;
@@ -1528,12 +1525,12 @@ export const adminExecutePayout = async (req: Request, res: Response) => {
     // Update lock
     lock.executedAt = new Date();
     lock.executedByAdmin = executedByAdmin;
-    lock.autoExecuted = autoExecute;
+    lock.autoExecuted = false; // Manual execution
     await lockRepository.save(lock);
 
     return res.json({
       success: true,
-      message: autoExecute ? 'Payout auto-executed after countdown expired' : 'Payout transaction prepared',
+      message: 'Payout transaction prepared',
       lock: {
         id: lock.id,
         executedAt: lock.executedAt,
@@ -1548,7 +1545,6 @@ export const adminExecutePayout = async (req: Request, res: Response) => {
         buffer: Array.from(transactionBuffer),
         note: 'Transaction needs to be signed and sent. Use sendPayoutBatch endpoint with transaction signature.',
       },
-      autoExecuted: autoExecute,
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);

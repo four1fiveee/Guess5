@@ -3,8 +3,9 @@ import { User } from '../models/User';
 import { Referral } from '../models/Referral';
 import { UserService } from './userService';
 import { referralPayoutService } from './payoutService';
-import { getNextSunday1300EST } from '../utils/referralUtils';
+import { getNextSunday1300EST, getNextSundayMidnightEST, isSundayMidnightEST } from '../utils/referralUtils';
 import { notifyAdmin } from '../services/notificationService';
+import { autoLockReferralPayouts } from './autoLockService';
 
 /**
  * Cron service for scheduled tasks
@@ -58,14 +59,48 @@ export class CronService {
   }
 
   /**
+   * Auto-lock referral payouts at 12:00am Sunday EST
+   * Only includes referrers with >= $10 USD owed
+   */
+  static async autoLockReferralPayouts(): Promise<void> {
+    try {
+      console.log('🔒 Auto-locking referral payouts at 12:00am Sunday EST...');
+
+      const lock = await autoLockReferralPayouts();
+
+      if (lock) {
+        console.log(`✅ Auto-locked ${lock.referrerCount} referrers with $${lock.totalAmountUSD.toFixed(2)} USD (${lock.totalAmountSOL.toFixed(6)} SOL)`);
+
+        // Send notification to admin
+        await notifyAdmin({
+          type: 'referral_payout_auto_locked',
+          title: 'Referral Payouts Auto-Locked',
+          message: `Referral payouts have been auto-locked for ${lock.referrerCount} referrers with $${lock.totalAmountUSD.toFixed(2)} USD (${lock.totalAmountSOL.toFixed(6)} SOL). You can execute the payout between 9am-9pm EST today.`,
+          lockId: lock.id,
+          totalAmountUSD: lock.totalAmountUSD,
+          totalAmountSOL: lock.totalAmountSOL,
+          referrerCount: lock.referrerCount,
+          lockDate: lock.lockDate
+        });
+      } else {
+        console.log('ℹ️ No eligible payouts to lock (all referrers below $10 USD threshold)');
+      }
+
+    } catch (error) {
+      console.error('❌ Error auto-locking referral payouts:', error);
+    }
+  }
+
+  /**
    * Prepare weekly payout batch (runs Sunday 13:00 EST)
+   * DEPRECATED: Now using auto-lock system instead
    */
   static async prepareWeeklyPayout(): Promise<void> {
     try {
       console.log('💰 Preparing weekly referral payout batch...');
 
       const nextSunday = getNextSunday1300EST();
-      const batch = await referralPayoutService.preparePayoutBatch(nextSunday, 20, 'cron');
+      const batch = await referralPayoutService.preparePayoutBatch(nextSunday, 10, 'cron'); // Changed to $10 minimum
 
       console.log(`✅ Prepared payout batch ${batch.id} with $${batch.totalAmountUSD} USD`);
 
@@ -97,27 +132,40 @@ export class CronService {
     // Run immediately on start
     this.updateUserEntryFees();
 
-    // Prepare weekly payout on Sunday 13:00 EST
-    // Calculate time until next Sunday 13:00 EST
-    const now = new Date();
-    const nextSunday = getNextSunday1300EST();
-    let msUntilNextSunday = nextSunday.getTime() - now.getTime();
+    // Auto-lock referral payouts at 12:00am Sunday EST
+    // Check every minute if it's Sunday midnight
+    const checkAutoLock = setInterval(() => {
+      if (isSundayMidnightEST()) {
+        this.autoLockReferralPayouts();
+      }
+    }, 60 * 1000); // Check every minute
 
-    // If it's already past Sunday 13:00, schedule for next week
+    // Also check immediately on start (in case server restarts during the window)
+    if (isSundayMidnightEST()) {
+      this.autoLockReferralPayouts();
+    }
+
+    // Calculate time until next Sunday 12:00am EST
+    const now = new Date();
+    const nextSundayMidnight = getNextSundayMidnightEST();
+    let msUntilNextSunday = nextSundayMidnight.getTime() - now.getTime();
+
+    // If it's already past Sunday midnight, schedule for next week
     if (msUntilNextSunday < 0) {
       msUntilNextSunday += 7 * 24 * 60 * 60 * 1000; // Add 7 days
     }
 
-    // Schedule weekly payout
+    // Schedule auto-lock for next Sunday midnight
     setTimeout(() => {
-      this.prepareWeeklyPayout();
-      // Then run every week
+      this.autoLockReferralPayouts();
+      // Then run every week at midnight
       this.weeklyPayoutInterval = setInterval(() => {
-        this.prepareWeeklyPayout();
+        this.autoLockReferralPayouts();
       }, 7 * 24 * 60 * 60 * 1000);
     }, msUntilNextSunday);
 
     console.log('✅ Cron jobs started');
+    console.log(`   Auto-lock scheduled for next Sunday 12:00am EST (${Math.floor(msUntilNextSunday / (1000 * 60 * 60))} hours)`);
   }
 
   /**

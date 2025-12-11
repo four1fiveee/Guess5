@@ -144,14 +144,51 @@ export function isWithinLockWindow(): boolean {
 }
 
 /**
- * Check if current time is within execute window (Sunday 9am-11pm EST)
+ * Check if current time is within execute window (Sunday 9am-9pm EST)
  */
 export function isWithinExecuteWindow(): boolean {
   const estNow = getCurrentEST();
   const day = estNow.getDay(); // 0 = Sunday
   const hour = estNow.getHours();
   
-  return day === 0 && hour >= 9 && hour < 23; // Sunday, 9am-11pm EST
+  return day === 0 && hour >= 9 && hour < 21; // Sunday, 9am-9pm EST
+}
+
+/**
+ * Get next Sunday at 12:00 AM EST (midnight)
+ * This is when auto-lock happens
+ */
+export function getNextSundayMidnightEST(): Date {
+  const now = new Date();
+  const estNow = getCurrentEST();
+  const nextSunday = new Date(estNow);
+  
+  // Calculate days until next Sunday
+  const daysUntilSunday = (7 - estNow.getDay()) % 7;
+  
+  // If today is Sunday and it's before midnight, use today; otherwise use next Sunday
+  if (daysUntilSunday === 0 && estNow.getHours() < 0) {
+    // Today is Sunday and it's before midnight (shouldn't happen, but handle it)
+    nextSunday.setHours(0, 0, 0, 0);
+  } else {
+    const daysToAdd = daysUntilSunday === 0 ? 7 : daysUntilSunday;
+    nextSunday.setDate(estNow.getDate() + daysToAdd);
+    nextSunday.setHours(0, 0, 0, 0);
+  }
+  
+  return nextSunday;
+}
+
+/**
+ * Check if current time is exactly 12:00am Sunday EST (within 1 minute window for cron)
+ */
+export function isSundayMidnightEST(): boolean {
+  const estNow = getCurrentEST();
+  const day = estNow.getDay(); // 0 = Sunday
+  const hour = estNow.getHours();
+  const minute = estNow.getMinutes();
+  
+  return day === 0 && hour === 0 && minute < 2; // Sunday, 12:00am-12:02am EST (2 minute window for cron)
 }
 
 /**

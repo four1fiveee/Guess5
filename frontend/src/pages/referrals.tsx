@@ -555,12 +555,14 @@ export default function ReferralsPage() {
               </div>
 
               <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-                <h3 className="text-lg font-bold text-accent mb-3">Payout Schedule</h3>
+                <h3 className="text-lg font-bold text-accent mb-3">Payout Schedule & Rules</h3>
                 <ul className="space-y-2 text-white/80 text-sm leading-relaxed">
-                  <li>• Minimum payout: <strong className="text-accent">$20 USD</strong> (earnings accumulate until threshold)</li>
-                  <li>• Payouts: <strong className="text-white">Every Sunday at 1:00 PM EST</strong> via batched transactions</li>
-                  <li>• <strong className="text-yellow-300">Review Window:</strong> 11:00 AM - 1:00 PM EST on Sunday</li>
-                  <li>• Earnings during review window included in <strong className="text-white">following week's payout</strong></li>
+                  <li>• <strong className="text-accent">Minimum payout: $10 USD</strong> - You must be owed at least $10 USD to qualify for payout</li>
+                  <li>• <strong className="text-white">Auto-lock:</strong> Every Sunday at <strong className="text-accent">12:00 AM EST</strong>, all unpaid earnings are automatically locked</li>
+                  <li>• <strong className="text-yellow-300">SOL Conversion:</strong> Your USD earnings are converted to SOL at the price at 12:00 AM Sunday EST</li>
+                  <li>• <strong className="text-white">Below $10 USD?</strong> Your earnings carry over to the next week until you reach the $10 minimum</li>
+                  <li>• <strong className="text-accent">Payout Execution:</strong> Payouts are executed between <strong className="text-white">9:00 AM - 9:00 PM EST</strong> on Sunday</li>
+                  <li>• <strong className="text-yellow-300">Matches not completed by 12:00 AM Sunday</strong> are included in the following week's payout</li>
                 </ul>
               </div>
             </div>
