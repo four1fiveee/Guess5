@@ -1431,7 +1431,9 @@ const Result: React.FC = () => {
           );
           
           // ✅ FIX: Ensure bodyBuffer is ArrayBuffer, not SharedArrayBuffer (for TypeScript compatibility)
-          const bodyArrayBuffer: ArrayBuffer = bodyBuffer instanceof SharedArrayBuffer 
+          // Check if SharedArrayBuffer exists and if bodyBuffer is an instance of it
+          // If SharedArrayBuffer is not available (common in browsers without COOP/COEP headers), treat as ArrayBuffer
+          const bodyArrayBuffer: ArrayBuffer = (typeof SharedArrayBuffer !== 'undefined' && bodyBuffer instanceof SharedArrayBuffer)
             ? (() => {
                 const newBuffer = new ArrayBuffer(bodyBuffer.byteLength);
                 const view = new Uint8Array(newBuffer);
@@ -1439,7 +1441,7 @@ const Result: React.FC = () => {
                 view.set(sourceView);
                 return newBuffer;
               })()
-            : bodyBuffer;
+            : bodyBuffer as ArrayBuffer;
           
           const fetchStartTime = Date.now();
           
