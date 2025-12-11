@@ -1038,7 +1038,7 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
 
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
-    // Get all matches with payments
+    // Get all matches with payments and financial data
     const allMatches = await matchRepository.query(`
       SELECT 
         "entryFee",
@@ -1047,6 +1047,11 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         "payoutAmountUSD",
         "bonusAmount",
         "bonusAmountUSD",
+        "platformFee",
+        "squadsCost",
+        "squadsCostUSD",
+        "netProfit",
+        "netProfitUSD",
         "player1Paid",
         "player2Paid",
         "createdAt",
@@ -1066,10 +1071,16 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       let matchesPlayed = 0;
       let totalEntryFees = 0;
       let totalEntryFeesUSD = 0;
-      let totalPayouts = 0;
-      let totalPayoutsUSD = 0;
+      let totalPlatformFee = 0;
+      let totalPlatformFeeUSD = 0;
       let totalBonus = 0;
       let totalBonusUSD = 0;
+      let totalSquadsCost = 0;
+      let totalSquadsCostUSD = 0;
+      let totalGasCost = 0; // Estimated gas costs
+      let totalGasCostUSD = 0;
+      let totalPayouts = 0;
+      let totalPayoutsUSD = 0;
 
       for (const match of filtered) {
         const entryFee = parseFloat(match.entryFee) || 0;
@@ -1088,6 +1099,30 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         if (match.isCompleted || match.status === 'completed') {
           matchesPlayed++;
           
+          // Platform fee (5% of total pot = entryFee * 2 * 0.05)
+          const platformFee = parseFloat(match.platformFee) || (entryFee * 2 * 0.05);
+          const platformFeeUSD = platformFee * (entryFeeUSD / entryFee) || (entryFeeUSD * 2 * 0.05);
+          totalPlatformFee += platformFee;
+          totalPlatformFeeUSD += platformFeeUSD;
+
+          // Bonus amount
+          const bonusAmount = parseFloat(match.bonusAmount) || 0;
+          const bonusAmountUSD = parseFloat(match.bonusAmountUSD) || 0;
+          totalBonus += bonusAmount;
+          totalBonusUSD += bonusAmountUSD;
+
+          // Squads cost
+          const squadsCost = parseFloat(match.squadsCost) || 0;
+          const squadsCostUSD = parseFloat(match.squadsCostUSD) || 0;
+          totalSquadsCost += squadsCost;
+          totalSquadsCostUSD += squadsCostUSD;
+
+          // Estimate gas costs (roughly 0.001 SOL per transaction)
+          const estimatedGas = 0.001; // Conservative estimate
+          const gasUSD = estimatedGas * (entryFeeUSD / entryFee) || estimatedGas * 100; // Rough USD estimate
+          totalGasCost += estimatedGas;
+          totalGasCostUSD += gasUSD;
+          
           // Count payouts (winners get payout, ties get refund)
           if (match.winner === 'tie' && match.proposalExecutedAt) {
             // Both players get refund
@@ -1099,26 +1134,27 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
             totalPayouts += payoutAmount;
             totalPayoutsUSD += payoutAmountUSD;
           }
-
-          // Count bonus
-          if (match.bonusAmount) {
-            totalBonus += parseFloat(match.bonusAmount) || 0;
-            totalBonusUSD += parseFloat(match.bonusAmountUSD) || 0;
-          }
         }
       }
 
-      const netProfit = totalPayouts - totalEntryFees;
-      const netProfitUSD = totalPayoutsUSD - totalEntryFeesUSD;
+      // Net profit = Platform fee - Bonus - Squads cost - Gas
+      const netProfit = totalPlatformFee - totalBonus - totalSquadsCost - totalGasCost;
+      const netProfitUSD = totalPlatformFeeUSD - totalBonusUSD - totalSquadsCostUSD - totalGasCostUSD;
 
       return {
         matchesPlayed,
         totalEntryFees,
         totalEntryFeesUSD: parseFloat(totalEntryFeesUSD.toFixed(2)),
-        totalPayouts,
-        totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
+        totalPlatformFee,
+        totalPlatformFeeUSD: parseFloat(totalPlatformFeeUSD.toFixed(2)),
         totalBonus,
         totalBonusUSD: parseFloat(totalBonusUSD.toFixed(2)),
+        totalSquadsCost,
+        totalSquadsCostUSD: parseFloat(totalSquadsCostUSD.toFixed(2)),
+        totalGasCost,
+        totalGasCostUSD: parseFloat(totalGasCostUSD.toFixed(2)),
+        totalPayouts,
+        totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
         netProfit,
         netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
       };
@@ -1236,7 +1272,7 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
 
     // Get historical payouts (from batches)
     const batches = await batchRepository.find({
-      where: { status: 'EXECUTED' as PayoutBatchStatus },
+      where: { status: PayoutBatchStatus.SENT },
       order: { createdAt: 'DESC' },
       take: 20,
     });

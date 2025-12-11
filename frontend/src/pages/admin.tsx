@@ -11,9 +11,33 @@ interface HealthStatus {
 }
 
 interface FinancialMetrics {
-  weekly: any;
-  quarterly: any;
-  yearly: any;
+  weekly: {
+    matchesPlayed: number;
+    totalEntryFeesUSD: number;
+    totalPlatformFeeUSD: number;
+    totalBonusUSD: number;
+    totalSquadsCostUSD: number;
+    totalGasCostUSD: number;
+    netProfitUSD: number;
+  };
+  quarterly: {
+    matchesPlayed: number;
+    totalEntryFeesUSD: number;
+    totalPlatformFeeUSD: number;
+    totalBonusUSD: number;
+    totalSquadsCostUSD: number;
+    totalGasCostUSD: number;
+    netProfitUSD: number;
+  };
+  yearly: {
+    matchesPlayed: number;
+    totalEntryFeesUSD: number;
+    totalPlatformFeeUSD: number;
+    totalBonusUSD: number;
+    totalSquadsCostUSD: number;
+    totalGasCostUSD: number;
+    netProfitUSD: number;
+  };
 }
 
 interface FeeWalletBalance {
@@ -348,7 +372,7 @@ export default function AdminPage() {
                   </div>
                   <div>
                     <p className="text-white/70 text-sm">Wallet</p>
-                    <p className="text-white font-mono text-xs break-all">{feeWalletBalance.wallet}</p>
+                    <p className="text-white font-mono text-xs break-words overflow-wrap-anywhere">{feeWalletBalance.wallet}</p>
                   </div>
                 </div>
               </div>
@@ -363,21 +387,29 @@ export default function AdminPage() {
                       <span className="text-white/70">Matches Played:</span>
                       <span className="text-white font-bold">{financialMetrics.weekly.matchesPlayed}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-white/70">Entry Fees:</span>
+                    <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
+                      <span className="text-white/70">Total Entry Fees:</span>
                       <span className="text-white font-bold">${financialMetrics.weekly.totalEntryFeesUSD.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Payouts:</span>
-                      <span className="text-white font-bold">${financialMetrics.weekly.totalPayoutsUSD.toFixed(2)}</span>
+                      <span className="text-white/70">Platform Fee (5%):</span>
+                      <span className="text-green-400 font-bold">${financialMetrics.weekly.totalPlatformFeeUSD.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Bonus:</span>
-                      <span className="text-white font-bold">${financialMetrics.weekly.totalBonusUSD.toFixed(2)}</span>
+                      <span className="text-white/70">Platform Bonus:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.weekly.totalBonusUSD.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between border-t border-white/20 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span className="text-white/70">Squads Costs:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.weekly.totalSquadsCostUSD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/70">Gas Costs:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.weekly.totalGasCostUSD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t-2 border-white/30 pt-2 mt-2">
                       <span className="text-white font-semibold">Net Profit:</span>
-                      <span className={`font-bold ${financialMetrics.weekly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <span className={`font-bold text-lg ${financialMetrics.weekly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         ${financialMetrics.weekly.netProfitUSD.toFixed(2)}
                       </span>
                     </div>
@@ -392,21 +424,29 @@ export default function AdminPage() {
                       <span className="text-white/70">Matches Played:</span>
                       <span className="text-white font-bold">{financialMetrics.quarterly.matchesPlayed}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-white/70">Entry Fees:</span>
+                    <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
+                      <span className="text-white/70">Total Entry Fees:</span>
                       <span className="text-white font-bold">${financialMetrics.quarterly.totalEntryFeesUSD.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Payouts:</span>
-                      <span className="text-white font-bold">${financialMetrics.quarterly.totalPayoutsUSD.toFixed(2)}</span>
+                      <span className="text-white/70">Platform Fee (5%):</span>
+                      <span className="text-green-400 font-bold">${financialMetrics.quarterly.totalPlatformFeeUSD.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Bonus:</span>
-                      <span className="text-white font-bold">${financialMetrics.quarterly.totalBonusUSD.toFixed(2)}</span>
+                      <span className="text-white/70">Platform Bonus:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.quarterly.totalBonusUSD.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between border-t border-white/20 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span className="text-white/70">Squads Costs:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.quarterly.totalSquadsCostUSD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/70">Gas Costs:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.quarterly.totalGasCostUSD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t-2 border-white/30 pt-2 mt-2">
                       <span className="text-white font-semibold">Net Profit:</span>
-                      <span className={`font-bold ${financialMetrics.quarterly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <span className={`font-bold text-lg ${financialMetrics.quarterly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         ${financialMetrics.quarterly.netProfitUSD.toFixed(2)}
                       </span>
                     </div>
@@ -421,21 +461,29 @@ export default function AdminPage() {
                       <span className="text-white/70">Matches Played:</span>
                       <span className="text-white font-bold">{financialMetrics.yearly.matchesPlayed}</span>
                     </div>
-                    <div className="flex justify-between">
-                      <span className="text-white/70">Entry Fees:</span>
+                    <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
+                      <span className="text-white/70">Total Entry Fees:</span>
                       <span className="text-white font-bold">${financialMetrics.yearly.totalEntryFeesUSD.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Payouts:</span>
-                      <span className="text-white font-bold">${financialMetrics.yearly.totalPayoutsUSD.toFixed(2)}</span>
+                      <span className="text-white/70">Platform Fee (5%):</span>
+                      <span className="text-green-400 font-bold">${financialMetrics.yearly.totalPlatformFeeUSD.toFixed(2)}</span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Bonus:</span>
-                      <span className="text-white font-bold">${financialMetrics.yearly.totalBonusUSD.toFixed(2)}</span>
+                      <span className="text-white/70">Platform Bonus:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.yearly.totalBonusUSD.toFixed(2)}</span>
                     </div>
-                    <div className="flex justify-between border-t border-white/20 pt-2 mt-2">
+                    <div className="flex justify-between">
+                      <span className="text-white/70">Squads Costs:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.yearly.totalSquadsCostUSD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-white/70">Gas Costs:</span>
+                      <span className="text-red-400 font-bold">-${financialMetrics.yearly.totalGasCostUSD.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between border-t-2 border-white/30 pt-2 mt-2">
                       <span className="text-white font-semibold">Net Profit:</span>
-                      <span className={`font-bold ${financialMetrics.yearly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      <span className={`font-bold text-lg ${financialMetrics.yearly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
                         ${financialMetrics.yearly.netProfitUSD.toFixed(2)}
                       </span>
                     </div>
@@ -561,3 +609,6 @@ export default function AdminPage() {
     </div>
   );
 }
+
+
+
