@@ -4359,24 +4359,29 @@ export class SquadsVaultService {
           correlationId,
         });
         
-        // CRITICAL: Only execute if proposal is in ExecuteReady state
-        if (proposalStatus !== 'ExecuteReady') {
-          const error = `Proposal is not in ExecuteReady state: ${proposalStatus}. Cannot execute until ExecuteReady.`;
+        // CRITICAL: Execute if proposal is ExecuteReady OR Approved with threshold met
+        // In Squads v4, proposals don't always automatically transition from Approved to ExecuteReady
+        // If threshold is met, we can execute even if status is Approved
+        const isApprovedWithThresholdMet = proposalStatus === 'Approved' && approvedSigners.length >= threshold;
+        const isExecuteReady = proposalStatus === 'ExecuteReady';
+        
+        if (!isExecuteReady && !isApprovedWithThresholdMet) {
+          const error = `Proposal is not in ExecuteReady state: ${proposalStatus}. Cannot execute until ExecuteReady or Approved with threshold met.`;
           
           // ✅ Use INFO level instead of ERROR - this is a normal condition, not an error
           // Proposals transition from Approved -> ExecuteReady, so this is expected during the transition
           const logLevel = proposalStatus === 'Approved' ? 'info' : 'warn';
-          enhancedLogger[logLevel](`${proposalStatus === 'Approved' ? '⏳' : '⚠️'} Proposal not ready for execution - waiting for ExecuteReady state`, {
+          enhancedLogger[logLevel](`${proposalStatus === 'Approved' ? '⏳' : '⚠️'} Proposal not ready for execution - waiting for ExecuteReady state or threshold`, {
             vaultAddress,
             proposalId,
             proposalStatus,
-            requiredStatus: 'ExecuteReady',
+            requiredStatus: 'ExecuteReady or Approved with threshold met',
             approvedSignersCount: approvedSigners.length,
             threshold,
             correlationId,
             note: proposalStatus === 'Approved' 
-              ? 'Proposal is Approved but not yet ExecuteReady - this is normal, will retry automatically'
-              : 'Execution must wait for ExecuteReady state. Do NOT bypass this check.',
+              ? 'Proposal is Approved but threshold not met - waiting for more signatures'
+              : 'Execution must wait for ExecuteReady state or Approved with threshold met.',
           });
           
           return {
@@ -4384,8 +4389,21 @@ export class SquadsVaultService {
             error,
             correlationId,
             proposalStatus,
-            requiredStatus: 'ExecuteReady',
+            requiredStatus: 'ExecuteReady or Approved with threshold met',
           };
+        }
+        
+        // Log execution reason
+        if (isApprovedWithThresholdMet && !isExecuteReady) {
+          enhancedLogger.info('✅ Executing Approved proposal with threshold met (ExecuteReady transition may not occur automatically)', {
+            vaultAddress,
+            proposalId,
+            proposalStatus,
+            approvedSignersCount: approvedSigners.length,
+            threshold,
+            correlationId,
+            note: 'Proposal has enough approvals - executing even though status is Approved (not ExecuteReady)',
+          });
         }
         
         // Validate we have enough signers
@@ -4406,13 +4424,18 @@ export class SquadsVaultService {
           };
         }
         
-        enhancedLogger.info('✅ Proposal validation passed - ExecuteReady confirmed, proceeding with execution', {
+        enhancedLogger.info('✅ Proposal validation passed - proceeding with execution', {
           vaultAddress,
           proposalId,
           proposalStatus,
+          isExecuteReady,
+          isApprovedWithThresholdMet,
           approvedSignersCount: approvedSigners.length,
           threshold,
           correlationId,
+          note: isExecuteReady 
+            ? 'Proposal is ExecuteReady - standard execution path'
+            : 'Proposal is Approved with threshold met - executing despite not being ExecuteReady',
         });
       } catch (proposalFetchError: unknown) {
         const error = `Failed to fetch Proposal account for ExecuteReady check: ${proposalFetchError instanceof Error ? proposalFetchError.message : String(proposalFetchError)}`;
