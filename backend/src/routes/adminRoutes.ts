@@ -20,8 +20,12 @@ import {
   adminCleanupStaleLocks,
   adminExecuteProposal
 } from '../controllers/adminController';
+import { requireAdminAuth } from '../middleware/adminAuth';
 
 const router = Router();
+
+// Apply admin authentication to all routes
+router.use(requireAdminAuth);
 
 // Match management
 router.post('/delete-match/:matchId', adminDeleteMatch);
