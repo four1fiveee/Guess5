@@ -983,13 +983,15 @@ export const adminGetHealthStatus = async (req: Request, res: Response) => {
       url: 'https://guess5.onrender.com',
     };
 
-    // Check Vercel (frontend)
+    // Check Vercel (frontend) - use GET instead of HEAD as some servers don't support HEAD
     try {
-      const vercelResponse = await axios.head('https://guess5.io', { 
-        timeout: 5000
+      const vercelResponse = await axios.get('https://guess5.io', { 
+        timeout: 5000,
+        validateStatus: (status: number) => status < 500 // Accept any status < 500 as "up"
       });
-      vercelStatus.status = vercelResponse.status === 200 ? 'up' : 'down';
-    } catch (err) {
+      vercelStatus.status = vercelResponse.status < 500 ? 'up' : 'down';
+    } catch (err: any) {
+      console.warn('Vercel health check failed:', err.message);
       vercelStatus.status = 'down';
     }
 
@@ -1236,46 +1238,68 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
     const batchRepository = AppDataSource.getRepository(PayoutBatch);
 
-    // Get current amount owed
-    const owedResult = await earningRepository.query(`
-      SELECT 
-        upline_wallet,
-        SUM(amount_usd) as total_usd,
-        SUM(amount_sol) as total_sol,
-        COUNT(*) as match_count
-      FROM referral_earning
-      WHERE paid = false
-        AND amount_usd IS NOT NULL
-      GROUP BY upline_wallet
-      ORDER BY total_usd DESC
-    `);
-
-    const totalOwedUSD = owedResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_usd || 0), 0);
-    const totalOwedSOL = owedResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_sol || 0), 0);
+    // Get current amount owed - handle case where table might not exist
+    let owedResult: any[] = [];
+    let totalOwedUSD = 0;
+    let totalOwedSOL = 0;
+    
+    try {
+      owedResult = await earningRepository.query(`
+        SELECT 
+          upline_wallet,
+          SUM(amount_usd) as total_usd,
+          SUM(amount_sol) as total_sol,
+          COUNT(*) as match_count
+        FROM referral_earning
+        WHERE paid = false
+          AND amount_usd IS NOT NULL
+        GROUP BY upline_wallet
+        ORDER BY total_usd DESC
+      `);
+      totalOwedUSD = owedResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_usd || 0), 0);
+      totalOwedSOL = owedResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_sol || 0), 0);
+    } catch (err: any) {
+      console.warn('Failed to query referral earnings (table may not exist):', err.message);
+      // Continue with empty results
+    }
 
     // Get paid referrals
-    const paidResult = await earningRepository.query(`
-      SELECT 
-        upline_wallet,
-        SUM(amount_usd) as total_usd,
-        SUM(amount_sol) as total_sol,
-        COUNT(*) as match_count
-      FROM referral_earning
-      WHERE paid = true
-        AND amount_usd IS NOT NULL
-      GROUP BY upline_wallet
-      ORDER BY total_usd DESC
-    `);
-
-    const totalPaidUSD = paidResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_usd || 0), 0);
-    const totalPaidSOL = paidResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_sol || 0), 0);
+    let paidResult: any[] = [];
+    let totalPaidUSD = 0;
+    let totalPaidSOL = 0;
+    
+    try {
+      paidResult = await earningRepository.query(`
+        SELECT 
+          upline_wallet,
+          SUM(amount_usd) as total_usd,
+          SUM(amount_sol) as total_sol,
+          COUNT(*) as match_count
+        FROM referral_earning
+        WHERE paid = true
+          AND amount_usd IS NOT NULL
+        GROUP BY upline_wallet
+        ORDER BY total_usd DESC
+      `);
+      totalPaidUSD = paidResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_usd || 0), 0);
+      totalPaidSOL = paidResult.reduce((sum: number, row: any) => sum + parseFloat(row.total_sol || 0), 0);
+    } catch (err: any) {
+      console.warn('Failed to query paid referrals:', err.message);
+      // Continue with empty results
+    }
 
     // Get historical payouts (from batches)
-    const batches = await batchRepository.find({
-      where: { status: PayoutBatchStatus.SENT },
-      order: { createdAt: 'DESC' },
-      take: 20,
-    });
+    let batches: any[] = [];
+    try {
+      batches = await batchRepository.find({
+        where: { status: PayoutBatchStatus.SENT },
+        order: { createdAt: 'DESC' },
+        take: 20,
+      });
+    } catch (err: any) {
+      console.warn('Failed to query payout batches:', err.message);
+      // Continue with empty results
+    }
 
     return res.json({
       success: true,
