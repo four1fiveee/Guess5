@@ -42,6 +42,7 @@ export default function MatchHistoryPage() {
   const [stats, setStats] = useState<MatchStats | null>(null);
   const [outstandingProposals, setOutstandingProposals] = useState<OutstandingProposal[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
+  const [solPrice, setSolPrice] = useState<number | null>(null);
 
   useEffect(() => {
     const walletAddress = publicKey?.toString() || '';
@@ -50,6 +51,22 @@ export default function MatchHistoryPage() {
       loadDashboardData(walletAddress);
     }
   }, [publicKey]);
+
+  // Fetch current SOL price
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+        const data = await response.json();
+        if (data.solana?.usd) {
+          setSolPrice(data.solana.usd);
+        }
+      } catch (error) {
+        console.error('Error fetching SOL price:', error);
+      }
+    };
+    fetchSolPrice();
+  }, []);
 
   const loadDashboardData = async (walletAddress: string) => {
     setLoading(true);
@@ -231,18 +248,28 @@ export default function MatchHistoryPage() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Total Entry Fees:</span>
-                    <span className="text-white font-semibold">{formatUSD(stats?.totalEntryFeesSpentUSD || 0)}</span>
+                    <span className="text-white font-semibold">
+                      {solPrice && stats?.totalEntryFeesSpent 
+                        ? formatUSD(stats.totalEntryFeesSpent * solPrice)
+                        : formatUSD(0)}
+                    </span>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-white/80 text-sm">Amount Received:</span>
-                    <span className="text-green-400 font-semibold">{formatUSD(stats?.totalPayoutsReceivedUSD || 0)}</span>
+                    <span className="text-green-400 font-semibold">
+                      {solPrice && stats?.totalPayoutsReceived 
+                        ? formatUSD(stats.totalPayoutsReceived * solPrice)
+                        : formatUSD(0)}
+                    </span>
                   </div>
                 </div>
                 <div className="mt-3 pt-3 border-t border-white/10">
                   <div className="flex justify-between items-center">
                     <span className="text-white/90 font-semibold">Net Profit:</span>
-                    <span className={`text-xl font-bold ${(stats?.netProfitUSD || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                      {formatUSD(stats?.netProfitUSD || 0)}
+                    <span className={`text-xl font-bold ${(stats?.netProfit || 0) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {solPrice && stats?.netProfit !== undefined
+                        ? formatUSD(stats.netProfit * solPrice)
+                        : formatUSD(0)}
                     </span>
                   </div>
                   <div className="text-white/60 text-xs mt-1">
@@ -259,9 +286,10 @@ export default function MatchHistoryPage() {
                     <div className="flex-1">
                       <div className="text-blue-300 text-xs font-semibold mb-1">USD Values Explained</div>
                       <div className="text-white/70 text-xs leading-relaxed">
-                        USD amounts are calculated using <strong className="text-white/90">historical SOL prices</strong> at the time of each transaction, not today's price. 
-                        This means if you paid $5 last week when SOL was $150, it will still show $5 even if SOL is now $160. 
-                        The <strong className="text-white/90">SOL amounts shown are the actual amounts</strong> transacted and are always accurate.
+                        USD amounts are calculated using <strong className="text-white/90">current SOL price</strong> ({solPrice ? `$${solPrice.toFixed(2)}` : 'loading...'}) 
+                        converted from the actual SOL amounts transacted. 
+                        The <strong className="text-white/90">SOL amounts shown are the actual amounts</strong> transferred and are always accurate. 
+                        Small rounding differences may occur due to transaction fees and gas costs.
                       </div>
                     </div>
                   </div>

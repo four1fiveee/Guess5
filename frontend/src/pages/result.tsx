@@ -79,6 +79,19 @@ const calculateRoundedUSD = (solAmount: number, solPrice: number | null): number
   );
 };
 
+// Helper function to get expected USD amount based on entry fee tier
+// This ensures consistent USD display regardless of SOL price fluctuations
+const getExpectedEntryFeeUSD = (solAmount: number, solPrice: number | null): number | null => {
+  if (!solPrice) return null;
+  return calculateRoundedUSD(solAmount, solPrice);
+};
+
+// Helper function to calculate expected winnings USD (95% of 2x entry fee)
+const getExpectedWinningsUSD = (entryFeeUSD: number | null): number | null => {
+  if (!entryFeeUSD) return null;
+  return entryFeeUSD * 2 * 0.95;
+};
+
 const normalizeProposalSigners = (value: any): string[] => {
   const normalize = (input: any): string[] => {
     if (!input) {
@@ -2263,7 +2276,7 @@ const Result: React.FC = () => {
                                 <div className="text-white text-lg font-semibold">
                                   {solPrice && payoutData.entryFee ? (
                                     <>
-                                      ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
+                                      ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
                                       <span className="text-white/60 text-sm ml-2">
                                         ({payoutData.entryFee.toFixed(4)} SOL)
                                       </span>
@@ -2485,7 +2498,7 @@ const Result: React.FC = () => {
                             <div className="text-white text-lg font-semibold">
                               {solPrice && payoutData.entryFee ? (
                                 <>
-                                  ${calculateRoundedUSD(payoutData.entryFee, solPrice)} USD
+                                  ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
                                   <span className="text-white/60 text-sm ml-2">
                                     ({payoutData.entryFee.toFixed(4)} SOL)
                                   </span>
@@ -2497,21 +2510,34 @@ const Result: React.FC = () => {
                           </div>
                           <div className="text-4xl font-bold text-yellow-400 mb-2">
                             {(() => {
-                              // Calculate winnings USD as 95% of (entryFeeUSD * 2) for tier matches
-                              // Entry fee USD is rounded to 5, 20, 50, 100 categories
+                              // Calculate expected USD based on entry fee tier (stable, doesn't fluctuate)
                               const entryFeeUSD = solPrice && payoutData.entryFee 
-                                ? calculateRoundedUSD(payoutData.entryFee, solPrice) 
+                                ? getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) 
+                                : null;
+                              const expectedWinningsUSD = getExpectedWinningsUSD(entryFeeUSD);
+                              
+                              // Calculate current USD value of actual SOL received (for reference)
+                              const actualSOLUSD = solPrice && payoutData.winnerAmount 
+                                ? payoutData.winnerAmount * solPrice 
                                 : null;
                               
-                              if (entryFeeUSD && payoutData.winnerAmount) {
-                                // Show winnings as 95% of (entryFeeUSD * 2)
-                                const winningsUSD = (entryFeeUSD * 2 * 0.95).toFixed(2);
+                              if (expectedWinningsUSD && payoutData.winnerAmount) {
                                 return (
                                   <>
-                                    ${winningsUSD} USD
-                                    <span className="text-yellow-300 text-xl ml-2">
-                                      ({payoutData.winnerAmount.toFixed(4)} SOL)
-                                    </span>
+                                    <div className="mb-1">
+                                      ${expectedWinningsUSD.toFixed(2)} USD
+                                      <span className="text-yellow-300 text-xl ml-2">
+                                        (Expected)
+                                      </span>
+                                    </div>
+                                    <div className="text-2xl text-yellow-300/80 mt-2">
+                                      {payoutData.winnerAmount.toFixed(4)} SOL
+                                      {actualSOLUSD && (
+                                        <span className="text-yellow-200/60 text-lg ml-2">
+                                          (≈ ${actualSOLUSD.toFixed(2)} USD at current rate)
+                                        </span>
+                                      )}
+                                    </div>
                                   </>
                                 );
                               } else if (solPrice && payoutData.winnerAmount) {
@@ -2528,6 +2554,17 @@ const Result: React.FC = () => {
                               }
                             })()}
                           </div>
+                          {/* Disclaimer about rounding and gas costs */}
+                          {payoutData.winnerAmount && (
+                            <div className="mt-3 p-3 rounded-lg bg-blue-500/10 border border-blue-400/30">
+                              <div className="text-blue-300 text-xs font-semibold mb-1">ℹ️ Amount Explanation</div>
+                              <div className="text-white/70 text-xs leading-relaxed">
+                                Expected USD is calculated as 95% of the combined entry fees (rounded to tier amounts). 
+                                The actual SOL amount received may differ slightly due to small rounding differences and transaction fees. 
+                                SOL amounts are always accurate and represent what was actually transferred.
+                              </div>
+                            </div>
+                          )}
                           {payoutData.entryFee && payoutData.winnerAmount && (
                             <div className={`text-sm mb-2 ${
                               Math.abs(payoutData.winnerAmount - (payoutData.entryFee * 2 - (payoutData.feeAmount || 0))) < 0.0001
