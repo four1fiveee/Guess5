@@ -1265,8 +1265,8 @@ export const adminGetReferralPayoutExecution = async (req: Request, res: Respons
         totalAmountSOL: batch.totalAmountSOL,
         status: batch.status,
         createdAt: batch.createdAt,
-        executedAt: batch.executedAt || null,
-        recipientCount: batch.recipientCount || 0,
+        executedAt: batch.status === 'SENT' ? batch.updatedAt : null,
+        recipientCount: 0, // TODO: Calculate from batch items if needed
       })),
     });
   } catch (error: unknown) {
