@@ -4611,9 +4611,10 @@ export class SquadsVaultService {
             }
             
             // Build the execution instruction (same pattern as instructions.proposalApprove)
+            // CRITICAL: Use Number() instead of BigInt() - matching proposalApprove pattern
             const executionIx = instructions.vaultTransactionExecute({
               multisigPda: multisigAddress,
-              transactionIndex: BigInt(transactionIndexNumber),
+              transactionIndex: Number(transactionIndexNumber), // Use Number() like proposalApprove
               member: executor.publicKey,
               programId: this.programId,
             });
