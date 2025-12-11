@@ -13,7 +13,7 @@
 - **Purpose**: Used to sign and verify JWT tokens
 - **Think of it as**: A master key that ensures tokens haven't been tampered with
 - **Security**: If someone gets this, they could create fake tokens (but still need username/password to login)
-- **Example**: `sk_live_abc123xyz789...` (32+ random characters)
+- **Example**: `a1b2c3d4e5f6g7h8i9j0k1l2m3n4o5p6q7r8s9t0` (32+ random characters)
 
 **ADMIN_USERNAME**:
 - **Purpose**: The username you enter to login
