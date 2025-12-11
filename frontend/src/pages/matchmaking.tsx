@@ -25,6 +25,7 @@ const Matchmaking: React.FC = () => {
     | 'refund_pending'
     | 'queue_cancelled'
     | 'opponent_left'
+    | 'abandoned'
     | 'completed'
   >('waiting');
   const [waitingCount, setWaitingCount] = useState(0);
@@ -59,6 +60,15 @@ const Matchmaking: React.FC = () => {
         detail: 'Your opponent exited before paying. Re-queueing you for another match.',
         tone: 'info' as const,
         encourageResult: false,
+      };
+    }
+
+    if (status === 'abandoned') {
+      return {
+        heading: 'Opponent Disconnected',
+        detail: 'The other player\'s browser crashed or they disconnected after you paid. Your funds are safe and a refund proposal is being prepared. You\'ll receive your full refund once the proposal is created (usually within 2-3 minutes).',
+        tone: 'warning' as const,
+        encourageResult: true,
       };
     }
 
@@ -1011,6 +1021,33 @@ const Matchmaking: React.FC = () => {
                 return;
               }
 
+              // ✅ NEW: Handle abandoned matches (opponent crashed/disconnected after payment)
+              if (normalizedStatus === 'abandoned') {
+                matchDataRef.current = {
+                  ...(matchDataRef.current || {}),
+                  status: 'abandoned',
+                };
+                setMatchData((prev: any) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: 'abandoned',
+                      }
+                    : prev
+                );
+                setStatus('abandoned');
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
+                if (currentMatchData.matchId) {
+                  localStorage.setItem('matchId', currentMatchData.matchId);
+                  if (data.entryFee) {
+                    localStorage.setItem('entryFee', data.entryFee.toString());
+                  }
+                }
+                return;
+              }
+
               if (normalizedStatus === 'refund_pending' || normalizedStatus === 'refunded') {
                 matchDataRef.current = {
                   ...(matchDataRef.current || {}),
@@ -1740,7 +1777,8 @@ const Matchmaking: React.FC = () => {
           {(status === 'cancelled' ||
             status === 'refund_pending' ||
             status === 'queue_cancelled' ||
-            status === 'opponent_left') && (
+            status === 'opponent_left' ||
+            status === 'abandoned') && (
             <div className="animate-fade-in">
               {(() => {
                 const tone = (cancellationContext?.tone ?? 'info') as keyof typeof toneStyles;
@@ -1774,7 +1812,9 @@ const Matchmaking: React.FC = () => {
                     <div className={`${styles.heading} text-4xl mb-4 text-center`}>{styles.icon}</div>
                     <h2 className={`text-2xl font-bold mb-2 text-center ${styles.heading}`}>
                       {cancellationContext?.heading ||
-                        (status === 'refund_pending'
+                        (status === 'abandoned'
+                          ? 'Opponent Disconnected'
+                          : status === 'refund_pending'
                           ? 'Refund Pending'
                           : status === 'queue_cancelled'
                           ? 'Queue Cancelled'
@@ -1783,7 +1823,9 @@ const Matchmaking: React.FC = () => {
                     <div className={`${styles.background} border ${styles.border} rounded-lg p-4 mb-6`}>
                       <p className="text-white/80 text-sm text-center">
                         {cancellationContext?.detail ||
-                          'Match cancelled. Queue up again whenever you are ready.'}
+                          (status === 'abandoned'
+                            ? 'The other player\'s browser crashed or they disconnected after you paid. Your funds are safe and a refund proposal is being prepared. You\'ll receive your full refund once the proposal is created (usually within 2-3 minutes).'
+                            : 'Match cancelled. Queue up again whenever you are ready.')}
                 </p>
               </div>
                   </>

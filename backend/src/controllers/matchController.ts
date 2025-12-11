@@ -5323,16 +5323,55 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     const statusCheckPlayer2Result = match.getPlayer2Result();
     const bothPlayersHaveResults = !!statusCheckPlayer1Result && !!statusCheckPlayer2Result;
     
+    // ✅ NEW: Detect abandoned matches (one player paid but opponent crashed/disconnected)
+    // Check if match is stale (>2 minutes old) with one player paid but other never paid
+    const matchAgeMs = Date.now() - new Date(match.createdAt).getTime();
+    const matchAgeMinutes = matchAgeMs / (1000 * 60);
+    const requestingPlayerPaid = isPlayer1 ? match.player1Paid : match.player2Paid;
+    const otherPlayerPaid = isPlayer1 ? match.player2Paid : match.player1Paid;
+    const isAbandoned = match.status === 'payment_required' && 
+                        requestingPlayerPaid && 
+                        !otherPlayerPaid && 
+                        matchAgeMinutes > 2; // 2 minutes threshold
+    
+    if (isAbandoned) {
+      console.log('⚠️ Abandoned match detected', {
+        matchId: match.id,
+        requestingWallet,
+        requestingPlayerPaid,
+        otherPlayerPaid,
+        matchAgeMinutes: matchAgeMinutes.toFixed(2),
+        status: match.status,
+        note: 'One player paid but opponent never paid after 2+ minutes - likely crashed/disconnected'
+      });
+      
+      // Trigger refund processing in background (non-blocking)
+      if (matchRepository) {
+        (async () => {
+          try {
+            const { processAutomatedRefunds } = require('./matchController');
+            await processAutomatedRefunds(match, 'opponent_disconnected');
+            console.log('✅ Refund processing triggered for abandoned match', { matchId: match.id });
+          } catch (refundError: any) {
+            console.error('❌ Failed to trigger refund for abandoned match', {
+              matchId: match.id,
+              error: refundError?.message
+            });
+          }
+        })();
+      }
+    }
+    
     // Determine the appropriate status based on the requesting player's payment status
     let playerSpecificStatus = match.status;
     
     // CRITICAL: If both players have results, status is always 'completed' regardless of match.status
     if (bothPlayersHaveResults || match.isCompleted) {
       playerSpecificStatus = 'completed';
+    } else if (isAbandoned) {
+      // ✅ NEW: Return abandoned status for abandoned matches
+      playerSpecificStatus = 'abandoned';
     } else if (match.status === 'payment_required') {
-      const requestingPlayerPaid = isPlayer1 ? match.player1Paid : match.player2Paid;
-      const otherPlayerPaid = isPlayer1 ? match.player2Paid : match.player1Paid;
-      
       if (requestingPlayerPaid && otherPlayerPaid) {
         // Both players have paid
         playerSpecificStatus = 'active';
