@@ -28,8 +28,9 @@ interface CanReferInfo {
 }
 
 interface EarningsBreakdown {
-  byLevel: Array<{ level: number; totalUSD: number; count: number }>;
+  byTier: Array<{ tier: number; percentage: number; totalUSD: number; count: number }>;
   byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
+  currentTier: { tier: number; percentage: number; activeReferredCount: number };
 }
 
 export default function ReferralsPage() {
@@ -377,37 +378,84 @@ export default function ReferralsPage() {
           </Link>
         </div>
 
-        {/* Earnings Breakdown by Level */}
-        {breakdown && breakdown.byLevel && breakdown.byLevel.length > 0 && (
+        {/* Current Tier & Progress */}
+        {breakdown && breakdown.currentTier && (
           <div className="w-full mb-8">
-            <div className="bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-xl border border-white/20 w-full">
-              <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown by Referral Level</h2>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                {[1, 2, 3].map(level => {
-                  const levelData = breakdown.byLevel.find(item => item.level === level);
-                  const levelColors = [
-                    { bg: 'from-accent/20', border: 'border-accent/30', text: 'text-accent' },
-                    { bg: 'from-purple-500/20', border: 'border-purple-400/30', text: 'text-purple-400' },
-                    { bg: 'from-pink-500/20', border: 'border-pink-400/30', text: 'text-pink-400' }
-                  ];
-                  const colors = levelColors[level - 1];
-                  return (
-                    <div key={level} className={`bg-gradient-to-br ${colors.bg} backdrop-blur-sm rounded-xl p-5 border ${colors.border}`}>
-                      <div className="text-center">
-                        <div className={`text-2xl font-bold ${colors.text} mb-2`}>Level {level}</div>
-                        <div className="text-3xl font-bold text-white mb-1">
-                          {formatUSD(levelData?.totalUSD || 0)}
-                        </div>
-                        <div className="text-white/60 text-xs">
-                          {levelData?.count || 0} matches
-                        </div>
-                        <div className="text-white/50 text-xs mt-2 italic">
-                          {level === 1 ? 'Direct referrals' : level === 2 ? 'Your referral\'s referrals' : '3rd level down'}
-                        </div>
-                      </div>
+            <div className="bg-gradient-to-br from-purple-500/20 via-purple-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-xl border-2 border-purple-400/40 w-full">
+              <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Your Referral Tier</h2>
+              <div className="text-center mb-6">
+                <div className="text-white/70 text-sm uppercase tracking-wider mb-2">Current Tier</div>
+                <div className="text-5xl sm:text-6xl font-bold mb-2 text-purple-400">
+                  {(breakdown.currentTier.percentage * 100).toFixed(0)}%
+                </div>
+                <div className="text-white/60 text-sm">
+                  {breakdown.currentTier.activeReferredCount} active wallets
+                </div>
+                <div className="text-white/50 text-xs mt-2 italic">
+                  {breakdown.currentTier.activeReferredCount >= 1000 
+                    ? 'Maximum tier reached!'
+                    : breakdown.currentTier.activeReferredCount >= 500
+                    ? `${1000 - breakdown.currentTier.activeReferredCount} more active wallets to reach 25% tier`
+                    : breakdown.currentTier.activeReferredCount >= 100
+                    ? `${500 - breakdown.currentTier.activeReferredCount} more active wallets to reach 20% tier`
+                    : `${100 - breakdown.currentTier.activeReferredCount} more active wallets to reach 15% tier`
+                  }
+                </div>
+              </div>
+              
+              {/* Tier Progress Bars */}
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs text-white/70 mb-1">
+                    <span>Base Tier (10%)</span>
+                    <span>{breakdown.currentTier.activeReferredCount < 100 ? `${breakdown.currentTier.activeReferredCount}/100` : '✓'}</span>
+                  </div>
+                  <div className="w-full bg-white/10 rounded-full h-2">
+                    <div 
+                      className="bg-purple-400 h-2 rounded-full transition-all"
+                      style={{ width: `${Math.min((breakdown.currentTier.activeReferredCount / 100) * 100, 100)}%` }}
+                    ></div>
+                  </div>
+                </div>
+                {breakdown.currentTier.activeReferredCount >= 100 && (
+                  <div>
+                    <div className="flex justify-between text-xs text-white/70 mb-1">
+                      <span>Tier 1 (15%)</span>
+                      <span>{breakdown.currentTier.activeReferredCount < 500 ? `${breakdown.currentTier.activeReferredCount}/500` : '✓'}</span>
                     </div>
-                  );
-                })}
+                    <div className="w-full bg-white/10 rounded-full h-2">
+                      <div 
+                        className="bg-purple-400 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.min(((breakdown.currentTier.activeReferredCount - 100) / 400) * 100, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                {breakdown.currentTier.activeReferredCount >= 500 && (
+                  <div>
+                    <div className="flex justify-between text-xs text-white/70 mb-1">
+                      <span>Tier 2 (20%)</span>
+                      <span>{breakdown.currentTier.activeReferredCount < 1000 ? `${breakdown.currentTier.activeReferredCount}/1000` : '✓'}</span>
+                    </div>
+                    <div className="w-full bg-white/10 rounded-full h-2">
+                      <div 
+                        className="bg-purple-400 h-2 rounded-full transition-all"
+                        style={{ width: `${Math.min(((breakdown.currentTier.activeReferredCount - 500) / 500) * 100, 100)}%` }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+                {breakdown.currentTier.activeReferredCount >= 1000 && (
+                  <div>
+                    <div className="flex justify-between text-xs text-white/70 mb-1">
+                      <span>Tier 3 (25%)</span>
+                      <span>✓ Maximum</span>
+                    </div>
+                    <div className="w-full bg-white/10 rounded-full h-2">
+                      <div className="bg-purple-400 h-2 rounded-full w-full"></div>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </div>
@@ -462,28 +510,40 @@ export default function ReferralsPage() {
               <div className="bg-white/5 rounded-xl p-5 border border-white/10">
                 <h3 className="text-lg font-bold text-accent mb-3">Earning Structure</h3>
                 <p className="text-white/80 mb-3 leading-relaxed">
-                  When someone uses your referral link and plays a match, you earn from fees generated by <strong className="text-white">their wallet's activity</strong>. The referral pool is <strong className="text-white">25% of the match's net profit</strong> (Platform Fee - Bonus - Network Costs).
+                  When someone uses your referral link and plays a match, you earn <strong className="text-white">a percentage of the match's net profit</strong> (Platform Fee - Bonus - Network Costs). The percentage depends on your referral tier, which is based on how many active wallets you've referred.
                 </p>
                 <p className="text-white/80 mb-4 leading-relaxed">
-                  This pool is split equally between the two players in the match. Each player's share flows up their referral chain, meaning you earn from <strong className="text-white">half of the match's net profit</strong> (12.5% total) when your referred player is involved.
+                  <strong className="text-white">If you referred both players</strong> in a match, you earn <strong className="text-accent">double the percentage</strong> (one percentage per player). For example, at the base tier (10%), referring both players earns you 20% of net profit.
                 </p>
-                <div className="grid grid-cols-3 gap-3 mt-4">
-                  <div className="bg-accent/20 border border-accent/40 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-accent mb-1">L1</div>
-                    <div className="text-xs text-white/90 font-semibold">100%</div>
-                    <div className="text-xs text-white/70 mt-1">Direct referral</div>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mt-4">
+                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-purple-400 mb-1">Base</div>
+                    <div className="text-xs text-white/90 font-semibold">10%</div>
+                    <div className="text-xs text-white/70 mt-1">0-99 active</div>
+                    <div className="text-xs text-white/60 mt-1 italic">20% if both</div>
                   </div>
-                  <div className="bg-purple-500/20 border border-purple-500/40 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-purple-400 mb-1">L2</div>
+                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-purple-400 mb-1">Tier 1</div>
+                    <div className="text-xs text-white/90 font-semibold">15%</div>
+                    <div className="text-xs text-white/70 mt-1">100-499 active</div>
+                    <div className="text-xs text-white/60 mt-1 italic">30% if both</div>
+                  </div>
+                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-purple-400 mb-1">Tier 2</div>
+                    <div className="text-xs text-white/90 font-semibold">20%</div>
+                    <div className="text-xs text-white/70 mt-1">500-999 active</div>
+                    <div className="text-xs text-white/60 mt-1 italic">40% if both</div>
+                  </div>
+                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-purple-400 mb-1">Tier 3</div>
                     <div className="text-xs text-white/90 font-semibold">25%</div>
-                    <div className="text-xs text-white/70 mt-1">Your referral's referral</div>
-                  </div>
-                  <div className="bg-pink-500/20 border border-pink-500/40 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-pink-400 mb-1">L3</div>
-                    <div className="text-xs text-white/90 font-semibold">6.25%</div>
-                    <div className="text-xs text-white/70 mt-1">3rd level down</div>
+                    <div className="text-xs text-white/70 mt-1">1000+ active</div>
+                    <div className="text-xs text-white/60 mt-1 italic">50% if both</div>
                   </div>
                 </div>
+                <p className="text-white/70 text-xs mt-4 italic">
+                  An "active wallet" is a wallet that has played at least one completed match.
+                </p>
               </div>
 
               <div className="bg-white/5 rounded-xl p-5 border border-white/10">

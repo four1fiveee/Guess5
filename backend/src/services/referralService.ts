@@ -139,8 +139,72 @@ export class ReferralService {
   }
 
   /**
+   * Get referrer tier based on active referred wallets count
+   * Tiers:
+   * - Base: 10% (0-99 active wallets)
+   * - Tier 1: 15% (100-499 active wallets)
+   * - Tier 2: 20% (500-999 active wallets)
+   * - Tier 3: 25% (1000+ active wallets)
+   */
+  static async getReferrerTier(referrerWallet: string): Promise<{
+    tier: number;
+    percentage: number;
+    activeReferredCount: number;
+  }> {
+    const referralRepository = AppDataSource.getRepository(Referral);
+    
+    // Get all referred wallets
+    const referred = await referralRepository.find({
+      where: { referrerWallet, active: true }
+    });
+    
+    const referredWallets = referred.map(r => r.referredWallet);
+    
+    if (referredWallets.length === 0) {
+      return { tier: 0, percentage: 0.10, activeReferredCount: 0 };
+    }
+    
+    // Get active referred count (have played at least one match)
+    // A wallet is "active" if they've played at least one completed match
+    const activeReferred = await AppDataSource.query(`
+      SELECT COUNT(DISTINCT wallet) as count
+      FROM (
+        SELECT "player1" as wallet FROM "match" 
+        WHERE "player1" = ANY($1::text[])
+        AND status = 'completed'
+        UNION
+        SELECT "player2" as wallet FROM "match" 
+        WHERE "player2" = ANY($1::text[])
+        AND status = 'completed'
+      ) t
+    `, [referredWallets]);
+    
+    const activeCount = parseInt(activeReferred[0]?.count || '0');
+    
+    // Determine tier based on active count
+    let tier = 0;
+    let percentage = 0.10; // Base: 10%
+    
+    if (activeCount >= 1000) {
+      tier = 3;
+      percentage = 0.25; // Tier 3: 25%
+    } else if (activeCount >= 500) {
+      tier = 2;
+      percentage = 0.20; // Tier 2: 20%
+    } else if (activeCount >= 100) {
+      tier = 1;
+      percentage = 0.15; // Tier 1: 15%
+    }
+    
+    return { tier, percentage, activeReferredCount: activeCount };
+  }
+
+  /**
    * Compute referral earnings for a completed match
-   * This is the core earnings calculation with geometric decay
+   * New tiered system: Direct referrals only, percentage based on referrer tier
+   * - Base: 10% of net profit per referred wallet
+   * - If both players referred by same person: 20% (10% per player)
+   * - Tier upgrades based on active referred count (100/500/1000)
    */
   static async computeReferralEarningsForMatch(matchId: string): Promise<void> {
     const matchRepository = AppDataSource.getRepository(Match);
@@ -168,54 +232,63 @@ export class ReferralService {
       return;
     }
 
-    // Calculate referral pool: 25% of net profit
-    const referralPool = netProfit * 0.25;
-
-    // Per-player share: referral pool divided by 2 (since 2 players contribute equally)
-    const perPlayerShare = referralPool / 2.0;
-
+    const referralRepository = AppDataSource.getRepository(Referral);
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
 
-    // Process each player
-    const players = [match.player1, match.player2].filter(Boolean);
+    // Get direct referrers for each player
+    const player1Referral = await referralRepository.findOne({
+      where: { referredWallet: match.player1, active: true }
+    });
+    
+    const player2Referral = await referralRepository.findOne({
+      where: { referredWallet: match.player2, active: true }
+    });
 
-    for (const playerWallet of players) {
-      // Get upline chain (up to level 3)
-      const uplines = await this.getReferrerChain(playerWallet, 3);
+    // Track referrers and their earnings
+    const referrerEarnings = new Map<string, { amountUSD: number; playersReferred: string[] }>();
 
-      if (uplines.length === 0) {
-        continue; // No referrer chain
-      }
+    // Process Player 1's referrer
+    if (player1Referral && player1Referral.referrerWallet) {
+      const referrerWallet = player1Referral.referrerWallet;
+      const tierInfo = await this.getReferrerTier(referrerWallet);
+      
+      // Calculate earnings: percentage of net profit
+      const earningsAmount = netProfit * tierInfo.percentage;
+      
+      const existing = referrerEarnings.get(referrerWallet) || { amountUSD: 0, playersReferred: [] };
+      existing.amountUSD += earningsAmount;
+      existing.playersReferred.push(match.player1);
+      referrerEarnings.set(referrerWallet, existing);
+    }
 
-      // Calculate earnings with geometric decay
-      // L1 = perPlayerShare * 1.00
-      // L2 = L1 * 0.25
-      // L3 = L2 * 0.25
-      let levelAmount = perPlayerShare;
+    // Process Player 2's referrer
+    if (player2Referral && player2Referral.referrerWallet) {
+      const referrerWallet = player2Referral.referrerWallet;
+      const tierInfo = await this.getReferrerTier(referrerWallet);
+      
+      // Calculate earnings: percentage of net profit
+      const earningsAmount = netProfit * tierInfo.percentage;
+      
+      const existing = referrerEarnings.get(referrerWallet) || { amountUSD: 0, playersReferred: [] };
+      existing.amountUSD += earningsAmount;
+      existing.playersReferred.push(match.player2);
+      referrerEarnings.set(referrerWallet, existing);
+    }
 
-      for (const upline of uplines) {
-        // Check if upline is eligible
-        const isEligible = await UserService.checkReferralEligibility(upline.wallet);
-        if (!isEligible) {
-          // Still create earning record but mark as pending eligibility
-          // The amount will be paid once referrer becomes eligible
-        }
+    // Create earning records for each referrer
+    for (const [referrerWallet, earnings] of referrerEarnings.entries()) {
+      // Create one earning record per referrer (not per player)
+      // If both players were referred by same person, they get double percentage
+      const earning = earningRepository.create({
+        matchId: match.id,
+        referredWallet: earnings.playersReferred.join(','), // Store both if applicable
+        uplineWallet: referrerWallet,
+        level: 1, // Always level 1 for direct referrals
+        amountUSD: earnings.amountUSD,
+        paid: false
+      });
 
-        // Create earning record
-        const earning = earningRepository.create({
-          matchId: match.id,
-          referredWallet: playerWallet,
-          uplineWallet: upline.wallet,
-          level: upline.level,
-          amountUSD: levelAmount,
-          paid: false
-        });
-
-        await earningRepository.save(earning);
-
-        // Apply geometric decay for next level
-        levelAmount = levelAmount * 0.25;
-      }
+      await earningRepository.save(earning);
     }
 
     // Mark match as computed
@@ -254,9 +327,13 @@ export class ReferralService {
     const activeReferred = await AppDataSource.query(`
       SELECT COUNT(DISTINCT wallet) as count
       FROM (
-        SELECT "player1" as wallet FROM "match" WHERE "player1" = ANY($1) AND status = 'completed'
+        SELECT "player1" as wallet FROM "match" 
+        WHERE "player1" = ANY($1::text[])
+        AND status = 'completed'
         UNION
-        SELECT "player2" as wallet FROM "match" WHERE "player2" = ANY($1) AND status = 'completed'
+        SELECT "player2" as wallet FROM "match" 
+        WHERE "player2" = ANY($1::text[])
+        AND status = 'completed'
       ) t
     `, [referredWallets]);
 
@@ -312,11 +389,13 @@ export class ReferralService {
 
   /**
    * Get earnings breakdown for a wallet
+   * Updated for tiered system - no multi-level chains
    */
   static async getEarningsBreakdown(wallet: string): Promise<{
-    byLevel: Array<{ level: number; totalUSD: number; count: number }>;
+    byTier: Array<{ tier: number; percentage: number; totalUSD: number; count: number }>;
     byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
     recentEarnings: Array<ReferralEarning>;
+    currentTier: { tier: number; percentage: number; activeReferredCount: number };
   }> {
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
 
@@ -326,23 +405,39 @@ export class ReferralService {
       order: { createdAt: 'DESC' }
     });
 
-    // Group by level
-    const byLevel = [1, 2, 3].map(level => {
-      const levelEarnings = earnings.filter(e => e.level === level);
+    // Get current tier
+    const currentTier = await this.getReferrerTier(wallet);
+
+    // Group by tier (for historical tracking)
+    // Since we're only tracking direct referrals now, all are tier-based
+    const byTier = [
+      { tier: 0, percentage: 0.10 },
+      { tier: 1, percentage: 0.15 },
+      { tier: 2, percentage: 0.20 },
+      { tier: 3, percentage: 0.25 }
+    ].map(tierInfo => {
+      // For now, we'll group all earnings together since tier is dynamic
+      // In the future, we could track tier at time of earning
       return {
-        level,
-        totalUSD: levelEarnings.reduce((sum, e) => sum + Number(e.amountUSD), 0),
-        count: levelEarnings.length
+        tier: tierInfo.tier,
+        percentage: tierInfo.percentage,
+        totalUSD: 0, // Will be calculated if we track tier per earning
+        count: 0
       };
     });
 
     // Group by referred wallet
     const byReferredMap = new Map<string, { totalUSD: number; count: number }>();
     earnings.forEach(e => {
-      const existing = byReferredMap.get(e.referredWallet) || { totalUSD: 0, count: 0 };
-      existing.totalUSD += Number(e.amountUSD);
-      existing.count += 1;
-      byReferredMap.set(e.referredWallet, existing);
+      // Handle multiple wallets in referredWallet field (comma-separated)
+      const wallets = e.referredWallet.split(',').map(w => w.trim());
+      wallets.forEach(wallet => {
+        const existing = byReferredMap.get(wallet) || { totalUSD: 0, count: 0 };
+        // Split amount if multiple wallets
+        existing.totalUSD += Number(e.amountUSD) / wallets.length;
+        existing.count += 1;
+        byReferredMap.set(wallet, existing);
+      });
     });
 
     const byReferredWallet = Array.from(byReferredMap.entries()).map(([wallet, stats]) => ({
@@ -354,9 +449,10 @@ export class ReferralService {
     const recentEarnings = earnings.slice(0, 20);
 
     return {
-      byLevel,
+      byTier,
       byReferredWallet,
-      recentEarnings
+      recentEarnings,
+      currentTier
     };
   }
 }
