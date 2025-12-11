@@ -4623,10 +4623,20 @@ export class SquadsVaultService {
               proposalId,
               transactionIndex: transactionIndexNumber,
               correlationId,
+              instructionKeys: executionIx.keys?.length || 0,
+              instructionProgramId: executionIx.programId?.toString(),
             });
             
             // Get latest blockhash
             const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+            
+            enhancedLogger.info('📋 Building transaction message', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              blockhash,
+              correlationId,
+            });
             
             // Build transaction message
             const message = new TransactionMessage({
@@ -4635,8 +4645,54 @@ export class SquadsVaultService {
               instructions: [executionIx],
             });
             
+            enhancedLogger.info('📦 Compiling to V0 message', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              correlationId,
+              connectionRpcUrl: this.connection.rpcEndpoint,
+              connectionType: typeof this.connection,
+            });
+            
             // Compile to V0 message (required for Squads)
-            const compiledMessage = message.compileToV0Message();
+            // Note: compileToV0Message() is synchronous and doesn't need connection
+            // If it fails, it's likely due to instruction structure issues
+            let compiledMessage;
+            try {
+              // Log instruction details before compilation
+              enhancedLogger.info('🔍 Instruction details before compilation', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                instructionKeysCount: executionIx.keys?.length || 0,
+                instructionProgramId: executionIx.programId?.toString(),
+                instructionDataLength: executionIx.data?.length || 0,
+                correlationId,
+              });
+              
+              compiledMessage = message.compileToV0Message();
+              
+              enhancedLogger.info('✅ Successfully compiled to V0 message', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                correlationId,
+              });
+            } catch (compileError: any) {
+              enhancedLogger.error('❌ Failed to compile transaction to V0 message', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                error: compileError?.message || String(compileError),
+                errorName: compileError?.name,
+                errorStack: compileError?.stack,
+                instructionKeysCount: executionIx.keys?.length || 0,
+                instructionProgramId: executionIx.programId?.toString(),
+                correlationId,
+                note: 'This error typically indicates missing account resolution, instruction structure issues, or SDK incompatibility',
+              });
+              throw compileError;
+            }
             const transaction = new VersionedTransaction(compiledMessage);
             
             // Sign the transaction
