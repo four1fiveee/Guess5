@@ -14875,7 +14875,11 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
         "payoutProposalId",
         "player1Paid",
         "player2Paid",
-        "refundReason"
+        "refundReason",
+        "bonusAmount",
+        "bonusAmountUSD",
+        "bonusPaid",
+        "bonusTier"
       FROM "match"
       WHERE ("player1" = $1 OR "player2" = $2)
         AND ("player1Paid" = true OR "player2Paid" = true)
@@ -14891,6 +14895,8 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
     let totalEntryFeesSpentUSD = 0;
     let totalPayoutsReceived = 0;
     let totalPayoutsReceivedUSD = 0;
+    let totalBonusReceived = 0;
+    let totalBonusReceivedUSD = 0;
 
     for (const match of matches) {
       const isPlayer1 = match.player1?.toLowerCase() === wallet.toLowerCase();
@@ -14940,6 +14946,14 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
           const payoutAmountUSD = parseFloat(match.payoutAmountUSD) || 0;
           totalPayoutsReceived += payoutAmount;
           totalPayoutsReceivedUSD += payoutAmountUSD;
+          
+          // ✅ ADD: Count bonus if paid
+          if (match.bonusPaid && match.bonusAmount) {
+            const bonusAmount = parseFloat(match.bonusAmount) || 0;
+            const bonusAmountUSD = parseFloat(match.bonusAmountUSD) || 0;
+            totalBonusReceived += bonusAmount;
+            totalBonusReceivedUSD += bonusAmountUSD;
+          }
         } else {
           losses++;
           // Loser gets nothing
@@ -14948,8 +14962,9 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
     }
 
     const winPercentage = gamesPlayed > 0 ? (wins / gamesPlayed) * 100 : 0;
-    const netProfit = totalPayoutsReceived - totalEntryFeesSpent;
-    const netProfitUSD = totalPayoutsReceivedUSD - totalEntryFeesSpentUSD;
+    // ✅ FIX: Include bonus in net profit calculation
+    const netProfit = (totalPayoutsReceived + totalBonusReceived) - totalEntryFeesSpent;
+    const netProfitUSD = (totalPayoutsReceivedUSD + totalBonusReceivedUSD) - totalEntryFeesSpentUSD;
 
     res.json({
       success: true,
@@ -14963,6 +14978,8 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
         totalEntryFeesSpentUSD: parseFloat(totalEntryFeesSpentUSD.toFixed(2)),
         totalPayoutsReceived,
         totalPayoutsReceivedUSD: parseFloat(totalPayoutsReceivedUSD.toFixed(2)),
+        totalBonusReceived,
+        totalBonusReceivedUSD: parseFloat(totalBonusReceivedUSD.toFixed(2)),
         netProfit,
         netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
       },

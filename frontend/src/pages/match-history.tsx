@@ -17,6 +17,8 @@ interface MatchStats {
   totalEntryFeesSpentUSD: number;
   totalPayoutsReceived: number;
   totalPayoutsReceivedUSD: number;
+  totalBonusReceived: number;
+  totalBonusReceivedUSD: number;
   netProfit: number;
   netProfitUSD: number;
 }
@@ -262,6 +264,14 @@ export default function MatchHistoryPage() {
                         : formatUSD(0)}
                     </span>
                   </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-white/80 text-sm">Bonus Earned:</span>
+                    <span className="text-yellow-400 font-semibold">
+                      {solPrice && stats?.totalBonusReceived 
+                        ? formatUSD(stats.totalBonusReceived * solPrice)
+                        : formatUSD(0)}
+                    </span>
+                  </div>
                 </div>
                 <div className="mt-3 pt-3 border-t border-white/10">
                   <div className="flex justify-between items-center">
@@ -276,8 +286,13 @@ export default function MatchHistoryPage() {
                     ({formatSOL(stats?.netProfit || 0)})
                   </div>
                   <div className="text-white/50 text-xs mt-2 italic">
-                    Net Profit = Amount Received from Vaults - Entry Fees Paid
+                    Net Profit = (Amount Received + Bonus Earned) - Entry Fees Paid
                   </div>
+                  {stats?.totalBonusReceived && stats.totalBonusReceived > 0 && (
+                    <div className="text-yellow-300/80 text-xs mt-1">
+                      🎁 Bonus: {formatSOL(stats.totalBonusReceived)} included in net profit
+                    </div>
+                  )}
                 </div>
                 {/* USD Conversion Explanation */}
                 <div className="mt-4 pt-3 border-t border-white/10 bg-blue-500/10 rounded-lg p-3">

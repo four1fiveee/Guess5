@@ -2593,14 +2593,28 @@ const Result: React.FC = () => {
                                 </div>
                                 {payoutData.bonus.paid ? (
                                   <>
-                                    <div className="text-green-300 font-bold text-lg">
-                                      +{payoutData.bonus.amountSol?.toFixed(4)} SOL
-                                      {payoutData.bonus.amountUSD
-                                        ? ` ($${payoutData.bonus.amountUSD.toFixed(2)})`
-                                        : ''}
-                                    </div>
+                                    {/* Show expected USD based on tier */}
+                                    {payoutData.bonus.tier && BONUS_USD_BY_TIER[payoutData.bonus.tier] !== undefined ? (
+                                      <div className="text-green-300 font-bold text-lg">
+                                        +${BONUS_USD_BY_TIER[payoutData.bonus.tier].toFixed(2)} USD
+                                        <span className="text-green-200 text-base ml-2">
+                                          (Expected)
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    {/* Show actual SOL received */}
+                                    {payoutData.bonus.amountSol ? (
+                                      <div className="text-green-200 font-semibold text-base mt-1">
+                                        +{payoutData.bonus.amountSol.toFixed(4)} SOL
+                                        {solPrice && (
+                                          <span className="text-green-300/70 text-sm ml-2">
+                                            (≈ ${(payoutData.bonus.amountSol * solPrice).toFixed(2)} USD at current rate)
+                                          </span>
+                                        )}
+                                      </div>
+                                    ) : null}
                                     {payoutData.totalPayoutSol && (
-                                      <div className="text-white/70 text-xs">
+                                      <div className="text-white/70 text-xs mt-2">
                                         Total received: {payoutData.totalPayoutSol.toFixed(4)} SOL
                                         {solPrice && ` ($${(payoutData.totalPayoutSol * solPrice).toFixed(2)} USD)`}
                                       </div>
@@ -2610,16 +2624,27 @@ const Result: React.FC = () => {
                                         href={`https://explorer.solana.com/tx/${payoutData.bonus.signature}?cluster=devnet`}
                                         target="_blank"
                                         rel="noreferrer"
-                                        className="text-accent text-xs underline hover:text-yellow-300"
+                                        className="text-accent text-xs underline hover:text-yellow-300 mt-1"
                                       >
                                         View bonus transaction ↗
                                       </a>
                                     )}
                                   </>
                                 ) : (
-                                  <div className="text-yellow-300 text-sm text-center">
-                                    Bonus triggered! +{payoutData.bonus.expectedSol?.toFixed(4)} SOL arriving when the proposal executes.
-                                  </div>
+                                  <>
+                                    {/* Show expected USD when bonus is pending */}
+                                    {payoutData.bonus.tier && BONUS_USD_BY_TIER[payoutData.bonus.tier] !== undefined ? (
+                                      <div className="text-yellow-300 font-bold text-lg">
+                                        +${BONUS_USD_BY_TIER[payoutData.bonus.tier].toFixed(2)} USD
+                                        <span className="text-yellow-200 text-base ml-2">
+                                          (Expected)
+                                        </span>
+                                      </div>
+                                    ) : null}
+                                    <div className="text-yellow-300 text-sm text-center mt-1">
+                                      Bonus triggered! +{payoutData.bonus.expectedSol?.toFixed(4)} SOL arriving when the proposal executes.
+                                    </div>
+                                  </>
                                 )}
                               </div>
                             </div>
