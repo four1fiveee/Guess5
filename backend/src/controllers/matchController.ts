@@ -7022,7 +7022,23 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               dbStatus: syncResult.dbStatus,
               onChainStatus: syncResult.onChainStatus,
               hasChanges: !!syncResult.changes,
+              changes: syncResult.changes,
+              dbProposalId: syncResult.dbProposalId,
+              onChainProposalId: syncResult.onChainProposalId,
+              note: 'Sync completed - checking if on-chain Approved status was found',
             });
+            
+            // ✅ ENHANCED: Explicitly confirm if sync found on-chain Approved status
+            if (syncResult.synced && syncResult.onChainStatus === 'APPROVED') {
+              console.log('✅✅✅ [get-match-status] CONFIRMED: Sync found on-chain Approved proposal', {
+                matchId: match.id,
+                onChainProposalId: syncResult.onChainProposalId,
+                onChainStatus: syncResult.onChainStatus,
+                dbStatus: syncResult.dbStatus,
+                changes: syncResult.changes,
+                note: 'Database should now be updated to match on-chain Approved state',
+              });
+            }
             
             // If sync failed or proposal is still SIGNATURE_VERIFICATION_FAILED, try to find an Approved proposal
             const currentStatus = (match as any).proposalStatus;

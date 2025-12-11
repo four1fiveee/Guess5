@@ -266,25 +266,66 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
     const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
     const transactionIndex = (proposalAccount as any).transactionIndex;
     const statusKind = (proposalAccount as any).status?.__kind;
+    const approvedSigners = (proposalAccount as any).approved || [];
+    const approvedSignersCount = approvedSigners.length;
+    const approvedSignerPubkeys = approvedSigners.map((s: any) => s.toString());
+
+    // Get multisig threshold to check if we have enough approvals
+    let threshold = 2; // Default threshold for 2-of-2 multisig
+    try {
+      const multisigAccount = await accounts.Multisig.fromAccountAddress(connection, multisigPda);
+      threshold = (multisigAccount as any).threshold || 2;
+    } catch (e: any) {
+      enhancedLogger.warn('⚠️ Could not fetch multisig threshold, using default', {
+        matchId,
+        vaultAddress,
+        error: e?.message,
+        defaultThreshold: 2,
+      });
+    }
 
     if (statusKind !== 'ExecuteReady') {
       // Not ready yet - check if it's still Approved (might need transition)
       if (statusKind === 'Approved') {
-        metrics.proposalsSkippedAwaitingReady++;
-        enhancedLogger.info('⏳ Proposal is Approved but not ExecuteReady yet, waiting', {
-          matchId,
-          proposalId: proposalIdString,
-          vaultAddress,
-          transactionIndex: transactionIndex?.toString(),
-          statusKind,
-          approvedSigners: (proposalAccount as any).approved?.length || 0,
-          approvedSignerPubkeys: (proposalAccount as any).approved?.map((s: any) => s.toString()) || [],
-          attemptKey,
-          nextRetry: new Date(Date.now() + SCAN_INTERVAL_MS).toISOString(),
-          note: 'This is normal - proposals transition from Approved to ExecuteReady. Will check again on next scan.',
-          reason: 'AWAITING_EXECUTE_READY',
-        });
-        return; // Will check again on next scan - silent retry loop continues
+        // ✅ ENHANCED: Check if we have enough approvals to execute
+        const hasEnoughApprovals = approvedSignersCount >= threshold;
+        
+        if (hasEnoughApprovals) {
+          // ✅ FIX: Allow execution when Approved with threshold met
+          // ExecuteReady may not trigger automatically - attempt execution anyway
+          enhancedLogger.info('✅ Proposal is Approved with threshold met - attempting execution', {
+            matchId,
+            proposalId: proposalIdString,
+            vaultAddress,
+            transactionIndex: transactionIndex?.toString(),
+            statusKind,
+            approvedSignersCount,
+            threshold,
+            approvedSignerPubkeys,
+            attemptKey,
+            note: 'Proposal has enough approvals but not ExecuteReady - attempting execution anyway (ExecuteReady may not trigger automatically)',
+            reason: 'APPROVED_WITH_THRESHOLD_MET',
+          });
+          
+          // Continue to execution logic below - don't return
+        } else {
+          metrics.proposalsSkippedAwaitingReady++;
+          enhancedLogger.info('⏳ Proposal is Approved but not ExecuteReady yet, waiting', {
+            matchId,
+            proposalId: proposalIdString,
+            vaultAddress,
+            transactionIndex: transactionIndex?.toString(),
+            statusKind,
+            approvedSignersCount,
+            threshold,
+            approvedSignerPubkeys,
+            attemptKey,
+            nextRetry: new Date(Date.now() + SCAN_INTERVAL_MS).toISOString(),
+            note: `Approved but only ${approvedSignersCount}/${threshold} signers - waiting for more signatures`,
+            reason: 'AWAITING_MORE_SIGNATURES',
+          });
+          return; // Will check again on next scan - need more signatures
+        }
       } else {
         metrics.proposalsSkippedOther++;
         // ✅ WARN only for real anomalies (e.g., DB says APPROVED but on-chain is CANCELLED)
@@ -304,28 +345,43 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
       }
     }
 
-    // ✅ Double-check: Proposal must be ExecuteReady before calling executeProposal
-    // This prevents race conditions where status might change between check and execution
-    if (statusKind !== 'ExecuteReady') {
-      enhancedLogger.warn('⚠️ Proposal status changed between check and execution, aborting', {
+    // ✅ ENHANCED: Allow execution if Approved with threshold met OR ExecuteReady
+    const canExecute = statusKind === 'ExecuteReady' || 
+                      (statusKind === 'Approved' && approvedSignersCount >= threshold);
+    
+    if (!canExecute) {
+      enhancedLogger.warn('⚠️ Proposal cannot be executed - insufficient approvals or wrong status', {
         matchId,
         proposalId: proposalIdString,
         statusKind,
+        approvedSignersCount,
+        threshold,
+        note: 'Proposal must be ExecuteReady OR Approved with threshold met to execute',
+        reason: 'INSUFFICIENT_APPROVALS_OR_WRONG_STATUS',
       });
       return;
     }
 
-    // Proposal is ExecuteReady - execute it
-    enhancedLogger.info('🚀 Executing Approved proposal (monitor)', {
+    // ✅ ENHANCED: Log execution decision with diagnostics
+    const executionReason = statusKind === 'ExecuteReady' 
+      ? 'EXECUTE_READY' 
+      : 'APPROVED_WITH_THRESHOLD_MET';
+    
+    enhancedLogger.info('🚀 Executing proposal (monitor)', {
       matchId,
       proposalId: proposalIdString,
       vaultAddress,
       transactionIndex: transactionIndex?.toString(),
-      statusKind: 'ExecuteReady',
+      statusKind,
+      approvedSignersCount,
+      threshold,
+      approvedSignerPubkeys,
       attemptKey,
       attemptCount: existingAttempt?.attemptCount || 0,
-      note: 'Proposal is confirmed ExecuteReady - proceeding with execution',
-      reason: 'EXECUTE_READY',
+      executionReason,
+      note: statusKind === 'ExecuteReady' 
+        ? 'Proposal is ExecuteReady - proceeding with execution'
+        : `Proposal is Approved with ${approvedSignersCount}/${threshold} signers - attempting execution (ExecuteReady may not trigger automatically)`,
     });
 
     const feeWalletKeypair = getFeeWalletKeypair();

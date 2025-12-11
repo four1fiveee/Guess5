@@ -272,7 +272,13 @@ router.get('/sign-proposal-test', (req: any, res: any) => {
 
 router.post('/sign-proposal',
   // ✅ CRITICAL: Explicit route match confirmation - FIRST middleware
+  // ✅ ENHANCED: Log all /sign-proposal attempts with matchId correlation
   (req: any, res: any, next: any) => {
+    const matchId = req.query?.matchId || 'unknown';
+    const wallet = req.query?.wallet || 'unknown';
+    const contentType = req.headers['content-type'] || 'unknown';
+    const contentLength = req.headers['content-length'] || 'unknown';
+    
     console.log('✅✅✅ ROUTE MATCHED: POST /sign-proposal', {
       method: req.method,
       url: req.url,
@@ -280,10 +286,18 @@ router.post('/sign-proposal',
       path: req.path,
       baseUrl: req.baseUrl,
       query: req.query,
-      contentType: req.headers['content-type'],
-      contentLength: req.headers['content-length'],
+      matchId,
+      wallet,
+      contentType,
+      contentLength,
+      headers: {
+        'content-type': contentType,
+        'content-length': contentLength,
+        'origin': req.headers.origin || 'unknown',
+        'user-agent': req.headers['user-agent']?.substring(0, 50) || 'unknown',
+      },
       timestamp: new Date().toISOString(),
-      note: 'THIS LOG CONFIRMS THE ROUTE IS MATCHING - if you see this, routing works',
+      note: 'THIS LOG CONFIRMS THE ROUTE IS MATCHING - if you see this, routing works. All /sign-proposal attempts are logged here.',
     });
     next();
   },
@@ -341,16 +355,28 @@ router.post('/sign-proposal',
       // Execute it with error handling
       rawParser(req, res, (err: any) => {
         if (err) {
+          const matchId = req.query?.matchId || 'unknown';
+          const wallet = req.query?.wallet || 'unknown';
+          
+          // ✅ ENHANCED: Log all failures (CORS, 415, 413, etc.) with matchId correlation
           console.error('❌ Raw parser middleware error', {
             error: err?.message,
             stack: err?.stack,
             errorType: err?.constructor?.name,
             contentType: req.headers['content-type'],
             contentLength: req.headers['content-length'],
-            matchId: req.query?.matchId,
-            wallet: req.query?.wallet,
+            matchId,
+            wallet,
             url: req.url,
+            requestPath: req.path,
+            requestMethod: req.method,
+            headers: {
+              'content-type': req.headers['content-type'],
+              'content-length': req.headers['content-length'],
+              'origin': req.headers.origin || 'unknown',
+            },
             timestamp: new Date().toISOString(),
+            note: 'This error may indicate CORS, 415 (Unsupported Media Type), 413 (Payload Too Large), or body parsing issues',
           });
           
           // ✅ FIX 4: Expose parser errors via response
@@ -358,7 +384,10 @@ router.post('/sign-proposal',
             error: 'Raw body parser failed',
             errorType: 'BODY_PARSER_ERROR',
             details: err?.message || 'Failed to parse request body',
-            matchId: req.query?.matchId,
+            matchId,
+            wallet,
+            contentType: req.headers['content-type'],
+            contentLength: req.headers['content-length'],
           });
         }
         

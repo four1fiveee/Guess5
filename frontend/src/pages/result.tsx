@@ -1430,6 +1430,17 @@ const Result: React.FC = () => {
             proposalSerialized.byteOffset + proposalSerialized.byteLength
           );
           
+          // ✅ FIX: Ensure bodyBuffer is ArrayBuffer, not SharedArrayBuffer (for TypeScript compatibility)
+          const bodyArrayBuffer: ArrayBuffer = bodyBuffer instanceof SharedArrayBuffer 
+            ? (() => {
+                const newBuffer = new ArrayBuffer(bodyBuffer.byteLength);
+                const view = new Uint8Array(newBuffer);
+                const sourceView = new Uint8Array(bodyBuffer);
+                view.set(sourceView);
+                return newBuffer;
+              })()
+            : bodyBuffer;
+          
           const fetchStartTime = Date.now();
           
           // Add timeout to prevent hanging requests (30 seconds)
@@ -1437,12 +1448,15 @@ const Result: React.FC = () => {
           const timeoutId = setTimeout(() => controller.abort(), 30000);
           
           try {
+            // ✅ ENHANCED: Log frontend-side proposal ID for debugging
             console.log('🌐 Sending POST /api/match/sign-proposal', {
               length: proposalSerialized.byteLength,
               matchId,
               wallet: publicKey.toString(),
+              frontendProposalId: payoutData?.proposalId,
               url: requestUrl,
               timestamp: new Date().toISOString(),
+              note: 'If proposalId mismatch, user may be signing wrong proposal',
             });
             
             response = await fetch(requestUrl, {
@@ -1452,7 +1466,7 @@ const Result: React.FC = () => {
               },
               mode: 'cors', // Explicitly enable CORS
               credentials: 'include',
-              body: bodyBuffer, // ArrayBuffer for better browser compatibility
+              body: bodyArrayBuffer, // ArrayBuffer for better browser compatibility
               signal: controller.signal,
             });
             clearTimeout(timeoutId);
@@ -2639,50 +2653,73 @@ const Result: React.FC = () => {
                               {/* Show sign button if proposal exists AND user hasn't signed yet */}
                               {(() => {
                                 const hasProposalId = !!payoutData.proposalId;
-                                // CRITICAL: Check both normalized signers and raw signers array
-                                const normalizedUserSigned = playerProposalSigners.includes(publicKey?.toString() || '');
+                                
+                                // ✅ FIX: Use latest polling response for userHasSigned calculation
+                                // Get raw signers from latest payoutData (from polling)
                                 const rawSigners = Array.isArray(payoutData.proposalSigners) 
                                   ? payoutData.proposalSigners 
                                   : (typeof payoutData.proposalSigners === 'string' 
                                       ? JSON.parse(payoutData.proposalSigners || '[]') 
                                       : []);
-                                const rawUserSigned = rawSigners.some((s: string) => 
-                                  s && s.toLowerCase() === (publicKey?.toString() || '').toLowerCase()
+                                
+                                // ✅ FIX: Check if user's public key is in the latest proposalSigners
+                                // Use case-insensitive comparison to handle address format differences
+                                const currentUserWallet = publicKey?.toString() || '';
+                                const userHasSigned = rawSigners.some((s: string) => 
+                                  s && s.toLowerCase() === currentUserWallet.toLowerCase()
                                 );
-                                const userHasSigned = normalizedUserSigned || rawUserSigned;
+                                
+                                // Also check normalized signers as fallback
+                                const normalizedUserSigned = playerProposalSigners.some((s: string) =>
+                                  s && s.toLowerCase() === currentUserWallet.toLowerCase()
+                                );
+                                const userHasSignedFinal = userHasSigned || normalizedUserSigned;
+                                
+                                // ✅ ENHANCED: Log frontend-side proposal ID for debugging
+                                console.log('🔍 WINNER Sign Button Debug (Enhanced):', {
+                                  frontendProposalId: payoutData?.proposalId,
+                                  hasProposalId,
+                                  userHasSignedFinal,
+                                  userHasSignedFromRaw: userHasSigned,
+                                  userHasSignedFromNormalized: normalizedUserSigned,
+                                  currentUserWallet,
+                                  playerProposalSigners,
+                                  rawSigners,
+                                  rawSignersCount: rawSigners.length,
+                                  proposalStatus: payoutData.proposalStatus,
+                                  needsSignatures: payoutData.needsSignatures,
+                                  isExecutingOrExecuted: payoutData.proposalStatus === 'EXECUTING' || 
+                                                         payoutData.proposalStatus === 'EXECUTED' ||
+                                                         !!payoutData.proposalExecutedAt,
+                                  note: 'userHasSigned calculated from latest polling response',
+                                });
                                 
                                 // CRITICAL: Don't show sign button if proposal is executing or executed
                                 const isExecutingOrExecuted = payoutData.proposalStatus === 'EXECUTING' || 
                                                                payoutData.proposalStatus === 'EXECUTED' ||
                                                                !!payoutData.proposalExecutedAt;
                                 
-                                const shouldShowButton = hasProposalId && !userHasSigned && !isExecutingOrExecuted;
+                                // ✅ FIX: Show fallback UI if already signed (skip signing flow)
+                                if (userHasSignedFinal && hasProposalId && !isExecutingOrExecuted) {
+                                  return (
+                                    <div className="mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
+                                      <div className="flex items-center gap-2 text-yellow-400 text-sm font-semibold mb-1">
+                                        <span>✓</span>
+                                        <span>You have signed. Waiting for execution...</span>
+                                      </div>
+                                      <p className="text-xs text-white/70">
+                                        Proposal ID: {payoutData.proposalId}
+                                      </p>
+                                    </div>
+                                  );
+                                }
                                 
-                                console.log('🔍 WINNER Sign Button Debug:', {
-                                  hasProposalId,
-                                  proposalId: payoutData?.proposalId,
-                                  userHasSigned,
-                                  normalizedUserSigned,
-                                  rawUserSigned,
-                                  playerProposalSigners,
-                                  rawSigners,
-                                  publicKey: publicKey?.toString(),
-                                  shouldShowButton,
-                                  proposalStatus: payoutData.proposalStatus,
-                                  needsSignatures: payoutData.needsSignatures,
-                                  isExecutingOrExecuted,
-                                  isPlayer1: publicKey?.toString() === payoutData.player1,
-                                  isPlayer2: publicKey?.toString() === payoutData.player2,
-                                  winner: payoutData.winner,
-                                  rawProposalSigners: payoutData.proposalSigners,
-                                  normalizedSigners: playerProposalSigners,
-                                  isStaleFallback: (payoutData as any)._isStaleFallback
-                                });
+                                const shouldShowButton = hasProposalId && !userHasSignedFinal && !isExecutingOrExecuted;
                                 
                                 // Show Proposal sign button if user hasn't signed Proposal yet
                                 if (!shouldShowButton) {
                                   // Show warning if using stale data and button would be hidden
-                                  if ((payoutData as any)._isStaleFallback && !userHasSigned && hasProposalId) {
+                                  if ((payoutData as any)._isStaleFallback && !userHasSignedFinal && hasProposalId) {
                                     return (
                                       <div className="text-yellow-500 text-sm mt-2">
                                         ⚠️ Unable to verify signature status. Please refresh the page.
@@ -2703,7 +2740,7 @@ const Result: React.FC = () => {
                                   error.includes('VaultTransaction')
                                 ));
                                 const isButtonDisabled = Boolean(signingProposal || 
-                                                         userHasSigned || 
+                                                         userHasSignedFinal || 
                                                          isProposalCreationFailed ||
                                                          hasRetryableError);
                                 
@@ -2718,7 +2755,7 @@ const Result: React.FC = () => {
                                         <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-primary mr-2"></div>
                                         Signing...
                                       </>
-                                    ) : userHasSigned ? (
+                                    ) : userHasSignedFinal ? (
                                       <>
                                         <span className="mr-2">✓</span>
                                         Signed - Processing...
