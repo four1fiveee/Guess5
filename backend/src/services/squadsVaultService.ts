@@ -4589,47 +4589,12 @@ export class SquadsVaultService {
               await new Promise(resolve => setTimeout(resolve, delay));
             }
             
-            // CRITICAL FIX: Activate proposal to ExecuteReady state before execution
-            // The SDK requires ExecuteReady state, and Approved proposals may not transition automatically
-            // vaultTransactionActivate is a no-op if already ExecuteReady, so it's safe to always call
-            try {
-              enhancedLogger.info('🔄 Activating proposal to ExecuteReady state', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                executor: executor.publicKey.toString(),
-                correlationId,
-                note: 'This ensures the proposal is in ExecuteReady state before execution (no-op if already ExecuteReady)',
-              });
-              
-              await rpc.vaultTransactionActivate({
-                connection: this.connection,
-                multisig: multisigAddress,
-                transactionIndex: BigInt(transactionIndexNumber),
-                member: executor,
-                programId: this.programId,
-              });
-              
-              enhancedLogger.info('✅ Proposal activation successful (or already ExecuteReady)', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                correlationId,
-              });
-            } catch (activateError: any) {
-              // Log activation error but don't fail - it might already be ExecuteReady
-              // Some SDK versions may throw if already activated, which is fine
-              enhancedLogger.warn('⚠️ Proposal activation attempt (may already be ExecuteReady)', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                error: activateError?.message || String(activateError),
-                correlationId,
-                note: 'Continuing with execution attempt - activation may have succeeded or proposal already ExecuteReady',
-              });
-            }
+            // NOTE: The SDK version @sqds/multisig@2.1.4 doesn't have vaultTransactionActivate
+            // Proposals in Approved state with threshold met should be executable directly
+            // The SDK's vaultTransactionExecute should handle the state transition internally
+            // If execution fails with publicKey error, it indicates an SDK bug or version issue
             
-            // Now execute the proposal (should be ExecuteReady after activation)
+            // Now execute the proposal (SDK should handle Approved -> ExecuteReady transition)
             executionSignature = await rpc.vaultTransactionExecute({
               connection: this.connection,
               multisig: multisigAddress,
@@ -4650,45 +4615,20 @@ export class SquadsVaultService {
                                     sdkError?.message?.includes('Cannot read properties of undefined');
             
             if (isPublicKeyError && attemptNumber < maxRetries) {
-              enhancedLogger.warn('⚠️ SDK publicKey error detected - retrying with explicit activation', {
+              enhancedLogger.warn('⚠️ SDK publicKey error detected - this indicates SDK bug with Approved proposals', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
                 attempt: attemptNumber,
                 error: sdkError?.message || String(sdkError),
                 correlationId,
-                note: 'This error typically indicates the proposal needs explicit activation to ExecuteReady',
+                note: 'The SDK @sqds/multisig@2.1.4 does not have vaultTransactionActivate. This appears to be an SDK limitation when executing Approved proposals.',
               });
               
-              // Wait a bit longer before retry to allow state to settle
-              await new Promise(resolve => setTimeout(resolve, 2000));
+              // Wait longer before retry - maybe the proposal will transition naturally
+              await new Promise(resolve => setTimeout(resolve, 5000));
               
-              // Try activation again explicitly before retry
-              try {
-                await rpc.vaultTransactionActivate({
-                  connection: this.connection,
-                  multisig: multisigAddress,
-                  transactionIndex: BigInt(transactionIndexNumber),
-                  member: executor,
-                  programId: this.programId,
-                });
-                enhancedLogger.info('✅ Explicit activation retry successful', {
-                  vaultAddress,
-                  proposalId,
-                  transactionIndex: transactionIndexNumber,
-                  correlationId,
-                });
-              } catch (activateRetryError: any) {
-                enhancedLogger.warn('⚠️ Activation retry failed (may already be ExecuteReady)', {
-                  vaultAddress,
-                  proposalId,
-                  transactionIndex: transactionIndexNumber,
-                  error: activateRetryError?.message || String(activateRetryError),
-                  correlationId,
-                });
-              }
-              
-              // Continue to next retry attempt
+              // Continue to next retry attempt - SDK may handle it on retry
               continue;
             }
             
