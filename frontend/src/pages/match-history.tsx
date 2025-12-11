@@ -283,7 +283,7 @@ export default function MatchHistoryPage() {
             <div className="bg-gradient-to-br from-green-500/20 via-green-500/10 to-green-500/20 backdrop-blur-sm rounded-xl p-5 border border-green-400/30">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🟩</span>
-                <span className="text-white/70 text-xs uppercase tracking-wider">Total Earned</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Winnings Received</span>
               </div>
               <div className="text-3xl font-bold text-green-400">
                 {formatUSD(totalEarnedUSD)}
@@ -291,13 +291,16 @@ export default function MatchHistoryPage() {
               <div className="text-white/60 text-xs mt-1 font-mono">
                 {formatSOL(stats?.totalPayoutsReceived || 0)}
               </div>
+              <div className="text-white/50 text-xs mt-1 italic">
+                Total payouts from winning matches
+              </div>
             </div>
 
-            {/* Total Losses */}
+            {/* Entry Fees Paid */}
             <div className="bg-gradient-to-br from-red-500/20 via-red-500/10 to-red-500/20 backdrop-blur-sm rounded-xl p-5 border border-red-400/30">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🟥</span>
-                <span className="text-white/70 text-xs uppercase tracking-wider">Total Losses</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Entry Fees Paid</span>
               </div>
               <div className="text-3xl font-bold text-red-400">
                 {formatUSD(totalLossesUSD)}
@@ -305,19 +308,25 @@ export default function MatchHistoryPage() {
               <div className="text-white/60 text-xs mt-1 font-mono">
                 {formatSOL(stats?.totalEntryFeesSpent || 0)}
               </div>
+              <div className="text-white/50 text-xs mt-1 italic">
+                Total amount spent on match entry fees
+              </div>
             </div>
 
             {/* Bonus Earned */}
             <div className="bg-gradient-to-br from-yellow-500/20 via-yellow-500/10 to-yellow-500/20 backdrop-blur-sm rounded-xl p-5 border border-yellow-400/30">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🟨</span>
-                <span className="text-white/70 text-xs uppercase tracking-wider">Bonus Earned</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">House Bonus Earned</span>
               </div>
               <div className="text-3xl font-bold text-yellow-400">
                 {formatUSD(bonusEarnedUSD)}
               </div>
               <div className="text-white/60 text-xs mt-1 font-mono">
                 {formatSOL(stats?.totalBonusReceived || 0)}
+              </div>
+              <div className="text-white/50 text-xs mt-1 italic">
+                Bonus rewards from higher tier matches
               </div>
             </div>
 
@@ -339,13 +348,16 @@ export default function MatchHistoryPage() {
             <div className="bg-gradient-to-br from-purple-500/20 via-purple-500/10 to-purple-500/20 backdrop-blur-sm rounded-xl p-5 border border-purple-400/30">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🤝</span>
-                <span className="text-white/70 text-xs uppercase tracking-wider">Ties</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Tied Matches</span>
               </div>
               <div className="text-3xl font-bold text-purple-400">
                 {stats?.ties || 0}
               </div>
               <div className="text-white/60 text-xs mt-1">
-                Refunded matches
+                Matches where both players tied
+              </div>
+              <div className="text-white/50 text-xs mt-1 italic">
+                Entry fees refunded to both players
               </div>
             </div>
           </div>

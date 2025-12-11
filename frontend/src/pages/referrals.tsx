@@ -32,7 +32,6 @@ interface EarningsBreakdown {
   byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
 }
 
-
 export default function ReferralsPage() {
   const { publicKey } = useWallet();
   const [wallet, setWallet] = useState<string>('');
@@ -43,9 +42,9 @@ export default function ReferralsPage() {
   const [nextPayoutDate, setNextPayoutDate] = useState<Date | null>(null);
   const [loading, setLoading] = useState<boolean>(false);
   const [referralLink, setReferralLink] = useState<string>('');
+  const [solPrice, setSolPrice] = useState<number | null>(null);
 
   useEffect(() => {
-    // Get wallet from connected wallet or query params
     const walletAddress = publicKey?.toString() || '';
     
     if (walletAddress) {
@@ -54,6 +53,22 @@ export default function ReferralsPage() {
       loadDashboardData(walletAddress);
     }
   }, [publicKey]);
+
+  // Fetch current SOL price
+  useEffect(() => {
+    const fetchSolPrice = async () => {
+      try {
+        const response = await fetch('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+        const data = await response.json();
+        if (data.solana?.usd) {
+          setSolPrice(data.solana.usd);
+        }
+      } catch (error) {
+        console.error('Error fetching SOL price:', error);
+      }
+    };
+    fetchSolPrice();
+  }, []);
 
   const loadDashboardData = async (walletAddress: string) => {
     setLoading(true);
@@ -87,7 +102,11 @@ export default function ReferralsPage() {
   };
 
   const formatUSD = (amount: number) => {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
+  };
+
+  const formatSOL = (amount: number) => {
+    return `${amount.toFixed(4)} SOL`;
   };
 
   const formatDate = (date: Date | string) => {
@@ -105,13 +124,13 @@ export default function ReferralsPage() {
       <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative">
         <TopRightWallet />
         <Head>
-          <title>Referrals - Guess5</title>
+          <title>Referral Earnings - Guess5</title>
         </Head>
-        <div className="flex flex-col items-center max-w-4xl w-full mt-8">
+        <div className="flex flex-col items-center max-w-6xl w-full mt-8">
           <div className="logo-shell mb-4 sm:mb-6">
             <Image src={logo} alt="Guess5 Logo" width={100} height={100} priority />
           </div>
-          <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-6 text-center">Referrals</h1>
+          <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-6 text-center">Referral Earnings</h1>
           <div className="bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
             <p className="text-white/90 text-center mb-4">Please connect your wallet to view your referral dashboard.</p>
             <div className="flex justify-center gap-4">
@@ -127,13 +146,18 @@ export default function ReferralsPage() {
     );
   }
 
+  // Calculate SOL amounts from USD using current price
+  const totalEarnedSOL = solPrice && stats?.totalEarnedUSD ? stats.totalEarnedUSD / solPrice : stats?.totalEarnedSOL || 0;
+  const pendingSOL = solPrice && stats?.pendingUSD ? stats.pendingUSD / solPrice : 0;
+  const paidSOL = solPrice && stats?.paidUSD ? stats.paidUSD / solPrice : 0;
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-4 sm:px-6 relative pb-12">
       <TopRightWallet />
       <Head>
-        <title>Referrals - Guess5</title>
+        <title>Referral Earnings - Guess5</title>
       </Head>
-      <div className="flex flex-col items-center max-w-4xl w-full">
+      <div className="flex flex-col items-center max-w-6xl w-full">
         <div className="logo-shell mb-4 sm:mb-6">
           <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
         </div>
@@ -145,10 +169,145 @@ export default function ReferralsPage() {
           </button>
         </Link>
         
-        <h1 className="text-3xl sm:text-4xl font-bold text-accent mb-6 text-center">Earn when your friends play</h1>
+        <h1 className="text-2xl sm:text-3xl font-bold text-purple-400 mb-6 text-center">Your Network is Earning You This Much</h1>
         
-        {/* Referral Link - Moved to Top */}
-        <div className={`share-link bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-purple-500/30 w-full ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50' : ''}`}>
+        {/* Featured Card: All-Time Referral Earnings */}
+        <div className="w-full mb-8">
+          <div className="bg-gradient-to-br from-purple-500/20 via-purple-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border-2 border-purple-400/40">
+            <div className="text-center">
+              <div className="text-white/70 text-sm uppercase tracking-wider mb-2">You've Earned</div>
+              <div className="text-5xl sm:text-6xl font-bold mb-2 text-purple-400">
+                {formatUSD(stats?.totalEarnedUSD || 0)}
+              </div>
+              <div className="text-white/60 text-sm font-mono mb-4">
+                {formatSOL(totalEarnedSOL)} from referrals
+              </div>
+              <div className="flex items-center justify-center gap-6 text-sm">
+                <div className="text-green-400">
+                  💵 Paid: {formatUSD(stats?.paidUSD || 0)}
+                </div>
+                <div className="text-yellow-400">
+                  ⏳ Pending: {formatUSD(stats?.pendingUSD || 0)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Referral Stats Cards Grid */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+            {/* Total Referred Players */}
+            <div className="bg-gradient-to-br from-purple-500/20 via-purple-500/10 to-purple-500/20 backdrop-blur-sm rounded-xl p-5 border border-purple-400/30">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">🧑‍🤝‍🧑</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Total Referred</span>
+              </div>
+              <div className="text-3xl font-bold text-purple-400">
+                {stats?.referredCount || 0}
+              </div>
+              <div className="text-white/60 text-xs mt-1">
+                Players who used your link
+              </div>
+            </div>
+
+            {/* Active Referred Players */}
+            <div className="bg-gradient-to-br from-green-500/20 via-green-500/10 to-green-500/20 backdrop-blur-sm rounded-xl p-5 border border-green-400/30">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">✅</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Active Players</span>
+              </div>
+              <div className="text-3xl font-bold text-green-400">
+                {stats?.activeReferredCount || 0}
+              </div>
+              <div className="text-white/60 text-xs mt-1">
+                Played 1+ match
+              </div>
+            </div>
+
+            {/* Earnings Last 7 Days */}
+            <div className="bg-gradient-to-br from-yellow-500/20 via-yellow-500/10 to-yellow-500/20 backdrop-blur-sm rounded-xl p-5 border border-yellow-400/30">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">💰</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Last 7 Days</span>
+              </div>
+              <div className="text-3xl font-bold text-yellow-400">
+                {formatUSD(stats?.earningsLast7Days || 0)}
+              </div>
+              <div className="text-white/60 text-xs mt-1">
+                Recent earnings
+              </div>
+            </div>
+
+            {/* Awaiting Payout */}
+            <div className="bg-gradient-to-br from-orange-500/20 via-orange-500/10 to-orange-500/20 backdrop-blur-sm rounded-xl p-5 border border-orange-400/30">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">⏳</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Awaiting Payout</span>
+              </div>
+              <div className="text-3xl font-bold text-orange-400">
+                {formatUSD(stats?.pendingUSD || 0)}
+              </div>
+              <div className="text-white/60 text-xs mt-1 font-mono">
+                {formatSOL(pendingSOL)}
+              </div>
+              <div className="text-white/50 text-xs mt-1 italic">
+                Next payout: Sunday
+              </div>
+            </div>
+          </div>
+
+          {/* Additional Stats Cards */}
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
+            {/* Paid Out */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">💵</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Total Paid Out</span>
+              </div>
+              <div className="text-2xl font-bold text-green-400">
+                {formatUSD(stats?.paidUSD || 0)}
+              </div>
+              <div className="text-white/60 text-xs mt-1 font-mono">
+                {formatSOL(paidSOL)}
+              </div>
+              <div className="text-white/50 text-xs mt-1 italic">
+                Amount received in payouts
+              </div>
+            </div>
+
+            {/* Eligible Referrals */}
+            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-2xl">🎯</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Eligible Referrals</span>
+              </div>
+              <div className="text-2xl font-bold text-blue-400">
+                {stats?.eligibleReferredCount || 0}
+              </div>
+              <div className="text-white/60 text-xs mt-1">
+                Qualifying for earnings
+              </div>
+            </div>
+
+            {/* Next Payout Date */}
+            {nextPayoutDate && (
+              <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">📅</span>
+                  <span className="text-white/70 text-xs uppercase tracking-wider">Next Payout</span>
+                </div>
+                <div className="text-lg font-bold text-white">
+                  {formatDate(nextPayoutDate)}
+                </div>
+                <div className="text-white/60 text-xs mt-1">
+                  Sunday 1:00 PM EST
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Referral Link Section */}
+        <div className={`w-full mb-8 bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-xl border border-purple-500/30 ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50' : ''}`}>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-xl sm:text-2xl font-bold text-accent">Your Referral Link</h2>
             {canReferInfo?.canReferOthers ? (
@@ -180,7 +339,7 @@ export default function ReferralsPage() {
               value={referralLink} 
               readOnly 
               disabled={!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum}
-              className={`flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/90 focus:outline-none focus:border-accent/50 ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
+              className={`flex-1 px-4 py-3 rounded-xl bg-white/10 border border-white/20 text-white/90 focus:outline-none focus:border-accent/50 font-mono text-sm ${!canReferInfo?.canReferOthers && !canReferInfo?.exemptFromMinimum ? 'opacity-50 cursor-not-allowed' : ''}`}
             />
             <button 
               onClick={copyReferralLink}
@@ -209,288 +368,133 @@ export default function ReferralsPage() {
           </div>
         </div>
 
-        {/* Referral Summary Card - Moved Below Link */}
-        <div className="referral-summary bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Referral Summary</h2>
-          {loading ? (
-            <p className="text-white/70">Loading...</p>
-          ) : (
-            <div className="space-y-4 text-white/90">
-              {/* Total Referral Earnings Section */}
-              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                <h3 className="text-lg font-bold text-accent mb-3">Total Referral Earnings</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="flex justify-between items-center">
-                    <span className="text-white/80 text-sm">All-Time:</span>
-                    <span className="text-accent font-bold">{formatUSD(stats?.earningsAllTime || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-white/80 text-sm">Year-to-Date:</span>
-                    <span className="text-white font-semibold">{formatUSD(stats?.earningsYTD || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-white/80 text-sm">Quarter-to-Date:</span>
-                    <span className="text-white font-semibold">{formatUSD(stats?.earningsQTD || 0)}</span>
-                  </div>
-                  <div className="flex justify-between items-center">
-                    <span className="text-white/80 text-sm">Last 7 Days:</span>
-                    <span className="text-white font-semibold">{formatUSD(stats?.earningsLast7Days || 0)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Current Balance Section */}
-              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                <h3 className="text-lg font-bold text-green-400 mb-3">Current Unpaid Balance</h3>
-                <div className="flex justify-between items-center">
-                  <span className="text-white/80">Awaiting Payout:</span>
-                  <span className="text-green-400 font-bold text-xl">{formatUSD(stats?.pendingUSD || 0)}</span>
-                </div>
-                <div className="flex justify-between items-center mt-2">
-                  <span className="text-white/80 text-sm">Total Paid:</span>
-                  <span className="text-white/70">{formatUSD(stats?.paidUSD || 0)}</span>
-                </div>
-              </div>
-
-              {/* Referred Players Section */}
-              <div className="bg-white/5 rounded-xl p-4 border border-white/10">
-                <h3 className="text-lg font-bold text-purple-400 mb-3">Referred Players</h3>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-accent mb-1">{stats?.referredCount || 0}</div>
-                    <div className="text-white/70 text-xs">Total Referred</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-green-400 mb-1">{stats?.activeReferredCount || 0}</div>
-                    <div className="text-white/70 text-xs">Active (1+ Match Played)</div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Next Payout Date */}
-              {nextPayoutDate && (
-                <div className="bg-blue-500/10 rounded-xl p-4 border border-blue-500/20">
-                  <div className="flex justify-between items-center mb-2">
-                    <span className="font-semibold text-blue-300">Next Scheduled Payout:</span>
-                    <span className="text-white font-bold">{formatDate(nextPayoutDate)}</span>
-                  </div>
-                  <div className="bg-blue-500/20 border border-blue-500/30 rounded-lg p-3 mt-3">
-                    <p className="text-blue-300 text-xs font-semibold mb-1">📋 Review Window</p>
-                    <p className="text-blue-200 text-xs leading-relaxed">
-                      Payout batches are prepared every Sunday at 1:00 PM EST. There is a <strong>review window from 11:00 AM - 1:00 PM EST</strong> where batches are reviewed and approved before payment. Earnings accumulated during this review window will be included in the following week's payout.
-                    </p>
-                  </div>
-                </div>
-              )}
-
-              {!isEligible && (
-                <div className="bg-yellow-500/20 border border-yellow-500/30 rounded-lg p-3">
-                  <p className="text-yellow-400 text-sm">⚠️ Play your first match to start earning referral rewards!</p>
-                </div>
-              )}
-            </div>
-          )}
+        {/* CTA: Start Referring */}
+        <div className="text-center mb-8">
+          <Link href="/lobby">
+            <button className="px-8 py-4 bg-purple-500 hover:bg-purple-600 text-white font-bold text-lg rounded-xl transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-lg hover:shadow-xl">
+              Refer & Earn Instantly ➜
+            </button>
+          </Link>
         </div>
 
-
-        {/* Earnings Breakdown */}
-        <div className="earnings-breakdown bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown</h2>
-          <h3 className="text-lg font-semibold text-white/90 mb-3">By Level</h3>
-          <div className="overflow-x-auto">
-            <table className="w-full border-collapse">
-              <thead>
-                <tr className="border-b border-white/20">
-                  <th className="text-left py-3 px-4 text-white/90 font-semibold">Level</th>
-                  <th className="text-right py-3 px-4 text-white/90 font-semibold">Total USD</th>
-                  <th className="text-right py-3 px-4 text-white/90 font-semibold">Count</th>
-                </tr>
-              </thead>
-              <tbody>
+        {/* Earnings Breakdown by Level */}
+        {breakdown && breakdown.byLevel && breakdown.byLevel.length > 0 && (
+          <div className="w-full mb-8">
+            <div className="bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-xl border border-white/20 w-full">
+              <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Earnings Breakdown by Referral Level</h2>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 {[1, 2, 3].map(level => {
-                  const levelData = breakdown?.byLevel.find(item => item.level === level);
+                  const levelData = breakdown.byLevel.find(item => item.level === level);
+                  const levelColors = [
+                    { bg: 'from-accent/20', border: 'border-accent/30', text: 'text-accent' },
+                    { bg: 'from-purple-500/20', border: 'border-purple-400/30', text: 'text-purple-400' },
+                    { bg: 'from-pink-500/20', border: 'border-pink-400/30', text: 'text-pink-400' }
+                  ];
+                  const colors = levelColors[level - 1];
                   return (
-                    <tr key={level} className="border-b border-white/10 hover:bg-white/5">
-                      <td className="py-3 px-4 text-accent font-bold">L{level}</td>
-                      <td className="py-3 px-4 text-right text-white/90">{formatUSD(levelData?.totalUSD || 0)}</td>
-                      <td className="py-3 px-4 text-right text-white/70">{levelData?.count || 0}</td>
-                    </tr>
+                    <div key={level} className={`bg-gradient-to-br ${colors.bg} backdrop-blur-sm rounded-xl p-5 border ${colors.border}`}>
+                      <div className="text-center">
+                        <div className={`text-2xl font-bold ${colors.text} mb-2`}>Level {level}</div>
+                        <div className="text-3xl font-bold text-white mb-1">
+                          {formatUSD(levelData?.totalUSD || 0)}
+                        </div>
+                        <div className="text-white/60 text-xs">
+                          {levelData?.count || 0} matches
+                        </div>
+                        <div className="text-white/50 text-xs mt-2 italic">
+                          {level === 1 ? 'Direct referrals' : level === 2 ? 'Your referral\'s referrals' : '3rd level down'}
+                        </div>
+                      </div>
+                    </div>
                   );
                 })}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        {/* Payout History - CSV Download */}
-        <div className="payout-history bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mb-6 shadow-xl border border-white/20 w-full">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-xl sm:text-2xl font-bold text-accent">Payout History</h2>
-            <button
-              onClick={async () => {
-                try {
-                  const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5-backend.onrender.com';
-                  const response = await fetch(`${apiUrl}/api/referral/payouts/csv?wallet=${wallet}`);
-                  if (!response.ok) {
-                    throw new Error('Failed to download CSV');
-                  }
-                  const blob = await response.blob();
-                  const url = window.URL.createObjectURL(blob);
-                  const a = document.createElement('a');
-                  a.href = url;
-                  a.download = `Guess5_Referral_Payouts_${wallet.slice(0, 8)}.csv`;
-                  document.body.appendChild(a);
-                  a.click();
-                  window.URL.revokeObjectURL(url);
-                  document.body.removeChild(a);
-                } catch (error) {
-                  console.error('Error downloading CSV:', error);
-                  alert('Failed to download payout history. Please try again.');
-                }
-              }}
-              className="px-4 py-2 bg-accent hover:bg-yellow-300 text-primary font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95"
-            >
-              📥 Download All-Time Payouts (CSV)
-            </button>
-          </div>
-          <p className="text-white/70 text-sm">
-            Download a complete CSV file containing all your referral payout history, including dates, amounts, levels, and transaction signatures.
-          </p>
-        </div>
-
-        {/* How Referrals Work */}
-        <div className="how-it-works bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-purple-500/30 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-6">💰 How It Works</h2>
-          
-          <div className="space-y-5 text-white/90 text-sm">
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <h3 className="text-lg font-bold text-accent mb-3">Earning Structure</h3>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                When someone uses your referral link and plays a match, you earn from fees generated by <strong className="text-white">their wallet's activity</strong>. The referral pool is <strong className="text-white">25% of the match's net profit</strong> (Platform Fee - Bonus - Network Costs).
-              </p>
-              <p className="text-white/80 mb-4 leading-relaxed">
-                This pool is split equally between the two players in the match. Each player's share flows up their referral chain, meaning you earn from <strong className="text-white">half of the match's net profit</strong> (12.5% total) when your referred player is involved, since both players can have referrers.
-              </p>
-              <p className="text-white/80 mb-4 leading-relaxed">
-                Earnings flow up to 3 levels with geometric decay:
-              </p>
-              <div className="grid grid-cols-3 gap-3 mb-4">
-                <div className="bg-accent/20 border border-accent/40 rounded-lg p-3 text-center">
-                  <div className="text-xl font-black text-accent mb-1">L1</div>
-                  <div className="text-xs text-white/90 font-semibold">100%</div>
-                  <div className="text-xs text-white/70 mt-1">Direct referral</div>
-                </div>
-                <div className="bg-purple-500/20 border border-purple-500/40 rounded-lg p-3 text-center">
-                  <div className="text-xl font-black text-purple-400 mb-1">L2</div>
-                  <div className="text-xs text-white/90 font-semibold">25%</div>
-                  <div className="text-xs text-white/70 mt-1">Your referral's referral</div>
-                </div>
-                <div className="bg-pink-500/20 border border-pink-500/40 rounded-lg p-3 text-center">
-                  <div className="text-xl font-black text-pink-400 mb-1">L3</div>
-                  <div className="text-xs text-white/90 font-semibold">6.25%</div>
-                  <div className="text-xs text-white/70 mt-1">3rd level down</div>
-                </div>
               </div>
             </div>
-
-        <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-          <h3 className="text-lg font-bold text-accent mb-3">Requirements & Payouts</h3>
-          <ul className="space-y-2 text-white/80 text-sm leading-relaxed">
-            <li>• Play at least <strong className="text-white">one match</strong> to become eligible for referral payouts</li>
-            <li>• Minimum payout: <strong className="text-accent">$20 USD</strong> (earnings accumulate until you reach this threshold)</li>
-            <li>• Payouts: <strong className="text-white">Every Sunday at 1:00 PM EST</strong> via batched on-chain transactions</li>
-            <li>• <strong className="text-yellow-300">Review Window:</strong> Batches are prepared at 1:00 PM EST and reviewed/approved between <strong className="text-white">11:00 AM - 1:00 PM EST</strong> on Sunday</li>
-            <li>• Earnings accumulated during the review window (11 AM - 1 PM EST) will be included in the <strong className="text-white">following week's payout</strong></li>
-            <li>• USD amounts are converted to SOL at payout time using current market rates</li>
-            <li>• All eligible earnings are automatically included in the next payout batch once you meet the minimum</li>
-          </ul>
-        </div>
           </div>
-        </div>
+        )}
 
-        {/* Examples Section */}
-        <div className="examples bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-white/20 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-6">📊 Examples</h2>
-          
-          <div className="space-y-5 text-white/90 text-sm">
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <h3 className="text-base font-bold text-accent mb-3">Example 1: $20 Competitive Match</h3>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                A $20 match completes. Total pot: <strong className="text-white">$40</strong> (both players). Platform fee (5%): <strong className="text-white">$2.00</strong>. Bonus paid: <strong className="text-white">$0.25</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$1.52</strong>.
-              </p>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                Referral pool: 25% of $1.52 = <strong className="text-white">$0.38</strong>. Split equally: <strong className="text-white">$0.19 per player</strong>. If Player A was referred by you (L1), you earn <strong className="text-accent">$0.19</strong>. If Player A's referrer was referred by you (L2), you earn <strong className="text-purple-300">$0.05</strong> (25% of $0.19).
-              </p>
-            </div>
-
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <h3 className="text-base font-bold text-accent mb-3">Example 2: $50 Veteran Match (Both Players Have Referrers)</h3>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                A $50 match completes. Total pot: <strong className="text-white">$100</strong>. Platform fee: <strong className="text-white">$5.00</strong>. Bonus paid: <strong className="text-white">$0.75</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$4.02</strong>.
-              </p>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                Referral pool: 25% of $4.02 = <strong className="text-white">$1.005</strong>. Each player's share: <strong className="text-white">$0.50</strong>. If you referred Player A (L1) and someone else referred Player B (L1), you earn <strong className="text-accent">$0.50</strong> from Player A's activity, while Player B's referrer earns $0.50 from Player B's activity. Both referrers get their share independently.
-              </p>
-            </div>
-
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <h3 className="text-base font-bold text-accent mb-3">Example 3: $100 VIP Elite Match (Multi-Level Chain)</h3>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                Bob refers Charlie (L1), Alice refers Bob (L2), and you refer Alice (L3). When Charlie plays a $100 match:
-              </p>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                Total pot: <strong className="text-white">$200</strong>. Platform fee: <strong className="text-white">$10.00</strong>. Bonus paid: <strong className="text-white">$2.00</strong>. Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$7.77</strong>.
-              </p>
-              <ul className="list-disc list-inside space-y-1.5 text-white/80 ml-2 mt-2">
-                <li>Referral pool: <strong className="text-white">$1.94</strong> (25% of $7.77)</li>
-                <li>Charlie's referral pool share: <strong className="text-white">$0.97</strong> (half of $1.94)</li>
-                <li>Bob (L1): <strong className="text-accent">$0.97</strong> (100% of Charlie's $0.97)</li>
-                <li>Alice (L2): <strong className="text-purple-300">$0.24</strong> (25% of Bob's $0.97)</li>
-                <li>You (L3): <strong className="text-pink-300">$0.06</strong> (25% of Alice's $0.24)</li>
-              </ul>
-              <p className="text-white/80 mt-3 leading-relaxed text-xs italic">
-                Note: Charlie (the player) doesn't earn referral fees. The $0.97 flows up to his referrers based on the referral chain.
-              </p>
-              <p className="text-white/80 mt-2 leading-relaxed text-xs italic">
-                Total paid out: <strong className="text-white">$1.27</strong> ($0.97 + $0.24 + $0.06). The $0.24 and $0.06 are calculated based on the $0.97 amount but are paid in addition to it, not deducted from it.
-              </p>
-            </div>
-
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <h3 className="text-base font-bold text-accent mb-3">Example 4: $5 Starter Match</h3>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                A $5 match completes. Total pot: <strong className="text-white">$10</strong>. Platform fee: <strong className="text-white">$0.50</strong>. Bonus: <strong className="text-white">$0</strong> (no bonus for Starter tier). Network costs: <strong className="text-white">~$0.23</strong>. Net profit: <strong className="text-white">$0.27</strong>.
-              </p>
-              <p className="text-white/80 mb-3 leading-relaxed">
-                Referral pool: 25% of $0.27 = <strong className="text-white">$0.0675</strong>. Per player: <strong className="text-white">$0.034</strong>. If you referred Player A (L1), you earn <strong className="text-accent">$0.03</strong> from this match.
-              </p>
+        {/* CSV Download */}
+        <div className="w-full mb-8">
+          <div className="bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-xl border border-white/20 w-full">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <div>
+                <h2 className="text-xl sm:text-2xl font-bold text-accent mb-2">Download Payout History</h2>
+                <p className="text-white/70 text-sm">
+                  Export a complete CSV file with all your referral payout history, including dates, amounts, levels, and transaction signatures.
+                </p>
+              </div>
+              <button
+                onClick={async () => {
+                  try {
+                    const apiUrl = process.env.NEXT_PUBLIC_API_URL || 'https://guess5-backend.onrender.com';
+                    const response = await fetch(`${apiUrl}/api/referral/payouts/csv?wallet=${wallet}`);
+                    if (!response.ok) {
+                      throw new Error('Failed to download CSV');
+                    }
+                    const blob = await response.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.download = `Guess5_Referral_Payouts_${wallet.slice(0, 8)}.csv`;
+                    document.body.appendChild(a);
+                    a.click();
+                    window.URL.revokeObjectURL(url);
+                    document.body.removeChild(a);
+                  } catch (error) {
+                    console.error('Error downloading CSV:', error);
+                    alert('Failed to download payout history. Please try again.');
+                  }
+                }}
+                className="px-6 py-3 bg-accent hover:bg-yellow-300 text-primary font-semibold rounded-lg transition-all duration-300 transform hover:scale-105 active:scale-95 whitespace-nowrap"
+              >
+                📥 Download CSV
+              </button>
             </div>
           </div>
         </div>
 
-        {/* FAQ */}
-        <div className="terms bg-gradient-to-br from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-2xl p-6 sm:p-8 mt-6 shadow-xl border border-white/20 w-full">
-          <h2 className="text-xl sm:text-2xl font-bold text-accent mb-4">Frequently Asked Questions</h2>
-          <div className="space-y-4 text-white/80 text-sm">
-            <div>
-              <strong className="text-white">Can I refer myself?</strong>
-              <p className="mt-1.5 text-white/70 leading-relaxed">No, self-referrals are automatically prevented by the system. Each wallet can only be referred once, and you cannot refer your own wallet.</p>
-            </div>
-            <div>
-              <strong className="text-white">What if I haven't played a match yet?</strong>
-              <p className="mt-1.5 text-white/70 leading-relaxed">You can still refer players and they can use your link, but you won't receive payouts until you've played at least one match. Once you play, all accumulated earnings become eligible for payout.</p>
-            </div>
-            <div>
-              <strong className="text-white">How are USD amounts converted to SOL?</strong>
-              <p className="mt-1.5 text-white/70 leading-relaxed">Conversion happens at payout time using current market rates from a reliable price oracle. The exact SOL amount you receive may vary slightly based on SOL price fluctuations between when earnings were calculated and when the payout occurs.</p>
-            </div>
-            <div>
-              <strong className="text-white">What happens if both players in a match have referrers?</strong>
-              <p className="mt-1.5 text-white/70 leading-relaxed">The referral pool is split equally between the two players. Each player's share (50% of the pool) flows up their own referral chain independently. This means both referrers can earn from the same match, each from their own referred player's activity.</p>
-            </div>
-            <div>
-              <strong className="text-white">How do I track my earnings?</strong>
-              <p className="mt-1.5 text-white/70 leading-relaxed">All your earnings, referral statistics, and payout history are displayed on this dashboard. You can see earnings broken down by level and by referred wallet, plus view all historical payouts.</p>
+        {/* How It Works Section - Keep existing content but make it more compact */}
+        <div className="w-full">
+          <div className="bg-gradient-to-br from-purple-500/20 via-pink-500/10 to-purple-500/20 backdrop-blur-sm rounded-2xl p-6 sm:p-8 shadow-xl border border-purple-500/30 w-full">
+            <h2 className="text-xl sm:text-2xl font-bold text-accent mb-6">💰 How Referral Earnings Work</h2>
+            
+            <div className="space-y-4 text-white/90 text-sm">
+              <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+                <h3 className="text-lg font-bold text-accent mb-3">Earning Structure</h3>
+                <p className="text-white/80 mb-3 leading-relaxed">
+                  When someone uses your referral link and plays a match, you earn from fees generated by <strong className="text-white">their wallet's activity</strong>. The referral pool is <strong className="text-white">25% of the match's net profit</strong> (Platform Fee - Bonus - Network Costs).
+                </p>
+                <p className="text-white/80 mb-4 leading-relaxed">
+                  This pool is split equally between the two players in the match. Each player's share flows up their referral chain, meaning you earn from <strong className="text-white">half of the match's net profit</strong> (12.5% total) when your referred player is involved.
+                </p>
+                <div className="grid grid-cols-3 gap-3 mt-4">
+                  <div className="bg-accent/20 border border-accent/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-accent mb-1">L1</div>
+                    <div className="text-xs text-white/90 font-semibold">100%</div>
+                    <div className="text-xs text-white/70 mt-1">Direct referral</div>
+                  </div>
+                  <div className="bg-purple-500/20 border border-purple-500/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-purple-400 mb-1">L2</div>
+                    <div className="text-xs text-white/90 font-semibold">25%</div>
+                    <div className="text-xs text-white/70 mt-1">Your referral's referral</div>
+                  </div>
+                  <div className="bg-pink-500/20 border border-pink-500/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-pink-400 mb-1">L3</div>
+                    <div className="text-xs text-white/90 font-semibold">6.25%</div>
+                    <div className="text-xs text-white/70 mt-1">3rd level down</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="bg-white/5 rounded-xl p-5 border border-white/10">
+                <h3 className="text-lg font-bold text-accent mb-3">Payout Schedule</h3>
+                <ul className="space-y-2 text-white/80 text-sm leading-relaxed">
+                  <li>• Minimum payout: <strong className="text-accent">$20 USD</strong> (earnings accumulate until threshold)</li>
+                  <li>• Payouts: <strong className="text-white">Every Sunday at 1:00 PM EST</strong> via batched transactions</li>
+                  <li>• <strong className="text-yellow-300">Review Window:</strong> 11:00 AM - 1:00 PM EST on Sunday</li>
+                  <li>• Earnings during review window included in <strong className="text-white">following week's payout</strong></li>
+                </ul>
+              </div>
             </div>
           </div>
         </div>
@@ -498,4 +502,3 @@ export default function ReferralsPage() {
     </div>
   );
 }
-
