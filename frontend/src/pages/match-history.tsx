@@ -217,7 +217,7 @@ export default function MatchHistoryPage() {
                     <span className="text-white font-semibold">{formatUSD(stats.totalEntryFeesSpentUSD)}</span>
                   </div>
                   <div className="flex justify-between items-center">
-                    <span className="text-white/80 text-sm">Total Payouts:</span>
+                    <span className="text-white/80 text-sm">Amount Received:</span>
                     <span className="text-green-400 font-semibold">{formatUSD(stats.totalPayoutsReceivedUSD)}</span>
                   </div>
                 </div>
@@ -230,6 +230,9 @@ export default function MatchHistoryPage() {
                   </div>
                   <div className="text-white/60 text-xs mt-1">
                     ({formatSOL(stats.netProfit)})
+                  </div>
+                  <div className="text-white/50 text-xs mt-2 italic">
+                    Net Profit = Amount Received from Vaults - Entry Fees Paid
                   </div>
                 </div>
               </div>

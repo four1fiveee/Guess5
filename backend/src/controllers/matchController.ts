@@ -14894,17 +14894,22 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
       
       if (!isPlayer1 && !isPlayer2) continue;
       
-      // Only count completed matches
-      if (match.isCompleted || match.status === 'completed') {
-        gamesPlayed++;
-        
-        // Calculate entry fee spent
-        const entryFee = parseFloat(match.entryFee) || 0;
-        const entryFeeUSD = parseFloat(match.entryFeeUSD) || 0;
+      // ✅ FIX: Count entry fees from ALL matches where player paid (not just completed)
+      const entryFee = parseFloat(match.entryFee) || 0;
+      const entryFeeUSD = parseFloat(match.entryFeeUSD) || 0;
+      
+      // Only count entry fees if player actually paid
+      const playerPaid = (isPlayer1 && match.player1Paid) || (isPlayer2 && match.player2Paid);
+      if (playerPaid) {
         totalEntryFeesSpent += entryFee;
         totalEntryFeesSpentUSD += entryFeeUSD;
+      }
+      
+      // Only count completed matches for game statistics
+      if (match.isCompleted || match.status === 'completed') {
+        gamesPlayed++;
 
-        // Determine outcome
+        // Determine outcome and calculate payouts
         if (match.winner === 'tie') {
           ties++;
           // For ties, player gets refund (entry fee back)
