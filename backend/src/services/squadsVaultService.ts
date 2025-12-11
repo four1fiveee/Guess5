@@ -4589,53 +4589,126 @@ export class SquadsVaultService {
               await new Promise(resolve => setTimeout(resolve, delay));
             }
             
-            // CRITICAL FIX: Activate proposal to ExecuteReady state before execution
-            // SDK v2.3.0+ includes vaultTransactionActivate to transition Approved -> ExecuteReady
-            // This prevents the undefined.publicKey error when executing Approved proposals
-            try {
-              enhancedLogger.info('🔄 Activating proposal to ExecuteReady state', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                executor: executor.publicKey.toString(),
-                correlationId,
-                note: 'This ensures the proposal is in ExecuteReady state before execution (no-op if already ExecuteReady)',
-              });
-              
-              await rpc.vaultTransactionActivate({
-                connection: this.connection,
-                multisig: multisigAddress,
-                transactionIndex: BigInt(transactionIndexNumber),
-                member: executor,
-                programId: this.programId,
-              });
-              
-              enhancedLogger.info('✅ Proposal activation successful (or already ExecuteReady)', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                correlationId,
-              });
-            } catch (activateError: any) {
-              // Log activation error but don't fail - it might already be ExecuteReady
-              // Some SDK versions may throw if already activated, which is fine
-              enhancedLogger.warn('⚠️ Proposal activation attempt (may already be ExecuteReady)', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
-                error: activateError?.message || String(activateError),
-                correlationId,
-                note: 'Continuing with execution attempt - activation may have succeeded or proposal already ExecuteReady',
-              });
+            // CRITICAL FIX: Use instructions.vaultTransactionExecute() per Squads documentation
+            // https://docs.squads.so/main/development/typescript/instructions/execute-vault-transaction
+            // This matches the pattern used for approval (instructions.proposalApprove)
+            // The instructions method works directly from Approved status (no activation needed)
+            enhancedLogger.info('📝 Executing Proposal using instructions.vaultTransactionExecute (per Squads docs)', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              executor: executor.publicKey.toString(),
+              multisigPda: multisigAddress.toString(),
+              programId: this.programId.toString(),
+              correlationId,
+              note: 'Using instructions method per Squads docs - executes directly from Approved status',
+            });
+            
+            if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
+              throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
             }
             
-            // Now execute the proposal (should be ExecuteReady after activation)
-            executionSignature = await rpc.vaultTransactionExecute({
-              connection: this.connection,
-              multisig: multisigAddress,
+            // Build the execution instruction (same pattern as approval - sync, not async)
+            const executionIx = instructions.vaultTransactionExecute({
+              multisigPda: multisigAddress,
               transactionIndex: BigInt(transactionIndexNumber),
-              member: executor,
+              member: executor.publicKey,
               programId: this.programId,
+            });
+            
+            enhancedLogger.info('✅ Execution instruction created', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              correlationId,
+            });
+            
+            // Get latest blockhash
+            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+            
+            // Build transaction message
+            const message = new TransactionMessage({
+              payerKey: executor.publicKey,
+              recentBlockhash: blockhash,
+              instructions: [executionIx],
+            });
+            
+            // Compile to V0 message (required for Squads)
+            const compiledMessage = message.compileToV0Message();
+            const transaction = new VersionedTransaction(compiledMessage);
+            
+            // Sign the transaction
+            transaction.sign([executor]);
+            
+            // CRITICAL: Validate transaction size before sending (max ~1232 bytes for Solana)
+            const serializedSize = transaction.serialize().length;
+            const maxTransactionSize = 1232; // Solana transaction size limit
+            
+            enhancedLogger.info('📏 Transaction Size Validation (Execution)', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              serializedSize,
+              maxSize: maxTransactionSize,
+              sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
+              executor: executor.publicKey.toString(),
+              correlationId,
+            });
+            
+            if (serializedSize > maxTransactionSize) {
+              const error = `Transaction size ${serializedSize} bytes exceeds Solana limit of ${maxTransactionSize} bytes`;
+              enhancedLogger.error('❌ Execution transaction too large - cannot send', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                serializedSize,
+                maxSize: maxTransactionSize,
+                correlationId,
+              });
+              throw new Error(error);
+            }
+            
+            // Send the transaction
+            enhancedLogger.info('📤 Sending execution transaction', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              executor: executor.publicKey.toString(),
+              correlationId,
+            });
+            
+            const serializedTx = transaction.serialize();
+            executionSignature = await this.connection.sendRawTransaction(serializedTx, {
+              skipPreflight: false,
+              maxRetries: 3,
+            });
+            
+            enhancedLogger.info('✅ Execution transaction sent, waiting for confirmation', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              signature: executionSignature,
+              correlationId,
+            });
+            
+            // Wait for confirmation
+            const confirmation = await this.connection.confirmTransaction({
+              signature: executionSignature,
+              blockhash,
+              lastValidBlockHeight,
+            }, 'confirmed');
+            
+            if (confirmation.value.err) {
+              throw new Error(`Transaction failed: ${JSON.stringify(confirmation.value.err)}`);
+            }
+            
+            enhancedLogger.info('✅ Execution transaction confirmed', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              signature: executionSignature,
+              slot: confirmation.value.slot,
+              correlationId,
             });
             
             // Success - break out of retry loop
@@ -4663,30 +4736,8 @@ export class SquadsVaultService {
               // Wait a bit longer before retry to allow state to settle
               await new Promise(resolve => setTimeout(resolve, 2000));
               
-              // Try activation again explicitly before retry
-              try {
-                await rpc.vaultTransactionActivate({
-                  connection: this.connection,
-                  multisig: multisigAddress,
-                  transactionIndex: BigInt(transactionIndexNumber),
-                  member: executor,
-                  programId: this.programId,
-                });
-                enhancedLogger.info('✅ Explicit activation retry successful', {
-                  vaultAddress,
-                  proposalId,
-                  transactionIndex: transactionIndexNumber,
-                  correlationId,
-                });
-              } catch (activateRetryError: any) {
-                enhancedLogger.warn('⚠️ Activation retry failed (may already be ExecuteReady)', {
-                  vaultAddress,
-                  proposalId,
-                  transactionIndex: transactionIndexNumber,
-                  error: activateRetryError?.message || String(activateRetryError),
-                  correlationId,
-                });
-              }
+              // Wait before retry - the instructions method should work directly from Approved status
+              // No activation needed per Squads documentation
               
               // Continue to next retry attempt
               continue;
