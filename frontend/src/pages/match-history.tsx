@@ -317,7 +317,7 @@ export default function MatchHistoryPage() {
             <div className="bg-gradient-to-br from-yellow-500/20 via-yellow-500/10 to-yellow-500/20 backdrop-blur-sm rounded-xl p-5 border border-yellow-400/30">
               <div className="flex items-center gap-2 mb-2">
                 <span className="text-2xl">🟨</span>
-                <span className="text-white/70 text-xs uppercase tracking-wider">House Bonus Earned</span>
+                <span className="text-white/70 text-xs uppercase tracking-wider">Platform Bonus Earned</span>
               </div>
               <div className="text-3xl font-bold text-yellow-400">
                 {formatUSD(bonusEarnedUSD)}

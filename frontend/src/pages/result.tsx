@@ -2588,7 +2588,7 @@ const Result: React.FC = () => {
                                 <div className="flex items-center gap-2 font-semibold">
                                   <span className="text-xl">🎁</span>
                                   <span className="text-white/90 uppercase tracking-wide">
-                                    House Bonus
+                                    Platform Bonus
                                   </span>
                                 </div>
                                 {payoutData.bonus.paid ? (
@@ -2650,7 +2650,7 @@ const Result: React.FC = () => {
                             </div>
                           ) : (
                             <div className="text-white/40 text-xs mb-3">
-                              Play higher tiers to unlock our house bonus boosts.
+                              Play higher tiers to unlock platform bonus rewards.
                             </div>
                           )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
@@ -3038,7 +3038,7 @@ const Result: React.FC = () => {
                           
                           {payoutData.bonus?.eligible && (
                             <div className="text-white/50 text-xs mb-3">
-                              House bonus sparks only on wins—secure the next {getBonusTierLabel(payoutData.bonus.tier)} victory to unlock +${payoutData.bonus.expectedUSD?.toFixed(2)}.
+                              Platform bonus rewards are earned on wins—secure the next {getBonusTierLabel(payoutData.bonus.tier)} victory to unlock +${payoutData.bonus.expectedUSD?.toFixed(2)}.
                             </div>
                           )}
                           
@@ -3143,7 +3143,7 @@ const Result: React.FC = () => {
                           <p className="text-lg text-white/90 mb-2 font-semibold">Better luck next time!</p>
                           {payoutData.bonus?.eligible && (
                             <div className="text-white/50 text-xs mb-3">
-                              Win your next {getBonusTierLabel(payoutData.bonus.tier)} match to grab an extra +${payoutData.bonus.expectedUSD?.toFixed(2)} house bonus.
+                              Win your next {getBonusTierLabel(payoutData.bonus.tier)} match to grab an extra +${payoutData.bonus.expectedUSD?.toFixed(2)} platform bonus.
                             </div>
                           )}
                           {payoutData.proposalStatus === 'EXECUTED' ? (
