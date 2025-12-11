@@ -351,8 +351,12 @@ const Result: React.FC = () => {
           if (isCompleted) {
             // Get player results from match data
             const isPlayer1 = publicKey?.toString() === matchData.player1;
-            const playerResult = isPlayer1 ? matchData.player1Result : matchData.player2Result;
-            const opponentResult = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+            const playerResultRaw = isPlayer1 ? matchData.player1Result : matchData.player2Result;
+            const opponentResultRaw = isPlayer1 ? matchData.player2Result : matchData.player1Result;
+            
+            // Parse results (handle both string JSON and object)
+            const playerResult = typeof playerResultRaw === 'string' ? JSON.parse(playerResultRaw) : playerResultRaw;
+            const opponentResult = typeof opponentResultRaw === 'string' ? JSON.parse(opponentResultRaw) : opponentResultRaw;
             
             // Create payout data from match data
             const bonusInfo = matchData.bonus || {};
@@ -414,11 +418,31 @@ const Result: React.FC = () => {
                 ? 0
                 : (matchData.needsSignatures ?? currentPayoutData?.needsSignatures ?? 0);
             
+            // Determine tie reason for better UX
+            let tieReason: string | null = null;
+            if (matchData.winner === 'tie' && playerResult && opponentResult) {
+              const playerTimedOut = playerResult.reason === 'timeout';
+              const playerUsedAllGuesses = playerResult.numGuesses === 7 && playerResult.reason === 'server-validated';
+              const opponentTimedOut = opponentResult.reason === 'timeout';
+              const opponentUsedAllGuesses = opponentResult.numGuesses === 7 && opponentResult.reason === 'server-validated';
+              
+              if (playerTimedOut && opponentUsedAllGuesses) {
+                tieReason = 'timeout_and_all_guesses';
+              } else if (opponentTimedOut && playerUsedAllGuesses) {
+                tieReason = 'timeout_and_all_guesses';
+              } else if (playerTimedOut && opponentTimedOut) {
+                tieReason = 'both_timeout';
+              } else if (playerUsedAllGuesses && opponentUsedAllGuesses) {
+                tieReason = 'both_all_guesses';
+              }
+            }
+            
             const updatedPayoutData = {
               ...(currentPayoutData || {}), // Preserve existing state (handle null)
               won: matchData.winner === publicKey?.toString() && matchData.winner !== 'tie',
               isTie: matchData.winner === 'tie',
               winner: matchData.winner,
+              tieReason, // Add tie reason for better UX
               numGuesses: playerResult?.numGuesses || currentPayoutData?.numGuesses || 0,
               entryFee: matchData.entryFee || currentPayoutData?.entryFee || 0,
               timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : (currentPayoutData?.timeElapsed || 'N/A'),
@@ -2002,12 +2026,22 @@ const Result: React.FC = () => {
       };
     }
     if (payoutData.isTie) {
+      // Determine tie reason for better UX
+      const tieReason = (payoutData as any).tieReason || null;
+      let subtitle = 'Neither player cracked the puzzle this round. Refunds are queued below.';
+      
+      if (tieReason === 'timeout_and_all_guesses') {
+        subtitle = 'One player timed out while the other used all guesses. Refunds are queued below.';
+      } else if (tieReason === 'both_timeout') {
+        subtitle = 'Both players timed out. Refunds are queued below.';
+      } else if (tieReason === 'both_all_guesses') {
+        subtitle = 'Both players used all guesses without solving. Refunds are queued below.';
+      }
+      
       return {
         emoji: '🤝',
         title: payoutData.isWinningTie ? 'Perfectly Matched' : 'Deadlock Draw',
-        subtitle: payoutData.isWinningTie
-          ? 'Both players landed identical runs. Refund details are below.'
-          : 'Neither player cracked the puzzle this round. Refunds are queued below.',
+        subtitle,
         background: 'from-blue-500/20 via-purple-500/10 to-indigo-500/10',
         border: 'border-blue-400/40',
         accentText: 'text-blue-300',
@@ -2150,6 +2184,11 @@ const Result: React.FC = () => {
                             {payoutData.opponentGuesses === 7 && (
                               <span className="text-white/50 text-sm ml-2 block mt-1">
                                 {payoutData.winner !== 'tie' && payoutData.winner !== publicKey?.toString() ? '✓ Solved on last guess' : '✗ Used all guesses'}
+                              </span>
+                            )}
+                            {payoutData.opponentTimeElapsed && payoutData.opponentTimeElapsed !== 'N/A' && payoutData.opponentTimeElapsed.includes('120') && (payoutData as any).tieReason === 'timeout_and_all_guesses' && (
+                              <span className="text-orange-400 text-sm ml-2 block mt-1">
+                                ⏱️ Timed out
                               </span>
                             )}
                           </div>
