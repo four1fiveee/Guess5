@@ -112,6 +112,30 @@ export const initializeDatabase = async () => {
         }
       }
 
+      // Ensure referral tier tracking columns exist in referral_earning table
+      try {
+        await AppDataSource.query(`
+          ALTER TABLE "referral_earning" 
+          ADD COLUMN IF NOT EXISTS "tierName" VARCHAR(20),
+          ADD COLUMN IF NOT EXISTS "tier" INTEGER,
+          ADD COLUMN IF NOT EXISTS "percentage" DECIMAL(5,4),
+          ADD COLUMN IF NOT EXISTS "bothPlayersReferred" BOOLEAN DEFAULT FALSE
+        `);
+        
+        // Add indexes if they don't exist
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_referral_earning_tier" ON "referral_earning" ("tier");
+          CREATE INDEX IF NOT EXISTS "IDX_referral_earning_tierName" ON "referral_earning" ("tierName");
+          CREATE INDEX IF NOT EXISTS "IDX_referral_earning_bothPlayersReferred" ON "referral_earning" ("bothPlayersReferred");
+        `);
+        console.log('✅ Ensured referral tier tracking columns exist');
+      } catch (columnError: any) {
+        // Ignore if columns already exist or other non-critical errors
+        if (!columnError?.message?.includes('already exists') && !columnError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure referral tier tracking columns:', columnError?.message);
+        }
+      }
+
       console.log('✅ Database initialization complete');
       return;
       

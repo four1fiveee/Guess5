@@ -283,6 +283,10 @@ export class ReferralService {
 
     // Create earning records for each referrer
     for (const [referrerWallet, earnings] of referrerEarnings.entries()) {
+      // Get tier info for this referrer (at time of earning)
+      const tierInfo = await this.getReferrerTier(referrerWallet);
+      const bothPlayersReferred = earnings.playersReferred.length === 2;
+      
       // Create one earning record per referrer (not per player)
       // If both players were referred by same person, they get double percentage
       const earning = earningRepository.create({
@@ -290,6 +294,10 @@ export class ReferralService {
         referredWallet: earnings.playersReferred.join(','), // Store both if applicable
         uplineWallet: referrerWallet,
         level: 1, // Always level 1 for direct referrals
+        tierName: tierInfo.tierName, // Track tier at time of earning
+        tier: tierInfo.tier, // Track tier number at time of earning
+        percentage: tierInfo.percentage, // Track percentage used at time of earning
+        bothPlayersReferred: bothPlayersReferred, // Track if both players were referred
         amountUSD: earnings.amountUSD,
         paid: false
       });
