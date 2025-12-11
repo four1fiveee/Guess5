@@ -142,12 +142,13 @@ export class ReferralService {
    * Get referrer tier based on active referred wallets count
    * Tiers:
    * - Base: 10% (0-99 active wallets)
-   * - Tier 1: 15% (100-499 active wallets)
-   * - Tier 2: 20% (500-999 active wallets)
-   * - Tier 3: 25% (1000+ active wallets)
+   * - Silver: 15% (100-499 active wallets)
+   * - Gold: 20% (500-999 active wallets)
+   * - Platinum: 25% (1000+ active wallets)
    */
   static async getReferrerTier(referrerWallet: string): Promise<{
     tier: number;
+    tierName: string;
     percentage: number;
     activeReferredCount: number;
   }> {
@@ -160,43 +161,48 @@ export class ReferralService {
     
     const referredWallets = referred.map(r => r.referredWallet);
     
-    if (referredWallets.length === 0) {
-      return { tier: 0, percentage: 0.10, activeReferredCount: 0 };
-    }
-    
     // Get active referred count (have played at least one match)
     // A wallet is "active" if they've played at least one completed match
-    const activeReferred = await AppDataSource.query(`
-      SELECT COUNT(DISTINCT wallet) as count
-      FROM (
-        SELECT "player1" as wallet FROM "match" 
-        WHERE "player1" = ANY($1::text[])
-        AND status = 'completed'
-        UNION
-        SELECT "player2" as wallet FROM "match" 
-        WHERE "player2" = ANY($1::text[])
-        AND status = 'completed'
-      ) t
-    `, [referredWallets]);
+    let activeCount = 0;
     
-    const activeCount = parseInt(activeReferred[0]?.count || '0');
+    if (referredWallets.length > 0) {
+      const activeReferred = await AppDataSource.query(`
+        SELECT COUNT(DISTINCT wallet) as count
+        FROM (
+          SELECT "player1" as wallet FROM "match" 
+          WHERE "player1" = ANY($1::text[])
+          AND status = 'completed'
+          UNION
+          SELECT "player2" as wallet FROM "match" 
+          WHERE "player2" = ANY($1::text[])
+          AND status = 'completed'
+        ) t
+      `, [referredWallets]);
+      
+      activeCount = parseInt(activeReferred[0]?.count || '0');
+    }
     
-    // Determine tier based on active count
+    // Determine tier based on active count (default to Base if 0)
     let tier = 0;
+    let tierName = 'Base';
     let percentage = 0.10; // Base: 10%
     
     if (activeCount >= 1000) {
       tier = 3;
-      percentage = 0.25; // Tier 3: 25%
+      tierName = 'Platinum';
+      percentage = 0.25; // Platinum: 25%
     } else if (activeCount >= 500) {
       tier = 2;
-      percentage = 0.20; // Tier 2: 20%
+      tierName = 'Gold';
+      percentage = 0.20; // Gold: 20%
     } else if (activeCount >= 100) {
       tier = 1;
-      percentage = 0.15; // Tier 1: 15%
+      tierName = 'Silver';
+      percentage = 0.15; // Silver: 15%
     }
+    // else: Base tier (tier 0, 10%)
     
-    return { tier, percentage, activeReferredCount: activeCount };
+    return { tier, tierName, percentage, activeReferredCount: activeCount };
   }
 
   /**
@@ -392,10 +398,10 @@ export class ReferralService {
    * Updated for tiered system - no multi-level chains
    */
   static async getEarningsBreakdown(wallet: string): Promise<{
-    byTier: Array<{ tier: number; percentage: number; totalUSD: number; count: number }>;
+    byTier: Array<{ tier: number; tierName: string; percentage: number; totalUSD: number; count: number }>;
     byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
     recentEarnings: Array<ReferralEarning>;
-    currentTier: { tier: number; percentage: number; activeReferredCount: number };
+    currentTier: { tier: number; tierName: string; percentage: number; activeReferredCount: number };
   }> {
     const earningRepository = AppDataSource.getRepository(ReferralEarning);
 
@@ -411,15 +417,16 @@ export class ReferralService {
     // Group by tier (for historical tracking)
     // Since we're only tracking direct referrals now, all are tier-based
     const byTier = [
-      { tier: 0, percentage: 0.10 },
-      { tier: 1, percentage: 0.15 },
-      { tier: 2, percentage: 0.20 },
-      { tier: 3, percentage: 0.25 }
+      { tier: 0, tierName: 'Base', percentage: 0.10 },
+      { tier: 1, tierName: 'Silver', percentage: 0.15 },
+      { tier: 2, tierName: 'Gold', percentage: 0.20 },
+      { tier: 3, tierName: 'Platinum', percentage: 0.25 }
     ].map(tierInfo => {
       // For now, we'll group all earnings together since tier is dynamic
       // In the future, we could track tier at time of earning
       return {
         tier: tierInfo.tier,
+        tierName: tierInfo.tierName,
         percentage: tierInfo.percentage,
         totalUSD: 0, // Will be calculated if we track tier per earning
         count: 0

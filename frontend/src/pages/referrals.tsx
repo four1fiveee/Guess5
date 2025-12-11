@@ -28,9 +28,9 @@ interface CanReferInfo {
 }
 
 interface EarningsBreakdown {
-  byTier: Array<{ tier: number; percentage: number; totalUSD: number; count: number }>;
+  byTier: Array<{ tier: number; tierName: string; percentage: number; totalUSD: number; count: number }>;
   byReferredWallet: Array<{ referredWallet: string; totalUSD: number; count: number }>;
-  currentTier: { tier: number; percentage: number; activeReferredCount: number };
+  currentTier: { tier: number; tierName: string; percentage: number; activeReferredCount: number };
 }
 
 export default function ReferralsPage() {
@@ -275,19 +275,24 @@ export default function ReferralsPage() {
               </div>
             </div>
 
-            {/* Eligible Referrals */}
-            <div className="bg-white/5 rounded-xl p-5 border border-white/10">
-              <div className="flex items-center gap-2 mb-2">
-                <span className="text-2xl">🎯</span>
-                <span className="text-white/70 text-xs uppercase tracking-wider">Eligible Referrals</span>
+            {/* Current Tier */}
+            {breakdown && breakdown.currentTier && (
+              <div className="bg-gradient-to-br from-purple-500/20 via-purple-500/10 to-purple-500/20 rounded-xl p-5 border border-purple-400/30">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-2xl">⭐</span>
+                  <span className="text-white/70 text-xs uppercase tracking-wider">Your Tier</span>
+                </div>
+                <div className="text-2xl font-bold text-purple-400">
+                  {breakdown.currentTier.tierName}
+                </div>
+                <div className="text-white/60 text-xs mt-1">
+                  {(breakdown.currentTier.percentage * 100).toFixed(0)}% per referral
+                </div>
+                <div className="text-white/50 text-xs mt-1 italic">
+                  {breakdown.currentTier.activeReferredCount} active wallets
+                </div>
               </div>
-              <div className="text-2xl font-bold text-blue-400">
-                {stats?.eligibleReferredCount || 0}
-              </div>
-              <div className="text-white/60 text-xs mt-1">
-                Qualifying for earnings
-              </div>
-            </div>
+            )}
 
             {/* Next Payout Date */}
             {nextPayoutDate && (
@@ -386,7 +391,10 @@ export default function ReferralsPage() {
               <div className="text-center mb-6">
                 <div className="text-white/70 text-sm uppercase tracking-wider mb-2">Current Tier</div>
                 <div className="text-5xl sm:text-6xl font-bold mb-2 text-purple-400">
-                  {(breakdown.currentTier.percentage * 100).toFixed(0)}%
+                  {breakdown.currentTier.tierName}
+                </div>
+                <div className="text-white/60 text-sm mb-1">
+                  {(breakdown.currentTier.percentage * 100).toFixed(0)}% per referral
                 </div>
                 <div className="text-white/60 text-sm">
                   {breakdown.currentTier.activeReferredCount} active wallets
@@ -395,10 +403,10 @@ export default function ReferralsPage() {
                   {breakdown.currentTier.activeReferredCount >= 1000 
                     ? 'Maximum tier reached!'
                     : breakdown.currentTier.activeReferredCount >= 500
-                    ? `${1000 - breakdown.currentTier.activeReferredCount} more active wallets to reach 25% tier`
+                    ? `${1000 - breakdown.currentTier.activeReferredCount} more active wallets to reach Platinum tier`
                     : breakdown.currentTier.activeReferredCount >= 100
-                    ? `${500 - breakdown.currentTier.activeReferredCount} more active wallets to reach 20% tier`
-                    : `${100 - breakdown.currentTier.activeReferredCount} more active wallets to reach 15% tier`
+                    ? `${500 - breakdown.currentTier.activeReferredCount} more active wallets to reach Gold tier`
+                    : `${100 - breakdown.currentTier.activeReferredCount} more active wallets to reach Silver tier`
                   }
                 </div>
               </div>
@@ -407,7 +415,7 @@ export default function ReferralsPage() {
               <div className="space-y-3">
                 <div>
                   <div className="flex justify-between text-xs text-white/70 mb-1">
-                    <span>Base Tier (10%)</span>
+                    <span>Base (10%)</span>
                     <span>{breakdown.currentTier.activeReferredCount < 100 ? `${breakdown.currentTier.activeReferredCount}/100` : '✓'}</span>
                   </div>
                   <div className="w-full bg-white/10 rounded-full h-2">
@@ -420,7 +428,7 @@ export default function ReferralsPage() {
                 {breakdown.currentTier.activeReferredCount >= 100 && (
                   <div>
                     <div className="flex justify-between text-xs text-white/70 mb-1">
-                      <span>Tier 1 (15%)</span>
+                      <span>Silver (15%)</span>
                       <span>{breakdown.currentTier.activeReferredCount < 500 ? `${breakdown.currentTier.activeReferredCount}/500` : '✓'}</span>
                     </div>
                     <div className="w-full bg-white/10 rounded-full h-2">
@@ -434,7 +442,7 @@ export default function ReferralsPage() {
                 {breakdown.currentTier.activeReferredCount >= 500 && (
                   <div>
                     <div className="flex justify-between text-xs text-white/70 mb-1">
-                      <span>Tier 2 (20%)</span>
+                      <span>Gold (20%)</span>
                       <span>{breakdown.currentTier.activeReferredCount < 1000 ? `${breakdown.currentTier.activeReferredCount}/1000` : '✓'}</span>
                     </div>
                     <div className="w-full bg-white/10 rounded-full h-2">
@@ -448,7 +456,7 @@ export default function ReferralsPage() {
                 {breakdown.currentTier.activeReferredCount >= 1000 && (
                   <div>
                     <div className="flex justify-between text-xs text-white/70 mb-1">
-                      <span>Tier 3 (25%)</span>
+                      <span>Platinum (25%)</span>
                       <span>✓ Maximum</span>
                     </div>
                     <div className="w-full bg-white/10 rounded-full h-2">
@@ -522,20 +530,20 @@ export default function ReferralsPage() {
                     <div className="text-xs text-white/70 mt-1">0-99 active</div>
                     <div className="text-xs text-white/60 mt-1 italic">20% if both</div>
                   </div>
-                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-purple-400 mb-1">Tier 1</div>
+                  <div className="bg-gray-500/20 border border-gray-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-gray-300 mb-1">Silver</div>
                     <div className="text-xs text-white/90 font-semibold">15%</div>
                     <div className="text-xs text-white/70 mt-1">100-499 active</div>
                     <div className="text-xs text-white/60 mt-1 italic">30% if both</div>
                   </div>
-                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-purple-400 mb-1">Tier 2</div>
+                  <div className="bg-yellow-500/20 border border-yellow-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-yellow-400 mb-1">Gold</div>
                     <div className="text-xs text-white/90 font-semibold">20%</div>
                     <div className="text-xs text-white/70 mt-1">500-999 active</div>
                     <div className="text-xs text-white/60 mt-1 italic">40% if both</div>
                   </div>
-                  <div className="bg-purple-500/20 border border-purple-400/40 rounded-lg p-3 text-center">
-                    <div className="text-xl font-black text-purple-400 mb-1">Tier 3</div>
+                  <div className="bg-blue-500/20 border border-blue-400/40 rounded-lg p-3 text-center">
+                    <div className="text-xl font-black text-blue-400 mb-1">Platinum</div>
                     <div className="text-xs text-white/90 font-semibold">25%</div>
                     <div className="text-xs text-white/70 mt-1">1000+ active</div>
                     <div className="text-xs text-white/60 mt-1 italic">50% if both</div>
