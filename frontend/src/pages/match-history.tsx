@@ -252,6 +252,20 @@ export default function MatchHistoryPage() {
                     Net Profit = Amount Received from Vaults - Entry Fees Paid
                   </div>
                 </div>
+                {/* USD Conversion Explanation */}
+                <div className="mt-4 pt-3 border-t border-white/10 bg-blue-500/10 rounded-lg p-3">
+                  <div className="flex items-start gap-2">
+                    <span className="text-blue-400 text-sm mt-0.5">ℹ️</span>
+                    <div className="flex-1">
+                      <div className="text-blue-300 text-xs font-semibold mb-1">USD Values Explained</div>
+                      <div className="text-white/70 text-xs leading-relaxed">
+                        USD amounts are calculated using <strong className="text-white/90">historical SOL prices</strong> at the time of each transaction, not today's price. 
+                        This means if you paid $5 last week when SOL was $150, it will still show $5 even if SOL is now $160. 
+                        The <strong className="text-white/90">SOL amounts shown are the actual amounts</strong> transacted and are always accurate.
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           )}
