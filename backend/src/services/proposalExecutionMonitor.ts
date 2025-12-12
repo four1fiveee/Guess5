@@ -205,10 +205,8 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
     const { createStandardSolanaConnection } = require('../config/solanaConnection');
     const connection = createStandardSolanaConnection('confirmed');
 
-    const vaultPubkey = new PublicKey(vaultAddress);
-    const multisigPda = getMultisigPda({
-      createKey: vaultPubkey,
-    })[0];
+    // vaultAddress is already the multisig PDA, not a createKey
+    const multisigPda = new PublicKey(vaultAddress);
 
     // Get multisig account to determine threshold
     let threshold = 2; // Default
@@ -234,11 +232,15 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
       approvedSignersCount: number;
     }> = [];
 
+    // Get programId for PDA derivation (same pattern as proposalReconciliationService)
+    const programId = new PublicKey(process.env.SQUADS_PROGRAM_ID || 'SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf');
+
     for (let txIndex = 0; txIndex < maxTransactionIndex; txIndex++) {
       try {
         const [proposalPda] = getProposalPda({
           multisigPda,
           transactionIndex: txIndex,
+          programId,
         });
 
         // Try to fetch the proposal account
