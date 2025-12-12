@@ -145,8 +145,17 @@ export default function AdminPage() {
     if (authenticated && token) {
       loadDashboardData();
       // Refresh data every 30 seconds
-      const interval = setInterval(loadDashboardData, 30000);
-      return () => clearInterval(interval);
+      const dataInterval = setInterval(loadDashboardData, 30000);
+      // Refresh SOL price every 60 seconds (1 minute)
+      const solPriceInterval = setInterval(() => {
+        if (token) {
+          loadDashboardData();
+        }
+      }, 60000);
+      return () => {
+        clearInterval(dataInterval);
+        clearInterval(solPriceInterval);
+      };
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, token]);

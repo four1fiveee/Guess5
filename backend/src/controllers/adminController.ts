@@ -1041,6 +1041,16 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
 
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
+    // Get current SOL price for USD conversion
+    const axios = require('axios');
+    let currentSolPriceUSD = 0;
+    try {
+      const priceResponse = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
+      currentSolPriceUSD = priceResponse.data.solana?.usd || 0;
+    } catch (err) {
+      console.warn('Failed to fetch SOL price for financial metrics:', err);
+    }
+
     // Get all matches with payments and financial data
     const allMatches = await matchRepository.query(`
       SELECT 
@@ -1140,9 +1150,17 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         }
       }
 
-      // Net profit = Platform fee - Bonus - Squads cost - Gas
-      const netProfit = totalPlatformFee - totalBonus - totalSquadsCost - totalGasCost;
-      const netProfitUSD = totalPlatformFeeUSD - totalBonusUSD - totalSquadsCostUSD - totalGasCostUSD;
+      // Net profit = Platform fee - Bonus - Squads cost - Gas (calculate in SOL first)
+      const netProfitSOL = totalPlatformFee - totalBonus - totalSquadsCost - totalGasCost;
+      
+      // Convert all SOL amounts to USD using current exchange rate
+      const totalEntryFeesUSD = totalEntryFees * currentSolPriceUSD;
+      const totalPlatformFeeUSD = totalPlatformFee * currentSolPriceUSD;
+      const totalBonusUSD = totalBonus * currentSolPriceUSD;
+      const totalSquadsCostUSD = totalSquadsCost * currentSolPriceUSD;
+      const totalGasCostUSD = totalGasCost * currentSolPriceUSD;
+      const totalPayoutsUSD = totalPayouts * currentSolPriceUSD;
+      const netProfitUSD = netProfitSOL * currentSolPriceUSD;
 
       return {
         matchesPlayed,
@@ -1153,7 +1171,7 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         totalSquadsCostSOL: parseFloat(totalSquadsCost.toFixed(6)),
         totalGasCostSOL: parseFloat(totalGasCost.toFixed(6)),
         totalPayoutsSOL: parseFloat(totalPayouts.toFixed(6)),
-        netProfitSOL: parseFloat(netProfit.toFixed(6)),
+        netProfitSOL: parseFloat(netProfitSOL.toFixed(6)),
         // USD amounts (converted at current exchange rate)
         totalEntryFeesUSD: parseFloat(totalEntryFeesUSD.toFixed(2)),
         totalPlatformFeeUSD: parseFloat(totalPlatformFeeUSD.toFixed(2)),
@@ -1162,6 +1180,7 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         totalGasCostUSD: parseFloat(totalGasCostUSD.toFixed(2)),
         totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
         netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
+        currentSolPriceUSD: parseFloat(currentSolPriceUSD.toFixed(2)),
       };
     };
 
@@ -1174,6 +1193,7 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       weekly,
       quarterly,
       yearly,
+      currentSolPriceUSD: parseFloat(currentSolPriceUSD.toFixed(2)),
       period: {
         weekStart: startOfWeek.toISOString(),
         quarterStart: startOfQuarter.toISOString(),
