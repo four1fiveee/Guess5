@@ -309,6 +309,59 @@ export default function AdminPage() {
     }
   };
 
+  const handleDownloadCSV = async () => {
+    if (!token) {
+      alert('Not authenticated. Please log in again.');
+      return;
+    }
+
+    if (!csvStartDate || !csvEndDate) {
+      alert('Please select both start and end dates');
+      return;
+    }
+
+    setDownloadingCSV(true);
+    try {
+      const params = new URLSearchParams({
+        startDate: csvStartDate,
+        endDate: csvEndDate,
+      });
+
+      const response = await fetch(`${API_URL}/api/admin/financial/csv?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to download CSV: ${response.status}`);
+      }
+
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || 'financial-report.csv'
+        : `financial-report-${csvStartDate}-to-${csvEndDate}.csv`;
+
+      // Download the CSV
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      alert(`✅ CSV downloaded successfully!\n\nFilename: ${filename}`);
+    } catch (err: any) {
+      alert(`❌ Error downloading CSV:\n\n${err.message}`);
+    } finally {
+      setDownloadingCSV(false);
+    }
+  };
 
   const handleLockReferrals = async () => {
     if (!token) return;

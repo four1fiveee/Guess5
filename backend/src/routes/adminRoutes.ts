@@ -27,7 +27,8 @@ const {
   adminGetReferralPayoutExecution,
   adminLockReferralsWeek,
   adminExecutePayout,
-  adminGetPayoutLockStatus
+  adminGetPayoutLockStatus,
+  adminGetReferralPayoutHistoryCSV
 } = require('../controllers/adminController');
 const { requireAdminAuth } = require('../middleware/adminAuth');
 
@@ -77,6 +78,7 @@ router.get('/financial/csv', adminGetFinancialCSV);
 // Referral payout execution
 router.get('/referrals/payout-execution', adminGetReferralPayoutExecution);
 router.get('/referrals/payout-lock-status', adminGetPayoutLockStatus);
+router.get('/referrals/payout-history/csv', adminGetReferralPayoutHistoryCSV);
 router.post('/referrals/lock-week', adminLockReferralsWeek);
 router.post('/referrals/execute-payout', adminExecutePayout);
 
