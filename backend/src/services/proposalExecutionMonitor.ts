@@ -249,11 +249,12 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
     }
 
     // Check if proposal is ExecuteReady
-    // CRITICAL: Use premium RPC (Helius) for execution operations
+    // OPTIMIZATION: Use standard RPC for status checks (read-only operations)
+    // Premium RPC is only needed for actual execution (handled by squadsVaultService.executeProposal)
     const { PublicKey } = require('@solana/web3.js');
     const { getProposalPda, accounts } = require('@sqds/multisig');
-    const { createPremiumSolanaConnection } = require('../config/solanaConnection');
-    const connection = createPremiumSolanaConnection('confirmed');
+    const { createStandardSolanaConnection } = require('../config/solanaConnection');
+    const connection = createStandardSolanaConnection('confirmed');
 
     const vaultPubkey = new PublicKey(vaultAddress);
     const multisigPda = require('@sqds/multisig').getMultisigPda({
@@ -435,8 +436,7 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
         note: 'Proposal execution completed successfully',
         reason: 'EXECUTION_SUCCESS',
       });
-    } else {
-      // CRITICAL: Log execution failure with comprehensive details
+
       executionAttempts.delete(attemptKey);
     } else {
       // CRITICAL: Log execution failure with comprehensive details
