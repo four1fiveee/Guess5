@@ -126,6 +126,11 @@ export default function AdminPage() {
   const [csvStartDate, setCsvStartDate] = useState('');
   const [csvEndDate, setCsvEndDate] = useState('');
   const [downloadingCSV, setDownloadingCSV] = useState(false);
+  
+  // Referral payout CSV download state
+  const [referralCsvStartDate, setReferralCsvStartDate] = useState('');
+  const [referralCsvEndDate, setReferralCsvEndDate] = useState('');
+  const [downloadingReferralCSV, setDownloadingReferralCSV] = useState(false);
 
   // Check if already authenticated on mount
   useEffect(() => {
@@ -360,6 +365,60 @@ export default function AdminPage() {
       alert(`❌ Error downloading CSV:\n\n${err.message}`);
     } finally {
       setDownloadingCSV(false);
+    }
+  };
+
+  const handleDownloadReferralCSV = async () => {
+    if (!token) {
+      alert('Not authenticated. Please log in again.');
+      return;
+    }
+
+    if (!referralCsvStartDate || !referralCsvEndDate) {
+      alert('Please select both start and end dates');
+      return;
+    }
+
+    setDownloadingReferralCSV(true);
+    try {
+      const params = new URLSearchParams({
+        startDate: referralCsvStartDate,
+        endDate: referralCsvEndDate,
+      });
+
+      const response = await fetch(`${API_URL}/api/admin/referrals/payout-history/csv?${params}`, {
+        headers: {
+          'Authorization': `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || `Failed to download CSV: ${response.status}`);
+      }
+
+      // Get filename from Content-Disposition header or use default
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filename = contentDisposition
+        ? contentDisposition.split('filename=')[1]?.replace(/"/g, '') || 'referral-payout-history.csv'
+        : `referral-payout-history-${referralCsvStartDate}-to-${referralCsvEndDate}.csv`;
+
+      // Download the CSV
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+      alert(`✅ Referral payout CSV downloaded successfully!\n\nFilename: ${filename}`);
+    } catch (err: any) {
+      alert(`❌ Error downloading referral payout CSV:\n\n${err.message}`);
+    } finally {
+      setDownloadingReferralCSV(false);
     }
   };
 
@@ -1015,6 +1074,53 @@ export default function AdminPage() {
             </button>
             <p className="text-white/50 text-sm">
               Download complete financial data including all matches, transactions, SOL addresses, entry fees, payouts, bonuses, costs, and net profit calculations for the selected date range.
+            </p>
+          </div>
+        </div>
+
+        {/* Referral Payout History Export */}
+        <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
+          <h2 className="text-xl font-bold text-white mb-4">Referral Payout History Export</h2>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="referralCsvStartDate" className="block text-white/80 text-sm mb-2">
+                  Start Date
+                </label>
+                <input
+                  id="referralCsvStartDate"
+                  type="date"
+                  value={referralCsvStartDate}
+                  onChange={(e) => setReferralCsvStartDate(e.target.value)}
+                  className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="referralCsvEndDate" className="block text-white/80 text-sm mb-2">
+                  End Date
+                </label>
+                <input
+                  id="referralCsvEndDate"
+                  type="date"
+                  value={referralCsvEndDate}
+                  onChange={(e) => setReferralCsvEndDate(e.target.value)}
+                  className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            </div>
+            <button
+              onClick={handleDownloadReferralCSV}
+              disabled={!referralCsvStartDate || !referralCsvEndDate || downloadingReferralCSV}
+              className={`w-full px-6 py-3 rounded-lg transition-colors border font-semibold ${
+                referralCsvStartDate && referralCsvEndDate && !downloadingReferralCSV
+                  ? 'bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 border-purple-500/30 cursor-pointer'
+                  : 'bg-gray-500/20 text-gray-400 border-gray-500/30 cursor-not-allowed'
+              }`}
+            >
+              {downloadingReferralCSV ? '⏳ Downloading...' : '📥 Download Referral Payout History CSV'}
+            </button>
+            <p className="text-white/50 text-sm">
+              Download complete referral payout history including payout batches, referrer wallets, amounts paid (SOL and USD), transaction signatures, execution dates, and all payout details for the selected date range.
             </p>
           </div>
         </div>
