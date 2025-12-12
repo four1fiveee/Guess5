@@ -13639,6 +13639,26 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
   }
 };
 
+// ✅ TIMEOUT HELPER: Prevents hanging operations from blocking the request
+// This utility function wraps promises with a timeout to prevent indefinite hangs
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> {
+  let timeoutHandle: NodeJS.Timeout | undefined;
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(new Error(`${operationName} timeout after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+
+  try {
+    const result = await Promise.race([promise, timeoutPromise]);
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    return result;
+  } catch (error: any) {
+    if (timeoutHandle) clearTimeout(timeoutHandle);
+    throw error;
+  }
+}
+
 // Handler for getting VaultTransaction approval transaction (step 2 of two-step approval)
 const signProposalHandler = async (req: any, res: any) => {
   // 🔒 DEBUG HOOK: Log ALL incoming POSTs to /sign-proposal, even if malformed
@@ -13920,99 +13940,235 @@ const signProposalHandler = async (req: any, res: any) => {
     
     // ✅ SELF-HEALING: Sync proposal status from on-chain before processing signature
     // This ensures we're working with the latest proposal state, not stale DB data
+    // 🔴 CRITICAL: Made non-blocking with timeout to prevent frontend timeouts
     if (matchRow.squadsVaultAddress && (matchRow.payoutProposalId || matchRow.tieRefundProposalId)) {
-      try {
-        const proposalIdToSync = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
-        
-        console.log('🔁 [sign-proposal] Running syncProposalIfNeeded...', {
-          matchId,
-          vaultAddress: matchRow.squadsVaultAddress,
-          dbProposalId: proposalIdToSync,
-          dbStatus: matchRow.proposalStatus,
-        });
-        
-        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
-        
-        const syncResult = await syncProposalIfNeeded(
-          matchId,
-          matchRow.squadsVaultAddress,
-          proposalIdToSync
-        );
-        
-        console.log('✅ [sign-proposal] Sync completed', {
-          matchId,
-          syncSuccess: syncResult.success,
-          synced: syncResult.synced,
-          dbStatus: syncResult.dbStatus,
-          onChainStatus: syncResult.onChainStatus,
-          hasChanges: !!syncResult.changes,
-        });
-        
-        if (syncResult.synced && syncResult.changes) {
-          console.log('✅ [sign-proposal] SYNC: Updated proposal status', {
+      const proposalIdToSync = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+      
+      // ✅ Generate unique request ID for tracing
+      const syncRequestId = `sync-${matchId}-${Date.now()}`;
+      const syncStartTime = Date.now();
+      
+      // ✅ PRIORITY 1: Run sync in background with timeout protection
+      // This prevents the handler from hanging and causing frontend timeouts
+      const syncProposalWithChainData = async () => {
+        try {
+          console.log('🟢 [sign-proposal] Starting proposal sync for matchId', {
             matchId,
-            changes: syncResult.changes,
+            syncRequestId,
+            vaultAddress: matchRow.squadsVaultAddress,
+            dbProposalId: proposalIdToSync,
+            dbStatus: matchRow.proposalStatus,
+            timestamp: Date.now(),
           });
           
-          // Reload match data after sync
-          const refreshedRows = await matchRepository.query(`
-            SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
-            FROM "match"
-            WHERE id = $1
-          `, [matchId]);
+          const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
           
-          if (refreshedRows && refreshedRows.length > 0) {
-            matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
-            matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
-            matchRow.proposalStatus = refreshedRows[0].proposalStatus;
-            matchRow.proposalSigners = refreshedRows[0].proposalSigners;
-            matchRow.needsSignatures = refreshedRows[0].needsSignatures;
-          }
-        } else if (!syncResult.success || matchRow.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
-          // Try auto-fix if sync failed or status is still FAILED
-          console.log('🔄 [sign-proposal] Attempting auto-fix: Searching for Approved proposal', {
+          const fetchStartTime = Date.now();
+          console.log('📦 [sign-proposal] Fetching on-chain proposal data...', {
             matchId,
-            currentProposalId: proposalIdToSync,
-            currentStatus: matchRow.proposalStatus,
-            syncSuccess: syncResult.success,
-            reason: !syncResult.success ? 'sync failed' : 'status is SIGNATURE_VERIFICATION_FAILED',
+            syncRequestId,
+            proposalId: proposalIdToSync,
+            timestamp: Date.now(),
           });
           
-          const autoFixResult = await findAndSyncApprovedProposal(
+          const syncResult = await syncProposalIfNeeded(
             matchId,
-            matchRow.squadsVaultAddress
+            matchRow.squadsVaultAddress,
+            proposalIdToSync
           );
           
-          if (autoFixResult && autoFixResult.synced) {
-            console.log('✅ [sign-proposal] AUTO-FIX: Found and synced Approved proposal', {
+          const fetchElapsed = Date.now() - fetchStartTime;
+          console.log('✅ [sign-proposal] Sync completed', {
+            matchId,
+            syncRequestId,
+            syncSuccess: syncResult.success,
+            synced: syncResult.synced,
+            dbStatus: syncResult.dbStatus,
+            onChainStatus: syncResult.onChainStatus,
+            hasChanges: !!syncResult.changes,
+            elapsedMs: fetchElapsed,
+            timestamp: Date.now(),
+          });
+          
+          if (syncResult.synced && syncResult.changes) {
+            const dbUpdateStartTime = Date.now();
+            console.log('📝 [sign-proposal] Updating database with sync changes...', {
               matchId,
-              oldProposalId: proposalIdToSync,
-              newProposalId: autoFixResult.onChainProposalId,
-              newStatus: autoFixResult.onChainStatus,
-              changes: autoFixResult.changes,
+              syncRequestId,
+              changes: syncResult.changes,
+              timestamp: Date.now(),
             });
             
-            // Reload match data after auto-fix
+            // Reload match data after sync
             const refreshedRows = await matchRepository.query(`
               SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
               FROM "match"
               WHERE id = $1
             `, [matchId]);
             
+            const dbUpdateElapsed = Date.now() - dbUpdateStartTime;
             if (refreshedRows && refreshedRows.length > 0) {
               matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
               matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
               matchRow.proposalStatus = refreshedRows[0].proposalStatus;
               matchRow.proposalSigners = refreshedRows[0].proposalSigners;
               matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+              
+              console.log('✅ [sign-proposal] Database updated with sync results', {
+                matchId,
+                syncRequestId,
+                newStatus: matchRow.proposalStatus,
+                newSigners: matchRow.proposalSigners,
+                elapsedMs: dbUpdateElapsed,
+                timestamp: Date.now(),
+              });
+            }
+          } else if (!syncResult.success || matchRow.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+            // Try auto-fix if sync failed or status is still FAILED
+            const autoFixStartTime = Date.now();
+            console.log('🔄 [sign-proposal] Attempting auto-fix: Searching for Approved proposal', {
+              matchId,
+              syncRequestId,
+              currentProposalId: proposalIdToSync,
+              currentStatus: matchRow.proposalStatus,
+              syncSuccess: syncResult.success,
+              reason: !syncResult.success ? 'sync failed' : 'status is SIGNATURE_VERIFICATION_FAILED',
+              timestamp: Date.now(),
+            });
+            
+            console.log('📦 [sign-proposal] Fetching approved proposal from chain...', {
+              matchId,
+              syncRequestId,
+              vaultAddress: matchRow.squadsVaultAddress,
+              timestamp: Date.now(),
+            });
+            
+            const autoFixResult = await findAndSyncApprovedProposal(
+              matchId,
+              matchRow.squadsVaultAddress
+            );
+            
+            const autoFixElapsed = Date.now() - autoFixStartTime;
+            if (autoFixResult && autoFixResult.synced) {
+              console.log('✅ [sign-proposal] AUTO-FIX: Found and synced Approved proposal', {
+                matchId,
+                syncRequestId,
+                oldProposalId: proposalIdToSync,
+                newProposalId: autoFixResult.onChainProposalId,
+                newStatus: autoFixResult.onChainStatus,
+                changes: autoFixResult.changes,
+                elapsedMs: autoFixElapsed,
+                timestamp: Date.now(),
+              });
+              
+              const dbUpdateStartTime2 = Date.now();
+              console.log('📝 [sign-proposal] Updating database with auto-fix results...', {
+                matchId,
+                syncRequestId,
+                timestamp: Date.now(),
+              });
+              
+              // Reload match data after auto-fix
+              const refreshedRows = await matchRepository.query(`
+                SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
+                FROM "match"
+                WHERE id = $1
+              `, [matchId]);
+              
+              const dbUpdateElapsed2 = Date.now() - dbUpdateStartTime2;
+              if (refreshedRows && refreshedRows.length > 0) {
+                matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+                matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+                matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+                matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+                matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+                
+                console.log('✅ [sign-proposal] Database updated with auto-fix results', {
+                  matchId,
+                  syncRequestId,
+                  newStatus: matchRow.proposalStatus,
+                  elapsedMs: dbUpdateElapsed2,
+                  timestamp: Date.now(),
+                });
+              }
+            } else {
+              console.log('⚠️ [sign-proposal] Auto-fix did not find approved proposal', {
+                matchId,
+                syncRequestId,
+                elapsedMs: autoFixElapsed,
+                timestamp: Date.now(),
+              });
             }
           }
+          
+          const totalElapsed = Date.now() - syncStartTime;
+          console.log('✅ [sign-proposal] Proposal sync completed successfully', {
+            matchId,
+            syncRequestId,
+            totalElapsedMs: totalElapsed,
+            timestamp: Date.now(),
+          });
+        } catch (syncError: any) {
+          const totalElapsed = Date.now() - syncStartTime;
+          console.warn('⚠️ [sign-proposal] Proposal sync failed (non-blocking)', {
+            matchId,
+            syncRequestId,
+            error: syncError?.message,
+            stack: syncError?.stack,
+            elapsedMs: totalElapsed,
+            timestamp: Date.now(),
+          });
         }
+      };
+      
+      // ✅ PRIORITY 1 & 2: Run sync with timeout protection AND make it non-blocking
+      // This ensures the handler responds quickly even if sync takes too long
+      try {
+        // Attempt sync with 10-second timeout, but don't block the response
+        const syncPromise = withTimeout(
+          syncProposalWithChainData(),
+          10000, // 10 seconds max
+          'Proposal sync'
+        );
+        
+        // Run in background - don't await, but handle errors
+        syncPromise
+          .then(() => {
+            const totalElapsed = Date.now() - syncStartTime;
+            console.log('✅ [sign-proposal] Background proposal sync completed', {
+              matchId,
+              syncRequestId,
+              totalElapsedMs: totalElapsed,
+              timestamp: Date.now(),
+            });
+          })
+          .catch((timeoutError: any) => {
+            const totalElapsed = Date.now() - syncStartTime;
+            console.warn('⚠️ [sign-proposal] Proposal sync timed out or failed (non-blocking)', {
+              matchId,
+              syncRequestId,
+              error: timeoutError?.message,
+              errorType: timeoutError?.constructor?.name,
+              elapsedMs: totalElapsed,
+              timestamp: Date.now(),
+              note: 'Handler continues without waiting for sync - this is intentional to prevent timeouts',
+            });
+          });
+        
+        // ✅ CRITICAL: Don't await - let it run in background
+        // The handler will continue immediately, preventing frontend timeouts
+        console.log('🟡 [sign-proposal] Proposal sync started in background (non-blocking)', {
+          matchId,
+          syncRequestId,
+          note: 'Handler continues immediately without waiting for sync completion',
+          timestamp: Date.now(),
+        });
       } catch (syncError: any) {
-        // Don't fail sign-proposal if sync fails - log and continue
-        console.warn('⚠️ Proposal sync failed in sign-proposal handler (non-blocking)', {
+        // Don't fail sign-proposal if sync setup fails - log and continue
+        console.warn('⚠️ [sign-proposal] Failed to start proposal sync (non-blocking)', {
           matchId,
           error: syncError?.message,
+          timestamp: Date.now(),
         });
       }
     }
