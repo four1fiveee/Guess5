@@ -49,18 +49,22 @@ async function startServer() {
     // Validate environment variables first
     enhancedLogger.info('🔍 Validating environment configuration...');
     validateConfig();
-    
-    // Log Helius RPC configuration status
-    const { getSolanaRpcUrl } = require('./config/solanaConnection');
-    const rpcUrl = getSolanaRpcUrl();
-    if (process.env.HELIUS_API_KEY) {
-      enhancedLogger.info('✅ Helius RPC configured - Using premium RPC endpoint');
-      enhancedLogger.info(`🔗 RPC URL: ${rpcUrl.replace(/\?api-key=[^&]+/, '?api-key=***')}`); // Mask API key in logs
-    } else {
-      enhancedLogger.warn('⚠️ HELIUS_API_KEY not set - Using standard Solana RPC (may have rate limits)');
-      enhancedLogger.info(`🔗 RPC URL: ${rpcUrl}`);
-    }
     enhancedLogger.info('✅ Environment configuration validated');
+    
+    // Log Helius RPC configuration status (after validation to ensure module is available)
+    try {
+      const { getSolanaRpcUrl } = require('./config/solanaConnection');
+      const rpcUrl = getSolanaRpcUrl();
+      if (process.env.HELIUS_API_KEY) {
+        enhancedLogger.info('✅ Helius RPC configured - Using premium RPC endpoint');
+        enhancedLogger.info(`🔗 RPC URL: ${rpcUrl.replace(/\?api-key=[^&]+/, '?api-key=***')}`); // Mask API key in logs
+      } else {
+        enhancedLogger.warn('⚠️ HELIUS_API_KEY not set - Using standard Solana RPC (may have rate limits)');
+        enhancedLogger.info(`🔗 RPC URL: ${rpcUrl}`);
+      }
+    } catch (error: any) {
+      enhancedLogger.warn('⚠️ Could not load Solana connection config (non-critical):', error?.message || error);
+    }
 
     // Validate Solana configuration
     enhancedLogger.info('🔍 Validating Solana configuration...');
