@@ -1403,9 +1403,35 @@ const Result: React.FC = () => {
       const bytes = base64ToUint8Array(txData.transaction);
       const approveTx = VersionedTransaction.deserialize(bytes);
       const signedProposalTx = await signTransaction(approveTx);
+      
+      // ✅ CRITICAL FIX: Verify transaction is actually signed before serializing
+      // This prevents sending unsigned transactions to the backend
+      const signatures = signedProposalTx.signatures;
+      const hasValidSignature = signatures.some(sig => 
+        sig && sig.length > 0 && !sig.every(b => b === 0)
+      );
+      
+      if (!hasValidSignature) {
+        const errorMsg = 'Transaction was not signed. Please try again and approve the signing request in your wallet.';
+        console.error('❌ Transaction signature validation failed', {
+          matchId,
+          wallet: publicKey.toString(),
+          signatureCount: signatures.length,
+          signatures: signatures.map(sig => sig ? Buffer.from(sig).toString('hex').substring(0, 16) + '...' : 'null'),
+        });
+        throw new Error(errorMsg);
+      }
+      
+      console.log('✅ Transaction signature verified before serialization', {
+        matchId,
+        wallet: publicKey.toString(),
+        proposalId: payoutData?.proposalId,
+        validSignatures: signatures.filter(sig => sig && !sig.every(b => b === 0)).length,
+      });
+      
       const proposalSerialized = signedProposalTx.serialize(); // Uint8Array
       
-      console.log('✅ Proposal transaction signed', {
+      console.log('✅ Proposal transaction signed and verified', {
         matchId,
         wallet: publicKey.toString(),
         proposalId: payoutData?.proposalId,

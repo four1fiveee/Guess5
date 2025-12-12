@@ -14415,6 +14415,49 @@ const signProposalHandler = async (req: any, res: any) => {
       });
     }
 
+    // ✅ CRITICAL FIX: Add Redis lock to prevent concurrent signing requests
+    // This prevents race conditions and reduces RPC load
+    const { getRedisMM } = require('../config/redis');
+    const redis = getRedisMM();
+    const lockKey = `proposal:${proposalIdString}:sign:lock`;
+    const lockValue = `${Date.now()}-${Math.random()}`;
+    const lockTTL = 10; // 10 seconds
+    
+    try {
+      // Try to acquire lock
+      const lockAcquired = await redis.set(lockKey, lockValue, 'EX', lockTTL, 'NX');
+      
+      if (!lockAcquired) {
+        console.warn('⚠️ Proposal signing already in progress (Redis lock held)', {
+          matchId,
+          wallet,
+          proposalId: proposalIdString,
+          lockKey,
+        });
+        return sendResponse(429, {
+          error: 'Proposal signing already in progress',
+          message: 'Another request is currently processing this proposal. Please wait a few seconds and try again.',
+          retryable: true,
+          fatal: false,
+        });
+      }
+      
+      console.log('✅ Acquired Redis lock for proposal signing', {
+        matchId,
+        wallet,
+        proposalId: proposalIdString,
+        lockKey,
+      });
+    } catch (lockError: any) {
+      console.warn('⚠️ Failed to acquire Redis lock (non-fatal, continuing)', {
+        matchId,
+        wallet,
+        error: lockError?.message,
+        note: 'Continuing without lock - may cause race conditions',
+      });
+      // Continue without lock - better than blocking the request
+    }
+
     console.log('📝 Processing signed proposal:', {
       matchId,
       wallet,
@@ -14459,6 +14502,54 @@ const signProposalHandler = async (req: any, res: any) => {
       console.log('✅ Transaction deserialized successfully', {
         format: isRawBytes ? 'raw-bytes' : 'base64-json',
         transactionSize: signedTxBuffer.length,
+      });
+      
+      // ✅ CRITICAL FIX: Verify transaction is actually signed before broadcasting
+      // Reject unsigned transactions (all-zero signatures)
+      const signatures = transaction.signatures;
+      const hasValidSignature = signatures.some(sig => 
+        sig && sig.length > 0 && !sig.every(byte => byte === 0)
+      );
+      
+      if (!hasValidSignature) {
+        console.error('❌ Received unsigned transaction (all signatures are zero)', {
+          matchId,
+          wallet,
+          signatureCount: signatures.length,
+          proposalId: proposalIdString,
+        });
+        
+        // Release lock before returning error
+        try {
+          const currentLockValue = await redis.get(lockKey);
+          if (currentLockValue === lockValue) {
+            await redis.del(lockKey);
+            console.log('✅ Released Redis lock after unsigned transaction error', {
+              matchId,
+              wallet,
+              proposalId: proposalIdString,
+            });
+          }
+        } catch (unlockError: any) {
+          // Non-fatal - lock will expire
+        }
+        
+        return sendResponse(400, {
+          error: 'Transaction is unsigned',
+          message: 'Received transaction without any valid signatures. Please sign the transaction in your wallet and try again.',
+          fatal: true,
+          details: {
+            signatureCount: signatures.length,
+            note: 'All signatures are zero - transaction was not signed by the wallet',
+          },
+        });
+      }
+      
+      console.log('✅ Transaction signature validated', {
+        matchId,
+        wallet,
+        validSignatures: signatures.filter(sig => sig && !sig.every(byte => byte === 0)).length,
+        totalSignatures: signatures.length,
       });
     } catch (deserializeError: any) {
       console.error('❌ Failed to deserialize signed transaction:', {
@@ -14573,6 +14664,28 @@ const signProposalHandler = async (req: any, res: any) => {
       proposalSigners: normalizeProposalSigners(matchRow.proposalSigners),
       verifying: true,
     });
+    
+    // ✅ CRITICAL FIX: Release Redis lock after successful broadcast
+    // Lock is released here (not in background task) to allow new requests immediately
+    try {
+      const currentLockValue = await redis.get(lockKey);
+      if (currentLockValue === lockValue) {
+        await redis.del(lockKey);
+        console.log('✅ Released Redis lock after successful broadcast', {
+          matchId,
+          wallet,
+          proposalId: proposalIdString,
+          lockKey,
+        });
+      }
+    } catch (unlockError: any) {
+      console.warn('⚠️ Failed to release Redis lock (non-fatal)', {
+        matchId,
+        wallet,
+        error: unlockError?.message,
+        note: 'Lock will expire automatically after TTL',
+      });
+    }
     
     // ✅ Step 5: Run verification in setImmediate (after response is sent)
     // This ensures verification runs 100% reliably after the request completes
