@@ -1832,9 +1832,9 @@ export const adminGetReferralPayoutHistoryCSV = async (req: Request, res: Respon
     // Set response headers for CSV download
     const filename = `referral-payout-history-${startDate}-to-${endDate}.csv`;
     
-    res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-    res.setHeader('X-File-Hash', fileHash);
+    (res as any).setHeader('Content-Type', 'text/csv');
+    (res as any).setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    (res as any).setHeader('X-File-Hash', fileHash);
     
     console.log(`✅ Referral payout history CSV generated: ${filename} with ${payoutBatches.length} batches`);
     console.log(`🔐 File integrity hash: ${fileHash}`);
