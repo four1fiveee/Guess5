@@ -2816,16 +2816,6 @@ const Result: React.FC = () => {
                                 
                                 // Verbose debug logging removed to reduce console noise
                                 // Key info: frontendProposalId, hasProposalId, userHasSignedFinal
-                                  playerProposalSigners,
-                                  rawSigners,
-                                  rawSignersCount: rawSigners.length,
-                                  proposalStatus: payoutData.proposalStatus,
-                                  needsSignatures: payoutData.needsSignatures,
-                                  isExecutingOrExecuted: payoutData.proposalStatus === 'EXECUTING' || 
-                                                         payoutData.proposalStatus === 'EXECUTED' ||
-                                                         !!payoutData.proposalExecutedAt,
-                                  note: 'userHasSigned calculated from latest polling response',
-                                });
                                 
                                 // CRITICAL: Don't show sign button if proposal is executing or executed
                                 const isExecutingOrExecuted = payoutData.proposalStatus === 'EXECUTING' || 
