@@ -63,10 +63,8 @@ export async function reconcileProposalsForVault(vaultAddress: string): Promise<
 
   try {
     const connection = createStandardSolanaConnection('confirmed');
-    const vaultPubkey = new PublicKey(vaultAddress);
-    const multisigPda = getMultisigPda({
-      createKey: vaultPubkey,
-    })[0];
+    // vaultAddress is already the multisig PDA address
+    const multisigPda = new PublicKey(vaultAddress);
 
     // Get multisig threshold
     let threshold = 2;
@@ -89,9 +87,13 @@ export async function reconcileProposalsForVault(vaultAddress: string): Promise<
       try {
         result.totalProposalsScanned++;
 
+        // Get program ID from environment (same as squadsVaultService)
+        const programId = new PublicKey(process.env.SQUADS_PROGRAM_ID || 'SMPLecH534NA9acpos4G6x7uf3LWbCAwZQE9e8ZekMu');
+        
         const [proposalPda] = getProposalPda({
           multisigPda,
           transactionIndex: txIndex,
+          programId,
         });
 
         // Try to fetch proposal from on-chain
