@@ -1078,34 +1078,25 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       ORDER BY "createdAt" DESC
     `, [startOfYear]);
 
-    const calculateMetrics = (matches: any[], startDate: Date) => {
+    const calculateMetrics = (matches: any[], startDate: Date, solPriceUSD: number) => {
       const filtered = matches.filter(m => new Date(m.createdAt) >= startDate);
       
       let matchesPlayed = 0;
       let totalEntryFees = 0;
-      let totalEntryFeesUSD = 0;
       let totalPlatformFee = 0;
-      let totalPlatformFeeUSD = 0;
       let totalBonus = 0;
-      let totalBonusUSD = 0;
       let totalSquadsCost = 0;
-      let totalSquadsCostUSD = 0;
       let totalGasCost = 0; // Estimated gas costs
-      let totalGasCostUSD = 0;
       let totalPayouts = 0;
-      let totalPayoutsUSD = 0;
 
       for (const match of filtered) {
         const entryFee = parseFloat(match.entryFee) || 0;
-        const entryFeeUSD = parseFloat(match.entryFeeUSD) || 0;
         
         // Count entry fees (both players pay)
         if (match.player1Paid && match.player2Paid) {
           totalEntryFees += entryFee * 2;
-          totalEntryFeesUSD += entryFeeUSD * 2;
         } else if (match.player1Paid || match.player2Paid) {
           totalEntryFees += entryFee;
-          totalEntryFeesUSD += entryFeeUSD;
         }
 
         // Count completed matches
@@ -1114,38 +1105,27 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
           
           // Platform fee (5% of total pot = entryFee * 2 * 0.05)
           const platformFee = parseFloat(match.platformFee) || (entryFee * 2 * 0.05);
-          const platformFeeUSD = platformFee * (entryFeeUSD / entryFee) || (entryFeeUSD * 2 * 0.05);
           totalPlatformFee += platformFee;
-          totalPlatformFeeUSD += platformFeeUSD;
 
           // Bonus amount
           const bonusAmount = parseFloat(match.bonusAmount) || 0;
-          const bonusAmountUSD = parseFloat(match.bonusAmountUSD) || 0;
           totalBonus += bonusAmount;
-          totalBonusUSD += bonusAmountUSD;
 
           // Squads cost
           const squadsCost = parseFloat(match.squadsCost) || 0;
-          const squadsCostUSD = parseFloat(match.squadsCostUSD) || 0;
           totalSquadsCost += squadsCost;
-          totalSquadsCostUSD += squadsCostUSD;
 
           // Estimate gas costs (roughly 0.001 SOL per transaction)
           const estimatedGas = 0.001; // Conservative estimate
-          const gasUSD = estimatedGas * (entryFeeUSD / entryFee) || estimatedGas * 100; // Rough USD estimate
           totalGasCost += estimatedGas;
-          totalGasCostUSD += gasUSD;
           
           // Count payouts (winners get payout, ties get refund)
           if (match.winner === 'tie' && match.proposalExecutedAt) {
             // Both players get refund
             totalPayouts += entryFee * 2;
-            totalPayoutsUSD += entryFeeUSD * 2;
           } else if (match.winner && match.proposalExecutedAt) {
             const payoutAmount = parseFloat(match.payoutAmount) || 0;
-            const payoutAmountUSD = parseFloat(match.payoutAmountUSD) || 0;
             totalPayouts += payoutAmount;
-            totalPayoutsUSD += payoutAmountUSD;
           }
         }
       }
@@ -1154,13 +1134,13 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       const netProfitSOL = totalPlatformFee - totalBonus - totalSquadsCost - totalGasCost;
       
       // Convert all SOL amounts to USD using current exchange rate
-      const totalEntryFeesUSD = totalEntryFees * currentSolPriceUSD;
-      const totalPlatformFeeUSD = totalPlatformFee * currentSolPriceUSD;
-      const totalBonusUSD = totalBonus * currentSolPriceUSD;
-      const totalSquadsCostUSD = totalSquadsCost * currentSolPriceUSD;
-      const totalGasCostUSD = totalGasCost * currentSolPriceUSD;
-      const totalPayoutsUSD = totalPayouts * currentSolPriceUSD;
-      const netProfitUSD = netProfitSOL * currentSolPriceUSD;
+      const totalEntryFeesUSD = totalEntryFees * solPriceUSD;
+      const totalPlatformFeeUSD = totalPlatformFee * solPriceUSD;
+      const totalBonusUSD = totalBonus * solPriceUSD;
+      const totalSquadsCostUSD = totalSquadsCost * solPriceUSD;
+      const totalGasCostUSD = totalGasCost * solPriceUSD;
+      const totalPayoutsUSD = totalPayouts * solPriceUSD;
+      const netProfitUSD = netProfitSOL * solPriceUSD;
 
       return {
         matchesPlayed,
