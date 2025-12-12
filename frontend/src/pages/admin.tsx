@@ -64,6 +64,7 @@ interface FinancialMetrics {
     totalPayoutsUSD: number;
     netProfitUSD: number;
   };
+  currentSolPriceUSD?: number;
 }
 
 interface FeeWalletBalance {
