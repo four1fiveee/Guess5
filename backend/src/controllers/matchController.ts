@@ -14762,13 +14762,50 @@ const signProposalHandler = async (req: any, res: any) => {
     });
     
     let signature: string;
+    
+    // ✅ Helper function to retry broadcast with exponential backoff for 429 errors
+    const broadcastWithRetry = async (skipPreflight: boolean = false, maxAttempts: number = 5): Promise<string> => {
+      let lastError: any;
+      
+      for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        try {
+          const result = await connection.sendRawTransaction(serializedTx, {
+            skipPreflight,
+            maxRetries: 0, // Disable built-in retries, we handle them ourselves
+          });
+          return result;
+        } catch (error: any) {
+          lastError = error;
+          const errorMessage = error?.message || String(error);
+          const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests');
+          
+          if (isRateLimit && attempt < maxAttempts) {
+            // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+            const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 16000);
+            console.warn(`⚠️ SIGN_PROPOSAL: Rate limited (429), retrying broadcast (attempt ${attempt}/${maxAttempts}) after ${delayMs}ms...`, {
+              matchId,
+              wallet,
+              attempt,
+              maxAttempts,
+              delayMs,
+              error: errorMessage,
+            });
+            await new Promise(resolve => setTimeout(resolve, delayMs));
+            continue;
+          }
+          
+          // If not rate limit or last attempt, throw
+          throw error;
+        }
+      }
+      
+      throw lastError;
+    };
+    
     try {
       // Try with preflight first
       try {
-        signature = await connection.sendRawTransaction(serializedTx, {
-          skipPreflight: false,
-          maxRetries: 3,
-        });
+        signature = await broadcastWithRetry(false);
         // #region agent log
         const fs = require('fs');
         const logPath = 'c:\\Users\\henry\\OneDrive\\Desktop\\Guess5\\.cursor\\debug.log';
@@ -14786,15 +14823,24 @@ const signProposalHandler = async (req: any, res: any) => {
         });
       } catch (preflightError: any) {
         // If preflight fails, try without preflight (blockhash might be stale)
-        console.warn('⚠️ Preflight failed, retrying without preflight...', {
-          matchId,
-          wallet,
-          error: preflightError?.message,
-        });
-        signature = await connection.sendRawTransaction(serializedTx, {
-          skipPreflight: true,
-          maxRetries: 3,
-        });
+        const errorMessage = preflightError?.message || String(preflightError);
+        const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests');
+        
+        if (isRateLimit) {
+          console.warn('⚠️ Preflight failed with rate limit, retrying without preflight with backoff...', {
+            matchId,
+            wallet,
+            error: errorMessage,
+          });
+        } else {
+          console.warn('⚠️ Preflight failed, retrying without preflight...', {
+            matchId,
+            wallet,
+            error: errorMessage,
+          });
+        }
+        
+        signature = await broadcastWithRetry(true);
         console.log('✅ SIGN_PROPOSAL: BROADCAST TO SOLANA SUCCESS (preflight skipped)', {
           matchId,
           wallet,
@@ -14805,21 +14851,30 @@ const signProposalHandler = async (req: any, res: any) => {
         });
       }
     } catch (sendError: any) {
+      const errorMessage = sendError?.message || String(sendError);
+      const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests');
+      
       console.error('❌ SIGN_PROPOSAL: broadcast failed', {
         matchId,
         wallet,
-        error: sendError?.message,
+        error: errorMessage,
         stack: sendError?.stack,
         errorCode: sendError?.code,
         errorName: sendError?.name,
         logs: sendError?.logs,
+        isRateLimit,
         note: 'CRITICAL: Transaction was NOT broadcasted to Solana',
       });
+      
       return res.status(400).json({
         error: 'Broadcast failed',
-        details: sendError?.message || String(sendError),
+        details: errorMessage,
         matchId,
         wallet,
+        retryable: isRateLimit,
+        message: isRateLimit 
+          ? 'Rate limited by RPC endpoint. Please wait a moment and try again.'
+          : 'Transaction broadcast failed. Please try again.',
       });
     }
     
