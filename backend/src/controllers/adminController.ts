@@ -1041,14 +1041,18 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
 
     const startOfYear = new Date(now.getFullYear(), 0, 1);
 
-    // Get current SOL price for USD conversion
-    const axios = require('axios');
+    // Get current SOL price for USD conversion (with retry logic and fallbacks)
+    const { fetchSolPrice } = require('../services/solPriceService');
     let currentSolPriceUSD = 0;
     try {
-      const priceResponse = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
-      currentSolPriceUSD = priceResponse.data.solana?.usd || 0;
+      currentSolPriceUSD = await fetchSolPrice();
+      if (!currentSolPriceUSD || currentSolPriceUSD <= 0) {
+        console.warn('⚠️ SOL price fetch returned invalid value, using fallback');
+        currentSolPriceUSD = 180; // Fallback price
+      }
     } catch (err) {
-      console.warn('Failed to fetch SOL price for financial metrics:', err);
+      console.warn('Failed to fetch SOL price for financial metrics, using fallback:', err instanceof Error ? err.message : String(err));
+      currentSolPriceUSD = 180; // Fallback price
     }
 
     // Get all matches with payments and financial data
@@ -1240,14 +1244,18 @@ export const adminGetFeeWalletBalance = async (req: Request, res: Response) => {
     const balance = await connection.getBalance(feeWalletPublicKey);
     const balanceSOL = balance / LAMPORTS_PER_SOL;
 
-    // Get current SOL price (simplified - you might want to cache this)
-    const axios = require('axios');
+    // Get current SOL price (with retry logic and fallbacks)
+    const { fetchSolPrice } = require('../services/solPriceService');
     let solPriceUSD = 0;
     try {
-      const priceResponse = await axios.get('https://api.coingecko.com/api/v3/simple/price?ids=solana&vs_currencies=usd');
-      solPriceUSD = priceResponse.data.solana?.usd || 0;
+      solPriceUSD = await fetchSolPrice();
+      if (!solPriceUSD || solPriceUSD <= 0) {
+        console.warn('⚠️ SOL price fetch returned invalid value, using fallback');
+        solPriceUSD = 180; // Fallback price
+      }
     } catch (err) {
-      console.warn('Failed to fetch SOL price:', err);
+      console.warn('Failed to fetch SOL price, using fallback:', err instanceof Error ? err.message : String(err));
+      solPriceUSD = 180; // Fallback price
     }
 
     return res.json({
