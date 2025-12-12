@@ -229,6 +229,55 @@ export default function AdminPage() {
     setReferralPayoutExecution(null);
   };
 
+  const handleDeleteMatch = async (matchId: string) => {
+    if (!token) {
+      alert('Not authenticated. Please log in again.');
+      return;
+    }
+
+    if (!matchId || matchId.trim() === '') {
+      alert('Please enter a valid Match ID');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to delete match ${matchId}? This action cannot be undone.`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/delete-match/${matchId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Failed to delete match: ${response.status}`);
+      }
+
+      alert(`✅ Match deleted successfully!\n\nMatch ID: ${matchId}\n${data.message || ''}`);
+      
+      // Clear the input field
+      const input = document.getElementById('matchIdInput') as HTMLInputElement;
+      if (input) {
+        input.value = '';
+      }
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to delete match';
+      setError(errorMsg);
+      alert(`❌ Error deleting match:\n\n${errorMsg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleQuickAction = async (endpoint: string, actionName: string) => {
     if (!token) return;
     try {
