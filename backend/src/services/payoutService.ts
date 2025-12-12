@@ -22,7 +22,7 @@ const validatePayoutConfig = () => {
   }
   
   console.log('✅ Payout service configuration validated');
-  console.log(`🔗 Network: ${SOLANA_NETWORK}`);
+  console.log(`🔗 Network: ${process.env.SOLANA_NETWORK || 'devnet'}`);
   console.log(`💰 Fee Wallet: ${FEE_WALLET_ADDRESS}`);
   console.log(`🔒 Escrow Wallet: ${ESCROW_WALLET_ADDRESS}`);
 };
