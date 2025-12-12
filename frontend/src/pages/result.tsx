@@ -87,19 +87,26 @@ const getExpectedEntryFeeUSD = (solAmount: number, solPrice: number | null): num
 };
 
 // Helper function to calculate expected winnings USD (95% of 2x entry fee)
-// CRITICAL: Uses entry fee tier amount directly, not calculated from SOL
+// CRITICAL: Always uses entry fee tier amount (5, 20, 50, 100), never database value
+// This ensures consistent display: $5 tier always shows $9.50, not $9.52
 const getExpectedWinningsUSD = (entryFeeUSD: number | null, entryFeeSOL: number | null, solPrice: number | null): number | null => {
-  // If we have entryFeeUSD directly (from database), use it
-  if (entryFeeUSD) {
-    return entryFeeUSD * 2 * 0.95;
-  }
-  
-  // Otherwise, determine tier from SOL amount and use that tier amount
+  // CRITICAL FIX: Always calculate from tier amount, not database value
+  // This ensures $5 tier always shows $9.50 (95% of $10), not $9.52
   if (entryFeeSOL && solPrice) {
     const tierUSD = getExpectedEntryFeeUSD(entryFeeSOL, solPrice);
     if (tierUSD) {
       return tierUSD * 2 * 0.95;
     }
+  }
+  
+  // Fallback: If we can't determine tier from SOL, use database value (shouldn't happen)
+  // But still round to nearest tier to ensure consistency
+  if (entryFeeUSD && solPrice) {
+    const calculatedTier = calculateRoundedUSD(entryFeeUSD / solPrice, solPrice);
+    if (calculatedTier) {
+      return calculatedTier * 2 * 0.95;
+    }
+    return entryFeeUSD * 2 * 0.95;
   }
   
   return null;
@@ -1203,7 +1210,26 @@ const Result: React.FC = () => {
       proposalId: payoutData?.proposalId,
       vaultAddress: payoutData?.vaultAddress,
       wallet: publicKey?.toString(),
+      needsSignatures: payoutData?.needsSignatures,
+      proposalStatus: payoutData?.proposalStatus,
     });
+    
+    // CRITICAL FIX: Check if proposal is already approved/executed before attempting to sign
+    if (payoutData?.needsSignatures === 0 || 
+        payoutData?.proposalStatus === 'APPROVED' || 
+        payoutData?.proposalStatus === 'EXECUTING' || 
+        payoutData?.proposalStatus === 'EXECUTED' ||
+        payoutData?.proposalExecutedAt) {
+      console.warn('⚠️ Proposal already approved/executed - signing not needed', {
+        matchId: router.query.matchId,
+        needsSignatures: payoutData?.needsSignatures,
+        proposalStatus: payoutData?.proposalStatus,
+        proposalExecutedAt: payoutData?.proposalExecutedAt,
+        note: 'Frontend should not show sign button in this state - this is a safety check',
+      });
+      setError('This proposal has already been approved and does not need additional signatures.');
+      return;
+    }
     
     if (!payoutData?.proposalId || !payoutData?.vaultAddress || !publicKey || !signTransaction) {
       const missingFields = [];
