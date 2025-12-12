@@ -1146,19 +1146,21 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
 
       return {
         matchesPlayed,
-        totalEntryFees,
+        // SOL amounts (actual amounts exchanged)
+        totalEntryFeesSOL: parseFloat(totalEntryFees.toFixed(6)),
+        totalPlatformFeeSOL: parseFloat(totalPlatformFee.toFixed(6)),
+        totalBonusSOL: parseFloat(totalBonus.toFixed(6)),
+        totalSquadsCostSOL: parseFloat(totalSquadsCost.toFixed(6)),
+        totalGasCostSOL: parseFloat(totalGasCost.toFixed(6)),
+        totalPayoutsSOL: parseFloat(totalPayouts.toFixed(6)),
+        netProfitSOL: parseFloat(netProfit.toFixed(6)),
+        // USD amounts (converted at current exchange rate)
         totalEntryFeesUSD: parseFloat(totalEntryFeesUSD.toFixed(2)),
-        totalPlatformFee,
         totalPlatformFeeUSD: parseFloat(totalPlatformFeeUSD.toFixed(2)),
-        totalBonus,
         totalBonusUSD: parseFloat(totalBonusUSD.toFixed(2)),
-        totalSquadsCost,
         totalSquadsCostUSD: parseFloat(totalSquadsCostUSD.toFixed(2)),
-        totalGasCost,
         totalGasCostUSD: parseFloat(totalGasCostUSD.toFixed(2)),
-        totalPayouts,
         totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
-        netProfit,
         netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
       };
     };
@@ -1182,6 +1184,43 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     return res.status(500).json({ error: 'Failed to get financial metrics', details: errorMessage });
+  }
+};
+
+/**
+ * Download financial CSV report with date filtering
+ * GET /api/admin/financial/csv?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+ */
+export const adminGetFinancialCSV = async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate query parameters are required' });
+    }
+
+    // Use the existing generateReportHandler logic but ensure it includes all financial data
+    const { generateReportHandler } = require('./matchController');
+    
+    // Create a mock request/response object for the handler
+    const mockReq: any = {
+      query: { startDate, endDate },
+    };
+    
+    const mockRes: any = {
+      setHeader: (name: string, value: string) => {
+        res.setHeader(name, value);
+      },
+      send: (data: string) => {
+        res.send(data);
+      },
+    };
+    
+    await generateReportHandler(mockReq, mockRes);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error generating admin financial CSV:', errorMessage);
+    return res.status(500).json({ error: 'Failed to generate CSV', details: errorMessage });
   }
 };
 

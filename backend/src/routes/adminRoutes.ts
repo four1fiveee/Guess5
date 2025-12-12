@@ -23,6 +23,7 @@ const {
   adminGetHealthStatus,
   adminGetFinancialMetrics,
   adminGetFeeWalletBalance,
+  adminGetFinancialCSV,
   adminGetReferralPayoutExecution,
   adminLockReferralsWeek,
   adminExecutePayout,
@@ -70,6 +71,8 @@ router.get('/health/status', adminGetHealthStatus);
 // Financial metrics
 router.get('/financial/metrics', adminGetFinancialMetrics);
 router.get('/financial/fee-wallet-balance', adminGetFeeWalletBalance);
+router.get('/financial/csv', adminGetFinancialCSV);
+router.get('/financial/csv', adminGetFinancialCSV);
 
 // Referral payout execution
 router.get('/referrals/payout-execution', adminGetReferralPayoutExecution);

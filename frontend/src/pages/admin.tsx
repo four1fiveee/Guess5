@@ -13,29 +13,55 @@ interface HealthStatus {
 interface FinancialMetrics {
   weekly: {
     matchesPlayed: number;
+    // SOL amounts (actual amounts exchanged)
+    totalEntryFeesSOL: number;
+    totalPlatformFeeSOL: number;
+    totalBonusSOL: number;
+    totalSquadsCostSOL: number;
+    totalGasCostSOL: number;
+    totalPayoutsSOL: number;
+    netProfitSOL: number;
+    // USD amounts (converted at current exchange rate)
     totalEntryFeesUSD: number;
     totalPlatformFeeUSD: number;
     totalBonusUSD: number;
     totalSquadsCostUSD: number;
     totalGasCostUSD: number;
+    totalPayoutsUSD: number;
     netProfitUSD: number;
   };
   quarterly: {
     matchesPlayed: number;
+    totalEntryFeesSOL: number;
+    totalPlatformFeeSOL: number;
+    totalBonusSOL: number;
+    totalSquadsCostSOL: number;
+    totalGasCostSOL: number;
+    totalPayoutsSOL: number;
+    netProfitSOL: number;
     totalEntryFeesUSD: number;
     totalPlatformFeeUSD: number;
     totalBonusUSD: number;
     totalSquadsCostUSD: number;
     totalGasCostUSD: number;
+    totalPayoutsUSD: number;
     netProfitUSD: number;
   };
   yearly: {
     matchesPlayed: number;
+    totalEntryFeesSOL: number;
+    totalPlatformFeeSOL: number;
+    totalBonusSOL: number;
+    totalSquadsCostSOL: number;
+    totalGasCostSOL: number;
+    totalPayoutsSOL: number;
+    netProfitSOL: number;
     totalEntryFeesUSD: number;
     totalPlatformFeeUSD: number;
     totalBonusUSD: number;
     totalSquadsCostUSD: number;
     totalGasCostUSD: number;
+    totalPayoutsUSD: number;
     netProfitUSD: number;
   };
 }
@@ -95,6 +121,11 @@ export default function AdminPage() {
   const [payoutLockStatus, setPayoutLockStatus] = useState<PayoutLockStatus | null>(null);
   const [loadingData, setLoadingData] = useState(false);
   const [countdownSeconds, setCountdownSeconds] = useState<number | null>(null);
+  
+  // CSV download state
+  const [csvStartDate, setCsvStartDate] = useState('');
+  const [csvEndDate, setCsvEndDate] = useState('');
+  const [downloadingCSV, setDownloadingCSV] = useState(false);
 
   // Check if already authenticated on mount
   useEffect(() => {
@@ -278,18 +309,6 @@ export default function AdminPage() {
     }
   };
 
-  const handleQuickAction = async (endpoint: string, actionName: string) => {
-    if (!token) return;
-    try {
-      const response = await fetch(`${API_URL}${endpoint}`, {
-        headers: { 'Authorization': `Bearer ${token}` },
-      });
-      const data = await response.json();
-      alert(`${actionName}:\n\n${JSON.stringify(data, null, 2)}`);
-    } catch (err: any) {
-      alert(`Error: ${err.message}`);
-    }
-  };
 
   const handleLockReferrals = async () => {
     if (!token) return;
@@ -540,29 +559,49 @@ export default function AdminPage() {
                     </div>
                     <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
                       <span className="text-white/70">Total Entry Fees:</span>
-                      <span className="text-white font-bold">${financialMetrics.weekly.totalEntryFeesUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-white font-bold">{financialMetrics.weekly.totalEntryFeesSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">${financialMetrics.weekly.totalEntryFeesUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Platform Fee (5%):</span>
-                      <span className="text-green-400 font-bold">${financialMetrics.weekly.totalPlatformFeeUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-green-400 font-bold">{financialMetrics.weekly.totalPlatformFeeSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">${financialMetrics.weekly.totalPlatformFeeUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Platform Bonus:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.weekly.totalBonusUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.weekly.totalBonusSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.weekly.totalBonusUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Squads Costs:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.weekly.totalSquadsCostUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.weekly.totalSquadsCostSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.weekly.totalSquadsCostUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Gas Costs:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.weekly.totalGasCostUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.weekly.totalGasCostSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.weekly.totalGasCostUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between border-t-2 border-white/30 pt-2 mt-2">
                       <span className="text-white font-semibold">Net Profit:</span>
-                      <span className={`font-bold text-lg ${financialMetrics.weekly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        ${financialMetrics.weekly.netProfitUSD.toFixed(2)}
-                      </span>
+                      <div className="text-right">
+                        <div className={`font-bold text-lg ${financialMetrics.weekly.netProfitSOL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {financialMetrics.weekly.netProfitSOL >= 0 ? '+' : ''}{financialMetrics.weekly.netProfitSOL.toFixed(6)} SOL
+                        </div>
+                        <div className={`text-xs ${financialMetrics.weekly.netProfitUSD >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                          {financialMetrics.weekly.netProfitUSD >= 0 ? '+' : ''}${financialMetrics.weekly.netProfitUSD.toFixed(2)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -577,29 +616,49 @@ export default function AdminPage() {
                     </div>
                     <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
                       <span className="text-white/70">Total Entry Fees:</span>
-                      <span className="text-white font-bold">${financialMetrics.quarterly.totalEntryFeesUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-white font-bold">{financialMetrics.quarterly.totalEntryFeesSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">${financialMetrics.quarterly.totalEntryFeesUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Platform Fee (5%):</span>
-                      <span className="text-green-400 font-bold">${financialMetrics.quarterly.totalPlatformFeeUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-green-400 font-bold">{financialMetrics.quarterly.totalPlatformFeeSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">${financialMetrics.quarterly.totalPlatformFeeUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Platform Bonus:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.quarterly.totalBonusUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.quarterly.totalBonusSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.quarterly.totalBonusUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Squads Costs:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.quarterly.totalSquadsCostUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.quarterly.totalSquadsCostSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.quarterly.totalSquadsCostUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Gas Costs:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.quarterly.totalGasCostUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.quarterly.totalGasCostSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.quarterly.totalGasCostUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between border-t-2 border-white/30 pt-2 mt-2">
                       <span className="text-white font-semibold">Net Profit:</span>
-                      <span className={`font-bold text-lg ${financialMetrics.quarterly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        ${financialMetrics.quarterly.netProfitUSD.toFixed(2)}
-                      </span>
+                      <div className="text-right">
+                        <div className={`font-bold text-lg ${financialMetrics.quarterly.netProfitSOL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {financialMetrics.quarterly.netProfitSOL >= 0 ? '+' : ''}{financialMetrics.quarterly.netProfitSOL.toFixed(6)} SOL
+                        </div>
+                        <div className={`text-xs ${financialMetrics.quarterly.netProfitUSD >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                          {financialMetrics.quarterly.netProfitUSD >= 0 ? '+' : ''}${financialMetrics.quarterly.netProfitUSD.toFixed(2)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -840,28 +899,50 @@ export default function AdminPage() {
           </div>
         </div>
 
-        {/* Quick Actions */}
+        {/* Financial CSV Export */}
         <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
-          <h2 className="text-xl font-bold text-white mb-4">Quick Actions</h2>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <h2 className="text-xl font-bold text-white mb-4">Financial Data Export</h2>
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label htmlFor="csvStartDate" className="block text-white/80 text-sm mb-2">
+                  Start Date
+                </label>
+                <input
+                  id="csvStartDate"
+                  type="date"
+                  value={csvStartDate}
+                  onChange={(e) => setCsvStartDate(e.target.value)}
+                  className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+              <div>
+                <label htmlFor="csvEndDate" className="block text-white/80 text-sm mb-2">
+                  End Date
+                </label>
+                <input
+                  id="csvEndDate"
+                  type="date"
+                  value={csvEndDate}
+                  onChange={(e) => setCsvEndDate(e.target.value)}
+                  className="w-full px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-purple-500"
+                />
+              </div>
+            </div>
             <button
-              onClick={() => handleQuickAction('/api/admin/referrals/owed', 'Owed Referrals')}
-              className="px-4 py-2 bg-purple-500/20 hover:bg-purple-500/30 text-purple-300 rounded-lg transition-colors border border-purple-500/30"
+              onClick={handleDownloadCSV}
+              disabled={!csvStartDate || !csvEndDate || downloadingCSV}
+              className={`w-full px-6 py-3 rounded-lg transition-colors border font-semibold ${
+                csvStartDate && csvEndDate && !downloadingCSV
+                  ? 'bg-green-500/20 hover:bg-green-500/30 text-green-300 border-green-500/30 cursor-pointer'
+                  : 'bg-gray-500/20 text-gray-400 border-gray-500/30 cursor-not-allowed'
+              }`}
             >
-              View Owed Referrals
+              {downloadingCSV ? '⏳ Downloading...' : '📥 Download Financial CSV Report'}
             </button>
-            <button
-              onClick={() => handleQuickAction('/api/admin/payouts/batches', 'Payout Batches')}
-              className="px-4 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg transition-colors border border-green-500/30"
-            >
-              View Payout Batches
-            </button>
-            <button
-              onClick={() => handleQuickAction('/api/admin/locks/stats', 'Lock Statistics')}
-              className="px-4 py-2 bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 rounded-lg transition-colors border border-blue-500/30"
-            >
-              Lock Statistics
-            </button>
+            <p className="text-white/50 text-sm">
+              Download complete financial data including all matches, transactions, SOL addresses, entry fees, payouts, bonuses, costs, and net profit calculations for the selected date range.
+            </p>
           </div>
         </div>
       </div>
