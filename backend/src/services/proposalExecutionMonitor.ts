@@ -437,29 +437,10 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
       });
     } else {
       // CRITICAL: Log execution failure with comprehensive details
-      metrics.executionErrors++;
-      enhancedLogger.error('❌ Proposal execution failed (monitor)', {
-        matchId,
-        proposalId: proposalIdString,
-        vaultAddress,
-        transactionIndex: transactionIndex?.toString(),
-        attemptKey,
-        attemptCount: existingAttempt?.attemptCount || 0,
-        error: executeResult.error,
-        errorCode: executeResult.errorCode,
-        errorDetails: executeResult.errorDetails,
-        attempts: executeResult.attempts,
-        correlationId: executeResult.correlationId,
-        statusKind,
-        approvedSignersCount,
-        threshold,
-        note: 'Execution failed - check error details above. Monitor will retry on next scan.',
-        reason: 'EXECUTION_FAILURE',
-      });
-
       executionAttempts.delete(attemptKey);
     } else {
-      // Execution failed - schedule retry
+      // CRITICAL: Log execution failure with comprehensive details
+      metrics.executionErrors++;
       const attemptCount = existingAttempt ? existingAttempt.attemptCount + 1 : 1;
       const nextRetry = new Date(Date.now() + RETRY_BACKOFF_MS * attemptCount);
 
@@ -471,17 +452,24 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
         nextRetry,
       });
 
-      enhancedLogger.warn('⚠️ Proposal execution failed, will retry', {
+      enhancedLogger.error('❌ Proposal execution failed (monitor) - will retry', {
         matchId,
         proposalId: proposalIdString,
         vaultAddress,
         transactionIndex: transactionIndex?.toString(),
-        error: executeResult.error,
+        attemptKey,
         attemptCount,
         maxRetries: MAX_RETRY_ATTEMPTS,
         nextRetry: nextRetry.toISOString(),
-        attemptKey,
-        note: `Will retry up to ${MAX_RETRY_ATTEMPTS} times with exponential backoff`,
+        error: executeResult.error,
+        errorCode: executeResult.errorCode,
+        errorDetails: executeResult.errorDetails,
+        attempts: executeResult.attempts,
+        correlationId: executeResult.correlationId,
+        statusKind,
+        approvedSignersCount,
+        threshold,
+        note: `Execution failed - check error details above. Monitor will retry up to ${MAX_RETRY_ATTEMPTS} times with exponential backoff.`,
         reason: 'EXECUTION_FAILED',
       });
     }
