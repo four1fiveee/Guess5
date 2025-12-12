@@ -1652,3 +1652,198 @@ export const adminGetPayoutLockStatus = async (req: Request, res: Response) => {
   }
 };
 
+/**
+ * Download referral payout history CSV report with date filtering
+ * GET /api/admin/referrals/payout-history/csv?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
+ */
+export const adminGetReferralPayoutHistoryCSV = async (req: Request, res: Response) => {
+  try {
+    const { startDate, endDate } = req.query;
+    
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: 'startDate and endDate query parameters are required' });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const { PayoutBatch } = require('../models/PayoutBatch');
+    const { ReferralEarning } = require('../models/ReferralEarning');
+    const payoutBatchRepository = AppDataSource.getRepository(PayoutBatch);
+    const referralEarningRepository = AppDataSource.getRepository(ReferralEarning);
+
+    // Query payout batches within date range
+    const payoutBatches = await payoutBatchRepository.query(`
+      SELECT 
+        pb.id,
+        pb."createdAt",
+        pb."updatedAt",
+        pb.status,
+        pb."transactionSignature",
+        pb."totalAmountSOL",
+        pb."totalAmountUSD",
+        COUNT(DISTINCT re."uplineWallet") as "recipientCount",
+        COUNT(re.id) as "earningCount"
+      FROM payout_batch pb
+      LEFT JOIN referral_earning re ON re."payoutBatchId" = pb.id
+      WHERE DATE(pb."createdAt") >= $1 
+        AND DATE(pb."createdAt") <= $2
+      GROUP BY pb.id, pb."createdAt", pb."updatedAt", pb.status, pb."transactionSignature", 
+               pb."totalAmountSOL", pb."totalAmountUSD"
+      ORDER BY pb."createdAt" DESC
+    `, [startDate, endDate]);
+
+    // Get detailed earnings for each batch
+    const batchIds = payoutBatches.map((pb: any) => pb.id);
+    const allEarnings = batchIds.length > 0 ? await referralEarningRepository.query(`
+      SELECT 
+        re.id,
+        re."uplineWallet",
+        re."downlineWallet",
+        re."matchId",
+        re."amountSOL",
+        re."amountUSD",
+        re."tierName",
+        re."tier",
+        re."percentage",
+        re."bothPlayersReferred",
+        re."createdAt",
+        re."payoutBatchId",
+        pb."createdAt" as "payoutCreatedAt",
+        pb.status as "payoutStatus",
+        pb."transactionSignature" as "payoutTransactionSignature"
+      FROM referral_earning re
+      INNER JOIN payout_batch pb ON pb.id = re."payoutBatchId"
+      WHERE re."payoutBatchId" = ANY($1)
+      ORDER BY pb."createdAt" DESC, re."createdAt" DESC
+    `, [batchIds]) : [];
+
+    // Helper function to convert UTC to EST
+    const convertToEST = (date: Date | string) => {
+      const d = new Date(date);
+      return d.toLocaleString('en-US', { timeZone: 'America/New_York', dateStyle: 'short', timeStyle: 'short' });
+    };
+
+    // Helper function to sanitize CSV values
+    const sanitizeCsvValue = (value: any) => {
+      if (!value) return '';
+      const str = String(value);
+      if (/^[=\-+@]/.test(str)) {
+        return `'${str}`;
+      }
+      return str.replace(/"/g, '""');
+    };
+
+    // Generate CSV headers
+    const csvHeaders = [
+      'Payout Batch ID',
+      'Payout Date (EST)',
+      'Payout Status',
+      'Transaction Signature',
+      'Total Amount (SOL)',
+      'Total Amount (USD)',
+      'Recipient Count',
+      'Earning Count',
+      '---',
+      'Earning ID',
+      'Referrer Wallet',
+      'Referred Wallet',
+      'Match ID',
+      'Amount Paid (SOL)',
+      'Amount Paid (USD)',
+      'Tier Name',
+      'Tier Level',
+      'Percentage',
+      'Both Players Referred',
+      'Earning Created At (EST)',
+    ];
+
+    // Generate CSV rows
+    const csvRows: string[][] = [];
+    
+    for (const batch of payoutBatches) {
+      const batchEarnings = allEarnings.filter((e: any) => e.payoutBatchId === batch.id);
+      
+      if (batchEarnings.length === 0) {
+        // Batch with no earnings
+        csvRows.push([
+          sanitizeCsvValue(batch.id),
+          convertToEST(batch.createdAt),
+          sanitizeCsvValue(batch.status),
+          sanitizeCsvValue(batch.transactionSignature || ''),
+          sanitizeCsvValue(batch.totalAmountSOL || '0'),
+          sanitizeCsvValue(batch.totalAmountUSD || '0'),
+          sanitizeCsvValue(batch.recipientCount || '0'),
+          sanitizeCsvValue(batch.earningCount || '0'),
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+          '',
+        ]);
+      } else {
+        // Add a row for each earning in the batch
+        batchEarnings.forEach((earning: any, index: number) => {
+          csvRows.push([
+            // Batch info (same for all earnings in batch)
+            index === 0 ? sanitizeCsvValue(batch.id) : '',
+            index === 0 ? convertToEST(batch.createdAt) : '',
+            index === 0 ? sanitizeCsvValue(batch.status) : '',
+            index === 0 ? sanitizeCsvValue(batch.transactionSignature || '') : '',
+            index === 0 ? sanitizeCsvValue(batch.totalAmountSOL || '0') : '',
+            index === 0 ? sanitizeCsvValue(batch.totalAmountUSD || '0') : '',
+            index === 0 ? sanitizeCsvValue(batch.recipientCount || '0') : '',
+            index === 0 ? sanitizeCsvValue(batch.earningCount || '0') : '',
+            index === 0 ? '---' : '',
+            // Earning details
+            sanitizeCsvValue(earning.id),
+            sanitizeCsvValue(earning.uplineWallet),
+            sanitizeCsvValue(earning.downlineWallet),
+            sanitizeCsvValue(earning.matchId),
+            sanitizeCsvValue(earning.amountSOL || '0'),
+            sanitizeCsvValue(earning.amountUSD || '0'),
+            sanitizeCsvValue(earning.tierName || ''),
+            sanitizeCsvValue(earning.tier || ''),
+            sanitizeCsvValue(earning.percentage || '0'),
+            sanitizeCsvValue(earning.bothPlayersReferred ? 'Yes' : 'No'),
+            convertToEST(earning.createdAt),
+          ]);
+        });
+      }
+    }
+
+    // Generate CSV content
+    const csvContent = [csvHeaders, ...csvRows]
+      .map((row: any) => row.map((field: any) => `"${field || ''}"`).join(','))
+      .join('\n');
+    
+    // Generate file hash for integrity
+    const crypto = require('crypto');
+    const fileHash = crypto.createHash('sha256').update(csvContent).digest('hex');
+    
+    // Set response headers for CSV download
+    const filename = `referral-payout-history-${startDate}-to-${endDate}.csv`;
+    
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.setHeader('X-File-Hash', fileHash);
+    
+    console.log(`✅ Referral payout history CSV generated: ${filename} with ${payoutBatches.length} batches`);
+    console.log(`🔐 File integrity hash: ${fileHash}`);
+    
+    res.send(csvContent);
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error generating referral payout history CSV:', errorMessage);
+    return res.status(500).json({ error: 'Failed to generate CSV', details: errorMessage });
+  }
+};
+
