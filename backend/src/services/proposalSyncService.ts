@@ -303,16 +303,18 @@ export async function findAndSyncApprovedProposal(
       searchRange: 'transaction indices 0-10',
     });
     
-    const { getMultisigPda, getProposalPda, accounts } = require('@sqds/multisig');
+    const { getProposalPda, accounts, PROGRAM_ID } = require('@sqds/multisig');
     const connection = new Connection(
       process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
       'confirmed'
     );
     
-    const vaultPubkey = new PublicKey(vaultAddress);
-    const multisigPda = getMultisigPda({
-      createKey: vaultPubkey,
-    })[0];
+    // CRITICAL: vaultAddress IS the multisig address (PublicKey)
+    // We don't need to derive it - just use it directly
+    const multisigAddress = new PublicKey(vaultAddress);
+    
+    // Get program ID (should match what was used to create proposals)
+    const programId = new PublicKey(process.env.SQUADS_PROGRAM_ID || PROGRAM_ID);
     
     // Get current DB state for comparison
     const matchRepository = AppDataSource.getRepository('Match');
@@ -324,9 +326,12 @@ export async function findAndSyncApprovedProposal(
     // Search transaction indices 0-10 for Approved proposal with both signatures
     for (let i = 0; i <= 10; i++) {
       try {
+        // CRITICAL: Use multisigPda parameter (not multisig) and include programId
+        // This matches the pattern used in squadsVaultService.ts
         const [proposalPda] = getProposalPda({
-          multisig: multisigPda,
+          multisigPda: multisigAddress,  // Fixed: use multisigPda parameter, vaultAddress is the multisig
           transactionIndex: BigInt(i),
+          programId: programId,  // Added: ensure we use the same program ID as proposal creation
         });
         
         const proposalAccount = await accounts.Proposal.fromAccountAddress(

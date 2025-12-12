@@ -169,6 +169,30 @@ export const initializeDatabase = async () => {
         }
       }
 
+      // Ensure transactionIndex columns exist in match table (CRITICAL for proposal ID matching)
+      try {
+        await AppDataSource.query(`
+          ALTER TABLE "match" 
+          ADD COLUMN IF NOT EXISTS "payoutProposalTransactionIndex" VARCHAR,
+          ADD COLUMN IF NOT EXISTS "tieRefundProposalTransactionIndex" VARCHAR
+        `);
+        
+        // Add indexes for faster lookups during sync operations
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_match_payout_proposal_transaction_index" 
+          ON "match" ("payoutProposalTransactionIndex");
+          
+          CREATE INDEX IF NOT EXISTS "IDX_match_tie_refund_proposal_transaction_index" 
+          ON "match" ("tieRefundProposalTransactionIndex");
+        `);
+        console.log('✅ Ensured transactionIndex columns exist in match table');
+      } catch (columnError: any) {
+        // Ignore if columns already exist or other non-critical errors
+        if (!columnError?.message?.includes('already exists') && !columnError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure transactionIndex columns:', columnError?.message);
+        }
+      }
+
       console.log('✅ Database initialization complete');
       return;
       

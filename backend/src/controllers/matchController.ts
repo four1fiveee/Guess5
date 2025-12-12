@@ -3096,15 +3096,17 @@ const submitResultHandler = async (req: any, res: any) => {
                         const updateResult = await backgroundMatchRepository.query(`
                           UPDATE "match"
                           SET "payoutProposalId" = $1,
-                              "proposalCreatedAt" = $2,
-                              "proposalStatus" = $3,
-                              "needsSignatures" = $4,
-                              "proposalSigners" = $5,
-                              "matchStatus" = $6,
-                              "updatedAt" = $7
-                          WHERE id = $8
+                              "payoutProposalTransactionIndex" = $2,
+                              "proposalCreatedAt" = $3,
+                              "proposalStatus" = $4,
+                              "needsSignatures" = $5,
+                              "proposalSigners" = $6,
+                              "matchStatus" = $7,
+                              "updatedAt" = $8
+                          WHERE id = $9
                         `, [
                           proposalResult.proposalId,
+                          proposalResult.transactionIndex || null, // CRITICAL: Store transaction index
                           new Date(),
                           'ACTIVE',
                           proposalState.normalizedNeeds,
@@ -4064,15 +4066,17 @@ const submitResultHandler = async (req: any, res: any) => {
                   await transactionManager.query(`
                     UPDATE "match"
                     SET "payoutProposalId" = $1,
-                        "proposalCreatedAt" = $2,
-                        "proposalStatus" = $3,
-                        "needsSignatures" = $4,
-                        "proposalSigners" = $5,
-                        "matchStatus" = $6,
-                        "updatedAt" = $7
-                    WHERE id = $8
+                        "payoutProposalTransactionIndex" = $2,
+                        "proposalCreatedAt" = $3,
+                        "proposalStatus" = $4,
+                        "needsSignatures" = $5,
+                        "proposalSigners" = $6,
+                        "matchStatus" = $7,
+                        "updatedAt" = $8
+                    WHERE id = $9
                   `, [
                     proposalResult.proposalId,
+                    proposalResult.transactionIndex || null, // CRITICAL: Store transaction index to ensure proposal ID matches
                     new Date(),
                     'ACTIVE',
                     proposalState.normalizedNeeds,
@@ -4472,9 +4476,9 @@ const submitResultHandler = async (req: any, res: any) => {
                     const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
                     await matchRepository.query(`
                       UPDATE "match"
-                      SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3, "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
-                      WHERE id = $7
-                    `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), finalMatch.id]);
+                      SET "payoutProposalId" = $1, "payoutProposalTransactionIndex" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "proposalSigners" = $6, "updatedAt" = $7
+                      WHERE id = $8
+                    `, [proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), finalMatch.id]);
                     console.log('✅ Winner payout proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                   } else {
                     console.error('❌ Failed to create winner payout proposal:', proposalResult.error);
@@ -4517,9 +4521,9 @@ const submitResultHandler = async (req: any, res: any) => {
                       const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
                       await matchRepository.query(`
                         UPDATE "match"
-                        SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "proposalSigners" = $6, "updatedAt" = $7
-                        WHERE id = $8
-                      `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), finalMatch.id]);
+                        SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "tieRefundProposalTransactionIndex" = $3, "proposalCreatedAt" = $4, "proposalStatus" = $5, "needsSignatures" = $6, "proposalSigners" = $7, "updatedAt" = $8
+                        WHERE id = $9
+                      `, [proposalResult.proposalId, proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), finalMatch.id]);
                       console.log('✅ Tie refund proposal created:', { matchId: finalMatch.id, proposalId: proposalResult.proposalId });
                     } else {
                       console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
@@ -4627,9 +4631,9 @@ const submitResultHandler = async (req: any, res: any) => {
                       applyProposalStateToMatch(updatedMatch, proposalState);
                       await matchRepository.query(`
                         UPDATE "match"
-                        SET "payoutProposalId" = $1, "proposalCreatedAt" = $2, "proposalStatus" = $3, "needsSignatures" = $4, "proposalSigners" = $5, "updatedAt" = $6
-                        WHERE id = $7
-                      `, [proposalResult.proposalId, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
+                        SET "payoutProposalId" = $1, "payoutProposalTransactionIndex" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "proposalSigners" = $6, "updatedAt" = $7
+                        WHERE id = $8
+                      `, [proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
                     console.log('✅ Winner payout proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
                   }
                 } else {
@@ -4662,10 +4666,10 @@ const submitResultHandler = async (req: any, res: any) => {
                         applyProposalStateToMatch(updatedMatch, proposalState);
                         await matchRepository.query(`
                           UPDATE "match"
-                          SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "proposalCreatedAt" = $3, "proposalStatus" = $4, "needsSignatures" = $5, "proposalSigners" = $6, "updatedAt" = $7
-                          WHERE id = $8
-                        `, [proposalResult.proposalId, proposalResult.proposalId, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
-                      console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId });
+                          SET "payoutProposalId" = $1, "tieRefundProposalId" = $2, "tieRefundProposalTransactionIndex" = $3, "proposalCreatedAt" = $4, "proposalStatus" = $5, "needsSignatures" = $6, "proposalSigners" = $7, "updatedAt" = $8
+                          WHERE id = $9
+                        `, [proposalResult.proposalId, proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
+                      console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
                     }
                     }
                   }

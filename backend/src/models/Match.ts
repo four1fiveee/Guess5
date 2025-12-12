@@ -38,6 +38,9 @@ export class Match {
   @Column({ nullable: true })
   payoutProposalId?: string;
 
+  @Column({ nullable: true, type: 'varchar' })
+  payoutProposalTransactionIndex?: string; // CRITICAL: Transaction index used to derive proposal PDA
+
   @Column({ nullable: true })
   proposalCreatedAt?: Date;
 
@@ -68,6 +71,9 @@ export class Match {
 
   @Column({ nullable: true })
   tieRefundProposalId?: string;
+
+  @Column({ nullable: true, type: 'varchar' })
+  tieRefundProposalTransactionIndex?: string; // CRITICAL: Transaction index used to derive refund proposal PDA
 
   // Payment signature fields
   @Column({ nullable: true })

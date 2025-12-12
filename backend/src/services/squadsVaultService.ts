@@ -46,6 +46,7 @@ export interface VaultCreationResult {
 export interface ProposalResult {
   success: boolean;
   proposalId?: string;
+  transactionIndex?: string; // CRITICAL: Store transaction index to ensure proposal ID always matches
   error?: string;
   needsSignatures?: number;
 }
@@ -1471,9 +1472,29 @@ export class SquadsVaultService {
       });
       const proposalId = proposalPda.toString();
       
+      // CRITICAL VALIDATION: Ensure proposal PDA matches transaction index
+      // This prevents mismatches that cause sync failures
+      const [validatedProposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex: transactionIndex,
+        programId: this.programId,
+      });
+      if (proposalPda.toString() !== validatedProposalPda.toString()) {
+        const errorMsg = `CRITICAL: Proposal PDA derivation mismatch. Expected ${validatedProposalPda.toString()}, got ${proposalPda.toString()}`;
+        enhancedLogger.error('❌ ' + errorMsg, {
+          vaultAddress: vaultAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          expectedPda: validatedProposalPda.toString(),
+          actualPda: proposalPda.toString(),
+        });
+        throw new Error(errorMsg);
+      }
+      
       enhancedLogger.info('✅ Vault transaction created successfully', {
         signature,
         proposalId,
+        transactionIndex: transactionIndex.toString(),
+        validated: true,
       });
       
       enhancedLogger.info('📝 Created real Squads payout transaction', {
@@ -1534,12 +1555,25 @@ export class SquadsVaultService {
         );
         
         // CRITICAL: Verify proposal has linked transaction (expert requirement)
+        // Also validate that the proposal PDA matches the transaction index
         try {
           const [proposalPda] = getProposalPda({
             multisigPda: multisigAddress,
             transactionIndex: transactionIndex,
             programId: this.programId,
           });
+          
+          // CRITICAL VALIDATION: Ensure proposal ID matches derived PDA
+          if (proposalId !== proposalPda.toString()) {
+            const errorMsg = `CRITICAL: Proposal ID mismatch after creation. Expected ${proposalPda.toString()}, got ${proposalId}`;
+            enhancedLogger.error('❌ ' + errorMsg, {
+              vaultAddress,
+              transactionIndex: transactionIndex.toString(),
+              expectedPda: proposalPda.toString(),
+              actualProposalId: proposalId,
+            });
+            throw new Error(errorMsg);
+          }
           
           // CRITICAL: Retry multiple times with increasing delays to handle blockchain indexing delays
           // The proposal account needs time to be fully initialized with the linked transaction
@@ -1721,6 +1755,7 @@ export class SquadsVaultService {
       return {
         success: true,
         proposalId,
+        transactionIndex: transactionIndex.toString(), // CRITICAL: Return transaction index to ensure proposal ID matches
         needsSignatures: 1, // 1 more signature needed (system already signed)
       };
 
@@ -2814,6 +2849,7 @@ export class SquadsVaultService {
       return {
         success: true,
         proposalId,
+        transactionIndex: transactionIndex.toString(), // CRITICAL: Return transaction index to ensure proposal ID matches
         needsSignatures: 1, // 1 more signature needed (system already signed)
       };
 
