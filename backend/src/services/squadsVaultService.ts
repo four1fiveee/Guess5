@@ -63,9 +63,9 @@ export class SquadsVaultService {
   private programId: PublicKey; // Network-specific program ID
 
   constructor() {
-    // Use centralized Solana connection (supports Helius RPC)
-    const { createSolanaConnection } = require('../config/solanaConnection');
-    this.connection = createSolanaConnection('confirmed');
+    // CRITICAL: Use premium RPC (Helius) for vault operations
+    const { createPremiumSolanaConnection } = require('../config/solanaConnection');
+    this.connection = createPremiumSolanaConnection('confirmed');
     
     // Get network URL for cluster detection (Helius URLs are handled internally)
     const networkUrl = process.env.SOLANA_NETWORK || 'devnet';

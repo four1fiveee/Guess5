@@ -95,9 +95,10 @@ export async function syncProposalIfNeeded(
       proposalStatus = await squadsService.checkProposalStatus(vaultAddress, currentDbProposalId);
       
       // Get the actual proposal account from on-chain
+      // NON-CRITICAL: Use standard RPC for monitoring/sync operations
       const proposalPda = new PublicKey(currentDbProposalId);
-      const { createSolanaConnection } = require('../config/solanaConnection');
-      const connection = createSolanaConnection('confirmed');
+      const { createStandardSolanaConnection } = require('../config/solanaConnection');
+      const connection = createStandardSolanaConnection('confirmed');
       const proposalAccount = await require('@sqds/multisig').accounts.Proposal.fromAccountAddress(
         connection,
         proposalPda
@@ -302,8 +303,9 @@ export async function findAndSyncApprovedProposal(
     });
     
     const { getProposalPda, accounts, PROGRAM_ID } = require('@sqds/multisig');
-    const { createSolanaConnection } = require('../config/solanaConnection');
-    const connection = createSolanaConnection('confirmed');
+    // NON-CRITICAL: Use standard RPC for monitoring/search operations
+    const { createStandardSolanaConnection } = require('../config/solanaConnection');
+    const connection = createStandardSolanaConnection('confirmed');
     
     // CRITICAL: vaultAddress IS the multisig address (PublicKey)
     // We don't need to derive it - just use it directly

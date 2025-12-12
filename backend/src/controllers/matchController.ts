@@ -14465,8 +14465,9 @@ const signProposalHandler = async (req: any, res: any) => {
         console.log('✅ Transaction proposal PDA derived:', transactionPda.toString());
 
         // Try to fetch the transaction account to verify it exists and is in a valid state
-        const { createSolanaConnection } = require('../config/solanaConnection');
-        const connection = createSolanaConnection('confirmed');
+        // CRITICAL: Use premium RPC (Helius) for vault transaction verification during proposal creation
+        const { createPremiumSolanaConnection } = require('../config/solanaConnection');
+        const connection = createPremiumSolanaConnection('confirmed');
         const transactionAccount = await connection.getAccountInfo(transactionPda);
         if (!transactionAccount) {
           // Transaction account doesn't exist - could be executed or cancelled
@@ -14707,9 +14708,10 @@ const signProposalHandler = async (req: any, res: any) => {
     });
 
     // Submit the signed transaction
+    // CRITICAL: Use premium RPC (Helius) for broadcasting signed transactions
     const { Connection, VersionedTransaction } = require('@solana/web3.js');
-    const { createSolanaConnection } = require('../config/solanaConnection');
-    const connection = createSolanaConnection('confirmed');
+    const { createPremiumSolanaConnection } = require('../config/solanaConnection');
+    const connection = createPremiumSolanaConnection('confirmed');
 
     // Deserialize the signed transaction
     // CRITICAL: Handle both raw bytes (Buffer) and base64 JSON formats

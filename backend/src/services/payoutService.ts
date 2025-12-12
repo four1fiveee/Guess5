@@ -8,9 +8,10 @@ import { PriceService } from './priceService';
 // Smart contract configuration - using environment variables
 // Note: These are used in the smart contract service integration
 
-// Configuration - Use centralized Solana connection (supports Helius RPC)
-const { createSolanaConnection } = require('../config/solanaConnection');
-const connection = createSolanaConnection();
+// Configuration - Use standard RPC for payout service (non-critical lookups)
+// Note: If this service is used for critical vault operations, switch to premium RPC
+const { createStandardSolanaConnection } = require('../config/solanaConnection');
+const connection = createStandardSolanaConnection();
 
 // Escrow account for holding entry fees
 const ESCROW_WALLET_ADDRESS = "3Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt"; // This should be a program-controlled escrow
