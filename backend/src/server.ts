@@ -49,6 +49,17 @@ async function startServer() {
     // Validate environment variables first
     enhancedLogger.info('🔍 Validating environment configuration...');
     validateConfig();
+    
+    // Log Helius RPC configuration status
+    const { getSolanaRpcUrl } = require('./config/solanaConnection');
+    const rpcUrl = getSolanaRpcUrl();
+    if (process.env.HELIUS_API_KEY) {
+      enhancedLogger.info('✅ Helius RPC configured - Using premium RPC endpoint');
+      enhancedLogger.info(`🔗 RPC URL: ${rpcUrl.replace(/\?api-key=[^&]+/, '?api-key=***')}`); // Mask API key in logs
+    } else {
+      enhancedLogger.warn('⚠️ HELIUS_API_KEY not set - Using standard Solana RPC (may have rate limits)');
+      enhancedLogger.info(`🔗 RPC URL: ${rpcUrl}`);
+    }
     enhancedLogger.info('✅ Environment configuration validated');
 
     // Validate Solana configuration
