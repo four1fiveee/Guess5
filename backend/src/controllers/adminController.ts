@@ -1164,9 +1164,9 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       };
     };
 
-    const weekly = calculateMetrics(allMatches, startOfWeek);
-    const quarterly = calculateMetrics(allMatches, startOfQuarter);
-    const yearly = calculateMetrics(allMatches, startOfYear);
+    const weekly = calculateMetrics(allMatches, startOfWeek, currentSolPriceUSD);
+    const quarterly = calculateMetrics(allMatches, startOfQuarter, currentSolPriceUSD);
+    const yearly = calculateMetrics(allMatches, startOfYear, currentSolPriceUSD);
 
     return res.json({
       success: true,
