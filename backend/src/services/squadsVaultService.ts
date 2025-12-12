@@ -4772,6 +4772,12 @@ export class SquadsVaultService {
               attempt: attemptNumber,
               maxRetries,
               error: sdkError?.message || String(sdkError),
+              errorCode: sdkError?.code,
+              errorName: sdkError?.name,
+              errorStack: sdkError?.stack,
+              logs: sdkError?.logs,
+              isRetryable,
+              correlationId,
               isRetryable,
               correlationId,
             });
@@ -4790,6 +4796,38 @@ export class SquadsVaultService {
                            (lastError?.message?.includes('0x65') ? 101 : null) ||
                            (lastError?.message?.includes('101') ? 101 : null);
           
+          // CRITICAL: Comprehensive error logging for execution failures
+          enhancedLogger.error('❌ EXECUTION FAILED: All retries exhausted', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            errorCode: errorCode || 'unknown',
+            attempts: attemptNumber,
+            maxRetries,
+            correlationId,
+            error: {
+              message: lastError?.message || String(lastError),
+              name: lastError?.name,
+              code: lastError?.code,
+              errorCode: lastError?.errorCode,
+              stack: lastError?.stack,
+              logs: lastError?.logs,
+              instructionError: lastError?.instructionError,
+              err: lastError?.err,
+            },
+            executionContext: {
+              executor: executor.publicKey.toString(),
+              multisigPda: multisigAddress.toString(),
+              programId: this.programId.toString(),
+              connectionRpcUrl: this.connection.rpcEndpoint,
+              proposalStatus: proposalStatus || 'unknown',
+              approvedSignersCount: approvedSigners?.length || 0,
+              threshold,
+            },
+            note: 'This is a CRITICAL execution failure. Check error details above to diagnose the root cause.',
+          });
+          
+          // Emit metric
           enhancedLogger.error('📊 METRIC: execute.failure (all retries exhausted)', {
             vaultAddress,
             proposalId,
@@ -4805,6 +4843,11 @@ export class SquadsVaultService {
             correlationId,
             errorCode: errorCode || undefined,
             attempts: attemptNumber,
+            errorDetails: {
+              name: lastError?.name,
+              code: lastError?.code,
+              logs: lastError?.logs,
+            },
           };
         }
         

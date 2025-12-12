@@ -436,6 +436,27 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
         note: 'Proposal execution completed successfully',
         reason: 'EXECUTION_SUCCESS',
       });
+    } else {
+      // CRITICAL: Log execution failure with comprehensive details
+      metrics.executionErrors++;
+      enhancedLogger.error('❌ Proposal execution failed (monitor)', {
+        matchId,
+        proposalId: proposalIdString,
+        vaultAddress,
+        transactionIndex: transactionIndex?.toString(),
+        attemptKey,
+        attemptCount: existingAttempt?.attemptCount || 0,
+        error: executeResult.error,
+        errorCode: executeResult.errorCode,
+        errorDetails: executeResult.errorDetails,
+        attempts: executeResult.attempts,
+        correlationId: executeResult.correlationId,
+        statusKind,
+        approvedSignersCount,
+        threshold,
+        note: 'Execution failed - check error details above. Monitor will retry on next scan.',
+        reason: 'EXECUTION_FAILURE',
+      });
 
       executionAttempts.delete(attemptKey);
     } else {
