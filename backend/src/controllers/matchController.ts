@@ -14466,8 +14466,10 @@ const signProposalHandler = async (req: any, res: any) => {
 
         // Try to fetch the transaction account to verify it exists and is in a valid state
         // CRITICAL: Use premium RPC (Helius) for vault transaction verification during proposal creation
-        const { createPremiumSolanaConnection } = require('../config/solanaConnection');
-        const connection = createPremiumSolanaConnection('confirmed');
+        // OPTIMIZATION: Use standard RPC for vault transaction verification (read-only check)
+        // Premium RPC is only needed for actual execution, not status checks
+        const { createStandardSolanaConnection } = require('../config/solanaConnection');
+        const connection = createStandardSolanaConnection('confirmed');
         const transactionAccount = await connection.getAccountInfo(transactionPda);
         if (!transactionAccount) {
           // Transaction account doesn't exist - could be executed or cancelled
