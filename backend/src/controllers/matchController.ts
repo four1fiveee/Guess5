@@ -14173,6 +14173,40 @@ const signProposalHandler = async (req: any, res: any) => {
       }
     }
 
+    // ✅ ENHANCEMENT 3: Backend double-check - prevent signing already-approved proposals
+    // This is a critical safety check even if frontend checks pass (users can bypass frontend via Postman)
+    // Check DB state after sync (sync runs in background, but we check current DB state)
+    const isProposalFinalized = 
+      matchRow.needsSignatures === 0 ||
+      matchRow.proposalStatus === 'APPROVED' ||
+      matchRow.proposalStatus === 'EXECUTING' ||
+      matchRow.proposalStatus === 'EXECUTED' ||
+      !!matchRow.proposalExecutedAt;
+    
+    if (isProposalFinalized) {
+      console.warn('⛔ [sign-proposal] Attempted to sign already-finalized proposal (backend check)', {
+        matchId,
+        wallet,
+        proposalId: matchRow.payoutProposalId || matchRow.tieRefundProposalId,
+        needsSignatures: matchRow.needsSignatures,
+        proposalStatus: matchRow.proposalStatus,
+        proposalExecutedAt: matchRow.proposalExecutedAt,
+        note: 'Proposal is already approved/executed - cannot add additional signatures',
+      });
+      
+      return res.status(400).json({
+        error: 'Proposal already approved or executed',
+        message: 'This proposal has already been approved and does not need additional signatures.',
+        fatal: true,
+        details: {
+          needsSignatures: matchRow.needsSignatures,
+          proposalStatus: matchRow.proposalStatus,
+          proposalExecutedAt: matchRow.proposalExecutedAt,
+          note: 'Proposal is finalized - no additional signatures can be added',
+        },
+      });
+    }
+
     // Verify player is part of this match (case-insensitive for safety)
     const isPlayer1 = matchRow.player1 && matchRow.player1.toLowerCase() === wallet.toLowerCase();
     const isPlayer2 = matchRow.player2 && matchRow.player2.toLowerCase() === wallet.toLowerCase();

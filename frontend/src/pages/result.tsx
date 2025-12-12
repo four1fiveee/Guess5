@@ -1267,14 +1267,17 @@ const Result: React.FC = () => {
         timestamp: new Date().toISOString(),
       });
       
-      // CRITICAL: Re-fetch latest match status to ensure we have the latest proposal ID
-      // This prevents signing a stale proposal if a new one was created
-      console.log('🔍 Re-fetching latest match status to get current proposal ID...', {
+      // ✅ ENHANCEMENT 1: Force fresh sync before signing to prevent stale state
+      // This ensures we're working with the latest on-chain proposal status
+      console.log('🔄 Force syncing proposal status before signing...', {
         matchId,
         currentProposalId: payoutData?.proposalId,
+        currentStatus: payoutData?.proposalStatus,
+        currentNeedsSignatures: payoutData?.needsSignatures,
+        timestamp: new Date().toISOString(),
       });
       
-      const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}`, {
+      const statusResponse = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {
         credentials: 'include',
       });
       
@@ -1287,6 +1290,40 @@ const Result: React.FC = () => {
       
       if (!latestProposalId) {
         throw new Error('No proposal ID found in latest match status');
+      }
+      
+      // ✅ ENHANCEMENT 2: Check if proposal is already finalized after fresh sync
+      // This is a second layer of defense after the initial check
+      const isFinalizedAfterSync = 
+        latestMatchData.needsSignatures === 0 ||
+        latestMatchData.proposalStatus === 'APPROVED' ||
+        latestMatchData.proposalStatus === 'EXECUTING' ||
+        latestMatchData.proposalStatus === 'EXECUTED' ||
+        !!latestMatchData.proposalExecutedAt;
+      
+      if (isFinalizedAfterSync) {
+        console.warn('⚠️ Proposal already finalized after fresh sync - aborting signing', {
+          matchId,
+          proposalId: latestProposalId,
+          needsSignatures: latestMatchData.needsSignatures,
+          proposalStatus: latestMatchData.proposalStatus,
+          proposalExecutedAt: latestMatchData.proposalExecutedAt,
+          note: 'Fresh sync revealed proposal is already approved/executed',
+        });
+        
+        // Update payoutData with latest state
+        setPayoutData((prev: any) => ({
+          ...prev,
+          proposalId: latestProposalId,
+          proposalStatus: latestMatchData.proposalStatus,
+          proposalSigners: latestMatchData.proposalSigners || prev.proposalSigners,
+          needsSignatures: latestMatchData.needsSignatures ?? prev.needsSignatures,
+          proposalExecutedAt: latestMatchData.proposalExecutedAt || prev.proposalExecutedAt,
+        }));
+        
+        setError('This proposal has already been approved and does not need additional signatures.');
+        setSigningProposal(false);
+        return;
       }
       
       // CRITICAL: If proposal ID changed, update payoutData and warn user
@@ -1305,6 +1342,15 @@ const Result: React.FC = () => {
           proposalStatus: latestMatchData.proposalStatus || prev.proposalStatus,
           proposalSigners: latestMatchData.proposalSigners || prev.proposalSigners,
           needsSignatures: latestMatchData.needsSignatures ?? prev.needsSignatures,
+        }));
+      } else {
+        // Even if proposal ID didn't change, update status in case it changed
+        setPayoutData((prev: any) => ({
+          ...prev,
+          proposalStatus: latestMatchData.proposalStatus || prev.proposalStatus,
+          proposalSigners: latestMatchData.proposalSigners || prev.proposalSigners,
+          needsSignatures: latestMatchData.needsSignatures ?? prev.needsSignatures,
+          proposalExecutedAt: latestMatchData.proposalExecutedAt || prev.proposalExecutedAt,
         }));
       }
       
@@ -2869,13 +2915,59 @@ const Result: React.FC = () => {
                                 // Verbose debug logging removed to reduce console noise
                                 // Key info: frontendProposalId, hasProposalId, userHasSignedFinal
                                 
-                                // CRITICAL: Don't show sign button if proposal is executing or executed
-                                const isExecutingOrExecuted = payoutData.proposalStatus === 'EXECUTING' || 
-                                                               payoutData.proposalStatus === 'EXECUTED' ||
-                                                               !!payoutData.proposalExecutedAt;
+                                // ✅ ENHANCEMENT 3: Enhanced proposal finalized check
+                                const isProposalFinalized = 
+                                  payoutData.needsSignatures === 0 ||
+                                  payoutData.proposalStatus === 'APPROVED' ||
+                                  payoutData.proposalStatus === 'EXECUTING' || 
+                                  payoutData.proposalStatus === 'EXECUTED' ||
+                                  !!payoutData.proposalExecutedAt;
+                                
+                                // ✅ ENHANCEMENT 4: Show appropriate status messages for finalized proposals
+                                if (isProposalFinalized && hasProposalId) {
+                                  if (payoutData.proposalStatus === 'APPROVED') {
+                                    return (
+                                      <div className="mb-3 p-3 rounded-lg bg-green-500/10 border border-green-400/30">
+                                        <div className="flex items-center gap-2 text-green-400 text-sm font-semibold mb-1">
+                                          <span>✅</span>
+                                          <span>Proposal already approved. Execution starting...</span>
+                                        </div>
+                                        <p className="text-xs text-white/70">
+                                          Proposal ID: {payoutData.proposalId}
+                                        </p>
+                                      </div>
+                                    );
+                                  }
+                                  if (payoutData.proposalStatus === 'EXECUTING') {
+                                    return (
+                                      <div className="mb-3 p-3 rounded-lg bg-blue-500/10 border border-blue-400/30">
+                                        <div className="flex items-center gap-2 text-blue-400 text-sm font-semibold mb-1">
+                                          <span>⏳</span>
+                                          <span>Proposal is executing. Your winnings are being sent...</span>
+                                        </div>
+                                        <p className="text-xs text-white/70">
+                                          Proposal ID: {payoutData.proposalId}
+                                        </p>
+                                      </div>
+                                    );
+                                  }
+                                  if (payoutData.proposalStatus === 'EXECUTED' || payoutData.proposalExecutedAt) {
+                                    return (
+                                      <div className="mb-3 p-3 rounded-lg bg-purple-500/10 border border-purple-400/30">
+                                        <div className="flex items-center gap-2 text-purple-400 text-sm font-semibold mb-1">
+                                          <span>🎉</span>
+                                          <span>Proposal executed. Winnings have been sent!</span>
+                                        </div>
+                                        <p className="text-xs text-white/70">
+                                          Proposal ID: {payoutData.proposalId}
+                                        </p>
+                                      </div>
+                                    );
+                                  }
+                                }
                                 
                                 // ✅ FIX: Show fallback UI if already signed (skip signing flow)
-                                if (userHasSignedFinal && hasProposalId && !isExecutingOrExecuted) {
+                                if (userHasSignedFinal && hasProposalId && !isProposalFinalized) {
                                   return (
                                     <div className="mb-3 p-3 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                                       <div className="flex items-center gap-2 text-yellow-400 text-sm font-semibold mb-1">
@@ -2889,7 +2981,7 @@ const Result: React.FC = () => {
                                   );
                                 }
                                 
-                                const shouldShowButton = hasProposalId && !userHasSignedFinal && !isExecutingOrExecuted;
+                                const shouldShowButton = hasProposalId && !userHasSignedFinal && !isProposalFinalized;
                                 
                                 // Show Proposal sign button if user hasn't signed Proposal yet
                                 if (!shouldShowButton) {
@@ -2904,20 +2996,25 @@ const Result: React.FC = () => {
                                   return null;
                                 }
 
-                                // CRITICAL FIX: Disable button if:
+                                // ✅ ENHANCEMENT 5: Enhanced button disabled logic
+                                // Disable button if:
                                 // 1. User has signed OR currently signing
-                                // 2. Proposal creation failed (VAULT_TX_CREATION_FAILED)
-                                // 3. There's a retryable error indicating proposal isn't ready
+                                // 2. Proposal is finalized (approved/executing/executed)
+                                // 3. Proposal creation failed (VAULT_TX_CREATION_FAILED)
+                                // 4. There's a retryable error indicating proposal isn't ready
                                 const isProposalCreationFailed = payoutData.proposalStatus === 'VAULT_TX_CREATION_FAILED';
                                 const hasRetryableError = Boolean(error && (
                                   error.includes('still being created') ||
                                   error.includes('not ready') ||
                                   error.includes('VaultTransaction')
                                 ));
-                                const isButtonDisabled = Boolean(signingProposal || 
-                                                         userHasSignedFinal || 
-                                                         isProposalCreationFailed ||
-                                                         hasRetryableError);
+                                const isButtonDisabled = Boolean(
+                                  signingProposal || 
+                                  userHasSignedFinal || 
+                                  isProposalFinalized ||
+                                  isProposalCreationFailed ||
+                                  hasRetryableError
+                                );
                                 
                                 return (
                                   <button
