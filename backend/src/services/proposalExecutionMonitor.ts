@@ -106,6 +106,9 @@ export function stopProposalExecutionMonitor(): void {
 
 /**
  * Scan for Approved proposals and execute them if ExecuteReady
+ * 
+ * CRITICAL FIX: Now scans ALL proposals on-chain for each vault, not just DB-tracked proposals.
+ * This prevents missing approved proposals due to DB ↔ on-chain desynchronization.
  */
 async function scanAndExecuteProposals(): Promise<void> {
   if (!AppDataSource.isInitialized) {
@@ -116,38 +119,29 @@ async function scanAndExecuteProposals(): Promise<void> {
   try {
     const matchRepository = AppDataSource.getRepository(Match);
 
-    // Find matches with Approved proposals that haven't been executed
-    const approvedMatches = await matchRepository.query(`
-      SELECT 
-        id,
+    // CRITICAL FIX: Get all unique vault addresses from database
+    // We'll scan all proposals on-chain for each vault, not just DB-tracked proposals
+    const vaultsWithProposals = await matchRepository.query(`
+      SELECT DISTINCT
         "squadsVaultAddress",
-        "squadsVaultPda",
-        "payoutProposalId",
-        "tieRefundProposalId",
-        "proposalStatus",
-        "proposalExecutedAt",
-        "proposalTransactionId",
-        winner,
-        "updatedAt"
+        "squadsVaultPda"
       FROM "match"
       WHERE 
-        "proposalStatus" = 'APPROVED'
-        AND "proposalExecutedAt" IS NULL
-        AND "proposalTransactionId" IS NULL
+        "squadsVaultAddress" IS NOT NULL
         AND ("payoutProposalId" IS NOT NULL OR "tieRefundProposalId" IS NOT NULL)
-        AND "updatedAt" > NOW() - INTERVAL '${MAX_AGE_MINUTES} minutes'
-      ORDER BY "updatedAt" DESC
-      LIMIT 20
+        AND "updatedAt" > NOW() - INTERVAL '${MAX_AGE_MINUTES * 2} minutes'
+      ORDER BY "squadsVaultAddress"
+      LIMIT 50
     `);
 
-    if (approvedMatches.length === 0) {
-      return; // No proposals to process
+    if (vaultsWithProposals.length === 0) {
+      return; // No vaults to scan
     }
 
-    enhancedLogger.info('🔍 Proposal execution monitor: Scanning for Approved proposals', {
-      found: approvedMatches.length,
+    enhancedLogger.info('🔍 Proposal execution monitor: Scanning all on-chain proposals', {
+      vaultsToScan: vaultsWithProposals.length,
       scanInterval: `${SCAN_INTERVAL_MS / 1000}s`,
-      maxAge: `${MAX_AGE_MINUTES} minutes`,
+      maxAge: `${MAX_AGE_MINUTES * 2} minutes`,
       metrics: {
         checked: metrics.proposalsChecked,
         executed: metrics.proposalsExecuted,
@@ -156,23 +150,24 @@ async function scanAndExecuteProposals(): Promise<void> {
         alreadyExecuted: metrics.proposalsAlreadyExecuted,
         errors: metrics.executionErrors,
       },
+      note: 'Now scanning ALL proposals on-chain for each vault, not just DB-tracked proposals',
     });
 
-    for (const match of approvedMatches) {
+    // Scan all proposals on-chain for each vault
+    for (const vaultInfo of vaultsWithProposals) {
+      const vaultAddress = vaultInfo.squadsVaultAddress;
+      if (!vaultAddress) continue;
+
       try {
-        metrics.proposalsChecked++;
-        await processApprovedProposal(match, matchRepository);
+        await scanVaultForApprovedProposals(vaultAddress, matchRepository);
       } catch (error: any) {
         metrics.executionErrors++;
-        enhancedLogger.error('❌ Error processing Approved proposal', {
-          matchId: match.id,
-          proposalId: match.payoutProposalId || match.tieRefundProposalId,
-          vaultAddress: match.squadsVaultAddress,
+        enhancedLogger.error('❌ Error scanning vault for approved proposals', {
+          vaultAddress,
           error: error?.message,
           stack: error?.stack,
-          attemptKey: `${match.id}:${match.payoutProposalId || match.tieRefundProposalId}`,
         });
-        // Continue with next match - don't let one failure stop the monitor
+        // Continue with next vault - don't let one failure stop the monitor
       }
     }
 
@@ -186,9 +181,205 @@ async function scanAndExecuteProposals(): Promise<void> {
 }
 
 /**
- * Process a single Approved proposal
+ * Scan a specific vault for all approved proposals on-chain
+ * This ensures we catch approved proposals even if they're not tracked in the database
  */
-async function processApprovedProposal(match: any, matchRepository: any): Promise<void> {
+async function scanVaultForApprovedProposals(vaultAddress: string, matchRepository: any): Promise<void> {
+  try {
+    const { PublicKey } = require('@solana/web3.js');
+    const { getMultisigPda, getProposalPda, accounts } = require('@sqds/multisig');
+    const { createStandardSolanaConnection } = require('../config/solanaConnection');
+    const connection = createStandardSolanaConnection('confirmed');
+
+    const vaultPubkey = new PublicKey(vaultAddress);
+    const multisigPda = getMultisigPda({
+      createKey: vaultPubkey,
+    })[0];
+
+    // Get multisig account to determine threshold
+    let threshold = 2; // Default
+    try {
+      const multisigAccount = await accounts.Multisig.fromAccountAddress(connection, multisigPda);
+      threshold = (multisigAccount as any).threshold || 2;
+    } catch (e: any) {
+      enhancedLogger.warn('⚠️ Could not fetch multisig threshold for vault scan', {
+        vaultAddress,
+        error: e?.message,
+        defaultThreshold: 2,
+      });
+    }
+
+    // CRITICAL: Get ALL proposals for this vault on-chain
+    // We'll scan up to 20 transaction indices (0-19) to find all proposals
+    const maxTransactionIndex = 20;
+    const approvedProposals: Array<{
+      transactionIndex: number;
+      proposalPda: PublicKey;
+      statusKind: string;
+      approvedSigners: PublicKey[];
+      approvedSignersCount: number;
+    }> = [];
+
+    for (let txIndex = 0; txIndex < maxTransactionIndex; txIndex++) {
+      try {
+        const [proposalPda] = getProposalPda({
+          multisigPda,
+          transactionIndex: txIndex,
+        });
+
+        // Try to fetch the proposal account
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+        const statusKind = (proposalAccount as any).status?.__kind;
+        const approvedSigners = (proposalAccount as any).approved || [];
+        const approvedSignersCount = approvedSigners.length;
+
+        // Skip if already executed
+        if (statusKind === 'Executed') {
+          continue; // Already executed - skip
+        }
+
+        // Check if this proposal is Approved or ExecuteReady
+        if (statusKind === 'Approved' || statusKind === 'ExecuteReady') {
+          // Verify it has enough approvals
+          if (approvedSignersCount >= threshold) {
+            approvedProposals.push({
+              transactionIndex: txIndex,
+              proposalPda,
+              statusKind,
+              approvedSigners,
+              approvedSignersCount,
+            });
+          }
+        }
+      } catch (e: any) {
+        // Proposal doesn't exist at this index - continue scanning
+        // This is expected for unused transaction indices
+        if (!e?.message?.includes('Unable to find') && !e?.message?.includes('Account does not exist')) {
+          // Log unexpected errors
+          enhancedLogger.debug('⚠️ Error checking proposal at transaction index', {
+            vaultAddress,
+            transactionIndex: txIndex,
+            error: e?.message,
+          });
+        }
+      }
+    }
+
+    if (approvedProposals.length === 0) {
+      return; // No approved proposals in this vault
+    }
+
+    enhancedLogger.info('✅ Found approved proposals on-chain', {
+      vaultAddress,
+      approvedCount: approvedProposals.length,
+      proposals: approvedProposals.map(p => ({
+        transactionIndex: p.transactionIndex,
+        proposalPda: p.proposalPda.toString(),
+        statusKind: p.statusKind,
+        approvedSignersCount: p.approvedSignersCount,
+      })),
+    });
+
+    // Process each approved proposal
+    for (const proposal of approvedProposals) {
+      try {
+        metrics.proposalsChecked++;
+        
+        // Try to find matching match in database
+        const proposalPdaString = proposal.proposalPda.toString();
+        const matchingMatch = await matchRepository.query(`
+          SELECT 
+            id,
+            "squadsVaultAddress",
+            "squadsVaultPda",
+            "payoutProposalId",
+            "tieRefundProposalId",
+            "proposalStatus",
+            "proposalExecutedAt",
+            "proposalTransactionId",
+            winner,
+            "updatedAt"
+          FROM "match"
+          WHERE 
+            "squadsVaultAddress" = $1
+            AND (
+              "payoutProposalId" = $2 
+              OR "tieRefundProposalId" = $2
+            )
+          LIMIT 1
+        `, [vaultAddress, proposalPdaString]);
+
+        // Skip if this proposal was already executed (check DB)
+        if (matchingMatch.length > 0) {
+          const dbMatch = matchingMatch[0];
+          if (dbMatch.proposalExecutedAt || dbMatch.proposalTransactionId) {
+            enhancedLogger.debug('⏭️ Skipping already-executed proposal', {
+              vaultAddress,
+              transactionIndex: proposal.transactionIndex,
+              proposalPda: proposalPdaString,
+              matchId: dbMatch.id,
+              proposalExecutedAt: dbMatch.proposalExecutedAt,
+              proposalTransactionId: dbMatch.proposalTransactionId,
+            });
+            continue; // Already executed - skip
+          }
+        }
+
+        // Process the proposal even if not found in DB (orphaned approved proposal)
+        const match = matchingMatch.length > 0 ? matchingMatch[0] : {
+          id: `orphan-${vaultAddress}-${proposal.transactionIndex}`,
+          squadsVaultAddress: vaultAddress,
+          squadsVaultPda: null,
+          payoutProposalId: proposalPdaString,
+          tieRefundProposalId: null,
+          proposalStatus: 'APPROVED',
+          proposalExecutedAt: null,
+          proposalTransactionId: null,
+          winner: null,
+          updatedAt: new Date(),
+        };
+
+        await processApprovedProposal(match, matchRepository, proposal);
+      } catch (error: any) {
+        metrics.executionErrors++;
+        enhancedLogger.error('❌ Error processing approved proposal from vault scan', {
+          vaultAddress,
+          transactionIndex: proposal.transactionIndex,
+          proposalPda: proposal.proposalPda.toString(),
+          error: error?.message,
+          stack: error?.stack,
+        });
+        // Continue with next proposal
+      }
+    }
+  } catch (error: any) {
+    enhancedLogger.error('❌ Error scanning vault for approved proposals', {
+      vaultAddress,
+      error: error?.message,
+      stack: error?.stack,
+    });
+    throw error; // Re-throw to be caught by caller
+  }
+}
+
+/**
+ * Process a single Approved proposal
+ * 
+ * @param match - Match record from database (or synthetic record for orphaned proposals)
+ * @param matchRepository - Database repository for matches
+ * @param onChainProposal - Optional: On-chain proposal data if already fetched (from vault scan)
+ */
+async function processApprovedProposal(
+  match: any, 
+  matchRepository: any,
+  onChainProposal?: {
+    transactionIndex: number;
+    proposalPda: any;
+    statusKind: string;
+    approvedSigners: any[];
+    approvedSignersCount: number;
+  }
+): Promise<void> {
   const matchId = match.id;
   const proposalId = match.payoutProposalId || match.tieRefundProposalId;
   const vaultAddress = match.squadsVaultAddress;
@@ -261,14 +452,39 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
       createKey: vaultPubkey,
     })[0];
 
-    // Extract transaction index from proposal ID (PDA)
-    const proposalPda = new PublicKey(proposalIdString);
-    const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
-    const transactionIndex = (proposalAccount as any).transactionIndex;
-    const statusKind = (proposalAccount as any).status?.__kind;
-    const approvedSigners = (proposalAccount as any).approved || [];
-    const approvedSignersCount = approvedSigners.length;
-    const approvedSignerPubkeys = approvedSigners.map((s: any) => s.toString());
+    // OPTIMIZATION: Use on-chain proposal data if already fetched (from vault scan)
+    // Otherwise, fetch it now
+    let transactionIndex: any;
+    let statusKind: string;
+    let approvedSigners: any[];
+    let approvedSignersCount: number;
+    let approvedSignerPubkeys: string[];
+
+    if (onChainProposal) {
+      // Use pre-fetched data from vault scan
+      transactionIndex = onChainProposal.transactionIndex;
+      statusKind = onChainProposal.statusKind;
+      approvedSigners = onChainProposal.approvedSigners;
+      approvedSignersCount = onChainProposal.approvedSignersCount;
+      approvedSignerPubkeys = approvedSigners.map((s: any) => s.toString());
+      
+      enhancedLogger.debug('✅ Using pre-fetched on-chain proposal data', {
+        matchId,
+        proposalId: proposalIdString,
+        transactionIndex,
+        statusKind,
+        approvedSignersCount,
+      });
+    } else {
+      // Fetch proposal account from on-chain
+      const proposalPda = new PublicKey(proposalIdString);
+      const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+      transactionIndex = (proposalAccount as any).transactionIndex;
+      statusKind = (proposalAccount as any).status?.__kind;
+      approvedSigners = (proposalAccount as any).approved || [];
+      approvedSignersCount = approvedSigners.length;
+      approvedSignerPubkeys = approvedSigners.map((s: any) => s.toString());
+    }
 
     // Get multisig threshold to check if we have enough approvals
     let threshold = 2; // Default threshold for 2-of-2 multisig
