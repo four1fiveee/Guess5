@@ -1160,7 +1160,6 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         totalGasCostUSD: parseFloat(totalGasCostUSD.toFixed(2)),
         totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
         netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),
-        currentSolPriceUSD: parseFloat(currentSolPriceUSD.toFixed(2)),
       };
     };
 
