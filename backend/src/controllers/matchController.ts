@@ -14812,20 +14812,49 @@ const signProposalHandler = async (req: any, res: any) => {
     let signature: string;
     
     // ✅ Helper function to retry broadcast with exponential backoff for 429 errors
+    // Includes fallback to standard RPC if Helius fails (rare outage scenario)
     const broadcastWithRetry = async (skipPreflight: boolean = false, maxAttempts: number = 5): Promise<string> => {
       let lastError: any;
+      let usedFallback = false;
+      let activeConnection = connection; // Start with premium (Helius) connection
       
       for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         try {
-          const result = await connection.sendRawTransaction(serializedTx, {
+          const result = await activeConnection.sendRawTransaction(serializedTx, {
             skipPreflight,
             maxRetries: 0, // Disable built-in retries, we handle them ourselves
           });
+          if (usedFallback) {
+            console.warn('⚠️ SIGN_PROPOSAL: Broadcast succeeded using fallback RPC (Helius was unavailable)', {
+              matchId,
+              wallet,
+              attempt,
+            });
+          }
           return result;
         } catch (error: any) {
           lastError = error;
           const errorMessage = error?.message || String(error);
           const isRateLimit = errorMessage.includes('429') || errorMessage.includes('Too Many Requests');
+          const isHeliusDown = errorMessage.includes('ECONNREFUSED') || 
+                              errorMessage.includes('timeout') || 
+                              errorMessage.includes('helius') ||
+                              (error?.code === 'ECONNREFUSED' || error?.code === 'ETIMEDOUT');
+          
+          // If Helius appears down and we haven't tried fallback yet, switch to standard RPC
+          if (isHeliusDown && !usedFallback && attempt >= 2) {
+            console.warn('⚠️ SIGN_PROPOSAL: Helius RPC appears unavailable, falling back to standard RPC...', {
+              matchId,
+              wallet,
+              attempt,
+              error: errorMessage,
+            });
+            const { createStandardSolanaConnection } = require('../config/solanaConnection');
+            activeConnection = createStandardSolanaConnection('confirmed'); // Switch to fallback connection
+            usedFallback = true;
+            // Retry immediately with fallback (don't count as new attempt)
+            continue;
+          }
           
           if (isRateLimit && attempt < maxAttempts) {
             // Exponential backoff: 1s, 2s, 4s, 8s, 16s
@@ -14837,6 +14866,7 @@ const signProposalHandler = async (req: any, res: any) => {
               maxAttempts,
               delayMs,
               error: errorMessage,
+              usingFallback: usedFallback,
             });
             await new Promise(resolve => setTimeout(resolve, delayMs));
             continue;
