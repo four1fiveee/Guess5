@@ -754,6 +754,43 @@ export default function AdminPage() {
           )}
         </div>
 
+        {/* Match Management */}
+        <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
+          <h2 className="text-xl font-bold text-white mb-4">Match Management</h2>
+          <div className="space-y-4">
+            <div className="flex gap-3">
+              <input
+                type="text"
+                id="matchIdInput"
+                placeholder="Enter Match ID (e.g., 15dcfba1-b4a5-4896-b563-937fa04d45f5)"
+                className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                onKeyPress={(e) => {
+                  if (e.key === 'Enter') {
+                    const input = e.target as HTMLInputElement;
+                    handleDeleteMatch(input.value);
+                  }
+                }}
+              />
+              <button
+                onClick={() => {
+                  const input = document.getElementById('matchIdInput') as HTMLInputElement;
+                  if (input?.value) {
+                    handleDeleteMatch(input.value);
+                  } else {
+                    alert('Please enter a Match ID');
+                  }
+                }}
+                className="px-6 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors border border-red-500/30 font-semibold"
+              >
+                🗑️ Delete Match
+              </button>
+            </div>
+            <p className="text-white/50 text-sm">
+              Enter a Match ID above and click Delete to remove it from the database. This is useful for cleaning up test matches.
+            </p>
+          </div>
+        </div>
+
         {/* Quick Actions */}
         <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
           <h2 className="text-xl font-bold text-white mb-4">Quick Actions</h2>
