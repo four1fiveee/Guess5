@@ -643,7 +643,14 @@ export default function AdminPage() {
 
         {/* Operations Section - Financial Metrics */}
         <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 mb-6 border border-white/20">
-          <h2 className="text-2xl font-bold text-white mb-4">Operations - Financial Metrics</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-2xl font-bold text-white">Operations - Financial Metrics</h2>
+            {financialMetrics && (
+              <p className="text-white/60 text-sm">
+                SOL Price: ${(financialMetrics.currentSolPriceUSD || feeWalletBalance?.solPriceUSD || 0).toFixed(2)} (updates every minute)
+              </p>
+            )}
+          </div>
           {financialMetrics && feeWalletBalance ? (
             <div className="space-y-6">
               {/* Fee Wallet Balance */}
@@ -664,7 +671,7 @@ export default function AdminPage() {
                   </div>
                   <div>
                     <p className="text-white/70 text-sm">Wallet</p>
-                    <p className="text-white font-mono text-xs break-words overflow-wrap-anywhere">{feeWalletBalance.wallet}</p>
+                    <p className="text-white font-mono text-xs break-all">{feeWalletBalance.wallet}</p>
                   </div>
                 </div>
               </div>
