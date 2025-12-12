@@ -1513,12 +1513,7 @@ export class SquadsVaultService {
 
       // PRIORITY 2 FIX: Check if proposal already exists before creating
       // This prevents orphaned proposals when retries occur at different transaction indices
-      const [proposalPda] = getProposalPda({
-        multisigPda: multisigAddress,
-        transactionIndex: transactionIndex,
-        programId: this.programId,
-      });
-      
+      // Note: proposalPda is already declared above (line 1471), so we reuse it here
       let existingProposal: any = null;
       try {
         existingProposal = await accounts.Proposal.fromAccountAddress(this.connection, proposalPda);
