@@ -249,12 +249,11 @@ async function processApprovedProposal(match: any, matchRepository: any): Promis
     }
 
     // Check if proposal is ExecuteReady
-    const { Connection, PublicKey } = require('@solana/web3.js');
+    // CRITICAL: Use premium RPC (Helius) for execution operations
+    const { PublicKey } = require('@solana/web3.js');
     const { getProposalPda, accounts } = require('@sqds/multisig');
-    const connection = new Connection(
-      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-      'confirmed'
-    );
+    const { createPremiumSolanaConnection } = require('../config/solanaConnection');
+    const connection = createPremiumSolanaConnection('confirmed');
 
     const vaultPubkey = new PublicKey(vaultAddress);
     const multisigPda = require('@sqds/multisig').getMultisigPda({
