@@ -14,6 +14,20 @@ import { getSquadsVaultService } from './squadsVaultService';
 import { getFeeWalletKeypair } from '../config/wallet';
 import { enhancedLogger } from '../utils/enhancedLogger';
 
+/**
+ * Helper function to normalize proposal status from enum format
+ * Handles both string status and object with __kind property
+ */
+function getProposalStatusKind(status: any): string {
+  if (typeof status === 'string') {
+    return status;
+  }
+  if (typeof status === 'object' && status !== null && '__kind' in status) {
+    return status.__kind;
+  }
+  return 'Unknown';
+}
+
 interface ExecutionAttempt {
   matchId: string;
   proposalId: string;
@@ -229,7 +243,7 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
 
         // Try to fetch the proposal account
         const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
-        const statusKind = (proposalAccount as any).status?.__kind;
+        const statusKind = getProposalStatusKind((proposalAccount as any).status);
         const approvedSigners = (proposalAccount as any).approved || [];
         const approvedSignersCount = approvedSigners.length;
 
@@ -249,19 +263,31 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
               approvedSigners,
               approvedSignersCount,
             });
+            
+            enhancedLogger.info('✅ Found approved proposal during vault scan', {
+              vaultAddress,
+              transactionIndex: txIndex,
+              proposalPda: proposalPda.toString(),
+              statusKind,
+              approvedSignersCount,
+              threshold,
+            });
           }
         }
       } catch (e: any) {
         // Proposal doesn't exist at this index - continue scanning
         // This is expected for unused transaction indices
         if (!e?.message?.includes('Unable to find') && !e?.message?.includes('Account does not exist')) {
-          // Log unexpected errors
-          enhancedLogger.debug('⚠️ Error checking proposal at transaction index', {
+          // Log unexpected errors but continue scanning
+          enhancedLogger.warn('⚠️ Error checking proposal at transaction index - continuing scan', {
             vaultAddress,
             transactionIndex: txIndex,
-            error: e?.message,
+            error: e?.message || String(e),
+            note: 'Continuing to next index - this error will not block the scan',
           });
         }
+        // Continue to next index - don't let one error stop the entire scan
+        continue;
       }
     }
 
@@ -480,7 +506,7 @@ async function processApprovedProposal(
       const proposalPda = new PublicKey(proposalIdString);
       const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
       transactionIndex = (proposalAccount as any).transactionIndex;
-      statusKind = (proposalAccount as any).status?.__kind;
+      statusKind = getProposalStatusKind((proposalAccount as any).status);
       approvedSigners = (proposalAccount as any).approved || [];
       approvedSignersCount = approvedSigners.length;
       approvedSignerPubkeys = approvedSigners.map((s: any) => s.toString());

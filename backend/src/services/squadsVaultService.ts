@@ -4533,6 +4533,11 @@ export class SquadsVaultService {
       });
       
       let proposalAccount: any = null;
+      // ✅ FIX: Initialize variables outside try block so they're accessible in error logging
+      let proposalStatus: string = 'Unknown';
+      let approvedSigners: any[] = [];
+      let threshold = 2; // Default threshold
+      
       try {
         proposalAccount = await accounts.Proposal.fromAccountAddress(
           this.connection,
@@ -4540,12 +4545,15 @@ export class SquadsVaultService {
           'confirmed'
         );
         
-        const proposalStatus = (proposalAccount.status as any)?.__kind;
-        const approvedSigners = proposalAccount.approved || [];
+        // ✅ FIX: Normalize status to handle enum format safely
+        const statusObj = (proposalAccount.status as any);
+        proposalStatus = typeof statusObj === 'object' && statusObj !== null && '__kind' in statusObj
+          ? statusObj.__kind
+          : (typeof statusObj === 'string' ? statusObj : 'Unknown');
+        approvedSigners = proposalAccount.approved || [];
         
         // CRITICAL: Fetch threshold from Multisig account, not Proposal account
         // Proposal account doesn't have threshold field - it's stored on Multisig
-        let threshold = 2; // Default fallback
         try {
           const [multisigPda] = getMultisigPda({
             createKey: multisigAddress,
@@ -4929,7 +4937,7 @@ export class SquadsVaultService {
               multisigPda: multisigAddress.toString(),
               programId: this.programId.toString(),
               connectionRpcUrl: this.connection.rpcEndpoint,
-              proposalStatus: proposalStatus || 'unknown',
+              proposalStatus: proposalStatus || 'unknown', // ✅ FIX: proposalStatus is now in scope
               approvedSignersCount: approvedSigners?.length || 0,
               threshold,
             },
