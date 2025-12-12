@@ -13951,6 +13951,25 @@ const signProposalHandler = async (req: any, res: any) => {
       // ✅ PRIORITY 1: Run sync in background with timeout protection
       // This prevents the handler from hanging and causing frontend timeouts
       const syncProposalWithChainData = async () => {
+        // ✅ OPTIMIZATION: Redis lock to prevent concurrent syncs for the same proposal
+        // This drastically reduces RPC pressure by avoiding duplicate sync operations
+        const redis = getRedisMM();
+        const syncLockKey = `proposal:${proposalIdToSync}:syncing`;
+        const syncLockValue = `${Date.now()}-${Math.random()}`;
+        const syncLockAcquired = await redis.set(syncLockKey, syncLockValue, 'NX', 'EX', 10); // 10-second lock
+        
+        if (!syncLockAcquired) {
+          console.log('🔁 [sign-proposal] Proposal sync already in progress, skipping duplicate sync', {
+            matchId,
+            syncRequestId,
+            proposalId: proposalIdToSync,
+            existingLock: await redis.get(syncLockKey),
+            timestamp: Date.now(),
+            note: 'Another sync is already running for this proposal. This prevents RPC rate limit issues.',
+          });
+          return; // Exit early - another sync is already running
+        }
+        
         try {
           console.log('🟢 [sign-proposal] Starting proposal sync for matchId', {
             matchId,
@@ -14118,6 +14137,37 @@ const signProposalHandler = async (req: any, res: any) => {
             elapsedMs: totalElapsed,
             timestamp: Date.now(),
           });
+        } finally {
+          // ✅ CRITICAL: Always release the Redis lock, even if sync fails or times out
+          try {
+            const currentLockValue = await redis.get(syncLockKey);
+            if (currentLockValue === syncLockValue) {
+              await redis.del(syncLockKey);
+              console.log('🔓 [sign-proposal] Released Redis sync lock', {
+                matchId,
+                syncRequestId,
+                proposalId: proposalIdToSync,
+                timestamp: Date.now(),
+              });
+            } else {
+              console.warn('⚠️ [sign-proposal] Did not release Redis sync lock (lock expired or overwritten)', {
+                matchId,
+                syncRequestId,
+                proposalId: proposalIdToSync,
+                expectedLockValue: syncLockValue,
+                actualLockValue: currentLockValue,
+                timestamp: Date.now(),
+              });
+            }
+          } catch (lockReleaseError: any) {
+            console.error('❌ [sign-proposal] Error releasing Redis sync lock', {
+              matchId,
+              syncRequestId,
+              proposalId: proposalIdToSync,
+              error: lockReleaseError?.message,
+              timestamp: Date.now(),
+            });
+          }
         }
       };
       
