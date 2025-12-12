@@ -96,10 +96,8 @@ export async function syncProposalIfNeeded(
       
       // Get the actual proposal account from on-chain
       const proposalPda = new PublicKey(currentDbProposalId);
-      const connection = new Connection(
-        process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-        'confirmed'
-      );
+      const { createSolanaConnection } = require('../config/solanaConnection');
+      const connection = createSolanaConnection('confirmed');
       const proposalAccount = await require('@sqds/multisig').accounts.Proposal.fromAccountAddress(
         connection,
         proposalPda
@@ -304,10 +302,8 @@ export async function findAndSyncApprovedProposal(
     });
     
     const { getProposalPda, accounts, PROGRAM_ID } = require('@sqds/multisig');
-    const connection = new Connection(
-      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-      'confirmed'
-    );
+    const { createSolanaConnection } = require('../config/solanaConnection');
+    const connection = createSolanaConnection('confirmed');
     
     // CRITICAL: vaultAddress IS the multisig address (PublicKey)
     // We don't need to derive it - just use it directly

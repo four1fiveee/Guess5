@@ -14465,10 +14465,8 @@ const signProposalHandler = async (req: any, res: any) => {
         console.log('✅ Transaction proposal PDA derived:', transactionPda.toString());
 
         // Try to fetch the transaction account to verify it exists and is in a valid state
-        const connection = new Connection(
-          process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-          'confirmed'
-        );
+        const { createSolanaConnection } = require('../config/solanaConnection');
+        const connection = createSolanaConnection('confirmed');
         const transactionAccount = await connection.getAccountInfo(transactionPda);
         if (!transactionAccount) {
           // Transaction account doesn't exist - could be executed or cancelled
@@ -14710,10 +14708,8 @@ const signProposalHandler = async (req: any, res: any) => {
 
     // Submit the signed transaction
     const { Connection, VersionedTransaction } = require('@solana/web3.js');
-    const connection = new Connection(
-      process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
-      'confirmed'
-    );
+    const { createSolanaConnection } = require('../config/solanaConnection');
+    const connection = createSolanaConnection('confirmed');
 
     // Deserialize the signed transaction
     // CRITICAL: Handle both raw bytes (Buffer) and base64 JSON formats

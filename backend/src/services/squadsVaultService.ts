@@ -63,9 +63,12 @@ export class SquadsVaultService {
   private programId: PublicKey; // Network-specific program ID
 
   constructor() {
-    // Get network URL from environment or default to Devnet
-    const networkUrl = process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com';
-    this.connection = new Connection(networkUrl, 'confirmed');
+    // Use centralized Solana connection (supports Helius RPC)
+    const { createSolanaConnection } = require('../config/solanaConnection');
+    this.connection = createSolanaConnection('confirmed');
+    
+    // Get network URL for cluster detection (Helius URLs are handled internally)
+    const networkUrl = process.env.SOLANA_NETWORK || 'devnet';
 
     // Detect cluster from URL
     const detectedCluster = this.detectCluster(networkUrl);

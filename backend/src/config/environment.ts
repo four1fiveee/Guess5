@@ -7,7 +7,8 @@ export const config = {
   
   // Solana
   solana: {
-    network: process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com',
+    network: process.env.SOLANA_NETWORK || 'devnet',
+    heliusApiKey: process.env.HELIUS_API_KEY, // Helius RPC API key for premium rate limits
     feeWalletAddress: process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt',
     feeWalletPrivateKey: process.env.FEE_WALLET_PRIVATE_KEY,
   },
@@ -65,7 +66,12 @@ export const validateConfig = () => {
   }
   
   console.log('✅ Environment configuration validated');
-  console.log(`🔗 Solana Network: ${process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com'}`);
+  console.log(`🔗 Solana Network: ${process.env.SOLANA_NETWORK || 'devnet'}`);
+  if (process.env.HELIUS_API_KEY) {
+    console.log('✅ Helius RPC API key configured - using premium RPC endpoint');
+  } else {
+    console.log('⚠️ HELIUS_API_KEY not set - using standard Solana RPC (may have rate limits)');
+  }
 };
 
 export default config; 

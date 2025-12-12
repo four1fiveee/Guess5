@@ -37,10 +37,9 @@ class PaymentVerificationService {
   private isDevnet: boolean;
 
   constructor() {
-    this.connection = new Connection(
-      process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com',
-      'confirmed'
-    );
+    // Use centralized Solana connection (supports Helius RPC)
+    const { createSolanaConnection } = require('../config/solanaConnection');
+    this.connection = createSolanaConnection('confirmed');
     this.feeWalletAddress = process.env.FEE_WALLET_ADDRESS || '';
     this.isDevnet = (process.env.SOLANA_RPC_URL || process.env.NEXT_PUBLIC_SOLANA_NETWORK || '').includes('devnet');
   }
