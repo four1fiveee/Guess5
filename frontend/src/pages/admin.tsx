@@ -673,29 +673,49 @@ export default function AdminPage() {
                     </div>
                     <div className="flex justify-between border-t border-white/10 pt-1 mt-1">
                       <span className="text-white/70">Total Entry Fees:</span>
-                      <span className="text-white font-bold">${financialMetrics.yearly.totalEntryFeesUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-white font-bold">{financialMetrics.yearly.totalEntryFeesSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">${financialMetrics.yearly.totalEntryFeesUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Platform Fee (5%):</span>
-                      <span className="text-green-400 font-bold">${financialMetrics.yearly.totalPlatformFeeUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-green-400 font-bold">{financialMetrics.yearly.totalPlatformFeeSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">${financialMetrics.yearly.totalPlatformFeeUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Platform Bonus:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.yearly.totalBonusUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.yearly.totalBonusSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.yearly.totalBonusUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Squads Costs:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.yearly.totalSquadsCostUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.yearly.totalSquadsCostSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.yearly.totalSquadsCostUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between">
                       <span className="text-white/70">Gas Costs:</span>
-                      <span className="text-red-400 font-bold">-${financialMetrics.yearly.totalGasCostUSD.toFixed(2)}</span>
+                      <div className="text-right">
+                        <div className="text-red-400 font-bold">-{financialMetrics.yearly.totalGasCostSOL.toFixed(6)} SOL</div>
+                        <div className="text-white/60 text-xs">-${financialMetrics.yearly.totalGasCostUSD.toFixed(2)}</div>
+                      </div>
                     </div>
                     <div className="flex justify-between border-t-2 border-white/30 pt-2 mt-2">
                       <span className="text-white font-semibold">Net Profit:</span>
-                      <span className={`font-bold text-lg ${financialMetrics.yearly.netProfitUSD >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        ${financialMetrics.yearly.netProfitUSD.toFixed(2)}
-                      </span>
+                      <div className="text-right">
+                        <div className={`font-bold text-lg ${financialMetrics.yearly.netProfitSOL >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                          {financialMetrics.yearly.netProfitSOL >= 0 ? '+' : ''}{financialMetrics.yearly.netProfitSOL.toFixed(6)} SOL
+                        </div>
+                        <div className={`text-xs ${financialMetrics.yearly.netProfitUSD >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                          {financialMetrics.yearly.netProfitUSD >= 0 ? '+' : ''}${financialMetrics.yearly.netProfitUSD.toFixed(2)}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
