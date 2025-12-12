@@ -90,8 +90,10 @@ const getExpectedEntryFeeUSD = (solAmount: number, solPrice: number | null): num
 // CRITICAL: Always uses entry fee tier amount (5, 20, 50, 100), never database value
 // This ensures consistent display: $5 tier always shows $9.50, not $9.52
 const getExpectedWinningsUSD = (entryFeeUSD: number | null, entryFeeSOL: number | null, solPrice: number | null): number | null => {
-  // CRITICAL FIX: Always calculate from tier amount, not database value
+  // CRITICAL FIX: Always calculate from tier amount, never database value
   // This ensures $5 tier always shows $9.50 (95% of $10), not $9.52
+  
+  // Method 1: Determine tier from SOL amount (preferred)
   if (entryFeeSOL && solPrice) {
     const tierUSD = getExpectedEntryFeeUSD(entryFeeSOL, solPrice);
     if (tierUSD) {
@@ -99,14 +101,28 @@ const getExpectedWinningsUSD = (entryFeeUSD: number | null, entryFeeSOL: number 
     }
   }
   
-  // Fallback: If we can't determine tier from SOL, use database value (shouldn't happen)
-  // But still round to nearest tier to ensure consistency
+  // Method 2: Determine tier from USD amount (if SOL not available)
+  // Round the USD amount to nearest tier, then calculate
   if (entryFeeUSD && solPrice) {
     const calculatedTier = calculateRoundedUSD(entryFeeUSD / solPrice, solPrice);
     if (calculatedTier) {
       return calculatedTier * 2 * 0.95;
     }
-    return entryFeeUSD * 2 * 0.95;
+    // If calculateRoundedUSD somehow returns null, round entryFeeUSD directly to nearest tier
+    const categories = [5, 20, 50, 100];
+    const nearestTier = categories.reduce((prev, curr) => 
+      Math.abs(curr - entryFeeUSD) < Math.abs(prev - entryFeeUSD) ? curr : prev
+    );
+    return nearestTier * 2 * 0.95;
+  }
+  
+  // Method 3: If only USD is available without solPrice, round to nearest tier
+  if (entryFeeUSD && !solPrice) {
+    const categories = [5, 20, 50, 100];
+    const nearestTier = categories.reduce((prev, curr) => 
+      Math.abs(curr - entryFeeUSD) < Math.abs(prev - entryFeeUSD) ? curr : prev
+    );
+    return nearestTier * 2 * 0.95;
   }
   
   return null;
