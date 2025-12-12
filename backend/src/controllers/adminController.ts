@@ -1209,7 +1209,7 @@ export const adminGetFinancialCSV = async (req: Request, res: Response) => {
     
     const mockRes: any = {
       setHeader: (name: string, value: string) => {
-        res.setHeader(name, value);
+        (res as any).setHeader(name, value);
       },
       send: (data: string) => {
         res.send(data);
