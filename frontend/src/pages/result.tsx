@@ -566,9 +566,7 @@ const Result: React.FC = () => {
                 proposalTransactionId: updatedPayoutData.proposalTransactionId !== currentPayoutData.proposalTransactionId,
                 proposalSigners: JSON.stringify(updatedPayoutData.proposalSigners) !== JSON.stringify(currentPayoutData.proposalSigners),
               });
-              // #region agent log
-              fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:474',message:'setPayoutData called',data:{hasProposalId:!!updatedPayoutData?.proposalId,proposalId:updatedPayoutData?.proposalId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-              // #endregion
+              // Telemetry calls removed - they were causing ERR_CONNECTION_REFUSED errors
               setPayoutData(updatedPayoutData);
             } else {
               console.log('⏸️ Skipping state update - no meaningful changes', {
@@ -776,9 +774,7 @@ const Result: React.FC = () => {
         
         data._isStaleFallback = true;
         
-        // #region agent log
-        fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:681',message:'setPayoutData from localStorage',data:{hasProposalId:!!data?.proposalId,proposalId:data?.proposalId,dataIsNull:!data},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-        // #endregion
+        // Telemetry calls removed - they were causing ERR_CONNECTION_REFUSED errors
         setPayoutData(data);
         setLoading(false);
         // CRITICAL FIX: Continue polling until proposal is executed or user has signed
@@ -1122,25 +1118,8 @@ const Result: React.FC = () => {
   // Debug logging for payout data
   useEffect(() => {
     // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1022',message:'payoutData useEffect entry',data:{hasPayoutData:!!payoutData,proposalId:payoutData?.proposalId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-    // #endregion
-    if (payoutData) {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1025',message:'payoutData render log',data:{proposalId:payoutData?.proposalId,hasProposalId:!!payoutData?.proposalId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-      console.log('💰 Payout data in render:', {
-        won: payoutData.won,
-        isTie: payoutData.isTie,
-        isWinningTie: payoutData.isWinningTie,
-        refundAmount: payoutData.refundAmount,
-        proposalId: payoutData?.proposalId,
-        bonus: payoutData.bonus
-      });
-    } else {
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1033',message:'payoutData is null',data:{payoutDataIsNull:true},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
-      // #endregion
-    }
+    // Telemetry calls removed - they were causing ERR_CONNECTION_REFUSED errors
+    // Verbose console.log removed to reduce noise
   }, [payoutData]);
 
   // TODO: Implement SSE proposal signing events when backend endpoint is ready
@@ -1462,9 +1441,7 @@ const Result: React.FC = () => {
         timestamp: new Date().toISOString(),
       });
       
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1341',message:'sign-proposal request starting',data:{matchId,wallet:publicKey?.toString(),proposalId:payoutData?.proposalId,requestUrl,bodyLength:proposalSerialized.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-      // #endregion
+      // Telemetry calls removed - they were causing ERR_CONNECTION_REFUSED errors
       console.log('📤 Submitting signed proposal transaction to backend (raw bytes format)', {
         matchId,
         wallet: publicKey.toString(),
@@ -1558,9 +1535,7 @@ const Result: React.FC = () => {
             });
             clearTimeout(timeoutId);
             
-            // #region agent log
-            fetch('http://127.0.0.1:7242/ingest/824a1d18-20c9-469f-ab30-73eb28f4c702',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'result.tsx:1431',message:'sign-proposal response received',data:{status:response.status,ok:response.ok,matchId},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
-            // #endregion
+            // Telemetry calls removed - they were causing ERR_CONNECTION_REFUSED errors
             console.log('🌐 sign-proposal response', {
               status: response.status,
               ok: response.ok,
@@ -2839,14 +2814,8 @@ const Result: React.FC = () => {
                                 );
                                 const userHasSignedFinal = userHasSigned || normalizedUserSigned;
                                 
-                                // ✅ ENHANCED: Log frontend-side proposal ID for debugging
-                                console.log('🔍 WINNER Sign Button Debug (Enhanced):', {
-                                  frontendProposalId: payoutData?.proposalId,
-                                  hasProposalId,
-                                  userHasSignedFinal,
-                                  userHasSignedFromRaw: userHasSigned,
-                                  userHasSignedFromNormalized: normalizedUserSigned,
-                                  currentUserWallet,
+                                // Verbose debug logging removed to reduce console noise
+                                // Key info: frontendProposalId, hasProposalId, userHasSignedFinal
                                   playerProposalSigners,
                                   rawSigners,
                                   rawSignersCount: rawSigners.length,
