@@ -1511,41 +1511,98 @@ export class SquadsVaultService {
         transactionIndex: transactionIndex.toString(),
       });
 
+      // PRIORITY 2 FIX: Check if proposal already exists before creating
+      // This prevents orphaned proposals when retries occur at different transaction indices
+      const [proposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex: transactionIndex,
+        programId: this.programId,
+      });
+      
+      let existingProposal: any = null;
+      try {
+        existingProposal = await accounts.Proposal.fromAccountAddress(this.connection, proposalPda);
+        enhancedLogger.info('🔁 Proposal already exists on-chain, reusing existing proposal', {
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalPda: proposalPda.toString(),
+          status: (existingProposal as any).status?.__kind,
+          approvedSigners: ((existingProposal as any).approved || []).length,
+          note: 'Reusing existing proposal instead of creating a new one - prevents orphaned proposals',
+        });
+      } catch (checkError: any) {
+        // Proposal doesn't exist - this is expected for new proposals
+        if (!checkError?.message?.includes('Unable to find') && !checkError?.message?.includes('Account does not exist')) {
+          enhancedLogger.warn('⚠️ Unexpected error checking for existing proposal', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: checkError?.message,
+          });
+        }
+      }
+
       // Ensure a proposal account exists and is active for this transaction
       // CRITICAL: Create proposal WITHOUT isDraft to ensure transaction linking works
       // isDraft: true prevents the transaction from being linked to the proposal
       let createdProposal = false;
       let proposalCreateSignature: string | null = null;
-      try {
-        proposalCreateSignature = await rpc.proposalCreate({
-          connection: this.connection,
-          feePayer: this.config.systemKeypair,
-          creator: this.config.systemKeypair,
-          multisigPda: multisigAddress,
-          transactionIndex, // This should link the vault transaction to the proposal
-          programId: this.programId,
-          // REMOVED: isDraft: true - this prevents transaction linking
-        });
-        createdProposal = true;
-        enhancedLogger.info('✅ Proposal account created', {
+      
+      if (existingProposal) {
+        // Proposal already exists - reuse it instead of creating a new one
+        enhancedLogger.info('✅ Reusing existing proposal (PRIORITY 2 FIX)', {
           multisigAddress: multisigAddress.toString(),
           transactionIndex: transactionIndex.toString(),
-          proposalSignature: proposalCreateSignature,
+          proposalPda: proposalPda.toString(),
+          status: (existingProposal as any).status?.__kind,
+          note: 'This prevents creating orphaned proposals when retries occur',
         });
-      } catch (proposalError: any) {
-        const msg = proposalError?.message || String(proposalError);
-        if (msg.includes('already in use') || msg.includes('already initialized')) {
-          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
+        // Don't create - use existing proposal
+      } else {
+        // Proposal doesn't exist - create it
+        try {
+          proposalCreateSignature = await rpc.proposalCreate({
+            connection: this.connection,
+            feePayer: this.config.systemKeypair,
+            creator: this.config.systemKeypair,
+            multisigPda: multisigAddress,
+            transactionIndex, // This should link the vault transaction to the proposal
+            programId: this.programId,
+            // REMOVED: isDraft: true - this prevents transaction linking
+          });
+          createdProposal = true;
+          enhancedLogger.info('✅ Proposal account created', {
             multisigAddress: multisigAddress.toString(),
             transactionIndex: transactionIndex.toString(),
+            proposalSignature: proposalCreateSignature,
           });
-        } else {
-          enhancedLogger.error('❌ Failed to create proposal account', {
-            multisigAddress: multisigAddress.toString(),
-            transactionIndex: transactionIndex.toString(),
-            error: msg,
-          });
-          throw proposalError;
+        } catch (proposalError: any) {
+          const msg = proposalError?.message || String(proposalError);
+          if (msg.includes('already in use') || msg.includes('already initialized')) {
+            // Race condition: proposal was created between our check and create attempt
+            enhancedLogger.info('ℹ️ Proposal was created by another process, continuing', {
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              note: 'Proposal was created between existence check and create attempt (race condition)',
+            });
+            // Try to fetch it now
+            try {
+              existingProposal = await accounts.Proposal.fromAccountAddress(this.connection, proposalPda);
+            } catch (fetchError: any) {
+              enhancedLogger.error('❌ Failed to fetch proposal after race condition', {
+                multisigAddress: multisigAddress.toString(),
+                transactionIndex: transactionIndex.toString(),
+                error: fetchError?.message,
+              });
+              throw proposalError; // Re-throw original error
+            }
+          } else {
+            enhancedLogger.error('❌ Failed to create proposal account', {
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              error: msg,
+            });
+            throw proposalError;
+          }
         }
       }
 
@@ -2618,41 +2675,98 @@ export class SquadsVaultService {
         transactionIndex: transactionIndex.toString(),
       });
 
+      // PRIORITY 2 FIX: Check if proposal already exists before creating
+      // This prevents orphaned proposals when retries occur at different transaction indices
+      const [tieProposalPda] = getProposalPda({
+        multisigPda: multisigAddress,
+        transactionIndex: transactionIndex,
+        programId: this.programId,
+      });
+      
+      let existingTieProposal: any = null;
+      try {
+        existingTieProposal = await accounts.Proposal.fromAccountAddress(this.connection, tieProposalPda);
+        enhancedLogger.info('🔁 Tie refund proposal already exists on-chain, reusing existing proposal', {
+          multisigAddress: multisigAddress.toString(),
+          transactionIndex: transactionIndex.toString(),
+          proposalPda: tieProposalPda.toString(),
+          status: (existingTieProposal as any).status?.__kind,
+          approvedSigners: ((existingTieProposal as any).approved || []).length,
+          note: 'Reusing existing proposal instead of creating a new one - prevents orphaned proposals',
+        });
+      } catch (checkError: any) {
+        // Proposal doesn't exist - this is expected for new proposals
+        if (!checkError?.message?.includes('Unable to find') && !checkError?.message?.includes('Account does not exist')) {
+          enhancedLogger.warn('⚠️ Unexpected error checking for existing tie refund proposal', {
+            multisigAddress: multisigAddress.toString(),
+            transactionIndex: transactionIndex.toString(),
+            error: checkError?.message,
+          });
+        }
+      }
+
       // Ensure proposal account exists and is active for this transaction
       // CRITICAL: Create proposal WITHOUT isDraft to ensure transaction linking works
       // isDraft: true prevents the transaction from being linked to the proposal
       let createdTieProposal = false;
       let tieProposalSignature: string | null = null;
-      try {
-        tieProposalSignature = await rpc.proposalCreate({
-          connection: this.connection,
-          feePayer: this.config.systemKeypair,
-          creator: this.config.systemKeypair,
-          multisigPda: multisigAddress,
-          transactionIndex, // This should link the vault transaction to the proposal
-          programId: this.programId,
-          // REMOVED: isDraft: true - this prevents transaction linking
-        });
-        createdTieProposal = true;
-        enhancedLogger.info('✅ Proposal account created', {
+      
+      if (existingTieProposal) {
+        // Proposal already exists - reuse it instead of creating a new one
+        enhancedLogger.info('✅ Reusing existing tie refund proposal (PRIORITY 2 FIX)', {
           multisigAddress: multisigAddress.toString(),
           transactionIndex: transactionIndex.toString(),
-          proposalSignature: tieProposalSignature,
+          proposalPda: tieProposalPda.toString(),
+          status: (existingTieProposal as any).status?.__kind,
+          note: 'This prevents creating orphaned proposals when retries occur',
         });
-      } catch (proposalError: any) {
-        const msg = proposalError?.message || String(proposalError);
-        if (msg.includes('already in use') || msg.includes('already initialized')) {
-          enhancedLogger.info('ℹ️ Proposal already exists, continuing', {
+        // Don't create - use existing proposal
+      } else {
+        // Proposal doesn't exist - create it
+        try {
+          tieProposalSignature = await rpc.proposalCreate({
+            connection: this.connection,
+            feePayer: this.config.systemKeypair,
+            creator: this.config.systemKeypair,
+            multisigPda: multisigAddress,
+            transactionIndex, // This should link the vault transaction to the proposal
+            programId: this.programId,
+            // REMOVED: isDraft: true - this prevents transaction linking
+          });
+          createdTieProposal = true;
+          enhancedLogger.info('✅ Proposal account created', {
             multisigAddress: multisigAddress.toString(),
             transactionIndex: transactionIndex.toString(),
+            proposalSignature: tieProposalSignature,
           });
-        } else {
-          enhancedLogger.error('❌ Failed to create proposal account', {
-            multisigAddress: multisigAddress.toString(),
-            transactionIndex: transactionIndex.toString(),
-            error: msg,
-          });
-          throw proposalError;
+        } catch (proposalError: any) {
+          const msg = proposalError?.message || String(proposalError);
+          if (msg.includes('already in use') || msg.includes('already initialized')) {
+            // Race condition: proposal was created between our check and create attempt
+            enhancedLogger.info('ℹ️ Tie refund proposal was created by another process, continuing', {
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              note: 'Proposal was created between existence check and create attempt (race condition)',
+            });
+            // Try to fetch it now
+            try {
+              existingTieProposal = await accounts.Proposal.fromAccountAddress(this.connection, tieProposalPda);
+            } catch (fetchError: any) {
+              enhancedLogger.error('❌ Failed to fetch tie refund proposal after race condition', {
+                multisigAddress: multisigAddress.toString(),
+                transactionIndex: transactionIndex.toString(),
+                error: fetchError?.message,
+              });
+              throw proposalError; // Re-throw original error
+            }
+          } else {
+            enhancedLogger.error('❌ Failed to create tie refund proposal account', {
+              multisigAddress: multisigAddress.toString(),
+              transactionIndex: transactionIndex.toString(),
+              error: msg,
+            });
+            throw proposalError;
+          }
         }
       }
 

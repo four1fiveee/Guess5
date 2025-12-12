@@ -6,6 +6,7 @@ import { referralPayoutService } from './payoutService';
 import { getNextSunday1300EST, getNextSundayMidnightEST, isSundayMidnightEST } from '../utils/referralUtils';
 import { notifyAdmin } from '../services/notificationService';
 import { autoLockReferralPayouts } from './autoLockService';
+import { reconcileAllProposals } from './proposalReconciliationService';
 
 /**
  * Cron service for scheduled tasks
@@ -13,6 +14,7 @@ import { autoLockReferralPayouts } from './autoLockService';
 export class CronService {
   private static updateEntryFeesInterval: NodeJS.Timeout | null = null;
   private static weeklyPayoutInterval: NodeJS.Timeout | null = null;
+  private static proposalReconciliationInterval: NodeJS.Timeout | null = null;
 
   /**
    * Update user entry fees from matches (runs every 5 minutes)
@@ -92,6 +94,45 @@ export class CronService {
   }
 
   /**
+   * Reconcile proposals between on-chain state and database (runs every 10 minutes)
+   * PRIORITY 3: Detects orphaned proposals, status mismatches, and executed proposals not marked in DB
+   */
+  static async reconcileProposals(): Promise<void> {
+    try {
+      console.log('🔍 Starting proposal reconciliation...');
+      
+      const result = await reconcileAllProposals();
+      
+      if (result.summary.totalOrphaned > 0 || result.summary.totalStatusMismatches > 0 || result.summary.totalExecutedNotInDb > 0) {
+        console.log(`⚠️ Proposal reconciliation found issues:`, {
+          orphaned: result.summary.totalOrphaned,
+          statusMismatches: result.summary.totalStatusMismatches,
+          executedNotInDb: result.summary.totalExecutedNotInDb,
+          autoHealed: result.summary.totalAutoHealed,
+        });
+        
+        // Optionally notify admin if there are significant issues
+        if (result.summary.totalOrphaned > 5 || result.summary.totalStatusMismatches > 5) {
+          await notifyAdmin({
+            type: 'proposal_reconciliation_issues',
+            title: 'Proposal Reconciliation Issues Detected',
+            message: `Reconciliation found ${result.summary.totalOrphaned} orphaned proposals, ${result.summary.totalStatusMismatches} status mismatches, and ${result.summary.totalExecutedNotInDb} executed proposals not in DB. ${result.summary.totalAutoHealed} were auto-healed.`,
+            orphaned: result.summary.totalOrphaned,
+            statusMismatches: result.summary.totalStatusMismatches,
+            executedNotInDb: result.summary.totalExecutedNotInDb,
+            autoHealed: result.summary.totalAutoHealed,
+          });
+        }
+      } else {
+        console.log(`✅ Proposal reconciliation completed: All proposals in sync (${result.vaultsScanned} vaults scanned)`);
+      }
+    } catch (error: any) {
+      console.error('❌ Error during proposal reconciliation:', error?.message || error);
+      // Don't throw - reconciliation is non-critical
+    }
+  }
+
+  /**
    * Prepare weekly payout batch (runs Sunday 13:00 EST)
    * DEPRECATED: Now using auto-lock system instead
    */
@@ -164,8 +205,19 @@ export class CronService {
       }, 7 * 24 * 60 * 60 * 1000);
     }, msUntilNextSunday);
 
+    // PRIORITY 3: Proposal reconciliation runs every 10 minutes
+    this.proposalReconciliationInterval = setInterval(() => {
+      this.reconcileProposals();
+    }, 10 * 60 * 1000); // 10 minutes
+
+    // Run reconciliation immediately on start (after a short delay to let DB initialize)
+    setTimeout(() => {
+      this.reconcileProposals();
+    }, 30000); // 30 seconds delay
+
     console.log('✅ Cron jobs started');
     console.log(`   Auto-lock scheduled for next Sunday 12:00am EST (${Math.floor(msUntilNextSunday / (1000 * 60 * 60))} hours)`);
+    console.log(`   Proposal reconciliation scheduled every 10 minutes`);
   }
 
   /**
@@ -179,6 +231,10 @@ export class CronService {
     if (this.weeklyPayoutInterval) {
       clearInterval(this.weeklyPayoutInterval);
       this.weeklyPayoutInterval = null;
+    }
+    if (this.proposalReconciliationInterval) {
+      clearInterval(this.proposalReconciliationInterval);
+      this.proposalReconciliationInterval = null;
     }
     console.log('⏹️ Cron jobs stopped');
   }
