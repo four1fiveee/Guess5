@@ -288,12 +288,98 @@ export async function syncProposalIfNeeded(
 }
 
 /**
+ * Check if a proposal status is finalized (cannot be signed or modified)
+ */
+export function isFinalizedStatus(status: string): boolean {
+  return status === 'Executed' || status === 'Cancelled' || status === 'Rejected';
+}
+
+/**
+ * Check if a specific proposal exists on-chain and get its status
+ * Returns null if proposal doesn't exist or is invalid
+ * 
+ * ✅ ENHANCED: Now checks for Executed/Cancelled status and marks as invalid
+ */
+export async function checkProposalExists(
+  proposalId: string,
+  vaultAddress: string
+): Promise<{ 
+  exists: boolean; 
+  valid: boolean;
+  status?: string; 
+  signers?: string[]; 
+  needsSignatures?: number;
+  reason?: string;
+} | null> {
+  try {
+    const { accounts } = require('@sqds/multisig');
+    const { createStandardSolanaConnection } = require('../config/solanaConnection');
+    const connection = createStandardSolanaConnection('confirmed');
+    
+    const proposalPda = new PublicKey(proposalId);
+    const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+    
+    const status = (proposalAccount as any).status?.__kind || 'Unknown';
+    const approved = (proposalAccount as any).approved || [];
+    const approvedPubkeys = approved.map((p: PublicKey) => p.toString());
+    
+    // ✅ Check if proposal is finalized (Executed/Cancelled/Rejected)
+    const isFinalized = isFinalizedStatus(status);
+    if (isFinalized) {
+      return {
+        exists: true,
+        valid: false,
+        status,
+        signers: approvedPubkeys,
+        needsSignatures: 0,
+        reason: `Proposal is ${status.toLowerCase()} and cannot be signed`,
+      };
+    }
+    
+    // Get multisig to determine threshold (default to 2 if we can't fetch)
+    let threshold = 2;
+    try {
+      const multisigAddress = new PublicKey(vaultAddress);
+      const multisigAccount = await accounts.Multisig.fromAccountAddress(connection, multisigAddress);
+      threshold = (multisigAccount as any).threshold || 2;
+    } catch (multisigError: any) {
+      console.warn('⚠️ [checkProposalExists] Could not fetch multisig threshold, defaulting to 2', {
+        vaultAddress,
+        error: multisigError?.message,
+      });
+    }
+    
+    const needsSignatures = Math.max(0, threshold - approvedPubkeys.length);
+    
+    return {
+      exists: true,
+      valid: true, // Valid for signing (not finalized)
+      status,
+      signers: approvedPubkeys,
+      needsSignatures,
+    };
+  } catch (e: any) {
+    if (e?.message?.includes('AccountNotFound') || e?.message?.includes('Invalid account')) {
+      return { exists: false, valid: false };
+    }
+    console.warn('⚠️ [checkProposalExists] Error checking proposal', {
+      proposalId,
+      error: e?.message,
+    });
+    return null;
+  }
+}
+
+/**
  * Auto-fix: Search for Approved proposal with both signatures if current proposal is stale
  * This handles cases where the database references an old proposal but a new one exists on-chain
+ * 
+ * NEW: Also accepts an optional signedProposalId to check if that specific proposal exists
  */
 export async function findAndSyncApprovedProposal(
   matchId: string,
-  vaultAddress: string
+  vaultAddress: string,
+  signedProposalId?: string
 ): Promise<ProposalSyncResult | null> {
   try {
     console.log('🔍 [findAndSyncApprovedProposal] Searching for Approved proposal...', {
@@ -320,6 +406,98 @@ export async function findAndSyncApprovedProposal(
     const oldProposalId = (match as any)?.payoutProposalId;
     const oldStatus = (match as any)?.proposalStatus;
     const oldSigners = JSON.parse((match as any)?.proposalSigners || '[]');
+    
+    // ✅ NEW: First check if the signed proposal exists and is valid
+    // If user signed a specific proposal, we should sync to that one if it exists and is valid
+    if (signedProposalId) {
+      console.log('🔍 [findAndSyncApprovedProposal] Checking if signed proposal exists...', {
+        matchId,
+        signedProposalId,
+        vaultAddress,
+      });
+      
+      const signedProposalCheck = await checkProposalExists(signedProposalId, vaultAddress);
+      if (signedProposalCheck && signedProposalCheck.exists) {
+        // ✅ Check if proposal is finalized (Executed/Cancelled/Rejected)
+        if (!signedProposalCheck.valid) {
+          console.warn('⚠️ [findAndSyncApprovedProposal] Signed proposal is finalized and cannot be signed', {
+            matchId,
+            signedProposalId,
+            status: signedProposalCheck.status,
+            reason: signedProposalCheck.reason,
+          });
+          
+          // Return error result indicating proposal is finalized
+          return {
+            success: false,
+            synced: false,
+            matchId,
+            dbProposalId: oldProposalId || undefined,
+            onChainProposalId: signedProposalId,
+            dbStatus: oldStatus,
+            onChainStatus: signedProposalCheck.status?.toUpperCase() || 'FINALIZED',
+            error: signedProposalCheck.reason || 'Proposal is finalized and cannot be signed',
+          };
+        }
+        
+        console.log('✅ [findAndSyncApprovedProposal] Signed proposal exists and is valid on-chain!', {
+          matchId,
+          signedProposalId,
+          status: signedProposalCheck.status,
+          signers: signedProposalCheck.signers,
+          needsSignatures: signedProposalCheck.needsSignatures,
+        });
+        
+        // Sync database to the proposal the user signed
+        const statusString = signedProposalCheck.status === 'Approved' ? 'APPROVED' :
+                            signedProposalCheck.status === 'Active' ? 'ACTIVE' :
+                            signedProposalCheck.status === 'ExecuteReady' ? 'APPROVED' :
+                            'ACTIVE';
+        
+        await matchRepository.update(matchId, {
+          payoutProposalId: signedProposalId,
+          proposalStatus: statusString,
+          proposalSigners: JSON.stringify(signedProposalCheck.signers || []),
+          needsSignatures: signedProposalCheck.needsSignatures || 0,
+          updatedAt: new Date(),
+        });
+        
+        const changes: ProposalSyncResult['changes'] = {};
+        if (oldProposalId !== signedProposalId) {
+          changes.proposalId = { from: oldProposalId || 'unknown', to: signedProposalId };
+        }
+        if (oldStatus !== statusString) {
+          changes.proposalStatus = { from: oldStatus || 'unknown', to: statusString };
+        }
+        if (JSON.stringify(oldSigners.sort()) !== JSON.stringify((signedProposalCheck.signers || []).sort())) {
+          changes.signers = { from: oldSigners, to: signedProposalCheck.signers || [] };
+        }
+        
+        console.log('✅ [findAndSyncApprovedProposal] Synced to signed proposal', {
+          matchId,
+          signedProposalId,
+          status: statusString,
+          changes,
+        });
+        
+        return {
+          success: true,
+          synced: true,
+          matchId,
+          dbProposalId: oldProposalId || undefined,
+          onChainProposalId: signedProposalId,
+          dbStatus: oldStatus,
+          onChainStatus: statusString,
+          changes,
+        };
+      } else {
+        console.warn('⚠️ [findAndSyncApprovedProposal] Signed proposal does not exist on-chain', {
+          matchId,
+          signedProposalId,
+          note: 'Will search for valid proposal',
+        });
+      }
+    }
     
     // Search transaction indices 0-10 for Approved proposal with both signatures
     for (let i = 0; i <= 10; i++) {

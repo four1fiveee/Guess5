@@ -41,6 +41,9 @@ export class Match {
   @Column({ nullable: true, type: 'varchar' })
   payoutProposalTransactionIndex?: string; // CRITICAL: Transaction index used to derive proposal PDA
 
+  @Column({ nullable: true, default: 0 })
+  proposalAttemptCount?: number; // Track how many proposal creation attempts (for versioning/debugging)
+
   @Column({ nullable: true })
   proposalCreatedAt?: Date;
 

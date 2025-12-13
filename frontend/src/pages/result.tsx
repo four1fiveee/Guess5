@@ -2936,8 +2936,8 @@ const Result: React.FC = () => {
                                   payoutData.needsSignatures === 0 ||
                                   payoutData.proposalStatus === 'APPROVED' ||
                                   payoutData.proposalStatus === 'EXECUTING' || 
-                                  payoutData.proposalStatus === 'EXECUTED' ||
-                                  !!payoutData.proposalExecutedAt;
+                                                               payoutData.proposalStatus === 'EXECUTED' ||
+                                                               !!payoutData.proposalExecutedAt;
                                 
                                 // ✅ ENHANCEMENT 4: Show appropriate status messages for finalized proposals
                                 if (isProposalFinalized && hasProposalId) {
@@ -3026,9 +3026,9 @@ const Result: React.FC = () => {
                                 ));
                                 const isButtonDisabled = Boolean(
                                   signingProposal || 
-                                  userHasSignedFinal || 
+                                                         userHasSignedFinal || 
                                   isProposalFinalized ||
-                                  isProposalCreationFailed ||
+                                                         isProposalCreationFailed ||
                                   hasRetryableError
                                 );
                                 

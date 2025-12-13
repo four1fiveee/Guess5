@@ -13942,8 +13942,8 @@ const signProposalHandler = async (req: any, res: any) => {
     // This ensures we're working with the latest proposal state, not stale DB data
     // 🔴 CRITICAL: Made non-blocking with timeout to prevent frontend timeouts
     if (matchRow.squadsVaultAddress && (matchRow.payoutProposalId || matchRow.tieRefundProposalId)) {
-      const proposalIdToSync = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
-      
+        const proposalIdToSync = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+        
       // ✅ Generate unique request ID for tracing
       const syncRequestId = `sync-${matchId}-${Date.now()}`;
       const syncStartTime = Date.now();
@@ -13960,7 +13960,7 @@ const signProposalHandler = async (req: any, res: any) => {
         
         if (!syncLockAcquired) {
           console.log('🔁 [sign-proposal] Proposal sync already in progress, skipping duplicate sync', {
-            matchId,
+          matchId,
             syncRequestId,
             proposalId: proposalIdToSync,
             existingLock: await redis.get(syncLockKey),
@@ -13974,13 +13974,13 @@ const signProposalHandler = async (req: any, res: any) => {
           console.log('🟢 [sign-proposal] Starting proposal sync for matchId', {
             matchId,
             syncRequestId,
-            vaultAddress: matchRow.squadsVaultAddress,
-            dbProposalId: proposalIdToSync,
-            dbStatus: matchRow.proposalStatus,
+          vaultAddress: matchRow.squadsVaultAddress,
+          dbProposalId: proposalIdToSync,
+          dbStatus: matchRow.proposalStatus,
             timestamp: Date.now(),
-          });
-          
-          const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+        });
+        
+        const { syncProposalIfNeeded, findAndSyncApprovedProposal } = require('../services/proposalSyncService');
           
           const fetchStartTime = Date.now();
           console.log('📦 [sign-proposal] Fetching on-chain proposal data...', {
@@ -13989,49 +13989,49 @@ const signProposalHandler = async (req: any, res: any) => {
             proposalId: proposalIdToSync,
             timestamp: Date.now(),
           });
-          
-          const syncResult = await syncProposalIfNeeded(
-            matchId,
-            matchRow.squadsVaultAddress,
-            proposalIdToSync
-          );
-          
+        
+        const syncResult = await syncProposalIfNeeded(
+          matchId,
+          matchRow.squadsVaultAddress,
+          proposalIdToSync
+        );
+        
           const fetchElapsed = Date.now() - fetchStartTime;
-          console.log('✅ [sign-proposal] Sync completed', {
-            matchId,
+        console.log('✅ [sign-proposal] Sync completed', {
+          matchId,
             syncRequestId,
-            syncSuccess: syncResult.success,
-            synced: syncResult.synced,
-            dbStatus: syncResult.dbStatus,
-            onChainStatus: syncResult.onChainStatus,
-            hasChanges: !!syncResult.changes,
+          syncSuccess: syncResult.success,
+          synced: syncResult.synced,
+          dbStatus: syncResult.dbStatus,
+          onChainStatus: syncResult.onChainStatus,
+          hasChanges: !!syncResult.changes,
             elapsedMs: fetchElapsed,
             timestamp: Date.now(),
-          });
-          
-          if (syncResult.synced && syncResult.changes) {
+        });
+        
+        if (syncResult.synced && syncResult.changes) {
             const dbUpdateStartTime = Date.now();
             console.log('📝 [sign-proposal] Updating database with sync changes...', {
-              matchId,
+            matchId,
               syncRequestId,
-              changes: syncResult.changes,
+            changes: syncResult.changes,
               timestamp: Date.now(),
-            });
-            
-            // Reload match data after sync
-            const refreshedRows = await matchRepository.query(`
-              SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
-              FROM "match"
-              WHERE id = $1
-            `, [matchId]);
-            
+          });
+          
+          // Reload match data after sync
+          const refreshedRows = await matchRepository.query(`
+            SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          
             const dbUpdateElapsed = Date.now() - dbUpdateStartTime;
-            if (refreshedRows && refreshedRows.length > 0) {
-              matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
-              matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
-              matchRow.proposalStatus = refreshedRows[0].proposalStatus;
-              matchRow.proposalSigners = refreshedRows[0].proposalSigners;
-              matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+          if (refreshedRows && refreshedRows.length > 0) {
+            matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+            matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+            matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+            matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+            matchRow.needsSignatures = refreshedRows[0].needsSignatures;
               
               console.log('✅ [sign-proposal] Database updated with sync results', {
                 matchId,
@@ -14041,17 +14041,17 @@ const signProposalHandler = async (req: any, res: any) => {
                 elapsedMs: dbUpdateElapsed,
                 timestamp: Date.now(),
               });
-            }
-          } else if (!syncResult.success || matchRow.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
-            // Try auto-fix if sync failed or status is still FAILED
+          }
+        } else if (!syncResult.success || matchRow.proposalStatus === 'SIGNATURE_VERIFICATION_FAILED') {
+          // Try auto-fix if sync failed or status is still FAILED
             const autoFixStartTime = Date.now();
-            console.log('🔄 [sign-proposal] Attempting auto-fix: Searching for Approved proposal', {
-              matchId,
+          console.log('🔄 [sign-proposal] Attempting auto-fix: Searching for Approved proposal', {
+            matchId,
               syncRequestId,
-              currentProposalId: proposalIdToSync,
-              currentStatus: matchRow.proposalStatus,
-              syncSuccess: syncResult.success,
-              reason: !syncResult.success ? 'sync failed' : 'status is SIGNATURE_VERIFICATION_FAILED',
+            currentProposalId: proposalIdToSync,
+            currentStatus: matchRow.proposalStatus,
+            syncSuccess: syncResult.success,
+            reason: !syncResult.success ? 'sync failed' : 'status is SIGNATURE_VERIFICATION_FAILED',
               timestamp: Date.now(),
             });
             
@@ -14060,22 +14060,22 @@ const signProposalHandler = async (req: any, res: any) => {
               syncRequestId,
               vaultAddress: matchRow.squadsVaultAddress,
               timestamp: Date.now(),
-            });
-            
-            const autoFixResult = await findAndSyncApprovedProposal(
-              matchId,
-              matchRow.squadsVaultAddress
-            );
-            
+          });
+          
+          const autoFixResult = await findAndSyncApprovedProposal(
+            matchId,
+            matchRow.squadsVaultAddress
+          );
+          
             const autoFixElapsed = Date.now() - autoFixStartTime;
-            if (autoFixResult && autoFixResult.synced) {
-              console.log('✅ [sign-proposal] AUTO-FIX: Found and synced Approved proposal', {
-                matchId,
+          if (autoFixResult && autoFixResult.synced) {
+            console.log('✅ [sign-proposal] AUTO-FIX: Found and synced Approved proposal', {
+              matchId,
                 syncRequestId,
-                oldProposalId: proposalIdToSync,
-                newProposalId: autoFixResult.onChainProposalId,
-                newStatus: autoFixResult.onChainStatus,
-                changes: autoFixResult.changes,
+              oldProposalId: proposalIdToSync,
+              newProposalId: autoFixResult.onChainProposalId,
+              newStatus: autoFixResult.onChainStatus,
+              changes: autoFixResult.changes,
                 elapsedMs: autoFixElapsed,
                 timestamp: Date.now(),
               });
@@ -14085,22 +14085,22 @@ const signProposalHandler = async (req: any, res: any) => {
                 matchId,
                 syncRequestId,
                 timestamp: Date.now(),
-              });
-              
-              // Reload match data after auto-fix
-              const refreshedRows = await matchRepository.query(`
-                SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
-                FROM "match"
-                WHERE id = $1
-              `, [matchId]);
-              
+            });
+            
+            // Reload match data after auto-fix
+            const refreshedRows = await matchRepository.query(`
+              SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures"
+              FROM "match"
+              WHERE id = $1
+            `, [matchId]);
+            
               const dbUpdateElapsed2 = Date.now() - dbUpdateStartTime2;
-              if (refreshedRows && refreshedRows.length > 0) {
-                matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
-                matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
-                matchRow.proposalStatus = refreshedRows[0].proposalStatus;
-                matchRow.proposalSigners = refreshedRows[0].proposalSigners;
-                matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+            if (refreshedRows && refreshedRows.length > 0) {
+              matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+              matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+              matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+              matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+              matchRow.needsSignatures = refreshedRows[0].needsSignatures;
                 
                 console.log('✅ [sign-proposal] Database updated with auto-fix results', {
                   matchId,
@@ -14109,7 +14109,7 @@ const signProposalHandler = async (req: any, res: any) => {
                   elapsedMs: dbUpdateElapsed2,
                   timestamp: Date.now(),
                 });
-              }
+          }
             } else {
               console.log('⚠️ [sign-proposal] Auto-fix did not find approved proposal', {
                 matchId,
@@ -14127,16 +14127,16 @@ const signProposalHandler = async (req: any, res: any) => {
             totalElapsedMs: totalElapsed,
             timestamp: Date.now(),
           });
-        } catch (syncError: any) {
+      } catch (syncError: any) {
           const totalElapsed = Date.now() - syncStartTime;
           console.warn('⚠️ [sign-proposal] Proposal sync failed (non-blocking)', {
-            matchId,
+          matchId,
             syncRequestId,
-            error: syncError?.message,
+          error: syncError?.message,
             stack: syncError?.stack,
             elapsedMs: totalElapsed,
             timestamp: Date.now(),
-          });
+        });
         } finally {
           // ✅ CRITICAL: Always release the Redis lock, even if sync fails or times out
           try {
@@ -14386,10 +14386,40 @@ const signProposalHandler = async (req: any, res: any) => {
         // Try to find and sync the proposal the user actually signed
         try {
           const { findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+          // ✅ Pass the signed proposal ID so we can check if it exists and sync to it
           const mismatchFixResult = await findAndSyncApprovedProposal(
             matchId,
-            matchRow.squadsVaultAddress
+            matchRow.squadsVaultAddress,
+            signedProposalId  // Pass the proposal the user actually signed
           );
+          
+          // ✅ Handle case where signed proposal is finalized (Executed/Cancelled)
+          if (mismatchFixResult && !mismatchFixResult.success && mismatchFixResult.error) {
+            const isFinalized = mismatchFixResult.error.includes('finalized') || 
+                               mismatchFixResult.error.includes('executed') ||
+                               mismatchFixResult.error.includes('cancelled');
+            
+            if (isFinalized) {
+              console.error('❌ [sign-proposal] Signed proposal is finalized and cannot be signed', {
+                matchId,
+                signedProposalId,
+                error: mismatchFixResult.error,
+                onChainStatus: mismatchFixResult.onChainStatus,
+              });
+              
+              return res.status(400).json({
+                success: false,
+                status: 'SIGNED_FINALIZED_PROPOSAL',
+                error: mismatchFixResult.error || 'Proposal is finalized and cannot be signed',
+                message: 'The proposal you signed has already been executed or cancelled. Please refresh the page to see the current proposal.',
+                signedProposalId: signedProposalId,
+                correctProposalId: proposalIdString,
+                matchId,
+                retryable: false,
+                note: 'Frontend should refresh match status and show current proposal',
+              });
+            }
+          }
           
           if (mismatchFixResult && mismatchFixResult.synced && mismatchFixResult.onChainProposalId === signedProposalId) {
             console.log('✅ [sign-proposal] MISMATCH FIXED: Found and synced the proposal user signed', {
@@ -14913,11 +14943,11 @@ const signProposalHandler = async (req: any, res: any) => {
             error: errorMessage,
           });
         } else {
-          console.warn('⚠️ Preflight failed, retrying without preflight...', {
-            matchId,
-            wallet,
+        console.warn('⚠️ Preflight failed, retrying without preflight...', {
+          matchId,
+          wallet,
             error: errorMessage,
-          });
+        });
         }
         
         signature = await broadcastWithRetry(true);

@@ -50,7 +50,7 @@ async function startServer() {
     enhancedLogger.info('🔍 Validating environment configuration...');
     validateConfig();
     enhancedLogger.info('✅ Environment configuration validated');
-    
+
     // Note: Helius RPC status will be logged when connections are first created
     // (see backend/src/config/solanaConnection.ts - getSolanaRpcUrl())
 

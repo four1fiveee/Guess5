@@ -7,6 +7,7 @@ import { getNextSunday1300EST, getNextSundayMidnightEST, isSundayMidnightEST } f
 import { notifyAdmin } from '../services/notificationService';
 import { autoLockReferralPayouts } from './autoLockService';
 import { reconcileAllProposals } from './proposalReconciliationService';
+import { runScheduledCleanup } from './proposalCleanupService';
 
 /**
  * Cron service for scheduled tasks
@@ -15,6 +16,7 @@ export class CronService {
   private static updateEntryFeesInterval: NodeJS.Timeout | null = null;
   private static weeklyPayoutInterval: NodeJS.Timeout | null = null;
   private static proposalReconciliationInterval: NodeJS.Timeout | null = null;
+  private static proposalCleanupInterval: NodeJS.Timeout | null = null;
 
   /**
    * Update user entry fees from matches (runs every 5 minutes)
@@ -215,9 +217,20 @@ export class CronService {
       this.reconcileProposals();
     }, 30000); // 30 seconds delay
 
+    // Proposal cleanup runs daily at 2am
+    this.proposalCleanupInterval = setInterval(() => {
+      runScheduledCleanup();
+    }, 24 * 60 * 60 * 1000); // 24 hours
+
+    // Run cleanup immediately on start (after a delay)
+    setTimeout(() => {
+      runScheduledCleanup();
+    }, 60000); // 1 minute delay
+
     console.log('✅ Cron jobs started');
     console.log(`   Auto-lock scheduled for next Sunday 12:00am EST (${Math.floor(msUntilNextSunday / (1000 * 60 * 60))} hours)`);
     console.log(`   Proposal reconciliation scheduled every 10 minutes`);
+    console.log(`   Proposal cleanup scheduled daily`);
   }
 
   /**
@@ -235,6 +248,10 @@ export class CronService {
     if (this.proposalReconciliationInterval) {
       clearInterval(this.proposalReconciliationInterval);
       this.proposalReconciliationInterval = null;
+    }
+    if (this.proposalCleanupInterval) {
+      clearInterval(this.proposalCleanupInterval);
+      this.proposalCleanupInterval = null;
     }
     console.log('⏹️ Cron jobs stopped');
   }

@@ -193,6 +193,59 @@ export const initializeDatabase = async () => {
         }
       }
 
+      // Ensure proposalAttemptCount column exists (for proposal versioning)
+      try {
+        await AppDataSource.query(`
+          ALTER TABLE "match" 
+          ADD COLUMN IF NOT EXISTS "proposalAttemptCount" integer DEFAULT 0
+        `);
+        console.log('✅ Ensured proposalAttemptCount column exists');
+      } catch (columnError: any) {
+        // Ignore if column already exists or other non-critical errors
+        if (!columnError?.message?.includes('already exists') && !columnError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure proposalAttemptCount column:', columnError?.message);
+        }
+      }
+
+      // Ensure proposal management indexes exist (for better query performance)
+      try {
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_match_proposal_transaction" 
+          ON "match" ("id", "payoutProposalTransactionIndex")
+          WHERE "payoutProposalTransactionIndex" IS NOT NULL
+        `);
+
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_match_tie_refund_transaction" 
+          ON "match" ("id", "tieRefundProposalTransactionIndex")
+          WHERE "tieRefundProposalTransactionIndex" IS NOT NULL
+        `);
+
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_match_proposal_attempt_count" 
+          ON "match" ("proposalAttemptCount")
+          WHERE "proposalAttemptCount" > 0
+        `);
+
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_match_proposal_status" 
+          ON "match" ("proposalStatus")
+          WHERE "proposalStatus" IS NOT NULL
+        `);
+
+        await AppDataSource.query(`
+          CREATE INDEX IF NOT EXISTS "IDX_match_vault_transaction" 
+          ON "match" ("squadsVaultAddress", "payoutProposalTransactionIndex")
+          WHERE "squadsVaultAddress" IS NOT NULL AND "payoutProposalTransactionIndex" IS NOT NULL
+        `);
+        console.log('✅ Ensured proposal management indexes exist');
+      } catch (indexError: any) {
+        // Ignore if indexes already exist or other non-critical errors
+        if (!indexError?.message?.includes('already exists') && !indexError?.message?.includes('duplicate')) {
+          console.warn('⚠️ Could not ensure proposal management indexes:', indexError?.message);
+        }
+      }
+
       console.log('✅ Database initialization complete');
       return;
       
