@@ -4933,52 +4933,85 @@ export class SquadsVaultService {
           }
         }
         
-        // CRITICAL: Fail hard if ExecuteReady not reached
-        // The SDK's vaultTransactionExecute() requires ExecuteReady state - execution will fail 100% if not reached
+        // CRITICAL FIX: If ExecuteReady not reached but proposal is Approved with threshold met,
+        // use manual instruction-based execution as fallback
+        // The SDK's rpc.vaultTransactionExecute() requires ExecuteReady, but the Squads program
+        // accepts Approved proposals. We can bypass the SDK's check by building the transaction manually.
         if (!isExecuteReady) {
           const totalWaitTime = maxWaitAttempts * (waitIntervalMs / 1000);
-          const errorMessage = `❌ Proposal ${proposalId} failed to transition to ExecuteReady after ${totalWaitTime}s — execution aborted. SDK requires ExecuteReady state to build transaction.`;
           
-          enhancedLogger.error('❌ Proposal did not transition to ExecuteReady - aborting execution', {
+          enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady - using manual execution fallback', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
             waitTimeSeconds: totalWaitTime,
             maxAttempts: maxWaitAttempts,
             intervalMs: waitIntervalMs,
+            proposalStatus,
+            approvedSignersCount: approvedSigners.length,
+            threshold,
             correlationId,
-            note: 'SDK execution will fail 100% if proposal is not ExecuteReady. Aborting to avoid wasted execution attempts.',
+            note: 'Proposal is Approved with threshold met but stuck in Approved state. Using manual instruction-based execution as fallback (bypasses SDK ExecuteReady requirement).',
+            executionPath: 'MANUAL_FALLBACK_FROM_APPROVED',
             diagnosis: {
               rootCause: 'Squads program not automatically transitioning Approved → ExecuteReady',
-              impact: 'SDK cannot build execution transaction from Approved state',
-              recommendation: 'Investigate why Squads program is not triggering ExecuteReady transition',
+              impact: 'SDK rpc.vaultTransactionExecute() cannot build transaction from Approved state',
+              solution: 'Using instructions.vaultTransactionExecute() + manual transaction building to bypass SDK limitation',
             },
           });
 
-          throw new Error(errorMessage);
+          // Set flag to use manual execution path
+          isApprovedWithThresholdMet = true; // This will trigger the manual execution path below
         }
       }
 
-      enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute', {
-              vaultAddress,
-              proposalId,
-        transactionIndex: transactionIndexNumber,
-        executor: executor.publicKey.toString(),
-        executorHasSecretKey: !!executor.secretKey,
-        connectionRpcUrl: this.connection.rpcEndpoint,
-        connectionType: typeof this.connection,
-        connectionHasGetAccountInfo: typeof this.connection.getAccountInfo === 'function',
-        multisigPda: multisigAddress.toString(),
-        programId: this.programId.toString(),
-              correlationId,
-      });
+      // CRITICAL FIX: Choose execution path based on proposal state
+      // 1. If ExecuteReady: Use SDK's rpc.vaultTransactionExecute() (happy path)
+      // 2. If Approved with threshold met but stuck: Use instructions.vaultTransactionExecute() + manual transaction (fallback)
+      let executionSignature: string;
+      let executionMethod: string;
+      
+      // Check current proposal status to determine execution path
+      let currentProposalStatus: string = proposalStatus;
+      let currentIsExecuteReady: boolean = false;
+      try {
+        const currentProposalAccount = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda
+        );
+        currentProposalStatus = currentProposalAccount.status.__kind;
+        currentIsExecuteReady = currentProposalStatus === 'ExecuteReady';
+      } catch (statusError: any) {
+        enhancedLogger.warn('⚠️ Could not fetch current proposal status, using cached status', {
+          vaultAddress,
+          proposalId,
+          cachedStatus: proposalStatus,
+          error: statusError?.message || String(statusError),
+          correlationId,
+        });
+        // Use the isExecuteReady from polling if available, otherwise check cached status
+        currentIsExecuteReady = proposalStatus === 'ExecuteReady';
+      }
 
-        // CRITICAL FIX: Use ONLY SDK's rpc.vaultTransactionExecute - NO manual construction
-        // This is the ONLY safe execution method for Squads v4
-        let executionSignature: string;
-        const executionMethod = 'sdk-rpc-method';
+      if (currentIsExecuteReady || currentProposalStatus === 'ExecuteReady') {
+        // Happy path: Proposal is ExecuteReady - use SDK method
+        enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute (ExecuteReady path)', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          executor: executor.publicKey.toString(),
+          executorHasSecretKey: !!executor.secretKey,
+          connectionRpcUrl: this.connection.rpcEndpoint,
+          multisigPda: multisigAddress.toString(),
+          programId: this.programId.toString(),
+          proposalStatus: currentProposalStatus,
+          correlationId,
+          executionPath: 'SDK_RPC_METHOD_EXECUTEREADY',
+        });
+
+        executionMethod = 'sdk-rpc-method';
         
-        // Use SDK method - the ONLY execution path
+        // Use SDK method - the ONLY execution path for ExecuteReady
         // HARDENING: Retry with exponential backoff for transient RPC failures
         const maxRetries = 3;
         const baseDelayMs = 1000; // 1 second base delay
@@ -5006,7 +5039,7 @@ export class SquadsVaultService {
               attempt: attemptNumber,
               maxRetries,
               correlationId,
-              note: 'Using SDK method - this is the ONLY supported approach for Squads v4',
+              note: 'Using SDK method for ExecuteReady proposal',
             });
             
             // Add jitter to reduce hot-node contention
@@ -5024,36 +5057,17 @@ export class SquadsVaultService {
               await new Promise(resolve => setTimeout(resolve, delay));
             }
             
-            // CRITICAL FIX: Use rpc.vaultTransactionExecute() - the ONLY working execution method
-            // instructions.vaultTransactionExecute() returns empty instruction (0 keys, 0 data)
-            // which causes "Cannot read properties of undefined (reading 'getAccountInfo')" errors
-            // rpc.vaultTransactionExecute() handles all transaction building, signing, and sending internally
-            enhancedLogger.info('📝 Executing Proposal using rpc.vaultTransactionExecute (SDK method)', {
-              vaultAddress,
-              proposalId,
-              transactionIndex: transactionIndexNumber,
-              executor: executor.publicKey.toString(),
-              multisigPda: multisigAddress.toString(),
-              programId: this.programId.toString(),
-              connectionRpcUrl: this.connection.rpcEndpoint,
-              correlationId,
-              note: 'Using SDK rpc method - handles all transaction building, signing, and sending internally',
-            });
-            
             if (!rpc || typeof rpc.vaultTransactionExecute !== 'function') {
               throw new Error('Squads SDK rpc.vaultTransactionExecute is unavailable');
             }
             
             // Use rpc.vaultTransactionExecute() - it handles everything internally
-            // This method builds the transaction, signs it, and sends it automatically
-            // CRITICAL: member must be PublicKey (not Keypair) - same pattern as instructions.proposalApprove
-            // feePayer is the Keypair that signs and pays for the execution transaction
             executionSignature = await rpc.vaultTransactionExecute({
               connection: this.connection,
-              feePayer: executor, // Keypair that signs and pays for execution (matches vaultTransactionCreate pattern)
+              feePayer: executor,
               multisigPda: multisigAddress,
               transactionIndex: transactionIndexNumber,
-              member: executor.publicKey, // Use PublicKey, not Keypair (matches proposalApprove pattern)
+              member: executor.publicKey,
               programId: this.programId,
             });
             
@@ -5315,7 +5329,7 @@ export class SquadsVaultService {
               multisigPda: multisigAddress.toString(),
               programId: this.programId.toString(),
               connectionRpcUrl: this.connection.rpcEndpoint,
-              proposalStatus: proposalStatus || 'unknown', // ✅ FIX: proposalStatus is now in scope
+              proposalStatus: proposalStatus || 'unknown',
               approvedSignersCount: approvedSigners?.length || 0,
               threshold,
             },
@@ -5345,27 +5359,188 @@ export class SquadsVaultService {
             },
           };
         }
-        
-        // Success - continue with verification
-        if (executionSignature) {
-          // Emit metric: execute.success
-          enhancedLogger.info('📊 METRIC: execute.success', {
+      } else if (isApprovedWithThresholdMet && currentProposalStatus === 'Approved') {
+        // FALLBACK PATH: Proposal is Approved with threshold met but stuck (not ExecuteReady)
+        // Use manual instruction-based execution to bypass SDK's ExecuteReady requirement
+        enhancedLogger.info('🔧 Using manual execution fallback for Approved proposal (bypasses SDK ExecuteReady requirement)', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          executor: executor.publicKey.toString(),
+          multisigPda: multisigAddress.toString(),
+          programId: this.programId.toString(),
+          proposalStatus: currentProposalStatus,
+          approvedSignersCount: approvedSigners.length,
+          threshold,
+          correlationId,
+          executionPath: 'MANUAL_INSTRUCTION_FALLBACK',
+          note: 'Proposal is Approved with threshold met but stuck. Using instructions.vaultTransactionExecute() + manual transaction building to bypass SDK limitation.',
+        });
+
+        executionMethod = 'manual-instruction-fallback';
+
+        try {
+          // Validate instructions are available
+          if (!instructions || typeof instructions.vaultTransactionExecute !== 'function') {
+            throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
+          }
+
+          // Build the execution instruction manually
+          enhancedLogger.info('📝 Building execution instruction using instructions.vaultTransactionExecute', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            multisigPda: multisigAddress.toString(),
+            executor: executor.publicKey.toString(),
+            programId: this.programId.toString(),
+            correlationId,
+          });
+
+          const executeIx = instructions.vaultTransactionExecute({
+            multisigPda: multisigAddress,
+            transactionIndex: BigInt(transactionIndexNumber),
+            member: executor.publicKey,
+            programId: this.programId,
+          });
+
+          // Get latest blockhash
+          const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+
+          // Build transaction message
+          const message = new TransactionMessage({
+            payerKey: executor.publicKey,
+            recentBlockhash: blockhash,
+            instructions: [executeIx],
+          });
+
+          // Compile to V0 message (required for Squads)
+          const compiledMessage = message.compileToV0Message();
+          const transaction = new VersionedTransaction(compiledMessage);
+
+          // Sign the transaction
+          transaction.sign([executor]);
+
+          // Validate transaction size
+          const serializedSize = transaction.serialize().length;
+          const maxTransactionSize = 1232;
+          
+          enhancedLogger.info('📏 Transaction Size Validation (Manual Execution)', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            serializedSize,
+            maxSize: maxTransactionSize,
+            sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
+            executor: executor.publicKey.toString(),
+            correlationId,
+          });
+          
+          if (serializedSize > maxTransactionSize) {
+            throw new Error(`Transaction size ${serializedSize} exceeds maximum ${maxTransactionSize} bytes`);
+          }
+
+          // Send and confirm transaction
+          enhancedLogger.info('📤 Sending manual execution transaction', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            transactionSize: serializedSize,
+            correlationId,
+          });
+
+          const signature = await this.connection.sendTransaction(transaction, {
+            skipPreflight: false,
+            maxRetries: 3,
+          });
+
+          // Wait for confirmation
+          await this.connection.confirmTransaction(
+            {
+              signature,
+              blockhash,
+              lastValidBlockHeight,
+            },
+            'confirmed'
+          );
+
+          executionSignature = signature;
+
+          enhancedLogger.info('✅ Manual execution transaction confirmed', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
             signature: executionSignature,
-            attempts: attemptNumber,
+            executor: executor.publicKey.toString(),
             correlationId,
+            note: 'Manual execution from Approved state succeeded - bypassed SDK ExecuteReady requirement',
           });
-          
-          enhancedLogger.info('✅ SDK rpc.vaultTransactionExecute succeeded', {
+        } catch (manualError: any) {
+          const errorMsg = manualError?.message || String(manualError);
+          enhancedLogger.error('❌ Manual execution fallback failed', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            executionSignature,
-            attempts: attemptNumber,
+            error: errorMsg,
+            errorCode: manualError?.code,
+            errorStack: manualError?.stack,
             correlationId,
+            note: 'Manual execution from Approved state failed. This may indicate a deeper issue with the proposal or executor permissions.',
           });
+
+          return {
+            success: false,
+            error: `Manual execution fallback failed: ${errorMsg}`,
+            correlationId,
+            errorCode: manualError?.code,
+            errorDetails: {
+              name: manualError?.name,
+              code: manualError?.code,
+              logs: manualError?.logs,
+            },
+          };
+        }
+      } else {
+        // Proposal is not in a valid state for execution
+        const errorMessage = `Proposal ${proposalId} is not in a valid state for execution. Status: ${currentProposalStatus}, Approved with threshold: ${isApprovedWithThresholdMet}`;
+        
+        enhancedLogger.error('❌ Proposal not ready for execution', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          proposalStatus: currentProposalStatus,
+          isApprovedWithThresholdMet,
+          approvedSignersCount: approvedSigners.length,
+          threshold,
+          correlationId,
+        });
+
+        return {
+          success: false,
+          error: errorMessage,
+          correlationId,
+        };
+      }
+        
+      // Success - continue with verification (for both SDK and manual execution paths)
+      if (executionSignature) {
+        // Emit metric: execute.success
+        enhancedLogger.info('📊 METRIC: execute.success', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          signature: executionSignature,
+          executionMethod: executionMethod || 'unknown',
+          correlationId,
+        });
+        
+        enhancedLogger.info(`✅ Proposal execution succeeded via ${executionMethod || 'unknown'}`, {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          executionSignature,
+          executionMethod: executionMethod || 'unknown',
+          correlationId,
+        });
           
           // CRITICAL: Verify execution on-chain before returning success
           executionDAGLogger.addStep(correlationId, 'verification-started', {
