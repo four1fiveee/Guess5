@@ -3799,6 +3799,114 @@ export class SquadsVaultService {
    */
 
   /**
+   * Wait for proposal to transition from Approved to ExecuteReady state
+   * Squads v4 requires ExecuteReady state before execution can proceed
+   * This polls the on-chain proposal status until it becomes ExecuteReady
+   */
+  private async waitForExecuteReady(
+    proposalPda: PublicKey,
+    transactionIndex: number,
+    correlationId: string,
+    maxAttempts: number = 10,
+    delayMs: number = 1000
+  ): Promise<void> {
+    enhancedLogger.info('⏳ Waiting for proposal to transition to ExecuteReady state', {
+      proposalPda: proposalPda.toString(),
+      transactionIndex,
+      maxAttempts,
+      delayMs,
+      correlationId,
+      note: 'Squads v4 requires ExecuteReady state before execution - polling until transition occurs',
+    });
+
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        const proposalAccount = await accounts.Proposal.fromAccountAddress(
+          this.connection,
+          proposalPda,
+          'confirmed'
+        );
+
+        // Extract status kind (handles both string and enum formats)
+        const statusObj = (proposalAccount as any).status;
+        const statusKind = typeof statusObj === 'object' && statusObj !== null && '__kind' in statusObj
+          ? statusObj.__kind
+          : (typeof statusObj === 'string' ? statusObj : 'Unknown');
+
+        if (statusKind === 'ExecuteReady') {
+          enhancedLogger.info('✅ Proposal is now ExecuteReady - ready for execution', {
+            proposalPda: proposalPda.toString(),
+            transactionIndex,
+            attempt,
+            maxAttempts,
+            correlationId,
+            elapsedSeconds: (attempt * delayMs) / 1000,
+          });
+          return; // Success - proposal is ExecuteReady
+        }
+
+        if (statusKind === 'Executed') {
+          enhancedLogger.info('✅ Proposal is already Executed - no execution needed', {
+            proposalPda: proposalPda.toString(),
+            transactionIndex,
+            attempt,
+            correlationId,
+          });
+          return; // Already executed - no need to wait
+        }
+
+        enhancedLogger.info(`⏳ Proposal not yet ExecuteReady (attempt ${attempt}/${maxAttempts})`, {
+          proposalPda: proposalPda.toString(),
+          transactionIndex,
+          currentStatus: statusKind,
+          attempt,
+          maxAttempts,
+          correlationId,
+          nextCheckIn: `${delayMs}ms`,
+        });
+      } catch (fetchError: any) {
+        const errorMsg = fetchError?.message || String(fetchError);
+        // Don't fail on "Account does not exist" - just log and continue
+        if (errorMsg.includes('Unable to find') || errorMsg.includes('Account does not exist')) {
+          enhancedLogger.warn('⚠️ Proposal account not found while waiting for ExecuteReady', {
+            proposalPda: proposalPda.toString(),
+            transactionIndex,
+            attempt,
+            error: errorMsg,
+            correlationId,
+          });
+        } else {
+          enhancedLogger.warn('⚠️ Failed to fetch proposal state while waiting for ExecuteReady', {
+            proposalPda: proposalPda.toString(),
+            transactionIndex,
+            attempt,
+            error: errorMsg,
+            correlationId,
+          });
+        }
+      }
+
+      // Wait before next attempt (except on last attempt)
+      if (attempt < maxAttempts) {
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+
+    // If we get here, the proposal never transitioned to ExecuteReady
+    const totalWaitTime = (maxAttempts * delayMs) / 1000;
+    const error = `Proposal did not become ExecuteReady within ${totalWaitTime}s (${maxAttempts} attempts)`;
+    enhancedLogger.error('❌ Proposal never transitioned to ExecuteReady state', {
+      proposalPda: proposalPda.toString(),
+      transactionIndex,
+      maxAttempts,
+      totalWaitTimeSeconds: totalWaitTime,
+      correlationId,
+      note: 'Proposal may be stuck in Approved state - execution will likely fail',
+    });
+    throw new Error(error);
+  }
+
+  /**
    * Execute a Squads proposal after it has enough signatures
    * This actually moves the funds from the vault to recipients
    */
@@ -4682,6 +4790,58 @@ export class SquadsVaultService {
           correlationId,
         };
       }
+
+      // CRITICAL FIX: Trigger ExecuteReady transition before waiting
+      // Squads v4 does not guarantee automatic state transitions from Approved → ExecuteReady
+      // vaultTransactionActivate() explicitly tells Squads to re-evaluate the proposal
+      // If signatures >= threshold, it transitions from Approved → ExecuteReady
+      try {
+        enhancedLogger.info('🔄 Triggering ExecuteReady transition via vaultTransactionActivate', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          multisigPda: multisigAddress.toString(),
+          correlationId,
+          note: 'This ensures the proposal transitions from Approved to ExecuteReady if threshold is met',
+        });
+
+        await rpc.vaultTransactionActivate({
+          connection: this.connection,
+          feePayer: executor, // Keypair that signs and pays for activation transaction
+          multisigPda: multisigAddress,
+          transactionIndex: transactionIndexNumber,
+          programId: this.programId,
+        });
+
+        enhancedLogger.info('✅ Proposal activation triggered successfully', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          correlationId,
+          note: 'Proposal should now transition to ExecuteReady if threshold is met',
+        });
+      } catch (activateError: any) {
+        const errorMsg = activateError?.message || String(activateError);
+        enhancedLogger.warn('⚠️ Failed to activate proposal - continuing anyway', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          error: errorMsg,
+          correlationId,
+          note: 'Activation may have already occurred or proposal may already be ExecuteReady. Continuing with waitForExecuteReady...',
+        });
+        // Continue anyway - the proposal might already be ExecuteReady or activation might not be needed
+      }
+
+      // CRITICAL FIX: Wait for ExecuteReady transition before attempting execution
+      // Squads v4 requires proposals to be in ExecuteReady state, not just Approved
+      // Even if threshold is met, the SDK will reject execution until ExecuteReady
+      // proposalPda is already defined earlier in this function (around line 3868)
+      await this.waitForExecuteReady(
+        proposalPda,
+        transactionIndexNumber,
+        correlationId
+      );
 
       enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute', {
               vaultAddress,
