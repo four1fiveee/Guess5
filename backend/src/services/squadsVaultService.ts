@@ -3807,17 +3807,21 @@ export class SquadsVaultService {
     proposalPda: PublicKey,
     transactionIndex: number,
     correlationId: string,
-    maxAttempts: number = 10,
-    delayMs: number = 1000
-  ): Promise<void> {
+    maxAttempts: number = 15,
+    intervalMs: number = 2000
+  ): Promise<accounts.Proposal> {
     enhancedLogger.info('⏳ Waiting for proposal to transition to ExecuteReady state', {
       proposalPda: proposalPda.toString(),
       transactionIndex,
       maxAttempts,
-      delayMs,
+      intervalMs,
+      totalTimeoutSeconds: (maxAttempts * intervalMs) / 1000,
       correlationId,
-      note: 'Squads v4 requires ExecuteReady state before execution - polling until transition occurs',
+      note: 'Squads v4 SDK requires ExecuteReady state before execution - polling until transition occurs',
     });
+
+    let lastStatus: string = 'Unknown';
+    let lastProposal: accounts.Proposal | null = null;
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
       try {
@@ -3827,22 +3831,27 @@ export class SquadsVaultService {
           'confirmed'
         );
 
+        lastProposal = proposalAccount;
+
         // Extract status kind (handles both string and enum formats)
         const statusObj = (proposalAccount as any).status;
         const statusKind = typeof statusObj === 'object' && statusObj !== null && '__kind' in statusObj
           ? statusObj.__kind
           : (typeof statusObj === 'string' ? statusObj : 'Unknown');
 
+        lastStatus = statusKind;
+
         if (statusKind === 'ExecuteReady') {
-          enhancedLogger.info('✅ Proposal is now ExecuteReady - ready for execution', {
+          enhancedLogger.info('✅ Proposal transitioned to ExecuteReady state', {
             proposalPda: proposalPda.toString(),
             transactionIndex,
             attempt,
             maxAttempts,
+            elapsedSeconds: (attempt * intervalMs) / 1000,
             correlationId,
-            elapsedSeconds: (attempt * delayMs) / 1000,
+            note: 'Proposal is now in ExecuteReady state - execution should succeed',
           });
-          return; // Success - proposal is ExecuteReady
+          return proposalAccount; // Success - proposal is ExecuteReady
         }
 
         if (statusKind === 'Executed') {
@@ -3852,17 +3861,19 @@ export class SquadsVaultService {
             attempt,
             correlationId,
           });
-          return; // Already executed - no need to wait
+          return proposalAccount; // Already executed - no need to wait
         }
 
-        enhancedLogger.info(`⏳ Proposal not yet ExecuteReady (attempt ${attempt}/${maxAttempts})`, {
+        // Log status transition for observability
+        enhancedLogger.info(`⏳ Waiting for ExecuteReady transition (attempt ${attempt}/${maxAttempts})`, {
           proposalPda: proposalPda.toString(),
           transactionIndex,
           currentStatus: statusKind,
           attempt,
           maxAttempts,
+          elapsedSeconds: (attempt * intervalMs) / 1000,
+          nextCheckIn: `${intervalMs}ms`,
           correlationId,
-          nextCheckIn: `${delayMs}ms`,
         });
       } catch (fetchError: any) {
         const errorMsg = fetchError?.message || String(fetchError);
@@ -3888,21 +3899,38 @@ export class SquadsVaultService {
 
       // Wait before next attempt (except on last attempt)
       if (attempt < maxAttempts) {
-        await new Promise((resolve) => setTimeout(resolve, delayMs));
+        await new Promise((resolve) => setTimeout(resolve, intervalMs));
       }
     }
 
-    // If we get here, the proposal never transitioned to ExecuteReady
-    const totalWaitTime = (maxAttempts * delayMs) / 1000;
-    const error = `Proposal did not become ExecuteReady within ${totalWaitTime}s (${maxAttempts} attempts)`;
+    // CRITICAL: Fail hard if ExecuteReady not reached
+    const totalWaitTime = (maxAttempts * intervalMs) / 1000;
+    const errorMessage = `❌ Proposal ${proposalPda.toString()} failed to transition to ExecuteReady after ${totalWaitTime}s (${maxAttempts} attempts) — execution aborted. Last status: ${lastStatus}`;
+    
     enhancedLogger.error('❌ Proposal never transitioned to ExecuteReady state', {
       proposalPda: proposalPda.toString(),
       transactionIndex,
       maxAttempts,
+      intervalMs,
       totalWaitTimeSeconds: totalWaitTime,
+      lastStatus,
       correlationId,
-      note: 'Proposal may be stuck in Approved state - execution will likely fail',
+      note: 'Proposal is stuck in Approved state - SDK execution will fail. This indicates a Squads program issue where automatic transition is not occurring.',
+      diagnosis: {
+        possibleCauses: [
+          'Squads program not automatically transitioning Approved → ExecuteReady',
+          'RPC lag preventing state updates',
+          'Proposal in invalid state on-chain',
+        ],
+        recommendedActions: [
+          'Check Squads program logs for transition failures',
+          'Verify proposal has sufficient signatures',
+          'Contact Squads team if this persists',
+        ],
+      },
     });
+
+    throw new Error(errorMessage);
     throw new Error(error);
   }
 
@@ -4905,15 +4933,29 @@ export class SquadsVaultService {
           }
         }
         
+        // CRITICAL: Fail hard if ExecuteReady not reached
+        // The SDK's vaultTransactionExecute() requires ExecuteReady state - execution will fail 100% if not reached
         if (!isExecuteReady) {
-          enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady after waiting', {
+          const totalWaitTime = maxWaitAttempts * (waitIntervalMs / 1000);
+          const errorMessage = `❌ Proposal ${proposalId} failed to transition to ExecuteReady after ${totalWaitTime}s — execution aborted. SDK requires ExecuteReady state to build transaction.`;
+          
+          enhancedLogger.error('❌ Proposal did not transition to ExecuteReady - aborting execution', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            waitTimeSeconds: maxWaitAttempts * (waitIntervalMs / 1000),
+            waitTimeSeconds: totalWaitTime,
+            maxAttempts: maxWaitAttempts,
+            intervalMs: waitIntervalMs,
             correlationId,
-            note: 'Will attempt execution anyway - SDK may handle this or transition may occur during execution',
+            note: 'SDK execution will fail 100% if proposal is not ExecuteReady. Aborting to avoid wasted execution attempts.',
+            diagnosis: {
+              rootCause: 'Squads program not automatically transitioning Approved → ExecuteReady',
+              impact: 'SDK cannot build execution transaction from Approved state',
+              recommendation: 'Investigate why Squads program is not triggering ExecuteReady transition',
+            },
           });
+
+          throw new Error(errorMessage);
         }
       }
 
@@ -5029,11 +5071,53 @@ export class SquadsVaultService {
           } catch (sdkError: any) {
             lastError = sdkError;
             
+            // CRITICAL: Extract and log transaction simulation logs for debugging
+            let transactionLogs: string[] = [];
+            let simulationError: any = null;
+            
+            if (sdkError instanceof SendTransactionError) {
+              // Extract logs from SendTransactionError
+              try {
+                transactionLogs = sdkError.logs || [];
+                simulationError = sdkError;
+              } catch (logError: any) {
+                enhancedLogger.warn('⚠️ Could not extract logs from SendTransactionError', {
+                  error: logError?.message || String(logError),
+                  correlationId,
+                });
+              }
+            } else if (sdkError?.logs && Array.isArray(sdkError.logs)) {
+              transactionLogs = sdkError.logs;
+            }
+            
+            // Log comprehensive error details including transaction logs
+            enhancedLogger.error('❌ SDK execution attempt failed', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              attempt: attemptNumber,
+              maxRetries,
+              error: sdkError?.message || String(sdkError),
+              errorCode: sdkError?.code,
+              errorName: sdkError?.name,
+              errorStack: sdkError?.stack,
+              transactionLogs: transactionLogs.length > 0 ? transactionLogs : undefined,
+              transactionLogsCount: transactionLogs.length,
+              isSendTransactionError: sdkError instanceof SendTransactionError,
+              proposalStatus,
+              approvedSignersCount: approvedSigners.length,
+              threshold,
+              correlationId,
+              note: transactionLogs.length > 0 
+                ? 'Transaction simulation logs available - check logs for detailed failure reason'
+                : 'No transaction logs available - error occurred before simulation',
+            });
+            
             // CRITICAL FIX: Handle execution failures from Approved state
             // If we executed from Approved state (skipped waitForExecuteReady) and it fails,
-            // this may indicate the proposal is in an invalid state or threshold was misreported
+            // this indicates the proposal MUST be in ExecuteReady state for SDK to work
             if (!shouldWaitForExecuteReady && isApprovedWithThresholdMet) {
-              enhancedLogger.warn('⚠️ Execute failed from Approved state — proposal may be in invalid state', {
+              enhancedLogger.error('❌ Execute failed from Approved state — SDK requires ExecuteReady', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
@@ -5043,28 +5127,49 @@ export class SquadsVaultService {
                 proposalStatus,
                 approvedSignersCount: approvedSigners.length,
                 threshold,
+                transactionLogs: transactionLogs.length > 0 ? transactionLogs : undefined,
                 correlationId,
                 executionPath: 'DIRECT_EXECUTION_FROM_APPROVED',
-                note: 'Execution from Approved state failed. This may indicate threshold misreporting, RPC issue, or proposal in invalid state. Will retry.',
-                potentialCauses: [
-                  'Threshold check may have been incorrect',
-                  'RPC transient failure',
-                  'Proposal state changed between check and execution',
-                  'Edge case in Squads program validation',
-                ],
+                note: 'SDK execution from Approved state failed. This confirms SDK requires ExecuteReady state. Will wait for ExecuteReady on next retry.',
+                rootCause: 'SDK cannot build execution transaction from Approved state - ExecuteReady required',
               });
               
-              // Optional fallback: If first attempt fails from Approved state, try waiting for ExecuteReady on retry
-              // This provides a recovery path for edge cases
+              // On first attempt, wait for ExecuteReady before retrying
               if (attemptNumber === 1 && attemptNumber < maxRetries) {
-                enhancedLogger.info('🔄 First attempt from Approved state failed - will wait for ExecuteReady on next retry as fallback', {
+                enhancedLogger.info('🔄 First attempt from Approved state failed - waiting for ExecuteReady before retry', {
                   vaultAddress,
                   proposalId,
                   transactionIndex: transactionIndexNumber,
                   correlationId,
-                  note: 'This is a recovery path for edge cases where direct execution from Approved fails',
+                  note: 'SDK requires ExecuteReady state - will poll for transition before next execution attempt',
                 });
-                // Continue to next retry - on next attempt, shouldWaitForExecuteReady logic will handle it
+                
+                // Wait for ExecuteReady before retrying
+                try {
+                  await this.waitForExecuteReady(
+                    proposalPda,
+                    transactionIndexNumber,
+                    correlationId,
+                    15, // maxAttempts
+                    2000 // intervalMs
+                  );
+                  enhancedLogger.info('✅ Proposal reached ExecuteReady - retrying execution', {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndexNumber,
+                    correlationId,
+                  });
+                } catch (waitError: any) {
+                  enhancedLogger.error('❌ Failed to reach ExecuteReady before retry - aborting', {
+                    vaultAddress,
+                    proposalId,
+                    transactionIndex: transactionIndexNumber,
+                    error: waitError?.message || String(waitError),
+                    correlationId,
+                  });
+                  // Break retry loop - cannot proceed without ExecuteReady
+                  break;
+                }
               }
             }
             
