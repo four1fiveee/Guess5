@@ -4645,6 +4645,7 @@ export class SquadsVaultService {
       let proposalStatus: string = 'Unknown';
       let approvedSigners: any[] = [];
       let threshold = 2; // Default threshold
+      let isApprovedWithThresholdMet = false; // Initialize outside try block
       
       try {
         proposalAccount = await accounts.Proposal.fromAccountAddress(
@@ -4698,7 +4699,7 @@ export class SquadsVaultService {
         // CRITICAL: Execute if proposal is ExecuteReady OR Approved with threshold met
         // In Squads v4, proposals don't always automatically transition from Approved to ExecuteReady
         // If threshold is met, we can execute even if status is Approved
-        const isApprovedWithThresholdMet = proposalStatus === 'Approved' && approvedSigners.length >= threshold;
+        isApprovedWithThresholdMet = proposalStatus === 'Approved' && approvedSigners.length >= threshold;
         const isExecuteReady = proposalStatus === 'ExecuteReady';
         
         if (!isExecuteReady && !isApprovedWithThresholdMet) {
@@ -4791,57 +4792,76 @@ export class SquadsVaultService {
         };
       }
 
-      // CRITICAL FIX: Trigger ExecuteReady transition before waiting
-      // Squads v4 does not guarantee automatic state transitions from Approved → ExecuteReady
-      // vaultTransactionActivate() explicitly tells Squads to re-evaluate the proposal
-      // If signatures >= threshold, it transitions from Approved → ExecuteReady
-      try {
-        enhancedLogger.info('🔄 Triggering ExecuteReady transition via vaultTransactionActivate', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          multisigPda: multisigAddress.toString(),
-          correlationId,
-          note: 'This ensures the proposal transitions from Approved to ExecuteReady if threshold is met',
-        });
+      // CRITICAL FIX: Only wait for ExecuteReady if proposal is not already Approved with threshold met
+      // If proposal is Approved with threshold met, execute directly - Squads program will validate
+      // The waitForExecuteReady() call was causing timeouts because proposals don't always transition
+      // Note: isApprovedWithThresholdMet is defined in the try block above, so it's available here
+      const shouldWaitForExecuteReady = !isApprovedWithThresholdMet;
+      
+      if (shouldWaitForExecuteReady) {
+        // CRITICAL FIX: Trigger ExecuteReady transition before waiting
+        // Squads v4 does not guarantee automatic state transitions from Approved → ExecuteReady
+        // vaultTransactionActivate() explicitly tells Squads to re-evaluate the proposal
+        // If signatures >= threshold, it transitions from Approved → ExecuteReady
+        try {
+          enhancedLogger.info('🔄 Triggering ExecuteReady transition via vaultTransactionActivate', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            multisigPda: multisigAddress.toString(),
+            correlationId,
+            note: 'This ensures the proposal transitions from Approved to ExecuteReady if threshold is met',
+          });
 
-        await rpc.vaultTransactionActivate({
-          connection: this.connection,
-          feePayer: executor, // Keypair that signs and pays for activation transaction
-          multisigPda: multisigAddress,
-          transactionIndex: transactionIndexNumber,
-          programId: this.programId,
-        });
+          await rpc.vaultTransactionActivate({
+            connection: this.connection,
+            feePayer: executor, // Keypair that signs and pays for activation transaction
+            multisigPda: multisigAddress,
+            transactionIndex: transactionIndexNumber,
+            programId: this.programId,
+          });
 
-        enhancedLogger.info('✅ Proposal activation triggered successfully', {
+          enhancedLogger.info('✅ Proposal activation triggered successfully', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            correlationId,
+            note: 'Proposal should now transition to ExecuteReady if threshold is met',
+          });
+        } catch (activateError: any) {
+          const errorMsg = activateError?.message || String(activateError);
+          enhancedLogger.warn('⚠️ Failed to activate proposal - continuing anyway', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            error: errorMsg,
+            correlationId,
+            note: 'Activation may have already occurred or proposal may already be ExecuteReady. Continuing with waitForExecuteReady...',
+          });
+          // Continue anyway - the proposal might already be ExecuteReady or activation might not be needed
+        }
+
+        // CRITICAL FIX: Wait for ExecuteReady transition before attempting execution
+        // Squads v4 requires proposals to be in ExecuteReady state, not just Approved
+        // Even if threshold is met, the SDK will reject execution until ExecuteReady
+        // proposalPda is already defined earlier in this function (around line 3868)
+        await this.waitForExecuteReady(
+          proposalPda,
+          transactionIndexNumber,
+          correlationId
+        );
+      } else {
+        // Proposal is Approved with threshold met - skip waitForExecuteReady and execute directly
+        enhancedLogger.info('✅ Skipping ExecuteReady wait - proposal is Approved with threshold met, executing directly', {
           vaultAddress,
           proposalId,
           transactionIndex: transactionIndexNumber,
+          approvedSignersCount: approvedSigners.length,
+          threshold,
           correlationId,
-          note: 'Proposal should now transition to ExecuteReady if threshold is met',
+          note: 'Proposal has enough approvals - executing directly without waiting for ExecuteReady transition. Squads program will validate approvals during execution.',
         });
-      } catch (activateError: any) {
-        const errorMsg = activateError?.message || String(activateError);
-        enhancedLogger.warn('⚠️ Failed to activate proposal - continuing anyway', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          error: errorMsg,
-          correlationId,
-          note: 'Activation may have already occurred or proposal may already be ExecuteReady. Continuing with waitForExecuteReady...',
-        });
-        // Continue anyway - the proposal might already be ExecuteReady or activation might not be needed
       }
-
-      // CRITICAL FIX: Wait for ExecuteReady transition before attempting execution
-      // Squads v4 requires proposals to be in ExecuteReady state, not just Approved
-      // Even if threshold is met, the SDK will reject execution until ExecuteReady
-      // proposalPda is already defined earlier in this function (around line 3868)
-      await this.waitForExecuteReady(
-        proposalPda,
-        transactionIndexNumber,
-        correlationId
-      );
 
       enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute', {
               vaultAddress,
