@@ -9,6 +9,7 @@
 import { AppDataSource } from '../db';
 import { getSquadsVaultService } from './squadsVaultService';
 import { PublicKey, Connection } from '@solana/web3.js';
+import { withRateLimitBackoff } from '../utils/rateLimitBackoff';
 
 export interface ProposalSyncResult {
   success: boolean;
@@ -310,6 +311,7 @@ export async function checkProposalExists(
   signers?: string[]; 
   needsSignatures?: number;
   reason?: string;
+  transactionIndex?: number;
 } | null> {
   try {
     const { accounts } = require('@sqds/multisig');
@@ -317,11 +319,18 @@ export async function checkProposalExists(
     const connection = createStandardSolanaConnection('confirmed');
     
     const proposalPda = new PublicKey(proposalId);
-    const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+    
+    // ✅ Use rate limit backoff for on-chain calls
+    const proposalAccount = await withRateLimitBackoff(() =>
+      accounts.Proposal.fromAccountAddress(connection, proposalPda)
+    );
     
     const status = (proposalAccount as any).status?.__kind || 'Unknown';
     const approved = (proposalAccount as any).approved || [];
     const approvedPubkeys = approved.map((p: PublicKey) => p.toString());
+    const transactionIndex = (proposalAccount as any).transactionIndex 
+      ? Number((proposalAccount as any).transactionIndex) 
+      : undefined;
     
     // ✅ Check if proposal is finalized (Executed/Cancelled/Rejected)
     const isFinalized = isFinalizedStatus(status);
@@ -333,6 +342,7 @@ export async function checkProposalExists(
         signers: approvedPubkeys,
         needsSignatures: 0,
         reason: `Proposal is ${status.toLowerCase()} and cannot be signed`,
+        transactionIndex,
       };
     }
     
@@ -340,7 +350,9 @@ export async function checkProposalExists(
     let threshold = 2;
     try {
       const multisigAddress = new PublicKey(vaultAddress);
-      const multisigAccount = await accounts.Multisig.fromAccountAddress(connection, multisigAddress);
+      const multisigAccount = await withRateLimitBackoff(() =>
+        accounts.Multisig.fromAccountAddress(connection, multisigAddress)
+      );
       threshold = (multisigAccount as any).threshold || 2;
     } catch (multisigError: any) {
       console.warn('⚠️ [checkProposalExists] Could not fetch multisig threshold, defaulting to 2', {
@@ -357,6 +369,7 @@ export async function checkProposalExists(
       status,
       signers: approvedPubkeys,
       needsSignatures,
+      transactionIndex,
     };
   } catch (e: any) {
     if (e?.message?.includes('AccountNotFound') || e?.message?.includes('Invalid account')) {
@@ -446,6 +459,7 @@ export async function findAndSyncApprovedProposal(
           status: signedProposalCheck.status,
           signers: signedProposalCheck.signers,
           needsSignatures: signedProposalCheck.needsSignatures,
+          transactionIndex: signedProposalCheck.transactionIndex,
         });
         
         // Sync database to the proposal the user signed
@@ -454,13 +468,20 @@ export async function findAndSyncApprovedProposal(
                             signedProposalCheck.status === 'ExecuteReady' ? 'APPROVED' :
                             'ACTIVE';
         
-        await matchRepository.update(matchId, {
+        // ✅ Store transactionIndex if available
+        const updateData: any = {
           payoutProposalId: signedProposalId,
           proposalStatus: statusString,
           proposalSigners: JSON.stringify(signedProposalCheck.signers || []),
           needsSignatures: signedProposalCheck.needsSignatures || 0,
           updatedAt: new Date(),
-        });
+        };
+        
+        if (signedProposalCheck.transactionIndex !== undefined) {
+          updateData.payoutProposalTransactionIndex = signedProposalCheck.transactionIndex.toString();
+        }
+        
+        await matchRepository.update(matchId, updateData);
         
         const changes: ProposalSyncResult['changes'] = {};
         if (oldProposalId !== signedProposalId) {
@@ -510,9 +531,9 @@ export async function findAndSyncApprovedProposal(
           programId: programId,  // Added: ensure we use the same program ID as proposal creation
         });
         
-        const proposalAccount = await accounts.Proposal.fromAccountAddress(
-          connection,
-          proposalPda
+        // ✅ Use rate limit backoff for on-chain calls
+        const proposalAccount = await withRateLimitBackoff(() =>
+          accounts.Proposal.fromAccountAddress(connection, proposalPda)
         );
         
         const status = (proposalAccount as any).status?.__kind;
@@ -548,7 +569,7 @@ export async function findAndSyncApprovedProposal(
             proposalStatus: 'APPROVED',
             proposalSigners: JSON.stringify(approvedPubkeys),
             needsSignatures: 0,
-            transactionIndex: i.toString(),
+            payoutProposalTransactionIndex: i.toString(),
             updatedAt: new Date(),
           });
           
@@ -584,8 +605,11 @@ export async function findAndSyncApprovedProposal(
         }
       } catch (e: any) {
         // Proposal doesn't exist at this index, continue
-        // Only log if it's not a "not found" error
-        if (e?.message && !e.message.includes('AccountNotFound') && !e.message.includes('Invalid account')) {
+        // Only log if it's not a "not found" error or rate limit (which is handled by backoff)
+        const isNotFound = e?.message?.includes('AccountNotFound') || e?.message?.includes('Invalid account');
+        const isRateLimit = e?.message?.includes('429') || e?.message?.includes('Too Many Requests');
+        
+        if (!isNotFound && !isRateLimit) {
           console.debug('🔍 [findAndSyncApprovedProposal] Error checking transaction index', {
             matchId,
             transactionIndex: i,

@@ -14373,14 +14373,108 @@ const signProposalHandler = async (req: any, res: any) => {
         });
       }
       
-      // ✅ Compare DB proposal with signed proposal
+      // ✅ CRITICAL FIX: Sync signed proposal FIRST before verification
+      // This ensures orphaned proposals (like "01") are recovered and tracked
+      if (signedProposalId) {
+        console.log('🔍 [sign-proposal] Checking if signed proposal needs syncing...', {
+          matchId,
+          signedProposalId,
+          dbProposalId: proposalIdString,
+          match: signedProposalId === proposalIdString,
+        });
+        
+        // If signed proposal is different from DB, or if DB proposal doesn't exist, sync to signed proposal
+        if (signedProposalId !== proposalIdString || !proposalIdString) {
+          console.log('🔄 [sign-proposal] Syncing to signed proposal (may be orphaned)', {
+            matchId,
+            signedProposalId,
+            dbProposalId: proposalIdString,
+            note: 'This ensures orphaned proposals are recovered and tracked',
+          });
+          
+          try {
+            const { findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+            // ✅ Pass the signed proposal ID so we can check if it exists and sync to it
+            const syncResult = await findAndSyncApprovedProposal(
+              matchId,
+              matchRow.squadsVaultAddress,
+              signedProposalId  // Pass the proposal the user actually signed
+            );
+            
+            if (syncResult && syncResult.synced && syncResult.onChainProposalId === signedProposalId) {
+              console.log('✅ [sign-proposal] Successfully synced to signed proposal', {
+                matchId,
+                signedProposalId,
+                oldDbProposalId: proposalIdString,
+                newDbProposalId: syncResult.onChainProposalId,
+                status: syncResult.onChainStatus,
+                note: 'Orphaned proposal recovered and tracked',
+              });
+              
+              // Update proposalIdString to match what user signed
+              proposalIdString = syncResult.onChainProposalId;
+              
+              // Reload match data
+              const refreshedRows = await matchRepository.query(`
+                SELECT "payoutProposalId", "tieRefundProposalId", "proposalStatus", "proposalSigners", "needsSignatures", "payoutProposalTransactionIndex"
+                FROM "match"
+                WHERE id = $1
+              `, [matchId]);
+              
+              if (refreshedRows && refreshedRows.length > 0) {
+                matchRow.payoutProposalId = refreshedRows[0].payoutProposalId;
+                matchRow.tieRefundProposalId = refreshedRows[0].tieRefundProposalId;
+                matchRow.proposalStatus = refreshedRows[0].proposalStatus;
+                matchRow.proposalSigners = refreshedRows[0].proposalSigners;
+                matchRow.needsSignatures = refreshedRows[0].needsSignatures;
+                proposalId = matchRow.payoutProposalId || matchRow.tieRefundProposalId;
+              }
+            } else if (syncResult && !syncResult.success && syncResult.error) {
+              // Proposal is finalized or invalid
+              const isFinalized = syncResult.error.includes('finalized') || 
+                                 syncResult.error.includes('executed') ||
+                                 syncResult.error.includes('cancelled');
+              
+              if (isFinalized) {
+                console.error('❌ [sign-proposal] Signed proposal is finalized and cannot be signed', {
+                  matchId,
+                  signedProposalId,
+                  error: syncResult.error,
+                  onChainStatus: syncResult.onChainStatus,
+                });
+                
+                return res.status(400).json({
+                  success: false,
+                  status: 'SIGNED_FINALIZED_PROPOSAL',
+                  error: syncResult.error || 'Proposal is finalized and cannot be signed',
+                  message: 'The proposal you signed has already been executed or cancelled. Please refresh the page to see the current proposal.',
+                  signedProposalId: signedProposalId,
+                  correctProposalId: proposalIdString,
+                  matchId,
+                  retryable: false,
+                  note: 'Frontend should refresh match status and show current proposal',
+                });
+              }
+            }
+          } catch (syncError: any) {
+            console.warn('⚠️ [sign-proposal] Error syncing to signed proposal (non-fatal)', {
+              matchId,
+              signedProposalId,
+              error: syncError?.message,
+              note: 'Will proceed with DB proposal',
+            });
+          }
+        }
+      }
+      
+      // ✅ Compare DB proposal with signed proposal (after sync attempt)
       if (signedProposalId && signedProposalId !== proposalIdString) {
-        console.error('🚨 [sign-proposal] PROPOSAL MISMATCH DETECTED', {
+        console.error('🚨 [sign-proposal] PROPOSAL MISMATCH DETECTED (after sync attempt)', {
           matchId,
           dbProposalId: proposalIdString,
           signedProposalId,
           mismatch: true,
-          note: 'User signed a different proposal than DB has - this indicates stale frontend data or multiple proposals',
+          note: 'User signed a different proposal than DB has - sync attempt may have failed',
         });
         
         // Try to find and sync the proposal the user actually signed
@@ -15135,7 +15229,7 @@ const signProposalHandler = async (req: any, res: any) => {
           });
           
           if (!verificationResult.ok) {
-            console.error('❌ VERIFICATION_FAILED: Player signature not found on-chain after all attempts', {
+            console.warn('⚠️ VERIFICATION_FAILED: Player signature not found on-chain after all attempts', {
               event: 'VERIFICATION_FAILED',
               matchId,
               wallet,
@@ -15148,44 +15242,139 @@ const signProposalHandler = async (req: any, res: any) => {
               vaultTxSignersPrimary: verificationResult.vaultTxSignersPrimary || [],
               vaultTxSignersSecondary: verificationResult.vaultTxSignersSecondary || [],
               txConfirmed: verificationResult.txConfirmed || false,
-              note: 'Transaction was broadcasted but signature is not on-chain. Marking DB as ERROR.',
+              note: 'Transaction was broadcasted but signature is not on-chain. Checking if it matches a different proposal before marking as failed.',
             });
             
-            // Mark DB as ERROR if signature never appears
+            // ✅ CRITICAL FIX: Before marking as failed, check if signature matches a different proposal
+            // This handles the case where user signed proposal "01" but DB tracks proposal "04"
+            let foundInDifferentProposal = false;
+            let correctProposalId: string | null = null;
+            
             try {
-              await matchRepository.query(`
-                UPDATE "match"
-                SET "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED',
-                    "updatedAt" = NOW()
-                WHERE id = $1
-              `, [matchId]);
+              const { getProposalPda, accounts: squadsAccounts } = require('@sqds/multisig');
+              const { createStandardSolanaConnection } = require('../config/solanaConnection');
+              const checkConnection = createStandardSolanaConnection('confirmed');
+              const { PublicKey } = require('@solana/web3.js');
+              const { withRateLimitBackoff } = require('../utils/rateLimitBackoff');
+              const multisigAddress = new PublicKey(matchRow.squadsVaultAddress);
+              const programId = new PublicKey(process.env.SQUADS_PROGRAM_ID || 'SQDS4ep65T869zMMBKyuUq6aD6EgTu8psMjkvj52pCf');
               
-              // ✅ FIX 5: Add internal alerting/logging if signature missing
-              console.error('🚨 Proposal signature missing after expected POST', {
+              // Check transaction indices 0-10 to see if signature appears in any proposal
+              for (let i = 0; i <= 10; i++) {
+                try {
+                  const [testProposalPda] = getProposalPda({
+                    multisigPda: multisigAddress,
+                    transactionIndex: BigInt(i),
+                    programId,
+                  });
+                  
+                  const testProposal = await withRateLimitBackoff(() =>
+                    squadsAccounts.Proposal.fromAccountAddress(checkConnection, testProposalPda)
+                  );
+                  
+                  const approved = (testProposal as any).approved || [];
+                  const approvedPubkeys = approved.map((p: PublicKey) => p.toString());
+                  
+                  if (approvedPubkeys.includes(wallet)) {
+                    // Found the signature in this proposal!
+                    foundInDifferentProposal = true;
+                    correctProposalId = testProposalPda.toString();
+                    
+                    console.log('✅ VERIFICATION_RECOVERED: Signature found in different proposal', {
+                      event: 'VERIFICATION_RECOVERED',
+                      matchId,
+                      wallet,
+                      originalProposalId: proposalIdString,
+                      correctProposalId,
+                      transactionIndex: i,
+                      note: 'This was a desync issue - signature is valid, just in a different proposal',
+                    });
+                    
+                    // Sync database to the correct proposal
+                    const { findAndSyncApprovedProposal } = require('../services/proposalSyncService');
+                    await findAndSyncApprovedProposal(matchId, matchRow.squadsVaultAddress, correctProposalId);
+                    
+                    // Re-verify with the correct proposal
+                    const reVerifyResult = await verifySignatureOnChain({
+                      txSig: signature,
+                      vaultAddress: matchRow.squadsVaultAddress,
+                      proposalId: correctProposalId,
+                      transactionIndex: i,
+                      signerPubkey: wallet,
+                      options: {
+                        attempts: 3,
+                        initialDelayMs: 2000,
+                        delayMs: 2000,
+                        exponentialBackoffAfter: 2,
+                        correlationId: matchId,
+                      },
+                    });
+                    
+                    if (reVerifyResult.ok) {
+                      console.log('✅ VERIFICATION_SUCCEEDED: Signature verified after syncing to correct proposal', {
+                        matchId,
+                        wallet,
+                        correctProposalId,
+                      });
+                      // Continue with normal flow - don't mark as failed
+                      foundInDifferentProposal = true;
+                      proposalIdString = correctProposalId;
+                      break;
+                    }
+                  }
+                } catch (e: any) {
+                  // Proposal doesn't exist at this index, continue
+                  if (!e?.message?.includes('AccountNotFound') && !e?.message?.includes('Invalid account')) {
+                    // Log unexpected errors but continue
+                    continue;
+                  }
+                }
+              }
+            } catch (recoveryError: any) {
+              console.warn('⚠️ Error attempting to recover from verification failure', {
                 matchId,
                 wallet,
-                proposalId: proposalIdString,
-                transactionSignature: signature,
-                event: 'SIGNATURE_VERIFICATION_FAILED',
-                alertLevel: 'HIGH',
-                note: 'No POST /sign-proposal request was received or signature failed to appear on-chain. Check logs for POST /sign-proposal requests around proposal creation time.',
-                timestamp: new Date().toISOString(),
-              });
-              
-              console.error('❌ VERIFICATION_FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
-                matchId,
-                wallet,
-                proposalId: proposalIdString,
-                transactionSignature: signature,
-                note: 'Database will NOT be updated with signer. Execution will NOT be triggered.',
-              });
-            } catch (dbError: any) {
-              console.error('❌ CRITICAL: Failed to mark DB as ERROR', {
-                matchId,
-                error: dbError?.message,
+                error: recoveryError?.message,
+                note: 'Will mark as failed',
               });
             }
-            return; // Exit background task
+            
+            // Mark DB as ERROR only if signature truly not found in any proposal
+            if (!foundInDifferentProposal) {
+              try {
+                await matchRepository.query(`
+                  UPDATE "match"
+                  SET "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED',
+                      "updatedAt" = NOW()
+                  WHERE id = $1
+                `, [matchId]);
+                
+                console.error('🚨 Proposal signature missing after expected POST', {
+                  matchId,
+                  wallet,
+                  proposalId: proposalIdString,
+                  transactionSignature: signature,
+                  event: 'SIGNATURE_VERIFICATION_FAILED',
+                  alertLevel: 'HIGH',
+                  note: 'No POST /sign-proposal request was received or signature failed to appear on-chain. Check logs for POST /sign-proposal requests around proposal creation time.',
+                  timestamp: new Date().toISOString(),
+                });
+                
+                console.error('❌ VERIFICATION_FAILED: Database marked as SIGNATURE_VERIFICATION_FAILED', {
+                  matchId,
+                  wallet,
+                  proposalId: proposalIdString,
+                  transactionSignature: signature,
+                  note: 'Database will NOT be updated with signer. Execution will NOT be triggered.',
+                });
+              } catch (dbError: any) {
+                console.error('❌ CRITICAL: Failed to mark DB as ERROR', {
+                  matchId,
+                  error: dbError?.message,
+                });
+              }
+              return; // Exit background task
+            }
           }
           
           // Verification succeeded - update database and trigger execution

@@ -13,6 +13,7 @@ import { Match } from '../models/Match';
 import { getSquadsVaultService } from './squadsVaultService';
 import { getFeeWalletKeypair } from '../config/wallet';
 import { enhancedLogger } from '../utils/enhancedLogger';
+import { withRateLimitBackoff } from '../utils/rateLimitBackoff';
 
 /**
  * Helper function to normalize proposal status from enum format
@@ -211,7 +212,9 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
     // Get multisig account to determine threshold
     let threshold = 2; // Default
     try {
-      const multisigAccount = await accounts.Multisig.fromAccountAddress(connection, multisigPda);
+      const multisigAccount = await withRateLimitBackoff(() =>
+        accounts.Multisig.fromAccountAddress(connection, multisigPda)
+      );
       threshold = (multisigAccount as any).threshold || 2;
     } catch (e: any) {
       enhancedLogger.warn('⚠️ Could not fetch multisig threshold for vault scan', {
@@ -243,8 +246,10 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
           programId,
         });
 
-        // Try to fetch the proposal account
-        const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+        // ✅ Use rate limit backoff for on-chain calls
+        const proposalAccount = await withRateLimitBackoff(() =>
+          accounts.Proposal.fromAccountAddress(connection, proposalPda)
+        );
         const statusKind = getProposalStatusKind((proposalAccount as any).status);
         const approvedSigners = (proposalAccount as any).approved || [];
         const approvedSignersCount = approvedSigners.length;
@@ -353,21 +358,85 @@ async function scanVaultForApprovedProposals(vaultAddress: string, matchReposito
           }
         }
 
-        // Process the proposal even if not found in DB (orphaned approved proposal)
-        const match = matchingMatch.length > 0 ? matchingMatch[0] : {
-          id: `orphan-${vaultAddress}-${proposal.transactionIndex}`,
-          squadsVaultAddress: vaultAddress,
-          squadsVaultPda: null,
-          payoutProposalId: proposalPdaString,
-          tieRefundProposalId: null,
-          proposalStatus: 'APPROVED',
-          proposalExecutedAt: null,
-          proposalTransactionId: null,
-          winner: null,
-          updatedAt: new Date(),
-        };
-
-        await processApprovedProposal(match, matchRepository, proposal);
+        // ✅ CRITICAL FIX: If proposal is not in DB (orphaned), try to find and sync it to a match
+        if (matchingMatch.length === 0) {
+          enhancedLogger.info('🔍 Found orphaned Approved proposal, attempting to sync to match', {
+            vaultAddress,
+            transactionIndex: proposal.transactionIndex,
+            proposalPda: proposalPdaString,
+            note: 'This proposal exists on-chain but is not tracked in database',
+          });
+          
+          // Try to find a match for this vault that doesn't have a proposal yet, or has a different one
+          const vaultMatches = await matchRepository.query(`
+            SELECT 
+              id,
+              "squadsVaultAddress",
+              "payoutProposalId",
+              "tieRefundProposalId",
+              "proposalStatus",
+              winner,
+              status
+            FROM "match"
+            WHERE 
+              "squadsVaultAddress" = $1
+              AND status = 'completed'
+              AND (
+                "payoutProposalId" IS NULL 
+                OR "payoutProposalId" != $2
+                OR "proposalStatus" = 'SIGNATURE_VERIFICATION_FAILED'
+              )
+            ORDER BY "updatedAt" DESC
+            LIMIT 1
+          `, [vaultAddress, proposalPdaString]);
+          
+          if (vaultMatches.length > 0) {
+            const targetMatch = vaultMatches[0];
+            enhancedLogger.info('✅ Found match to sync orphaned proposal to', {
+              matchId: targetMatch.id,
+              vaultAddress,
+              transactionIndex: proposal.transactionIndex,
+              proposalPda: proposalPdaString,
+              currentProposalId: targetMatch.payoutProposalId,
+              currentStatus: targetMatch.proposalStatus,
+            });
+            
+            // Sync the orphaned proposal to this match
+            await matchRepository.update(targetMatch.id, {
+              payoutProposalId: proposalPdaString,
+              payoutProposalTransactionIndex: proposal.transactionIndex.toString(),
+              proposalStatus: 'APPROVED',
+              proposalSigners: JSON.stringify(proposal.approvedSigners.map((p: any) => p.toString())),
+              needsSignatures: 0,
+              updatedAt: new Date(),
+            });
+            
+            // Use the synced match for processing
+            const match = {
+              ...targetMatch,
+              payoutProposalId: proposalPdaString,
+              payoutProposalTransactionIndex: proposal.transactionIndex.toString(),
+              proposalStatus: 'APPROVED',
+              proposalExecutedAt: null,
+              proposalTransactionId: null,
+            };
+            
+            await processApprovedProposal(match, matchRepository, proposal);
+          } else {
+            enhancedLogger.warn('⚠️ Orphaned proposal found but no matching match to sync to', {
+              vaultAddress,
+              transactionIndex: proposal.transactionIndex,
+              proposalPda: proposalPdaString,
+              note: 'Proposal will be skipped - may need manual intervention',
+            });
+            // Skip this orphaned proposal if we can't find a match to sync it to
+            continue;
+          }
+        } else {
+          // Proposal is already in DB - process normally
+          const match = matchingMatch[0];
+          await processApprovedProposal(match, matchRepository, proposal);
+        }
       } catch (error: any) {
         metrics.executionErrors++;
         enhancedLogger.error('❌ Error processing approved proposal from vault scan', {
