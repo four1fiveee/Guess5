@@ -4856,10 +4856,10 @@ export class SquadsVaultService {
           correlationId
         );
       } else {
-        // Proposal is Approved with threshold met - skip waitForExecuteReady and execute directly
-        // This is production-safe: Squads v4 enforces threshold at execution time, not during transition.
-        // ExecuteReady is informational, not a gatekeeper. Execution will succeed if threshold is met.
-        enhancedLogger.info('✅ [executeProposal] Skipping ExecuteReady wait — proposal is Approved and threshold met', {
+        // Proposal is Approved with threshold met - trigger ExecuteReady transition before execution
+        // CRITICAL: Even though we skip waitForExecuteReady, we still need to trigger the transition
+        // because the SDK's vaultTransactionExecute() requires ExecuteReady state to properly build the transaction
+        enhancedLogger.info('✅ [executeProposal] Proposal is Approved with threshold met - triggering ExecuteReady transition', {
           vaultAddress,
           proposalId,
           transactionIndex: transactionIndexNumber,
@@ -4867,10 +4867,90 @@ export class SquadsVaultService {
           threshold,
           proposalStatus,
           correlationId,
-          executionPath: 'DIRECT_EXECUTION_FROM_APPROVED',
-          note: 'Proposal has enough approvals - executing directly without waiting for ExecuteReady transition. Squads program will validate approvals during execution. This avoids delays and flaky transitions.',
-          rationale: 'In Squads v4, threshold check is enforced at execution time, not during Approved → ExecuteReady transition. ExecuteReady status is informational, not functional.',
+          executionPath: 'ACTIVATE_THEN_EXECUTE',
+          note: 'Proposal has enough approvals. Triggering ExecuteReady transition before execution - SDK requires ExecuteReady state to build transaction properly.',
         });
+        
+        // CRITICAL FIX: Explicitly trigger ExecuteReady transition before execution
+        // The SDK's vaultTransactionExecute() appears to require ExecuteReady state to properly
+        // build and sign the execution transaction, even though the program allows execution from Approved
+        try {
+          enhancedLogger.info('🔄 Triggering ExecuteReady transition via vaultTransactionActivate before execution', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            multisigPda: multisigAddress.toString(),
+            correlationId,
+            note: 'This ensures the proposal transitions to ExecuteReady so SDK can build the execution transaction',
+          });
+
+          await rpc.vaultTransactionActivate({
+            connection: this.connection,
+            feePayer: executor,
+            multisigPda: multisigAddress,
+            transactionIndex: transactionIndexNumber,
+            programId: this.programId,
+          });
+
+          enhancedLogger.info('✅ Proposal activation triggered - waiting for ExecuteReady state', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            correlationId,
+            note: 'Waiting 2 seconds for state to update before execution',
+          });
+          
+          // Wait briefly for state to update (2 seconds should be enough)
+          await new Promise(resolve => setTimeout(resolve, 2000));
+          
+          // Verify we're now in ExecuteReady state (optional check, but helpful for logging)
+          try {
+            const updatedProposalAccount = await accounts.Proposal.fromAccountAddress(
+              this.connection,
+              proposalPda
+            );
+            const updatedStatusKind = updatedProposalAccount.status.__kind;
+            
+            if (updatedStatusKind === 'ExecuteReady') {
+              enhancedLogger.info('✅ Proposal successfully transitioned to ExecuteReady', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                correlationId,
+                note: 'Proposal is now in ExecuteReady state - execution should succeed',
+              });
+            } else {
+              enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady after activation', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                currentStatus: updatedStatusKind,
+                correlationId,
+                note: 'Will attempt execution anyway - SDK may handle this or state may update during execution',
+              });
+            }
+          } catch (checkError: any) {
+            enhancedLogger.warn('⚠️ Could not verify ExecuteReady state after activation', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              error: checkError?.message || String(checkError),
+              correlationId,
+              note: 'Continuing with execution attempt',
+            });
+          }
+        } catch (activateError: any) {
+          const errorMsg = activateError?.message || String(activateError);
+          enhancedLogger.warn('⚠️ Failed to activate proposal before execution - continuing anyway', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            error: errorMsg,
+            correlationId,
+            note: 'Activation may have already occurred or may not be needed. Will attempt execution.',
+          });
+          // Continue with execution attempt - activation may have already occurred
+        }
       }
 
       enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute', {
