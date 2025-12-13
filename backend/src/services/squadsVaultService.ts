@@ -4804,52 +4804,18 @@ export class SquadsVaultService {
       const shouldWaitForExecuteReady = !isApprovedWithThresholdMet;
       
       if (shouldWaitForExecuteReady) {
-        // CRITICAL FIX: Trigger ExecuteReady transition before waiting
-        // Squads v4 does not guarantee automatic state transitions from Approved → ExecuteReady
-        // vaultTransactionActivate() explicitly tells Squads to re-evaluate the proposal
-        // If signatures >= threshold, it transitions from Approved → ExecuteReady
-        try {
-          enhancedLogger.info('🔄 Triggering ExecuteReady transition via vaultTransactionActivate', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            multisigPda: multisigAddress.toString(),
-            correlationId,
-            note: 'This ensures the proposal transitions from Approved to ExecuteReady if threshold is met',
-          });
+        // CRITICAL FIX: Poll for ExecuteReady transition
+        // Since rpc.vaultTransactionActivate() doesn't exist in the SDK, we rely on automatic transition
+        // The proposal should automatically transition from Approved → ExecuteReady when threshold is met
+        enhancedLogger.info('🔄 Waiting for ExecuteReady transition', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          correlationId,
+          note: 'Proposal should automatically transition to ExecuteReady when threshold is met',
+        });
 
-          await rpc.vaultTransactionActivate({
-            connection: this.connection,
-            feePayer: executor, // Keypair that signs and pays for activation transaction
-            multisigPda: multisigAddress,
-            transactionIndex: transactionIndexNumber,
-            programId: this.programId,
-          });
-
-          enhancedLogger.info('✅ Proposal activation triggered successfully', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            correlationId,
-            note: 'Proposal should now transition to ExecuteReady if threshold is met',
-          });
-        } catch (activateError: any) {
-          const errorMsg = activateError?.message || String(activateError);
-          enhancedLogger.warn('⚠️ Failed to activate proposal - continuing anyway', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            error: errorMsg,
-            correlationId,
-            note: 'Activation may have already occurred or proposal may already be ExecuteReady. Continuing with waitForExecuteReady...',
-          });
-          // Continue anyway - the proposal might already be ExecuteReady or activation might not be needed
-        }
-
-        // CRITICAL FIX: Wait for ExecuteReady transition before attempting execution
-        // Squads v4 requires proposals to be in ExecuteReady state, not just Approved
-        // Even if threshold is met, the SDK will reject execution until ExecuteReady
-        // proposalPda is already defined earlier in this function (around line 3868)
+        // Wait for ExecuteReady transition using existing polling mechanism
         await this.waitForExecuteReady(
           proposalPda,
           transactionIndexNumber,
@@ -4871,85 +4837,83 @@ export class SquadsVaultService {
           note: 'Proposal has enough approvals. Triggering ExecuteReady transition before execution - SDK requires ExecuteReady state to build transaction properly.',
         });
         
-        // CRITICAL FIX: Explicitly trigger ExecuteReady transition before execution
-        // The SDK's vaultTransactionExecute() appears to require ExecuteReady state to properly
-        // build and sign the execution transaction, even though the program allows execution from Approved
-        try {
-          enhancedLogger.info('🔄 Triggering ExecuteReady transition via vaultTransactionActivate before execution', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            multisigPda: multisigAddress.toString(),
-            correlationId,
-            note: 'This ensures the proposal transitions to ExecuteReady so SDK can build the execution transaction',
-          });
-
-          await rpc.vaultTransactionActivate({
-            connection: this.connection,
-            feePayer: executor,
-            multisigPda: multisigAddress,
-            transactionIndex: transactionIndexNumber,
-            programId: this.programId,
-          });
-
-          enhancedLogger.info('✅ Proposal activation triggered - waiting for ExecuteReady state', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            correlationId,
-            note: 'Waiting 2 seconds for state to update before execution',
-          });
-          
-          // Wait briefly for state to update (2 seconds should be enough)
-          await new Promise(resolve => setTimeout(resolve, 2000));
-          
-          // Verify we're now in ExecuteReady state (optional check, but helpful for logging)
+        // CRITICAL FIX: Poll for ExecuteReady transition before execution
+        // The SDK's vaultTransactionExecute() requires ExecuteReady state to properly build the transaction
+        // Since rpc.vaultTransactionActivate() doesn't exist, we poll for the state transition
+        // The proposal should automatically transition from Approved → ExecuteReady when threshold is met
+        enhancedLogger.info('🔄 Waiting for ExecuteReady transition before execution', {
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
+          correlationId,
+          note: 'Proposal is Approved with threshold met - waiting for automatic transition to ExecuteReady',
+        });
+        
+        // Poll for ExecuteReady state with timeout
+        const maxWaitAttempts = 15; // 15 attempts * 2 seconds = 30 seconds max
+        const waitIntervalMs = 2000; // 2 seconds between checks
+        let isExecuteReady = false;
+        
+        for (let attempt = 1; attempt <= maxWaitAttempts; attempt++) {
           try {
-            const updatedProposalAccount = await accounts.Proposal.fromAccountAddress(
+            const proposalAccount = await accounts.Proposal.fromAccountAddress(
               this.connection,
               proposalPda
             );
-            const updatedStatusKind = updatedProposalAccount.status.__kind;
+            const statusKind = proposalAccount.status.__kind;
             
-            if (updatedStatusKind === 'ExecuteReady') {
-              enhancedLogger.info('✅ Proposal successfully transitioned to ExecuteReady', {
+            if (statusKind === 'ExecuteReady') {
+              isExecuteReady = true;
+              enhancedLogger.info('✅ Proposal transitioned to ExecuteReady state', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
+                waitAttempt: attempt,
+                maxAttempts: maxWaitAttempts,
                 correlationId,
                 note: 'Proposal is now in ExecuteReady state - execution should succeed',
               });
+              break;
             } else {
-              enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady after activation', {
+              enhancedLogger.info('⏳ Still waiting for ExecuteReady transition', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
-                currentStatus: updatedStatusKind,
+                waitAttempt: attempt,
+                maxAttempts: maxWaitAttempts,
+                currentStatus: statusKind,
                 correlationId,
-                note: 'Will attempt execution anyway - SDK may handle this or state may update during execution',
               });
+              
+              if (attempt < maxWaitAttempts) {
+                await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
+              }
             }
-          } catch (checkError: any) {
-            enhancedLogger.warn('⚠️ Could not verify ExecuteReady state after activation', {
+          } catch (pollError: any) {
+            enhancedLogger.warn('⚠️ Error polling for ExecuteReady state', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
-              error: checkError?.message || String(checkError),
+              waitAttempt: attempt,
+              error: pollError?.message || String(pollError),
               correlationId,
-              note: 'Continuing with execution attempt',
             });
+            
+            if (attempt < maxWaitAttempts) {
+              await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
+            }
           }
-        } catch (activateError: any) {
-          const errorMsg = activateError?.message || String(activateError);
-          enhancedLogger.warn('⚠️ Failed to activate proposal before execution - continuing anyway', {
+        }
+        
+        if (!isExecuteReady) {
+          enhancedLogger.warn('⚠️ Proposal did not transition to ExecuteReady after waiting', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            error: errorMsg,
+            waitTimeSeconds: maxWaitAttempts * (waitIntervalMs / 1000),
             correlationId,
-            note: 'Activation may have already occurred or may not be needed. Will attempt execution.',
+            note: 'Will attempt execution anyway - SDK may handle this or transition may occur during execution',
           });
-          // Continue with execution attempt - activation may have already occurred
         }
       }
 
