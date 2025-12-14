@@ -6681,7 +6681,7 @@ export class SquadsVaultService {
            normalized.includes('enotfound') ||
            normalized.includes('econnreset') ||
            normalized.includes('socket') ||
-           normalized.includes('rpc') && (normalized.includes('error') || normalized.includes('failed'));
+           (normalized.includes('rpc') && (normalized.includes('error') || normalized.includes('failed')));
   }
 
   /**
