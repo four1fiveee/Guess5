@@ -6904,6 +6904,7 @@ export class SquadsVaultService {
       errorInfo,
     };
   }
+
 }
 
 // Export singleton instance
