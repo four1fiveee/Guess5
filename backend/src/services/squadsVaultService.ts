@@ -5497,14 +5497,66 @@ export class SquadsVaultService {
               });
               executeIx = ixResult instanceof Promise ? await ixResult : ixResult;
               
+              // CRITICAL FIX: Explicitly set programId if missing (SDK bug - instruction may lack programId)
+              // This is required for Solana transaction validation - every instruction must have a programId
+              if (!executeIx.programId) {
+                enhancedLogger.warn('⚠️ Instruction missing programId - setting explicitly', {
+                  vaultAddress,
+                  proposalId,
+                  transactionIndex: transactionIndexNumber,
+                  programId: this.programId.toString(),
+                  correlationId,
+                  note: 'SDK instruction builder did not set programId - patching to prevent transaction validation failure',
+                });
+                executeIx.programId = this.programId;
+              }
+              
+              // Validate instruction structure before proceeding
+              const instructionKeys = executeIx.keys?.length || 0;
+              const instructionDataLength = executeIx.data?.length || 0;
+              const hasProgramId = !!executeIx.programId;
+              
               enhancedLogger.info('✅ Successfully built instruction using instructions.vaultTransactionExecute() with proposalAccount', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
                 statusKind: proposalAccount.status.__kind,
+                instructionValidation: {
+                  hasProgramId,
+                  programId: executeIx.programId?.toString(),
+                  keysCount: instructionKeys,
+                  dataLength: instructionDataLength,
+                  hasDiscriminator: instructionDataLength >= 8,
+                },
                 correlationId,
-                note: 'Passed proposalAccount explicitly to avoid SDK internal fromAccountAddress() calls',
+                note: 'Passed proposalAccount explicitly to avoid SDK internal fromAccountAddress() calls. Validated instruction structure.',
               });
+              
+              // Final validation - ensure instruction is complete
+              if (!hasProgramId) {
+                throw new Error(
+                  `Instruction validation failed: programId is still undefined after patching. ` +
+                  `This indicates a critical SDK issue. Program ID: ${this.programId.toString()}`
+                );
+              }
+              
+              if (instructionKeys === 0) {
+                throw new Error(
+                  `Instruction validation failed: instruction has no keys (accounts). ` +
+                  `This indicates the SDK instruction builder failed to construct the instruction properly.`
+                );
+              }
+              
+              if (instructionDataLength < 8) {
+                enhancedLogger.warn('⚠️ Instruction data length is less than 8 bytes - may be missing Anchor discriminator', {
+                  vaultAddress,
+                  proposalId,
+                  transactionIndex: transactionIndexNumber,
+                  dataLength: instructionDataLength,
+                  correlationId,
+                  note: 'Anchor instructions require 8-byte discriminator. Proceeding but may fail at execution.',
+                });
+              }
             } catch (ixError: any) {
               // If instructions.vaultTransactionExecute() fails even with proposalAccount,
               // we cannot build Anchor instructions manually without the discriminator
