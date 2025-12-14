@@ -4021,23 +4021,23 @@ export class SquadsVaultService {
     };
     
     try {
-      enhancedLogger.info('🚀 Executing Squads proposal', {
-        vaultAddress,
-        proposalId,
-        transactionIndex: transactionIndex.toString(),
-        executor: executor.publicKey.toString(),
+    enhancedLogger.info('🚀 Executing Squads proposal', {
+      vaultAddress,
+      proposalId,
+      transactionIndex: transactionIndex.toString(),
+      executor: executor.publicKey.toString(),
         matchId,
-        correlationId,
+      correlationId,
         note: 'Execution lock acquired - proceeding with execution',
-      });
+    });
 
-      // Verify proposal status before executing and wait for ExecuteReady transition if needed
-      let proposalIsExecuteReady = false;
-      
-      const statusCheckStartTime = Date.now();
-      logExecutionStep(correlationId, 'enqueue', execStartTime);
-      
-      try {
+    // Verify proposal status before executing and wait for ExecuteReady transition if needed
+    let proposalIsExecuteReady = false;
+    
+    const statusCheckStartTime = Date.now();
+    logExecutionStep(correlationId, 'enqueue', execStartTime);
+    
+    try {
       // transactionIndex and multisigAddress are already extracted above
       // Derive PDAs using the extracted transactionIndex
       const [proposalPda] = getProposalPda({
@@ -5751,7 +5751,7 @@ export class SquadsVaultService {
       }
         
       // Success - continue with verification (for both SDK and manual execution paths)
-      if (executionSignature) {
+        if (executionSignature) {
           // Emit metric: execute.success
           enhancedLogger.info('📊 METRIC: execute.success', {
             vaultAddress,
@@ -5928,45 +5928,45 @@ export class SquadsVaultService {
           }
         }
     } catch (executionError: unknown) {
-        const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
-        const errorStack = executionError instanceof Error ? executionError.stack : undefined;
-        
-        // CRITICAL: Finalize execution DAG with error state (expert recommendation)
-        executionDAGLogger.addError(correlationId, errorMessage);
-        executionDAGLogger.addStep(correlationId, 'execution-failed', {
-          error: errorMessage,
-          stack: errorStack,
-        }, errorMessage);
-        
-        await executionDAGLogger.finalize(correlationId, false, {
-          error: errorMessage,
-          stack: errorStack,
-        });
-        
-        // Enhanced error logging to identify what's undefined
-        enhancedLogger.error('❌ Execution failed', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: Number(transactionIndex),
-          executor: executor?.publicKey?.toString() || 'undefined',
-          executorType: typeof executor,
-          executorHasPublicKey: !!executor?.publicKey,
-          executorHasSecretKey: !!executor?.secretKey,
-          error: errorMessage,
-          stack: errorStack,
-          connectionRpcUrl: this.connection?.rpcEndpoint,
-          hasConnection: !!this.connection,
-          hasGetAccountInfo: this.connection && typeof this.connection.getAccountInfo === 'function',
-          multisigPda: multisigAddress?.toString() || 'undefined',
-          programId: this.programId?.toString() || 'undefined',
-          correlationId,
-        });
+      const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
+      const errorStack = executionError instanceof Error ? executionError.stack : undefined;
+      
+      // CRITICAL: Finalize execution DAG with error state (expert recommendation)
+      executionDAGLogger.addError(correlationId, errorMessage);
+      executionDAGLogger.addStep(correlationId, 'execution-failed', {
+        error: errorMessage,
+        stack: errorStack,
+      }, errorMessage);
+      
+      await executionDAGLogger.finalize(correlationId, false, {
+        error: errorMessage,
+        stack: errorStack,
+      });
+      
+      // Enhanced error logging to identify what's undefined
+      enhancedLogger.error('❌ Execution failed', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: Number(transactionIndex),
+        executor: executor?.publicKey?.toString() || 'undefined',
+        executorType: typeof executor,
+        executorHasPublicKey: !!executor?.publicKey,
+        executorHasSecretKey: !!executor?.secretKey,
+        error: errorMessage,
+        stack: errorStack,
+        connectionRpcUrl: this.connection?.rpcEndpoint,
+        hasConnection: !!this.connection,
+        hasGetAccountInfo: this.connection && typeof this.connection.getAccountInfo === 'function',
+        multisigPda: multisigAddress?.toString() || 'undefined',
+        programId: this.programId?.toString() || 'undefined',
+        correlationId,
+      });
 
-        return {
-          success: false,
-          error: errorMessage,
-          correlationId,
-        };
+      return {
+        success: false,
+        error: errorMessage,
+        correlationId,
+      };
     } finally {
         // CRITICAL: Always release execution lock, even if execution fails
         await releaseLock();
