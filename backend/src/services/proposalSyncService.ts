@@ -108,20 +108,26 @@ export async function syncProposalIfNeeded(
       onChainProposalId = proposalPda.toString();
       transactionIndex = (proposalAccount as any).transactionIndex?.toString();
       
-      // Determine proposal status string
+      // CRITICAL FIX: Use actual on-chain status.__kind - never infer from needsSignatures
+      // This ensures DB status matches on-chain state exactly
       const proposalStatusKind = (proposalAccount as any).status?.__kind || 'Unknown';
       const isExecuted = proposalStatus.executed;
-      const hasEnoughSigners = proposalStatus.needsSignatures === 0;
       
+      // Map on-chain status.__kind to database status string
+      // NEVER infer from needsSignatures === 0 - only use actual on-chain status
       let statusString = 'ACTIVE';
-      if (isExecuted) {
+      if (isExecuted || proposalStatusKind === 'Executed') {
         statusString = 'EXECUTED';
-      } else if (proposalStatusKind === 'Approved' && hasEnoughSigners) {
+      } else if (proposalStatusKind === 'ExecuteReady') {
+        statusString = 'READY_TO_EXECUTE'; // CRITICAL: ExecuteReady maps to READY_TO_EXECUTE, not APPROVED
+      } else if (proposalStatusKind === 'Approved') {
         statusString = 'APPROVED';
       } else if (proposalStatusKind === 'Rejected') {
         statusString = 'REJECTED';
       } else if (proposalStatusKind === 'Cancelled') {
         statusString = 'CANCELLED';
+      } else if (proposalStatusKind === 'Active') {
+        statusString = 'ACTIVE';
       }
 
       // Check if database needs updating
@@ -462,11 +468,22 @@ export async function findAndSyncApprovedProposal(
           transactionIndex: signedProposalCheck.transactionIndex,
         });
         
-        // Sync database to the proposal the user signed
-        const statusString = signedProposalCheck.status === 'Approved' ? 'APPROVED' :
-                            signedProposalCheck.status === 'Active' ? 'ACTIVE' :
-                            signedProposalCheck.status === 'ExecuteReady' ? 'APPROVED' :
-                            'ACTIVE';
+        // CRITICAL FIX: Map on-chain status.__kind to database status exactly
+        // Never infer from needsSignatures - use actual on-chain status
+        let statusString = 'ACTIVE';
+        if (signedProposalCheck.status === 'ExecuteReady') {
+          statusString = 'READY_TO_EXECUTE'; // CRITICAL: ExecuteReady maps to READY_TO_EXECUTE, not APPROVED
+        } else if (signedProposalCheck.status === 'Approved') {
+          statusString = 'APPROVED';
+        } else if (signedProposalCheck.status === 'Active') {
+          statusString = 'ACTIVE';
+        } else if (signedProposalCheck.status === 'Executed') {
+          statusString = 'EXECUTED';
+        } else if (signedProposalCheck.status === 'Rejected') {
+          statusString = 'REJECTED';
+        } else if (signedProposalCheck.status === 'Cancelled') {
+          statusString = 'CANCELLED';
+        }
         
         // ✅ Store transactionIndex if available
         const updateData: any = {
@@ -552,12 +569,18 @@ export async function findAndSyncApprovedProposal(
           });
         }
         
-        // Found Approved proposal with both signatures
-        if (status === 'Approved' && approvedPubkeys.length >= 2) {
-          console.log('✅ [findAndSyncApprovedProposal] Found Approved proposal with both signatures!', {
+        // Found Approved or ExecuteReady proposal with both signatures
+        // CRITICAL FIX: Use actual on-chain status, not hardcoded 'APPROVED'
+        if ((status === 'Approved' || status === 'ExecuteReady') && approvedPubkeys.length >= 2) {
+          // Map on-chain status to database status exactly
+          const dbStatusString = status === 'ExecuteReady' ? 'READY_TO_EXECUTE' : 'APPROVED';
+          
+          console.log(`✅ [findAndSyncApprovedProposal] Found ${status} proposal with both signatures!`, {
             matchId,
             transactionIndex: i,
             proposalId: proposalPda.toString(),
+            onChainStatus: status,
+            dbStatus: dbStatusString,
             signers: approvedPubkeys,
             oldProposalId,
             oldStatus,
@@ -566,7 +589,7 @@ export async function findAndSyncApprovedProposal(
           
           await matchRepository.update(matchId, {
             payoutProposalId: proposalPda.toString(),
-            proposalStatus: 'APPROVED',
+            proposalStatus: dbStatusString, // CRITICAL: Use actual on-chain status, not hardcoded
             proposalSigners: JSON.stringify(approvedPubkeys),
             needsSignatures: 0,
             payoutProposalTransactionIndex: i.toString(),
@@ -577,8 +600,8 @@ export async function findAndSyncApprovedProposal(
           if (oldProposalId !== proposalPda.toString()) {
             changes.proposalId = { from: oldProposalId || 'unknown', to: proposalPda.toString() };
           }
-          if (oldStatus !== 'APPROVED') {
-            changes.proposalStatus = { from: oldStatus || 'unknown', to: 'APPROVED' };
+          if (oldStatus !== dbStatusString) {
+            changes.proposalStatus = { from: oldStatus || 'unknown', to: dbStatusString };
           }
           if (JSON.stringify(oldSigners.sort()) !== JSON.stringify(approvedPubkeys.sort())) {
             changes.signers = { from: oldSigners, to: approvedPubkeys };
@@ -588,6 +611,8 @@ export async function findAndSyncApprovedProposal(
             matchId,
             proposalId: proposalPda.toString(),
             transactionIndex: i,
+            onChainStatus: status,
+            dbStatus: dbStatusString,
             signers: approvedPubkeys,
             changes,
           });
@@ -599,7 +624,7 @@ export async function findAndSyncApprovedProposal(
             dbProposalId: oldProposalId || undefined,
             onChainProposalId: proposalPda.toString(),
             dbStatus: oldStatus,
-            onChainStatus: 'APPROVED',
+            onChainStatus: dbStatusString,
             changes,
           };
         }

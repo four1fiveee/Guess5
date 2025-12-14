@@ -508,11 +508,72 @@ async function processApprovedProposal(
   }
 
   try {
+    // CRITICAL FIX: Sync on-chain status to database before processing
+    // Fetch actual proposal account to get status.__kind and sync to DB
+    const { PublicKey } = require('@solana/web3.js');
+    const { accounts } = require('@sqds/multisig');
+    const { createStandardSolanaConnection } = require('../config/solanaConnection');
+    const connection = createStandardSolanaConnection('confirmed');
+    const proposalPda = new PublicKey(proposalIdString);
+    
+    let onChainStatusKind: string = 'Unknown';
+    try {
+      const proposalAccount = await accounts.Proposal.fromAccountAddress(connection, proposalPda);
+      onChainStatusKind = (proposalAccount as any).status?.__kind || 'Unknown';
+      
+      // CRITICAL: Map on-chain status.__kind to database status exactly
+      // Never infer from needsSignatures - only use actual on-chain status
+      let dbStatusString = 'ACTIVE';
+      if (onChainStatusKind === 'Executed') {
+        dbStatusString = 'EXECUTED';
+      } else if (onChainStatusKind === 'ExecuteReady') {
+        dbStatusString = 'READY_TO_EXECUTE';
+      } else if (onChainStatusKind === 'Approved') {
+        dbStatusString = 'APPROVED';
+      } else if (onChainStatusKind === 'Rejected') {
+        dbStatusString = 'REJECTED';
+      } else if (onChainStatusKind === 'Cancelled') {
+        dbStatusString = 'CANCELLED';
+      } else if (onChainStatusKind === 'Active') {
+        dbStatusString = 'ACTIVE';
+      }
+      
+      // Update database to match on-chain status
+      const currentDbStatus = match.proposalStatus || 'UNKNOWN';
+      if (currentDbStatus !== dbStatusString) {
+        enhancedLogger.info('🔄 Syncing proposal status from on-chain to database (execution monitor)', {
+          matchId,
+          proposalId: proposalIdString,
+          onChainStatus: onChainStatusKind,
+          dbStatus: dbStatusString,
+          oldDbStatus: currentDbStatus,
+          note: 'Updating database to match actual on-chain status before execution attempt',
+        });
+        
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "proposalStatus" = $1,
+              "updatedAt" = NOW()
+          WHERE id = $2
+        `, [dbStatusString, matchId]);
+        
+        // Update match object for subsequent processing
+        match.proposalStatus = dbStatusString;
+      }
+    } catch (statusSyncError: any) {
+      enhancedLogger.warn('⚠️ Failed to sync on-chain status to database (execution monitor)', {
+        matchId,
+        proposalId: proposalIdString,
+        error: statusSyncError?.message,
+        note: 'Continuing with execution attempt despite status sync failure',
+      });
+    }
+
     // Check on-chain proposal status
     const squadsVaultService = getSquadsVaultService();
     const proposalStatus = await squadsVaultService.checkProposalStatus(vaultAddress, proposalIdString);
 
-    if (proposalStatus.executed) {
+    if (proposalStatus.executed || onChainStatusKind === 'Executed') {
       // Already executed - update database
       metrics.proposalsAlreadyExecuted++;
       enhancedLogger.info('✅ Proposal already executed on-chain, updating database', {
@@ -521,6 +582,7 @@ async function processApprovedProposal(
         vaultAddress,
         transactionIndex: proposalStatus.transactionIndex?.toString(),
         executionSignature: proposalStatus.executionSignature,
+        onChainStatus: onChainStatusKind,
         note: 'Proposal was executed outside of monitor - syncing database state',
       });
 

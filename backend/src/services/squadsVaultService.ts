@@ -5482,12 +5482,14 @@ export class SquadsVaultService {
             });
 
             // Step 2: Build the execution instruction using instructions.vaultTransactionExecute()
-            // CRITICAL FIX: Pass connection explicitly to avoid SDK internal errors
+            // CRITICAL FIX: Explicitly pass proposalAccount to avoid SDK internal fromAccountAddress() calls
+            // This gives full control and avoids SDK regressions
             let executeIx: TransactionInstruction;
             try {
-              // Try calling with connection parameter (required by SDK)
+              // CRITICAL: Pass proposalAccount explicitly to avoid SDK internal fetch issues
               const ixResult = instructions.vaultTransactionExecute({
-                connection: this.connection, // CRITICAL: Pass connection explicitly
+                proposalAccount: proposalAccount, // CRITICAL: Pass fetched proposal account explicitly
+                connection: this.connection, // Also pass connection for SDK internal use
                 multisigPda: multisigAddress,
                 transactionIndex: BigInt(transactionIndexNumber),
                 member: executor.publicKey,
@@ -5495,50 +5497,52 @@ export class SquadsVaultService {
               });
               executeIx = ixResult instanceof Promise ? await ixResult : ixResult;
               
-              enhancedLogger.info('✅ Successfully built instruction using instructions.vaultTransactionExecute()', {
+              enhancedLogger.info('✅ Successfully built instruction using instructions.vaultTransactionExecute() with proposalAccount', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
+                statusKind: proposalAccount.status.__kind,
                 correlationId,
+                note: 'Passed proposalAccount explicitly to avoid SDK internal fromAccountAddress() calls',
               });
             } catch (ixError: any) {
-              // If instructions.vaultTransactionExecute() fails, we need to build the instruction manually
-              // This requires the correct 8-byte Anchor discriminator
-              enhancedLogger.warn('⚠️ instructions.vaultTransactionExecute() failed, attempting manual instruction build', {
+              // If instructions.vaultTransactionExecute() fails even with proposalAccount,
+              // we cannot build Anchor instructions manually without the discriminator
+              enhancedLogger.error('❌ instructions.vaultTransactionExecute() failed even with proposalAccount', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
                 error: ixError?.message || String(ixError),
+                errorStack: ixError?.stack,
                 correlationId,
-                note: 'SDK instruction builder failed. Attempting to build instruction manually with correct discriminator.',
+                note: 'SDK instruction builder failed. Cannot build Anchor instructions manually without discriminator.',
               });
 
-              // CRITICAL: We cannot build Anchor instructions manually without the discriminator
-              // The discriminator is a hash of the instruction name and is program-specific
-              // Since we can't get it easily, we should fail with a clear error
               throw new Error(
-                `Cannot build manual instruction: instructions.vaultTransactionExecute() failed and manual instruction building requires the 8-byte Anchor discriminator which is not available. ` +
+                `Cannot build execution instruction: instructions.vaultTransactionExecute() failed even with proposalAccount. ` +
                 `Original error: ${ixError?.message || String(ixError)}. ` +
-                `Solution: The proposal must transition to ExecuteReady state for SDK execution to work.`
+                `The proposal may need to transition to ExecuteReady state for execution to work.`
               );
             }
 
-            // Step 3: Build and send the transaction manually
-            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
-
-            // Build transaction message
-            const message = new TransactionMessage({
-              payerKey: executor.publicKey,
-              recentBlockhash: blockhash,
-              instructions: [executeIx],
+            // Step 3: Build and send the transaction manually using Transaction + sendAndConfirmTransaction
+            // This is the recommended approach per expert guidance - gives full control
+            enhancedLogger.info('🔧 Building transaction using Transaction.add() and sendAndConfirmTransaction()', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              correlationId,
+              note: 'Using Transaction().add(ix) + sendAndConfirmTransaction() for full control over transaction building',
             });
 
-            // Compile to V0 message (required for Squads)
-            const compiledMessage = message.compileToV0Message();
-            const transaction = new VersionedTransaction(compiledMessage);
+            // Get recent blockhash for transaction
+            const { blockhash } = await this.connection.getLatestBlockhash('finalized');
 
-            // Sign the transaction
-            transaction.sign([executor]);
+            // Build transaction using Transaction class (recommended approach)
+            const transaction = new Transaction();
+            transaction.add(executeIx);
+            transaction.feePayer = executor.publicKey;
+            transaction.recentBlockhash = blockhash;
 
             // Validate transaction size
             const serializedSize = transaction.serialize().length;
@@ -5559,28 +5563,25 @@ export class SquadsVaultService {
               throw new Error(`Transaction size ${serializedSize} exceeds maximum ${maxTransactionSize} bytes`);
             }
 
-            // Send and confirm transaction
-            enhancedLogger.info('📤 Sending manual execution transaction', {
+            // Send and confirm transaction using sendAndConfirmTransaction (recommended approach)
+            enhancedLogger.info('📤 Sending manual execution transaction using sendAndConfirmTransaction()', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               transactionSize: serializedSize,
               correlationId,
+              note: 'Using sendAndConfirmTransaction() for reliable transaction sending and confirmation',
             });
 
-            const signature = await this.connection.sendTransaction(transaction, {
-              skipPreflight: false,
-              maxRetries: 3,
-            });
-
-            // Wait for confirmation
-            await this.connection.confirmTransaction(
+            // Use sendAndConfirmTransaction for reliable execution (recommended by expert)
+            const signature = await sendAndConfirmTransaction(
+              this.connection,
+              transaction,
+              [executor],
               {
-                signature,
-                blockhash,
-                lastValidBlockHeight,
-              },
-              'confirmed'
+                skipPreflight: false,
+                commitment: 'confirmed',
+              }
             );
 
             executionSignature = signature;
@@ -5593,7 +5594,7 @@ export class SquadsVaultService {
               signature: executionSignature,
               executor: executor.publicKey.toString(),
               correlationId,
-              note: 'Successfully executed from Approved state by bypassing SDK ExecuteReady requirement',
+              note: 'Successfully executed from Approved state using instructions.vaultTransactionExecute() + sendAndConfirmTransaction()',
             });
           } catch (manualError: any) {
             const errorMsg = manualError?.message || String(manualError);
