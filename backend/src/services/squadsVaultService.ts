@@ -58,6 +58,11 @@ export interface ProposalStatus {
   needsSignatures: number;
 }
 
+interface ExecutionErrorDetails {
+  message: string;
+  logs?: string[];
+}
+
 export class SquadsVaultService {
   private connection: Connection;
   private config: SquadsVaultConfig;
@@ -6842,7 +6847,7 @@ export class SquadsVaultService {
   private async buildExecutionErrorDetails(
     tx: VersionedTransaction | null,
     rawError: unknown
-  ): Promise<{ message: string; logs?: string[] }> {
+  ): Promise<ExecutionErrorDetails> {
     let message = rawError instanceof Error ? rawError.message : String(rawError);
     let logs: string[] | undefined;
 
