@@ -26,6 +26,7 @@ import { sendAndLogRawTransaction, pollTxAndLog, subscribeToProgramLogs, logExec
 import { executionDAGLogger } from '../utils/executionDagLogger';
 import { verifyOnBothRPCs, createRPCConnections } from '../utils/rpcFailover';
 import { withRetry, fromAccountAddressWithRetry } from '../utils/rpcRetry';
+import { getExecutionLock, releaseExecutionLock } from '../utils/proposalLocks';
 // import { onMatchCompleted } from './proposalAutoCreateService'; // File doesn't exist - removed
 // import { saveMatchAndTriggerProposals } from '../utils/matchSaveHelper'; // File doesn't exist - removed
 
@@ -3984,13 +3985,46 @@ export class SquadsVaultService {
       executor: executor.publicKey.toString(),
     });
     
-    enhancedLogger.info('🚀 Executing Squads proposal', {
-      vaultAddress,
-      proposalId,
-      transactionIndex: transactionIndex.toString(),
-      executor: executor.publicKey.toString(),
-      correlationId,
-    });
+    // CRITICAL: Acquire execution lock to prevent concurrent execution attempts
+    // This prevents race conditions when multiple processes try to execute the same proposal
+    const lockAcquired = await getExecutionLock(proposalId, matchId);
+    if (!lockAcquired) {
+      const error = `Execution lock not acquired for proposal ${proposalId} - another process is already executing this proposal`;
+      enhancedLogger.warn('⚠️ ' + error, {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        matchId,
+        correlationId,
+        note: 'This prevents concurrent execution attempts which could cause race conditions or duplicate transactions',
+      });
+      
+      return {
+        success: false,
+        error,
+        correlationId,
+      };
+    }
+    
+    // Ensure lock is released on exit (success or failure)
+    let lockReleased = false;
+    const releaseLock = async () => {
+      if (!lockReleased) {
+        await releaseExecutionLock(proposalId, matchId);
+        lockReleased = true;
+      }
+    };
+    
+    try {
+      enhancedLogger.info('🚀 Executing Squads proposal', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        executor: executor.publicKey.toString(),
+        matchId,
+        correlationId,
+        note: 'Execution lock acquired - proceeding with execution',
+      });
 
     // Verify proposal status before executing and wait for ExecuteReady transition if needed
     let proposalIsExecuteReady = false;
@@ -5928,6 +5962,9 @@ export class SquadsVaultService {
         error: errorMessage,
         correlationId,
       };
+    } finally {
+      // CRITICAL: Always release execution lock, even if execution fails
+      await releaseLock();
     }
   }
 

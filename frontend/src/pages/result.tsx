@@ -2473,7 +2473,7 @@ const Result: React.FC = () => {
                                 </div>
                               )}
                             </div>
-                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE') ? (
                             <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
@@ -2503,6 +2503,21 @@ const Result: React.FC = () => {
                                   </div>
                                 )}
                               </div>
+                            </div>
+                          ) : (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt) ? (
+                            <div className="mb-3 p-4 rounded-lg bg-blue-500/10 border border-blue-400/30">
+                              <div className="flex items-center gap-2 text-blue-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-400 border-t-transparent"></div>
+                                <span>All signatures collected. Waiting for ExecuteReady transition...</span>
+                              </div>
+                              <p className="text-sm text-white/80 mb-1">
+                                The proposal has all required signatures but is waiting to transition to ExecuteReady state. Execution will begin automatically once ready.
+                              </p>
+                              {payoutData.proposalId && (
+                                <div className="mt-1 text-white/40 text-xs font-mono">
+                                  Proposal: {payoutData.proposalId.substring(0, 8)}...
+                                </div>
+                              )}
                             </div>
                           ) : hasRefundProposal ? (
                             <p className="text-sm text-white/80 mb-3">
@@ -2834,7 +2849,7 @@ const Result: React.FC = () => {
                                 </div>
                               )}
                             </div>
-                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE') ? (
                             <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
@@ -2864,6 +2879,21 @@ const Result: React.FC = () => {
                                   </div>
                                 )}
                               </div>
+                            </div>
+                          ) : (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt) ? (
+                            <div className="mb-3 p-4 rounded-lg bg-blue-500/10 border border-blue-400/30">
+                              <div className="flex items-center gap-2 text-blue-400 text-lg font-semibold mb-2">
+                                <div className="animate-spin rounded-full h-5 w-5 border-2 border-blue-400 border-t-transparent"></div>
+                                <span>All signatures collected. Waiting for ExecuteReady transition...</span>
+                              </div>
+                              <p className="text-sm text-white/80 mb-1">
+                                The proposal has all required signatures but is waiting to transition to ExecuteReady state. Execution will begin automatically once ready.
+                              </p>
+                              {payoutData.proposalId && (
+                                <div className="mt-1 text-white/40 text-xs font-mono">
+                                  Proposal: {payoutData.proposalId.substring(0, 8)}...
+                                </div>
+                              )}
                             </div>
                           ) : (
                           <p className="text-sm text-white/80 mb-3">

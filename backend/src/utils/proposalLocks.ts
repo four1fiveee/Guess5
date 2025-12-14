@@ -251,6 +251,127 @@ export const cleanupStaleLocks = async (): Promise<number> => {
 /**
  * Get statistics about active locks
  */
+/**
+ * Execution lock utility to prevent concurrent execution attempts
+ * Uses separate lock key from proposal creation locks
+ */
+const EXECUTION_LOCK_EXPIRY_SECONDS = 300; // 5 minutes max execution time
+
+/**
+ * Acquire an execution lock for a proposal to prevent concurrent execution attempts
+ */
+export const getExecutionLock = async (proposalId: string, matchId?: string): Promise<boolean> => {
+  try {
+    const redis = getRedisMM();
+    const lockKey = `execution:lock:${proposalId}`;
+    const processId = `${process.pid}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const lockValue = JSON.stringify({
+      processId,
+      timestamp: Date.now(),
+      proposalId,
+      matchId: matchId || 'unknown'
+    });
+    
+    // Try to acquire lock with SET NX EX (atomic set if not exists with expiration)
+    const result = await redis.set(lockKey, lockValue, {
+      NX: true, // Only set if key doesn't exist
+      EX: EXECUTION_LOCK_EXPIRY_SECONDS // Expire after 5 minutes
+    });
+    
+    if (result === 'OK') {
+      // Lock acquired successfully
+      enhancedLogger.info(`✅ Execution lock acquired for proposal ${proposalId}`, {
+        processId,
+        lockKey,
+        matchId: matchId || 'unknown',
+        expirySeconds: EXECUTION_LOCK_EXPIRY_SECONDS
+      });
+      return true;
+    }
+    
+    // Lock already exists - check if it's stale
+    try {
+      const existingLock = await redis.get(lockKey);
+      if (existingLock) {
+        const lockData = JSON.parse(existingLock);
+        const lockAge = Date.now() - lockData.timestamp;
+        const LOCK_TIMEOUT_MS = EXECUTION_LOCK_EXPIRY_SECONDS * 1000;
+        
+        if (lockAge > LOCK_TIMEOUT_MS) {
+          // Lock is stale - force release and retry
+          enhancedLogger.warn(`🔧 Forcing release of stale execution lock for proposal ${proposalId}`, {
+            lockAge: `${Math.round(lockAge / 1000)}s`,
+            staleLockProcessId: lockData.processId,
+            matchId: matchId || 'unknown'
+          });
+          
+          await redis.del(lockKey);
+          
+          // Retry acquisition once
+          const retryResult = await redis.set(lockKey, lockValue, {
+            NX: true,
+            EX: EXECUTION_LOCK_EXPIRY_SECONDS
+          });
+          
+          if (retryResult === 'OK') {
+            enhancedLogger.info(`✅ Execution lock acquired after stale cleanup for proposal ${proposalId}`, {
+              processId,
+              matchId: matchId || 'unknown'
+            });
+            return true;
+          }
+        }
+      }
+    } catch (parseError) {
+      enhancedLogger.warn(`⚠️ Could not parse existing execution lock data for proposal ${proposalId}`, parseError);
+    }
+    
+    // Lock still exists and is not stale
+    enhancedLogger.warn(`⚠️ Execution lock already exists for proposal ${proposalId} - another process is executing`, {
+      matchId: matchId || 'unknown',
+      note: 'This prevents concurrent execution attempts which could cause race conditions'
+    });
+    return false;
+    
+  } catch (error: unknown) {
+    enhancedLogger.error(`❌ Error acquiring execution lock for proposal ${proposalId}:`, error);
+    // Fail open - allow execution if lock check fails (but log warning)
+    enhancedLogger.warn(`⚠️ Execution lock check failed - proceeding without lock (may cause race conditions)`, {
+      proposalId,
+      matchId: matchId || 'unknown'
+    });
+    return true; // Fail open to avoid blocking execution if Redis is down
+  }
+};
+
+/**
+ * Release an execution lock
+ */
+export const releaseExecutionLock = async (proposalId: string, matchId?: string): Promise<void> => {
+  try {
+    const redis = getRedisMM();
+    const lockKey = `execution:lock:${proposalId}`;
+    
+    const deleted = await redis.del(lockKey);
+    
+    if (deleted > 0) {
+      enhancedLogger.info(`✅ Execution lock released for proposal ${proposalId}`, {
+        matchId: matchId || 'unknown',
+        lockKey
+      });
+    } else {
+      enhancedLogger.warn(`⚠️ Execution lock not found when releasing for proposal ${proposalId}`, {
+        matchId: matchId || 'unknown',
+        lockKey,
+        note: 'Lock may have expired or was already released'
+      });
+    }
+  } catch (error: unknown) {
+    enhancedLogger.error(`❌ Error releasing execution lock for proposal ${proposalId}:`, error);
+    // Don't throw - lock release failure shouldn't block execution completion
+  }
+};
+
 export const getLockStats = async (): Promise<{
   totalLocks: number;
   staleLocks: number;
