@@ -4016,15 +4016,15 @@ export class SquadsVaultService {
     };
     
     try {
-      enhancedLogger.info('🚀 Executing Squads proposal', {
-        vaultAddress,
-        proposalId,
-        transactionIndex: transactionIndex.toString(),
-        executor: executor.publicKey.toString(),
+    enhancedLogger.info('🚀 Executing Squads proposal', {
+      vaultAddress,
+      proposalId,
+      transactionIndex: transactionIndex.toString(),
+      executor: executor.publicKey.toString(),
         matchId,
-        correlationId,
+      correlationId,
         note: 'Execution lock acquired - proceeding with execution',
-      });
+    });
 
     // Verify proposal status before executing and wait for ExecuteReady transition if needed
     let proposalIsExecuteReady = false;
@@ -4898,7 +4898,7 @@ export class SquadsVaultService {
           executionPath: 'ACTIVATE_THEN_EXECUTE',
           note: 'Proposal has enough approvals. Triggering ExecuteReady transition before execution - SDK requires ExecuteReady state to build transaction properly.',
         });
-        
+
         // CRITICAL FIX: Poll for ExecuteReady transition before execution
         // The SDK's vaultTransactionExecute() requires ExecuteReady state to properly build the transaction
         // Since rpc.vaultTransactionActivate() doesn't exist, we poll for the state transition
@@ -4927,12 +4927,12 @@ export class SquadsVaultService {
             if (statusKind === 'ExecuteReady') {
               isExecuteReady = true;
               enhancedLogger.info('✅ Proposal transitioned to ExecuteReady state', {
-                vaultAddress,
-                proposalId,
-                transactionIndex: transactionIndexNumber,
+          vaultAddress,
+          proposalId,
+          transactionIndex: transactionIndexNumber,
                 waitAttempt: attempt,
                 maxAttempts: maxWaitAttempts,
-                correlationId,
+          correlationId,
                 note: 'Proposal is now in ExecuteReady state - execution should succeed',
               });
               break;
@@ -4959,7 +4959,7 @@ export class SquadsVaultService {
               waitAttempt: attempt,
               error: pollError?.message || String(pollError),
               correlationId,
-            });
+        });
             
             if (attempt < maxWaitAttempts) {
               await new Promise(resolve => setTimeout(resolve, waitIntervalMs));
@@ -5030,18 +5030,18 @@ export class SquadsVaultService {
       if (currentIsExecuteReady || currentProposalStatus === 'ExecuteReady') {
         // Happy path: Proposal is ExecuteReady - use SDK method
         enhancedLogger.info('🚀 Attempting execution with SDK rpc.vaultTransactionExecute (ExecuteReady path)', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          executor: executor.publicKey.toString(),
-          executorHasSecretKey: !!executor.secretKey,
-          connectionRpcUrl: this.connection.rpcEndpoint,
-          multisigPda: multisigAddress.toString(),
-          programId: this.programId.toString(),
+              vaultAddress,
+              proposalId,
+        transactionIndex: transactionIndexNumber,
+        executor: executor.publicKey.toString(),
+        executorHasSecretKey: !!executor.secretKey,
+        connectionRpcUrl: this.connection.rpcEndpoint,
+        multisigPda: multisigAddress.toString(),
+        programId: this.programId.toString(),
           proposalStatus: currentProposalStatus,
-          correlationId,
+              correlationId,
           executionPath: 'SDK_RPC_METHOD_EXECUTEREADY',
-        });
+      });
 
         executionMethod = 'sdk-rpc-method';
         
@@ -5746,25 +5746,25 @@ export class SquadsVaultService {
       }
         
       // Success - continue with verification (for both SDK and manual execution paths)
-      if (executionSignature) {
-        // Emit metric: execute.success
-        enhancedLogger.info('📊 METRIC: execute.success', {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          signature: executionSignature,
+        if (executionSignature) {
+          // Emit metric: execute.success
+          enhancedLogger.info('📊 METRIC: execute.success', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            signature: executionSignature,
           executionMethod: executionMethod || 'unknown',
-          correlationId,
-        });
-        
+            correlationId,
+          });
+          
         enhancedLogger.info(`✅ Proposal execution succeeded via ${executionMethod || 'unknown'}`, {
-          vaultAddress,
-          proposalId,
-          transactionIndex: transactionIndexNumber,
-          executionSignature,
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            executionSignature,
           executionMethod: executionMethod || 'unknown',
-          correlationId,
-        });
+            correlationId,
+          });
           
           // CRITICAL: Verify execution on-chain before returning success
           executionDAGLogger.addStep(correlationId, 'verification-started', {
