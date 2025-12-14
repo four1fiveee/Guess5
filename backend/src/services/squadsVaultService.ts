@@ -5385,21 +5385,76 @@ export class SquadsVaultService {
             throw new Error('Squads SDK instructions.vaultTransactionExecute is unavailable');
           }
 
+          // CRITICAL: Verify VaultTransaction account exists before execution
+          // Per Squads docs: Transactions require a proposal account to be voted on and executed
+          // We should verify the VaultTransaction account exists and is valid
+          const [transactionPda] = getTransactionPda({
+            multisigPda: multisigAddress,
+            index: BigInt(transactionIndexNumber),
+            programId: this.programId,
+          });
+
+          enhancedLogger.info('🔍 Verifying VaultTransaction account exists before manual execution', {
+            vaultAddress,
+            proposalId,
+            transactionIndex: transactionIndexNumber,
+            transactionPda: transactionPda.toString(),
+            multisigPda: multisigAddress.toString(),
+            correlationId,
+            note: 'Per Squads docs: Transactions must exist before execution. Verifying VaultTransaction account.',
+          });
+
+          try {
+            const vaultTxAccount = await accounts.VaultTransaction.fromAccountAddress(
+              this.connection,
+              transactionPda,
+              'confirmed'
+            );
+            
+            enhancedLogger.info('✅ VaultTransaction account verified', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              transactionPda: transactionPda.toString(),
+              correlationId,
+              note: 'VaultTransaction account exists and is valid - proceeding with execution',
+            });
+          } catch (vaultTxError: any) {
+            const errorMsg = vaultTxError?.message || String(vaultTxError);
+            enhancedLogger.error('❌ VaultTransaction account not found or invalid', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              transactionPda: transactionPda.toString(),
+              error: errorMsg,
+              correlationId,
+              note: 'VaultTransaction account must exist before execution. Per Squads docs, transactions require a proposal account to be voted on and executed.',
+            });
+            throw new Error(`VaultTransaction account not found: ${errorMsg}`);
+          }
+
           // Build the execution instruction manually
+          // Per Squads docs: https://docs.squads.so/main/development/typescript/accounts/transactions
+          // Vault Transactions store, vote, and execute on arbitrary Solana instructions
+          // The transaction index is used for derivation and must be a BigInt
           enhancedLogger.info('📝 Building execution instruction using instructions.vaultTransactionExecute', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
+            transactionPda: transactionPda.toString(),
             multisigPda: multisigAddress.toString(),
             executor: executor.publicKey.toString(),
             programId: this.programId.toString(),
             correlationId,
+            note: 'Using instructions.vaultTransactionExecute per Squads SDK documentation - works from Approved state',
           });
 
+          // CRITICAL: Per Squads docs, transactionIndex must be BigInt for derivation
+          // Reference: https://docs.squads.so/main/development/typescript/accounts/transactions
           const executeIx = instructions.vaultTransactionExecute({
             multisigPda: multisigAddress,
-            transactionIndex: BigInt(transactionIndexNumber),
-            member: executor.publicKey,
+            transactionIndex: BigInt(transactionIndexNumber), // Must be BigInt per docs
+            member: executor.publicKey, // Executor must be a member with execute permissions
             programId: this.programId,
           });
 
