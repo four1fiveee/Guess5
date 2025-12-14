@@ -4016,23 +4016,23 @@ export class SquadsVaultService {
     };
     
     try {
-    enhancedLogger.info('🚀 Executing Squads proposal', {
-      vaultAddress,
-      proposalId,
-      transactionIndex: transactionIndex.toString(),
-      executor: executor.publicKey.toString(),
+      enhancedLogger.info('🚀 Executing Squads proposal', {
+        vaultAddress,
+        proposalId,
+        transactionIndex: transactionIndex.toString(),
+        executor: executor.publicKey.toString(),
         matchId,
-      correlationId,
+        correlationId,
         note: 'Execution lock acquired - proceeding with execution',
-    });
+      });
 
-    // Verify proposal status before executing and wait for ExecuteReady transition if needed
-    let proposalIsExecuteReady = false;
-    
-    const statusCheckStartTime = Date.now();
-    logExecutionStep(correlationId, 'enqueue', execStartTime);
-    
-    try {
+      // Verify proposal status before executing and wait for ExecuteReady transition if needed
+      let proposalIsExecuteReady = false;
+      
+      const statusCheckStartTime = Date.now();
+      logExecutionStep(correlationId, 'enqueue', execStartTime);
+      
+      try {
       // transactionIndex and multisigAddress are already extracted above
       // Derive PDAs using the extracted transactionIndex
       const [proposalPda] = getProposalPda({
