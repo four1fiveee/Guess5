@@ -6844,10 +6844,7 @@ export class SquadsVaultService {
     }
   }
 
-  private async buildExecutionErrorDetails(
-    tx: VersionedTransaction | null,
-    rawError: unknown
-  ): Promise<ExecutionErrorDetails> {
+  private async buildExecutionErrorDetails(tx: VersionedTransaction | null, rawError: unknown): Promise<ExecutionErrorDetails> {
     let message = rawError instanceof Error ? rawError.message : String(rawError);
     let logs: string[] | undefined;
 
@@ -6906,6 +6903,7 @@ export class SquadsVaultService {
       errorInfo,
     };
   }
+
 }
 
 // Export singleton instance
