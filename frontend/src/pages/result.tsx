@@ -3200,17 +3200,28 @@ const Result: React.FC = () => {
                                   </span>
                                 )}
                               </div>
-                              {payoutData.entryFee && payoutData.refundAmount && (
-                                <div className={`text-sm mb-2 ${
-                                  Math.abs(payoutData.entryFee * 0.95 - payoutData.refundAmount) < 0.0001
-                                    ? 'text-green-400'
-                                    : 'text-yellow-400'
-                                }`}>
-                                  {Math.abs(payoutData.entryFee * 0.95 - payoutData.refundAmount) < 0.0001
-                                    ? `✅ 95% refund verified (${(payoutData.entryFee * 0.95).toFixed(4)} SOL expected)`
-                                    : `⚠️ Refund differs from expected 95% (${(payoutData.entryFee * 0.95).toFixed(4)} SOL) by ${Math.abs((payoutData.entryFee * 0.95) - payoutData.refundAmount).toFixed(4)} SOL. Entry fee: ${payoutData.entryFee.toFixed(4)} SOL, Refund: ${payoutData.refundAmount.toFixed(4)} SOL`}
-                                </div>
-                              )}
+                              {payoutData.entryFee && payoutData.refundAmount && (() => {
+                                // Calculate expected refund based on rounded tier amount * 0.95
+                                const entryFeeUSD = payoutData.entryFeeUSD 
+                                  ? Number(payoutData.entryFeeUSD)
+                                  : (solPrice && payoutData.entryFee 
+                                    ? getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) 
+                                    : null);
+                                const expectedRefundUSD = entryFeeUSD ? entryFeeUSD * 0.95 : null;
+                                const expectedRefundSOL = expectedRefundUSD && solPrice ? expectedRefundUSD / solPrice : payoutData.entryFee * 0.95;
+                                
+                                return (
+                                  <div className={`text-sm mb-2 ${
+                                    Math.abs(expectedRefundSOL - payoutData.refundAmount) < 0.0001
+                                      ? 'text-green-400'
+                                      : 'text-yellow-400'
+                                  }`}>
+                                    {Math.abs(expectedRefundSOL - payoutData.refundAmount) < 0.0001
+                                      ? `✅ 95% refund verified (${expectedRefundSOL.toFixed(4)} SOL expected)`
+                                      : `⚠️ Refund differs from expected 95% (${expectedRefundSOL.toFixed(4)} SOL) by ${Math.abs(expectedRefundSOL - payoutData.refundAmount).toFixed(4)} SOL. Entry fee: ${payoutData.entryFee.toFixed(4)} SOL, Refund: ${payoutData.refundAmount.toFixed(4)} SOL`}
+                                  </div>
+                                );
+                              })()}
                               {payoutData.proposalStatus === 'EXECUTED' ? (
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ 95% Refund Sent to Your Wallet!

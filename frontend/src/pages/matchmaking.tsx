@@ -41,6 +41,9 @@ const Matchmaking: React.FC = () => {
   const [solPrice, setSolPrice] = useState<number | null>(null);
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
+  const [countdownStarted, setCountdownStarted] = useState<boolean>(false);
+  const [paymentTimeout, setPaymentTimeout] = useState<number | null>(null);
+  const [paymentTimeRemaining, setPaymentTimeRemaining] = useState<number>(120); // 2 minutes in seconds
   const currentWallet = publicKey?.toString() || null;
 
   const cancellationContext = useMemo(() => {
@@ -223,8 +226,11 @@ const Matchmaking: React.FC = () => {
     }
   }, [status, queueStartTime]);
 
-  // Countdown effect for match start
+  // Countdown effect for match start - prevent restarting
   useEffect(() => {
+    if (countdown !== null && countdown > 0 && !countdownStarted) {
+      setCountdownStarted(true);
+    }
     if (countdown !== null && countdown > 0) {
       const timer = setTimeout(() => {
         setCountdown(countdown - 1);
@@ -239,7 +245,27 @@ const Matchmaking: React.FC = () => {
         }, 500);
       }
     }
-  }, [countdown, status, router, matchData]);
+  }, [countdown, status, router, matchData, countdownStarted]);
+  
+  // Payment timeout effect - 2 minutes to pay or return to lobby
+  useEffect(() => {
+    if ((status === 'payment_required' || status === 'waiting_for_payment') && paymentTimeRemaining > 0) {
+      const timer = setTimeout(() => {
+        setPaymentTimeRemaining(prev => {
+          if (prev <= 1) {
+            // Timeout reached - redirect both players to lobby
+            router.push('/lobby');
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (status !== 'payment_required' && status !== 'waiting_for_payment') {
+      // Reset timeout when payment is no longer required
+      setPaymentTimeRemaining(120);
+    }
+  }, [status, paymentTimeRemaining, router]);
 
   const handleCancelAndReturn = async () => {
     if (isCancelling) {
@@ -761,8 +787,10 @@ const Matchmaking: React.FC = () => {
         clearTimeout(safetyTimeout);
         setIsPaymentInProgress(false);
         
-        // Start countdown (3, 2, 1) before redirecting
-        setCountdown(3);
+        // Start countdown (3, 2, 1) before redirecting - only if not already started
+        if (!countdownStarted) {
+          setCountdown(3);
+        }
         return;
       }
 
@@ -1663,6 +1691,23 @@ const Matchmaking: React.FC = () => {
                   </div>
                 )}
 
+                {/* Payment Timeout Warning */}
+                {(status === 'payment_required' || status === 'waiting_for_payment') && paymentTimeRemaining > 0 && (
+                  <div className="bg-yellow-500/10 border border-yellow-400/30 rounded-lg p-3 mb-4">
+                    <div className="flex items-center justify-between">
+                      <div className="text-yellow-400 text-sm font-medium">
+                        ⏰ Payment Required
+                      </div>
+                      <div className="text-yellow-300 text-sm font-bold">
+                        {Math.floor(paymentTimeRemaining / 60)}:{(paymentTimeRemaining % 60).toString().padStart(2, '0')}
+                      </div>
+                    </div>
+                    <p className="text-white/70 text-xs mt-1">
+                      Complete payment within {Math.floor(paymentTimeRemaining / 60)}:{(paymentTimeRemaining % 60).toString().padStart(2, '0')} or you'll be returned to the lobby
+                    </p>
+                  </div>
+                )}
+                
                 {/* Payment Button */}
                 {!userPaid && (
                   <button
@@ -1722,15 +1767,15 @@ const Matchmaking: React.FC = () => {
           )}
 
           {status === 'active' && countdown !== null && countdown > 0 && (
-            <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
+            <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary border-none outline-none">
               {/* Clean countdown display - absolutely no containers, borders, or boxes */}
               {/* Subtle glow effect - positioned absolutely, no container */}
               <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                 <div className="w-96 h-96 rounded-full bg-accent/5 animate-pulse"></div>
               </div>
               
-              {/* Main countdown number - directly displayed, no wrapper divs */}
-              <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none mb-8">
+              {/* Main countdown number - directly displayed, no wrapper divs, no border/outline */}
+              <span className="relative z-10 text-[12rem] font-black text-accent drop-shadow-[0_0_30px_rgba(255,215,0,0.6)] leading-none mb-8 border-none outline-none">
                 {countdown}
               </span>
               
