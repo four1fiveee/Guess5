@@ -6673,6 +6673,7 @@ export class SquadsVaultService {
       return false;
     }
     
+    
     // Retryable errors: network, RPC, connection issues
     return normalized.includes('network') ||
            normalized.includes('timeout') ||
