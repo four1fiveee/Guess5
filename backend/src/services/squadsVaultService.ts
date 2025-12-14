@@ -5482,52 +5482,45 @@ export class SquadsVaultService {
             });
 
             // Step 2: Build the execution instruction using instructions.vaultTransactionExecute()
-            // By passing the proposalAccount, we avoid the internal fromAccountAddress() call that needs connection
+            // CRITICAL FIX: Pass connection explicitly to avoid SDK internal errors
             let executeIx: TransactionInstruction;
             try {
-              // Try calling with proposalAccount if the function accepts it
+              // Try calling with connection parameter (required by SDK)
               const ixResult = instructions.vaultTransactionExecute({
+                connection: this.connection, // CRITICAL: Pass connection explicitly
                 multisigPda: multisigAddress,
                 transactionIndex: BigInt(transactionIndexNumber),
                 member: executor.publicKey,
                 programId: this.programId,
-                // Try passing proposalAccount if supported
-                proposalAccount: proposalAccount as any,
               });
               executeIx = ixResult instanceof Promise ? await ixResult : ixResult;
+              
+              enhancedLogger.info('✅ Successfully built instruction using instructions.vaultTransactionExecute()', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                correlationId,
+              });
             } catch (ixError: any) {
-              // If instructions.vaultTransactionExecute() doesn't accept proposalAccount,
-              // we need to build the instruction manually using the program's instruction format
-              enhancedLogger.warn('⚠️ instructions.vaultTransactionExecute() failed, building instruction manually', {
+              // If instructions.vaultTransactionExecute() fails, we need to build the instruction manually
+              // This requires the correct 8-byte Anchor discriminator
+              enhancedLogger.warn('⚠️ instructions.vaultTransactionExecute() failed, attempting manual instruction build', {
                 vaultAddress,
                 proposalId,
                 transactionIndex: transactionIndexNumber,
                 error: ixError?.message || String(ixError),
                 correlationId,
-                note: 'SDK instruction builder failed. Building instruction manually using program format.',
+                note: 'SDK instruction builder failed. Attempting to build instruction manually with correct discriminator.',
               });
 
-              // Manual instruction building - based on Squads program's vault_transaction_execute instruction
-              // Accounts needed: multisig, transaction, proposal, executor, system_program
-              const [transactionPda] = getTransactionPda({
-                multisigPda: multisigAddress,
-                index: BigInt(transactionIndexNumber),
-                programId: this.programId,
-              });
-
-              // Build instruction manually - this is the actual instruction format
-              // Reference: Squads program's vault_transaction_execute instruction
-              executeIx = new TransactionInstruction({
-                keys: [
-                  { pubkey: multisigAddress, isSigner: false, isWritable: false },
-                  { pubkey: transactionPda, isSigner: false, isWritable: false },
-                  { pubkey: proposalPda, isSigner: false, isWritable: true },
-                  { pubkey: executor.publicKey, isSigner: true, isWritable: true },
-                  { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-                ],
-                programId: this.programId,
-                data: Buffer.alloc(0), // vault_transaction_execute has no instruction data
-              });
+              // CRITICAL: We cannot build Anchor instructions manually without the discriminator
+              // The discriminator is a hash of the instruction name and is program-specific
+              // Since we can't get it easily, we should fail with a clear error
+              throw new Error(
+                `Cannot build manual instruction: instructions.vaultTransactionExecute() failed and manual instruction building requires the 8-byte Anchor discriminator which is not available. ` +
+                `Original error: ${ixError?.message || String(ixError)}. ` +
+                `Solution: The proposal must transition to ExecuteReady state for SDK execution to work.`
+              );
             }
 
             // Step 3: Build and send the transaction manually
