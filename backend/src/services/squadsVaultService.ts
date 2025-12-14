@@ -5965,7 +5965,7 @@ export class SquadsVaultService {
     } finally {
         // CRITICAL: Always release execution lock, even if execution fails
         await releaseLock();
-      }
+    }
   }
 
   /**
