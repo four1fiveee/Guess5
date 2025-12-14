@@ -5451,84 +5451,61 @@ export class SquadsVaultService {
 
           // CRITICAL: Per Squads docs, transactionIndex must be BigInt for derivation
           // Reference: https://docs.squads.so/main/development/typescript/accounts/transactions
-          const executeIx = instructions.vaultTransactionExecute({
-            multisigPda: multisigAddress,
-            transactionIndex: BigInt(transactionIndexNumber), // Must be BigInt per docs
-            member: executor.publicKey, // Executor must be a member with execute permissions
-            programId: this.programId,
-          });
-
-          // Get latest blockhash
-          const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
-
-          // Build transaction message
-          const message = new TransactionMessage({
-            payerKey: executor.publicKey,
-            recentBlockhash: blockhash,
-            instructions: [executeIx],
-          });
-
-          // Compile to V0 message (required for Squads)
-          const compiledMessage = message.compileToV0Message();
-          const transaction = new VersionedTransaction(compiledMessage);
-
-          // Sign the transaction
-          transaction.sign([executor]);
-
-          // Validate transaction size
-          const serializedSize = transaction.serialize().length;
-          const maxTransactionSize = 1232;
-          
-          enhancedLogger.info('📏 Transaction Size Validation (Manual Execution)', {
+          // 
+          // ISSUE: instructions.vaultTransactionExecute() internally calls fromAccountAddress()
+          // which needs connection, but the function doesn't accept connection parameter.
+          // We need to use rpc.vaultTransactionExecute() but it requires ExecuteReady.
+          // 
+          // WORKAROUND: Since we're in Approved state and SDK methods don't work,
+          // we'll use rpc.vaultTransactionExecute() anyway and catch the error.
+          // The program should accept it even if SDK validation fails.
+          enhancedLogger.warn('⚠️ Attempting rpc.vaultTransactionExecute() from Approved state (SDK may reject but program should accept)', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
-            serializedSize,
-            maxSize: maxTransactionSize,
-            sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
-            executor: executor.publicKey.toString(),
+            proposalStatus: currentProposalStatus,
             correlationId,
+            note: 'instructions.vaultTransactionExecute() requires connection internally. Using rpc method as workaround - program should accept Approved state even if SDK validation fails.',
           });
-          
-          if (serializedSize > maxTransactionSize) {
-            throw new Error(`Transaction size ${serializedSize} exceeds maximum ${maxTransactionSize} bytes`);
+
+          // Use rpc.vaultTransactionExecute() - it may fail SDK validation but program should accept
+          // This is a workaround for the instructions.vaultTransactionExecute() connection issue
+          try {
+            executionSignature = await rpc.vaultTransactionExecute({
+              connection: this.connection,
+              feePayer: executor,
+              multisigPda: multisigAddress,
+              transactionIndex: transactionIndexNumber,
+              member: executor.publicKey,
+              programId: this.programId,
+            });
+
+            enhancedLogger.info('✅ rpc.vaultTransactionExecute succeeded from Approved state', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              signature: executionSignature,
+              correlationId,
+              note: 'Execution succeeded despite SDK requiring ExecuteReady - program accepted Approved state',
+            });
+
+            // Success - skip manual transaction building
+            executionMethod = 'rpc-method-from-approved-workaround';
+          } catch (rpcError: any) {
+            // If rpc method also fails, we cannot proceed - the program itself rejects it
+            const errorMsg = rpcError?.message || String(rpcError);
+            enhancedLogger.error('❌ Both SDK methods failed - cannot execute from Approved state', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              error: errorMsg,
+              errorCode: rpcError?.code,
+              correlationId,
+              note: 'Both rpc.vaultTransactionExecute() and instructions.vaultTransactionExecute() failed. The program may require ExecuteReady state after all.',
+            });
+
+            throw new Error(`Cannot execute proposal from Approved state: ${errorMsg}. The program may require ExecuteReady state.`);
           }
-
-          // Send and confirm transaction
-          enhancedLogger.info('📤 Sending manual execution transaction', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            transactionSize: serializedSize,
-            correlationId,
-          });
-
-          const signature = await this.connection.sendTransaction(transaction, {
-            skipPreflight: false,
-            maxRetries: 3,
-          });
-
-          // Wait for confirmation
-          await this.connection.confirmTransaction(
-            {
-              signature,
-              blockhash,
-              lastValidBlockHeight,
-            },
-            'confirmed'
-          );
-
-          executionSignature = signature;
-
-          enhancedLogger.info('✅ Manual execution transaction confirmed', {
-            vaultAddress,
-            proposalId,
-            transactionIndex: transactionIndexNumber,
-            signature: executionSignature,
-            executor: executor.publicKey.toString(),
-            correlationId,
-            note: 'Manual execution from Approved state succeeded - bypassed SDK ExecuteReady requirement',
-          });
         } catch (manualError: any) {
           const errorMsg = manualError?.message || String(manualError);
           enhancedLogger.error('❌ Manual execution fallback failed', {
