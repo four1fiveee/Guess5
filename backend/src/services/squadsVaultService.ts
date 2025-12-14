@@ -3807,7 +3807,7 @@ export class SquadsVaultService {
     proposalPda: PublicKey,
     transactionIndex: number,
     correlationId: string,
-    maxAttempts: number = 15,
+    maxAttempts: number = 30, // Increased from 15 to 30 (60 seconds total)
     intervalMs: number = 2000
   ): Promise<accounts.Proposal> {
     enhancedLogger.info('⏳ Waiting for proposal to transition to ExecuteReady state', {
@@ -4878,7 +4878,7 @@ export class SquadsVaultService {
         });
         
         // Poll for ExecuteReady state with timeout
-        const maxWaitAttempts = 15; // 15 attempts * 2 seconds = 30 seconds max
+        const maxWaitAttempts = 30; // 30 attempts * 2 seconds = 60 seconds max (increased from 15)
         const waitIntervalMs = 2000; // 2 seconds between checks
         let isExecuteReady = false;
         
@@ -5164,7 +5164,7 @@ export class SquadsVaultService {
                     proposalPda,
                     transactionIndexNumber,
                     correlationId,
-                    15, // maxAttempts
+                    30, // maxAttempts (increased from 15 to 30 for 60s timeout)
                     2000 // intervalMs
                   );
                   enhancedLogger.info('✅ Proposal reached ExecuteReady - retrying execution', {

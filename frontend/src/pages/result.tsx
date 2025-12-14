@@ -733,7 +733,11 @@ const Result: React.FC = () => {
     // CRITICAL: Only use localStorage if we don't already have EXECUTING status in current state
     // Check current state before falling back to avoid overwriting EXECUTING status
     const currentState = payoutData;
-    if (currentState?.proposalStatus === 'EXECUTING' || (currentState?.needsSignatures === 0 && !currentState?.proposalExecutedAt)) {
+    // CRITICAL FIX: Only consider executing if status is explicitly EXECUTING or READY_TO_EXECUTE
+    const isExecutingState = currentState?.proposalStatus === 'EXECUTING' || 
+                             currentState?.proposalStatus === 'READY_TO_EXECUTE' ||
+                             (currentState?.proposalStatus === 'APPROVED' && currentState?.needsSignatures === 0 && !currentState?.proposalExecutedAt);
+    if (isExecutingState) {
       console.log('✅ Skipping localStorage fallback - already have EXECUTING status in state', {
         proposalStatus: currentState.proposalStatus,
         needsSignatures: currentState.needsSignatures,
@@ -913,7 +917,11 @@ const Result: React.FC = () => {
     
     // Smart polling: 1s until proposal exists, 2s during EXECUTING (faster to detect completion), 3s otherwise
     const hasProposal = !!payoutData?.proposalId;
-    const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+    // CRITICAL FIX: Only consider executing if status is explicitly EXECUTING or READY_TO_EXECUTE
+    // Don't infer from needsSignatures === 0 - APPROVED with 0 signatures means waiting for ExecuteReady
+    const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || 
+                        payoutData?.proposalStatus === 'READY_TO_EXECUTE' ||
+                        (payoutData?.proposalStatus === 'APPROVED' && payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
     const baseInterval = hasProposal ? (isExecuting ? 2000 : 3000) : 1000; // Faster polling during execution
     
     console.log('🔄 Starting smart proposal polling...', {
@@ -937,7 +945,11 @@ const Result: React.FC = () => {
     
     const pollInterval = setInterval(() => {
       pollCount++;
-      const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+      // CRITICAL FIX: Only consider executing if status is explicitly EXECUTING or READY_TO_EXECUTE
+    // Don't infer from needsSignatures === 0 - APPROVED with 0 signatures means waiting for ExecuteReady
+    const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || 
+                        payoutData?.proposalStatus === 'READY_TO_EXECUTE' ||
+                        (payoutData?.proposalStatus === 'APPROVED' && payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
       const currentInterval = hasProposal ? (isExecuting ? 2000 : 3000) : 1000; // Faster polling during execution
       
       // CRITICAL: Debounce to prevent rapid state updates that cause UI flashing
@@ -999,7 +1011,11 @@ const Result: React.FC = () => {
   const [executionElapsedSeconds, setExecutionElapsedSeconds] = useState<number>(0);
   
   useEffect(() => {
-    if ((payoutData?.proposalStatus === 'EXECUTING' || (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt)) && !executionStartTime) {
+    // CRITICAL FIX: Only start execution timer if status is explicitly EXECUTING or READY_TO_EXECUTE
+    const shouldStartTimer = payoutData?.proposalStatus === 'EXECUTING' || 
+                             payoutData?.proposalStatus === 'READY_TO_EXECUTE' ||
+                             (payoutData?.proposalStatus === 'APPROVED' && payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
+    if (shouldStartTimer && !executionStartTime) {
       setExecutionStartTime(Date.now());
       setExecutionElapsedSeconds(0);
     } else if (payoutData?.proposalExecutedAt && executionStartTime) {
@@ -1876,9 +1892,15 @@ const Result: React.FC = () => {
         });
       }
       
-      // If needsSignatures becomes 0, set status to EXECUTING
-      if (updatedPayoutData.needsSignatures === 0 && updatedPayoutData.proposalStatus !== 'EXECUTED') {
-        updatedPayoutData.proposalStatus = 'EXECUTING';
+      // CRITICAL FIX: Only set EXECUTING if backend explicitly says so
+      // Don't infer from needsSignatures === 0 - backend must return READY_TO_EXECUTE or EXECUTING
+      // needsSignatures === 0 with APPROVED status means waiting for ExecuteReady transition
+      if (updatedPayoutData.needsSignatures === 0 && 
+          updatedPayoutData.proposalStatus === 'APPROVED' && 
+          updatedPayoutData.proposalStatus !== 'EXECUTED') {
+        // Keep as APPROVED - don't infer EXECUTING
+        // Backend will update to READY_TO_EXECUTE or EXECUTING when ready
+        updatedPayoutData.proposalStatus = 'APPROVED';
       }
       
       // CRITICAL FIX: Ensure proposalStatus is set to prevent showing "Creating Proposal" after signing
@@ -2451,7 +2473,7 @@ const Result: React.FC = () => {
                                 </div>
                               )}
                             </div>
-                          ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
                             <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
@@ -2812,7 +2834,7 @@ const Result: React.FC = () => {
                                 </div>
                               )}
                             </div>
-                          ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
                             <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                 <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
@@ -3101,7 +3123,7 @@ const Result: React.FC = () => {
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ Full Refund Sent to Your Wallet!
                                 </div>
-                              ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                              ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
                                 <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                                   <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                     <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
@@ -3163,7 +3185,7 @@ const Result: React.FC = () => {
                                 <div className="text-green-400 text-xl font-semibold animate-pulse mb-3">
                                   ✅ 95% Refund Sent to Your Wallet!
                                 </div>
-                              ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                              ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
                                 <div className="mb-3 p-4 rounded-lg bg-yellow-500/10 border border-yellow-400/30">
                                   <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                     <div className="animate-spin rounded-full h-5 w-5 border-2 border-yellow-400 border-t-transparent"></div>
@@ -3203,8 +3225,12 @@ const Result: React.FC = () => {
                                   ? 'text-green-400 font-semibold'
                                   : 'text-white/60'
                               }`}>
-                                {(payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
-                                  ? `✅ Proposal is ready to execute - waiting for processing...${executionStartTime ? ` (${executionElapsedSeconds}s)` : ''}`
+                                {payoutData.proposalStatus === 'READY_TO_EXECUTE' || payoutData.proposalStatus === 'EXECUTING'
+                                  ? `✅ Proposal is ready to execute - ${payoutData.proposalStatus === 'EXECUTING' ? 'executing on blockchain' : 'waiting for processing'}...${executionStartTime ? ` (${executionElapsedSeconds}s)` : ''}`
+                                  : (payoutData.needsSignatures === 0 || payoutData.needsSignatures === undefined || payoutData.needsSignatures === null)
+                                  ? payoutData.proposalStatus === 'APPROVED'
+                                    ? `✅ All signatures collected. Waiting for ExecuteReady transition...${executionStartTime ? ` (${executionElapsedSeconds}s)` : ''}`
+                                    : `✅ Proposal is ready to execute - waiting for processing...${executionStartTime ? ` (${executionElapsedSeconds}s)` : ''}`
                                   : playerProposalSigners.includes(publicKey?.toString() || '')
                                   ? `✓ You have signed. Waiting for proposal execution...${executionStartTime ? ` (${executionElapsedSeconds}s elapsed)` : ''}`
                                   : playerProposalSigners.length > 0
@@ -3312,7 +3338,7 @@ const Result: React.FC = () => {
                                 </a>
                               )}
                             </div>
-                          ) : (payoutData.proposalStatus === 'EXECUTING' || (payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
+                          ) : (payoutData.proposalStatus === 'EXECUTING' || payoutData.proposalStatus === 'READY_TO_EXECUTE' || (payoutData.proposalStatus === 'APPROVED' && payoutData.needsSignatures === 0 && !payoutData.proposalExecutedAt)) ? (
                             <div className="mb-3">
                               <div className="flex items-center gap-2 text-yellow-400 text-lg font-semibold mb-2">
                                 <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400"></div>

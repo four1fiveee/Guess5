@@ -8,6 +8,7 @@ import { notifyAdmin } from '../services/notificationService';
 import { autoLockReferralPayouts } from './autoLockService';
 import { reconcileAllProposals } from './proposalReconciliationService';
 import { runScheduledCleanup } from './proposalCleanupService';
+import { cleanupAllOrphanedProposals } from './orphanProposalCleanupService';
 
 /**
  * Cron service for scheduled tasks
@@ -131,6 +132,45 @@ export class CronService {
     } catch (error: any) {
       console.error('❌ Error during proposal reconciliation:', error?.message || error);
       // Don't throw - reconciliation is non-critical
+    }
+  }
+
+  /**
+   * Clean up orphaned proposals (runs weekly on Sundays)
+   */
+  static async cleanupOrphanedProposals(): Promise<void> {
+    try {
+      console.log('🧹 Starting orphaned proposal cleanup...');
+      
+      const results = await cleanupAllOrphanedProposals({
+        maxAgeHours: 24, // Only clean up orphans older than 24 hours
+        cancelActive: false, // Don't cancel Active/Approved orphans (safety)
+        dryRun: false, // Actually perform cleanup (not just log)
+      });
+
+      const totalOrphans = Object.values(results).reduce((sum, r) => sum + r.totalOrphansFound, 0);
+      const totalCleaned = Object.values(results).reduce((sum, r) => sum + r.orphansCleaned, 0);
+
+      if (totalOrphans > 0) {
+        console.log(`✅ Orphan cleanup completed: Found ${totalOrphans} orphans, cleaned ${totalCleaned}`);
+        
+        // Notify admin if significant number of orphans found
+        if (totalOrphans > 10) {
+          await notifyAdmin({
+            type: 'orphan_cleanup',
+            title: 'Orphaned Proposals Cleaned',
+            message: `Orphan cleanup found ${totalOrphans} orphaned proposals across ${Object.keys(results).length} vaults. ${totalCleaned} were cleaned.`,
+            totalOrphans,
+            totalCleaned,
+            vaultsScanned: Object.keys(results).length,
+          });
+        }
+      } else {
+        console.log(`✅ Orphan cleanup completed: No orphaned proposals found`);
+      }
+    } catch (error: any) {
+      console.error('❌ Error during orphan cleanup:', error?.message || error);
+      // Don't throw - cleanup is non-critical
     }
   }
 
