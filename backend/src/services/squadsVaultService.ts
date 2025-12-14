@@ -5746,7 +5746,7 @@ export class SquadsVaultService {
       }
         
       // Success - continue with verification (for both SDK and manual execution paths)
-        if (executionSignature) {
+      if (executionSignature) {
           // Emit metric: execute.success
           enhancedLogger.info('📊 METRIC: execute.success', {
             vaultAddress,
