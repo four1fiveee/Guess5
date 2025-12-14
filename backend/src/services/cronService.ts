@@ -267,6 +267,20 @@ export class CronService {
       runScheduledCleanup();
     }, 60000); // 1 minute delay
 
+    // Orphan proposal cleanup (runs weekly, on Sundays)
+    const orphanCleanupInterval = setInterval(() => {
+      if (isSundayMidnightEST()) {
+        this.cleanupOrphanedProposals();
+      }
+    }, 60 * 60 * 1000); // Check every hour
+
+    // Run orphan cleanup immediately if it's Sunday
+    if (isSundayMidnightEST()) {
+      setTimeout(() => {
+        this.cleanupOrphanedProposals();
+      }, 5 * 60 * 1000); // 5 minute delay
+    }
+
     console.log('✅ Cron jobs started');
     console.log(`   Auto-lock scheduled for next Sunday 12:00am EST (${Math.floor(msUntilNextSunday / (1000 * 60 * 60))} hours)`);
     console.log(`   Proposal reconciliation scheduled every 10 minutes`);
