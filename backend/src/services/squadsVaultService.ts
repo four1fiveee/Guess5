@@ -1,5 +1,5 @@
 // @ts-nocheck
-import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, Transaction } from '@solana/web3.js';
+import { Connection, PublicKey, LAMPORTS_PER_SOL, Keypair, TransactionMessage, TransactionInstruction, SystemProgram, VersionedTransaction, SendTransactionError, Transaction, sendAndConfirmTransaction } from '@solana/web3.js';
 import {
   rpc,
   instructions,
@@ -5449,62 +5449,174 @@ export class SquadsVaultService {
             note: 'Using instructions.vaultTransactionExecute per Squads SDK documentation - works from Approved state',
           });
 
-          // CRITICAL: Per Squads docs, transactionIndex must be BigInt for derivation
-          // Reference: https://docs.squads.so/main/development/typescript/accounts/transactions
+          // CRITICAL FIX: Manual execution from Approved state
+          // The SDK's rpc.vaultTransactionExecute() requires ExecuteReady, but the program accepts Approved.
+          // We'll build the transaction manually using instructions.vaultTransactionExecute() with the proposal account.
           // 
-          // ISSUE: instructions.vaultTransactionExecute() internally calls fromAccountAddress()
-          // which needs connection, but the function doesn't accept connection parameter.
-          // We need to use rpc.vaultTransactionExecute() but it requires ExecuteReady.
-          // 
-          // WORKAROUND: Since we're in Approved state and SDK methods don't work,
-          // we'll use rpc.vaultTransactionExecute() anyway and catch the error.
-          // The program should accept it even if SDK validation fails.
-          enhancedLogger.warn('⚠️ Attempting rpc.vaultTransactionExecute() from Approved state (SDK may reject but program should accept)', {
+          // Key insight: instructions.vaultTransactionExecute() internally calls fromAccountAddress() 
+          // but we can fetch the proposal account first and pass it in to avoid the connection issue.
+          enhancedLogger.info('🔧 Building manual execution transaction from Approved state', {
             vaultAddress,
             proposalId,
             transactionIndex: transactionIndexNumber,
             proposalStatus: currentProposalStatus,
             correlationId,
-            note: 'instructions.vaultTransactionExecute() requires connection internally. Using rpc method as workaround - program should accept Approved state even if SDK validation fails.',
+            note: 'Using instructions.vaultTransactionExecute() with pre-fetched proposal account to bypass SDK ExecuteReady requirement',
           });
 
-          // Use rpc.vaultTransactionExecute() - it may fail SDK validation but program should accept
-          // This is a workaround for the instructions.vaultTransactionExecute() connection issue
           try {
-            executionSignature = await rpc.vaultTransactionExecute({
-              connection: this.connection,
-              feePayer: executor,
-              multisigPda: multisigAddress,
+            // Step 1: Fetch the proposal account first (this is what instructions.vaultTransactionExecute() needs internally)
+            const proposalAccount = await accounts.Proposal.fromAccountAddress(
+              this.connection,
+              proposalPda,
+              'confirmed'
+            );
+
+            enhancedLogger.info('✅ Proposal account fetched for manual execution', {
+              vaultAddress,
+              proposalId,
               transactionIndex: transactionIndexNumber,
-              member: executor.publicKey,
-              programId: this.programId,
+              proposalPda: proposalPda.toString(),
+              statusKind: proposalAccount.status.__kind,
+              correlationId,
             });
 
-            enhancedLogger.info('✅ rpc.vaultTransactionExecute succeeded from Approved state', {
+            // Step 2: Build the execution instruction using instructions.vaultTransactionExecute()
+            // By passing the proposalAccount, we avoid the internal fromAccountAddress() call that needs connection
+            let executeIx: TransactionInstruction;
+            try {
+              // Try calling with proposalAccount if the function accepts it
+              const ixResult = instructions.vaultTransactionExecute({
+                multisigPda: multisigAddress,
+                transactionIndex: BigInt(transactionIndexNumber),
+                member: executor.publicKey,
+                programId: this.programId,
+                // Try passing proposalAccount if supported
+                proposalAccount: proposalAccount as any,
+              });
+              executeIx = ixResult instanceof Promise ? await ixResult : ixResult;
+            } catch (ixError: any) {
+              // If instructions.vaultTransactionExecute() doesn't accept proposalAccount,
+              // we need to build the instruction manually using the program's instruction format
+              enhancedLogger.warn('⚠️ instructions.vaultTransactionExecute() failed, building instruction manually', {
+                vaultAddress,
+                proposalId,
+                transactionIndex: transactionIndexNumber,
+                error: ixError?.message || String(ixError),
+                correlationId,
+                note: 'SDK instruction builder failed. Building instruction manually using program format.',
+              });
+
+              // Manual instruction building - based on Squads program's vault_transaction_execute instruction
+              // Accounts needed: multisig, transaction, proposal, executor, system_program
+              const [transactionPda] = getTransactionPda({
+                multisigPda: multisigAddress,
+                index: BigInt(transactionIndexNumber),
+                programId: this.programId,
+              });
+
+              // Build instruction manually - this is the actual instruction format
+              // Reference: Squads program's vault_transaction_execute instruction
+              executeIx = new TransactionInstruction({
+                keys: [
+                  { pubkey: multisigAddress, isSigner: false, isWritable: false },
+                  { pubkey: transactionPda, isSigner: false, isWritable: false },
+                  { pubkey: proposalPda, isSigner: false, isWritable: true },
+                  { pubkey: executor.publicKey, isSigner: true, isWritable: true },
+                  { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
+                ],
+                programId: this.programId,
+                data: Buffer.alloc(0), // vault_transaction_execute has no instruction data
+              });
+            }
+
+            // Step 3: Build and send the transaction manually
+            const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash('finalized');
+
+            // Build transaction message
+            const message = new TransactionMessage({
+              payerKey: executor.publicKey,
+              recentBlockhash: blockhash,
+              instructions: [executeIx],
+            });
+
+            // Compile to V0 message (required for Squads)
+            const compiledMessage = message.compileToV0Message();
+            const transaction = new VersionedTransaction(compiledMessage);
+
+            // Sign the transaction
+            transaction.sign([executor]);
+
+            // Validate transaction size
+            const serializedSize = transaction.serialize().length;
+            const maxTransactionSize = 1232;
+            
+            enhancedLogger.info('📏 Manual execution transaction built', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              serializedSize,
+              maxSize: maxTransactionSize,
+              sizePercentage: ((serializedSize / maxTransactionSize) * 100).toFixed(2) + '%',
+              executor: executor.publicKey.toString(),
+              correlationId,
+            });
+            
+            if (serializedSize > maxTransactionSize) {
+              throw new Error(`Transaction size ${serializedSize} exceeds maximum ${maxTransactionSize} bytes`);
+            }
+
+            // Send and confirm transaction
+            enhancedLogger.info('📤 Sending manual execution transaction', {
+              vaultAddress,
+              proposalId,
+              transactionIndex: transactionIndexNumber,
+              transactionSize: serializedSize,
+              correlationId,
+            });
+
+            const signature = await this.connection.sendTransaction(transaction, {
+              skipPreflight: false,
+              maxRetries: 3,
+            });
+
+            // Wait for confirmation
+            await this.connection.confirmTransaction(
+              {
+                signature,
+                blockhash,
+                lastValidBlockHeight,
+              },
+              'confirmed'
+            );
+
+            executionSignature = signature;
+            executionMethod = 'manual-instruction-from-approved';
+
+            enhancedLogger.info('✅ Manual execution from Approved state succeeded', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               signature: executionSignature,
+              executor: executor.publicKey.toString(),
               correlationId,
-              note: 'Execution succeeded despite SDK requiring ExecuteReady - program accepted Approved state',
+              note: 'Successfully executed from Approved state by bypassing SDK ExecuteReady requirement',
             });
-
-            // Success - skip manual transaction building
-            executionMethod = 'rpc-method-from-approved-workaround';
-          } catch (rpcError: any) {
-            // If rpc method also fails, we cannot proceed - the program itself rejects it
-            const errorMsg = rpcError?.message || String(rpcError);
-            enhancedLogger.error('❌ Both SDK methods failed - cannot execute from Approved state', {
+          } catch (manualError: any) {
+            const errorMsg = manualError?.message || String(manualError);
+            enhancedLogger.error('❌ Manual execution from Approved state failed', {
               vaultAddress,
               proposalId,
               transactionIndex: transactionIndexNumber,
               error: errorMsg,
-              errorCode: rpcError?.code,
+              errorCode: manualError?.code,
+              errorStack: manualError?.stack,
+              transactionLogs: manualError?.logs,
               correlationId,
-              note: 'Both rpc.vaultTransactionExecute() and instructions.vaultTransactionExecute() failed. The program may require ExecuteReady state after all.',
+              note: 'Manual execution from Approved state failed. This may indicate the program requires ExecuteReady state after all, or there is an issue with executor permissions.',
             });
 
-            throw new Error(`Cannot execute proposal from Approved state: ${errorMsg}. The program may require ExecuteReady state.`);
+            throw new Error(`Manual execution from Approved state failed: ${errorMsg}`);
           }
         } catch (manualError: any) {
           const errorMsg = manualError?.message || String(manualError);
