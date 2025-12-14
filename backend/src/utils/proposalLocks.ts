@@ -249,9 +249,6 @@ export const cleanupStaleLocks = async (): Promise<number> => {
 };
 
 /**
- * Get statistics about active locks
- */
-/**
  * Execution lock utility to prevent concurrent execution attempts
  * Uses separate lock key from proposal creation locks
  */
