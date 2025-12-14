@@ -6282,6 +6282,7 @@ export class SquadsVaultService {
       };
     }
   }
+
   async checkVaultStatus(vaultAddress: string): Promise<{
     balance: number;
     confirmations: number;
