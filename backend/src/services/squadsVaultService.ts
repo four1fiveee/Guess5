@@ -58,7 +58,7 @@ export interface ProposalStatus {
   needsSignatures: number;
 }
 
-interface ExecutionErrorDetails {
+export interface ExecutionErrorDetails {
   message: string;
   logs?: string[];
 }
