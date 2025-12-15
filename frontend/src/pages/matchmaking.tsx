@@ -570,7 +570,8 @@ const Matchmaking: React.FC = () => {
       const resolveEscrowAddresses = async (maxRetries = 3): Promise<{ escrowAddress: string | null; depositAddress: string | null }> => {
         // Use latest status if available, otherwise use matchDataToUse
         const sourceData = latestStatus || matchDataToUse || matchDataRef.current;
-        let multisigAddress: string | null = sourceData?.squadsVaultAddress || sourceData?.vaultAddress || null;
+        // Support both old (squads) and new (escrow) field names for backward compatibility
+        let escrowAddress: string | null = sourceData?.escrowAddress || sourceData?.squadsVaultAddress || sourceData?.vaultAddress || null;
         let depositAddress: string | null = sourceData?.squadsVaultPda || sourceData?.vaultPda || null;
 
         console.log('🔍 Resolving vault addresses', {
