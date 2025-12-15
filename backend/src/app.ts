@@ -340,7 +340,7 @@ app.get('/', (req: any, res: any) => {
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
 app.use('/api/multisig', multisigRoutes);
-app.use('/api/escrow', escrowRoutes);
+app.use('/api/escrow', escrowRoutes.default || escrowRoutes);
 // Referral and admin routes (ES6 modules need .default when using require)
 const referralRoutes = require('./routes/referralRoutes');
 const adminRoutes = require('./routes/adminRoutes');
