@@ -42,7 +42,6 @@ const Matchmaking: React.FC = () => {
   const [isCancelling, setIsCancelling] = useState<boolean>(false);
   const [countdown, setCountdown] = useState<number | null>(null);
   const [countdownStarted, setCountdownStarted] = useState<boolean>(false);
-  const [paymentTimeout, setPaymentTimeout] = useState<number | null>(null);
   const [paymentTimeRemaining, setPaymentTimeRemaining] = useState<number>(120); // 2 minutes in seconds
   const currentWallet = publicKey?.toString() || null;
 
