@@ -6876,7 +6876,7 @@ export class SquadsVaultService {
     return { message, logs };
   }
 
-  private async collectSimulationLogs(tx: VersionedTransaction): Promise<{ logs?: string[]; errorInfo?: string }> {
+  private async collectSimulationLogs(tx: VersionedTransaction): Promise<any> {
     const simulation: any = await this.connection.simulateTransaction(tx, {
       replaceRecentBlockhash: true,
       sigVerify: false,
@@ -6884,16 +6884,16 @@ export class SquadsVaultService {
 
     let errorInfo: string | undefined = undefined;
 
-    if (simulation.value.err) {
+    if (simulation && simulation.value && simulation.value.err) {
       errorInfo = JSON.stringify(simulation.value.err);
       enhancedLogger.warn('⚠️ Simulation reported an error during execution diagnostics', {
         error: errorInfo,
-        logs: simulation.value.logs?.slice(-20),
+        logs: simulation.value.logs ? simulation.value.logs.slice(-20) : [],
       });
     }
 
     // Log all simulation logs for debugging
-    if (simulation.value.logs && simulation.value.logs.length > 0) {
+    if (simulation && simulation.value && simulation.value.logs && simulation.value.logs.length > 0) {
       enhancedLogger.info('📋 Simulation logs', {
         logCount: simulation.value.logs.length,
         lastLogs: simulation.value.logs.slice(-10),
@@ -6901,10 +6901,11 @@ export class SquadsVaultService {
       });
     }
 
-    return {
-      logs: simulation.value.logs ?? undefined,
-      errorInfo,
+    const result: any = {
+      logs: simulation && simulation.value && simulation.value.logs ? simulation.value.logs : undefined,
+      errorInfo: errorInfo,
     };
+    return result;
   }
 }
 
