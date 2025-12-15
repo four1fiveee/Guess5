@@ -68,7 +68,7 @@ const Matchmaking: React.FC = () => {
     if (status === 'abandoned') {
       return {
         heading: 'Opponent Disconnected',
-        detail: 'The other player\'s browser crashed or they disconnected after you paid. Your funds are safe and a refund proposal is being prepared. You\'ll receive your full refund once the proposal is created (usually within 2-3 minutes).',
+        detail: 'The other player\'s browser crashed or they disconnected after you paid. Your funds are safe in escrow and a refund is being processed. You\'ll receive your full refund automatically (usually within 2-3 minutes).',
         tone: 'warning' as const,
         encourageResult: true,
       };
@@ -82,7 +82,7 @@ const Matchmaking: React.FC = () => {
       switch (reason) {
         case 'payment_timeout':
           detail = userPaid
-            ? 'The opponent never finished paying. A refund proposal is being assembled—open the result screen shortly to co-sign your SOL back. Your refund will be available within 2-3 minutes after the proposal is created.'
+            ? 'The opponent never finished paying. Your escrow deposit is being refunded automatically—check the result screen shortly. Your refund will be processed within 2-3 minutes.'
             : 'The opponent never finished paying. We cancelled the match automatically before SOL moved.';
           if (!userPaid) {
             tone = 'info';
@@ -91,7 +91,7 @@ const Matchmaking: React.FC = () => {
           break;
         case 'player_cancelled_after_payment':
           detail =
-            'The other player backed out after you deposited. The multisig refund will appear in the result view within ~2 minutes. Once the proposal is created, you can sign to receive your full refund.';
+            'The other player backed out after you deposited. Your escrow deposit will be automatically refunded and appear in the result view within ~2 minutes.';
           break;
         case 'player_cancelled_before_payment':
           detail =
@@ -101,7 +101,7 @@ const Matchmaking: React.FC = () => {
           break;
         default:
           detail = userPaid
-            ? 'We are preparing your refund proposal now. Visit the result screen to co-sign once it appears.'
+            ? 'Your escrow deposit is being refunded automatically. Visit the result screen to see the status.'
             : 'Match cancelled before any deposits were at risk.';
           tone = userPaid ? 'warning' : 'info';
           encourageResult = userPaid;
@@ -137,7 +137,7 @@ const Matchmaking: React.FC = () => {
       if (reason === 'payment_timeout' || reason === 'player_cancelled_after_payment') {
         return {
           heading: 'Match Cancelled - Refund Inbound',
-          detail: 'Funds from your deposit are safe. The refund proposal will appear soon in your result feed.',
+          detail: 'Funds from your deposit are safe in escrow. Your refund will be processed automatically and appear soon in your result feed.',
           tone: 'warning' as const,
           encourageResult: true,
         };
@@ -146,7 +146,7 @@ const Matchmaking: React.FC = () => {
       return {
         heading: 'Match Cancelled',
         detail: userPaid
-          ? 'Your deposit is being returned. Check the result page shortly to sign the refund proposal.'
+          ? 'Your escrow deposit is being returned automatically. Check the result page shortly to see the refund status.'
           : 'Opponent left the queue. No deposits were taken.',
         tone: userPaid ? 'warning' : 'info',
         encourageResult: userPaid,
@@ -435,7 +435,7 @@ const Matchmaking: React.FC = () => {
         return;
       }
 
-      console.log('💰 Starting payment to multisig vault deposit...');
+      console.log('💰 Starting payment to escrow deposit...');
 
       if (matchDataToUse.status && matchDataToUse.status !== 'payment_required' && matchDataToUse.status !== 'vault_pending') {
         clearTimeout(safetyTimeout);
@@ -473,7 +473,7 @@ const Matchmaking: React.FC = () => {
         }
       } catch (statusCheckError) {
         console.warn('⚠️ Unable to fetch latest match status before payment', statusCheckError);
-        // Continue anyway - we'll try to fetch vault addresses in resolveVaultAddresses
+        // Continue anyway - we'll try to fetch escrow addresses in resolveEscrowAddresses
       }
 
       const allowedPaymentStatuses = ['payment_required', 'waiting_for_payment'];
@@ -567,7 +567,7 @@ const Matchmaking: React.FC = () => {
         throw new Error(`Insufficient balance. You have ${(balance / LAMPORTS_PER_SOL).toFixed(4)} SOL, but need ${entryFee} SOL`);
       }
       
-      const resolveVaultAddresses = async (maxRetries = 3): Promise<{ multisigAddress: string | null; depositAddress: string | null }> => {
+      const resolveEscrowAddresses = async (maxRetries = 3): Promise<{ escrowAddress: string | null; depositAddress: string | null }> => {
         // Use latest status if available, otherwise use matchDataToUse
         const sourceData = latestStatus || matchDataToUse || matchDataRef.current;
         let multisigAddress: string | null = sourceData?.squadsVaultAddress || sourceData?.vaultAddress || null;
@@ -581,33 +581,37 @@ const Matchmaking: React.FC = () => {
         });
 
         // If we have both addresses, return immediately
-        if (depositAddress && multisigAddress) {
-          console.log('✅ Vault addresses found in match data');
-          return { multisigAddress, depositAddress };
+        if (depositAddress && escrowAddress) {
+          console.log('✅ Escrow addresses found in match data');
+          return { escrowAddress, depositAddress };
         }
 
         // Try to fetch from backend (with retries)
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
           try {
-            console.log(`🔄 Fetching vault addresses from backend (attempt ${attempt}/${maxRetries})...`);
+            console.log(`🔄 Fetching escrow addresses from backend (attempt ${attempt}/${maxRetries})...`);
             const latest = await getMatchStatus(matchDataToUse.matchId) as any;
             
-            multisigAddress = latest?.squadsVaultAddress || latest?.vaultAddress || multisigAddress;
-            depositAddress = latest?.squadsVaultPda || latest?.vaultPda || depositAddress;
+            // Support both old and new field names
+            escrowAddress = latest?.escrowAddress || latest?.squadsVaultAddress || latest?.vaultAddress || escrowAddress;
+            depositAddress = latest?.escrowPda || latest?.squadsVaultPda || latest?.vaultPda || depositAddress;
             
             console.log('✅ Fetched vault addresses from backend', {
-              hasMultisigAddress: !!multisigAddress,
+              hasEscrowAddress: !!escrowAddress,
               hasDepositAddress: !!depositAddress,
               attempt,
             });
             
             // Update matchData with fetched addresses
-            if (multisigAddress || depositAddress) {
+            if (escrowAddress || depositAddress) {
               const updatedMatchData = {
                 ...(matchDataToUse || matchDataRef.current || {}),
                 ...latest,
-                squadsVaultAddress: multisigAddress ?? matchDataToUse?.squadsVaultAddress ?? matchDataToUse?.vaultAddress,
-                vaultAddress: multisigAddress ?? matchDataToUse?.vaultAddress ?? matchDataToUse?.squadsVaultAddress,
+                // Support both old (squads) and new (escrow) field names for backward compatibility
+                escrowAddress: escrowAddress ?? matchDataToUse?.escrowAddress ?? matchDataToUse?.squadsVaultAddress ?? matchDataToUse?.vaultAddress,
+                squadsVaultAddress: escrowAddress ?? matchDataToUse?.squadsVaultAddress ?? matchDataToUse?.vaultAddress,
+                vaultAddress: escrowAddress ?? matchDataToUse?.vaultAddress ?? matchDataToUse?.squadsVaultAddress,
+                escrowPda: depositAddress ?? matchDataToUse?.escrowPda ?? matchDataToUse?.squadsVaultPda ?? matchDataToUse?.vaultPda,
                 squadsVaultPda: depositAddress ?? matchDataToUse?.squadsVaultPda ?? matchDataToUse?.vaultPda,
                 vaultPda: depositAddress ?? matchDataToUse?.vaultPda ?? matchDataToUse?.squadsVaultPda,
               };
@@ -615,8 +619,8 @@ const Matchmaking: React.FC = () => {
               matchDataRef.current = updatedMatchData;
               
               // If we have both addresses now, return
-              if (depositAddress && multisigAddress) {
-                return { multisigAddress, depositAddress };
+              if (depositAddress && escrowAddress) {
+                return { escrowAddress, depositAddress };
               }
             }
             
@@ -639,7 +643,7 @@ const Matchmaking: React.FC = () => {
           }
         }
 
-        return { multisigAddress, depositAddress };
+        return { escrowAddress, depositAddress };
       };
 
       const { multisigAddress, depositAddress } = await resolveVaultAddresses();
@@ -655,7 +659,7 @@ const Matchmaking: React.FC = () => {
       
       console.log('✅ Using vault addresses for payment', {
         depositAddress: depositAddressToUse.slice(0, 8) + '...' + depositAddressToUse.slice(-8),
-        hasMultisigAddress: !!multisigAddressToUse,
+        hasEscrowAddress: !!escrowAddressToUse,
       });
       
       // Create transaction with addresses (works for both initial and retry cases)
