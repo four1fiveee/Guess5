@@ -4841,6 +4841,7 @@ export class SquadsVaultService {
             ? 'Proposal is ExecuteReady - standard execution path'
             : 'Proposal is Approved with threshold met - executing despite not being ExecuteReady',
         });
+      }
       } catch (proposalFetchError: unknown) {
         const error = `Failed to fetch Proposal account for ExecuteReady check: ${proposalFetchError instanceof Error ? proposalFetchError.message : String(proposalFetchError)}`;
         enhancedLogger.error('❌ Cannot verify ExecuteReady state - aborting execution', {
