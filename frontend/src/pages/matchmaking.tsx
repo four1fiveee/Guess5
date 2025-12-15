@@ -647,7 +647,7 @@ const Matchmaking: React.FC = () => {
         return { escrowAddress, depositAddress };
       };
 
-      const { multisigAddress, depositAddress } = await resolveVaultAddresses();
+      const { escrowAddress, depositAddress } = await resolveEscrowAddresses();
 
       // Validate we have deposit address (required for payment)
       if (!depositAddress) {
