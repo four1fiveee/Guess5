@@ -22,5 +22,5 @@
     "isolatedModules": false
   },
   "include": ["src/**/*.ts"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "src/services/squadsVaultService.ts"]
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "src/services/legacy/**/*"]
 } 
