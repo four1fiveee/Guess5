@@ -574,9 +574,9 @@ const Matchmaking: React.FC = () => {
         let escrowAddress: string | null = sourceData?.escrowAddress || sourceData?.squadsVaultAddress || sourceData?.vaultAddress || null;
         let depositAddress: string | null = sourceData?.squadsVaultPda || sourceData?.vaultPda || null;
 
-        console.log('🔍 Resolving vault addresses', {
+        console.log('🔍 Resolving escrow addresses', {
           matchId: matchDataToUse.matchId,
-          hasMultisigAddress: !!multisigAddress,
+          hasEscrowAddress: !!escrowAddress,
           hasDepositAddress: !!depositAddress,
           attempt: 1,
         });
@@ -597,7 +597,7 @@ const Matchmaking: React.FC = () => {
             escrowAddress = latest?.escrowAddress || latest?.squadsVaultAddress || latest?.vaultAddress || escrowAddress;
             depositAddress = latest?.escrowPda || latest?.squadsVaultPda || latest?.vaultPda || depositAddress;
             
-            console.log('✅ Fetched vault addresses from backend', {
+            console.log('✅ Fetched escrow addresses from backend', {
               hasEscrowAddress: !!escrowAddress,
               hasDepositAddress: !!depositAddress,
               attempt,
