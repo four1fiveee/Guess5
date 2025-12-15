@@ -28,7 +28,23 @@ export class Match {
 
   // Legacy escrow fields removed - now using multisig vaults
 
-  // Squads Protocol fields (replaces old custodial vault system)
+  // NEW: Escrow system fields (replaces Squads)
+  @Column({ nullable: true })
+  escrowAddress?: string; // PDA address for the escrow account
+
+  @Column({ nullable: true, default: 'PENDING' })
+  escrowStatus?: string; // PENDING, INITIALIZED, ACTIVE, SETTLED, REFUNDED
+
+  @Column({ nullable: true })
+  escrowResultSubmittedAt?: Date; // When result was submitted
+
+  @Column({ nullable: true })
+  escrowResultSubmittedBy?: string; // Which player submitted the result
+
+  @Column({ nullable: true })
+  escrowBackendSignature?: string; // Backend signature for result verification
+
+  // Squads Protocol fields (DEPRECATED - kept for migration)
   @Column({ nullable: true })
   squadsVaultAddress?: string;
 

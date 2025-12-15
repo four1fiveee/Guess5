@@ -9,6 +9,7 @@ const { deduplicateRequests } = require('./middleware/deduplication');
 const matchRoutes = require('./routes/matchRoutes');
 const guessRoutes = require('./routes/guessRoutes');
 const multisigRoutes = require('./routes/multisigRoutes');
+const escrowRoutes = require('./routes/escrowRoutes');
 const {
   getAllowedOrigins,
   isOriginAllowed,
@@ -339,6 +340,7 @@ app.get('/', (req: any, res: any) => {
 app.use('/api/match', matchRoutes);
 app.use('/api/guess', guessRoutes);
 app.use('/api/multisig', multisigRoutes);
+app.use('/api/escrow', escrowRoutes);
 // Referral and admin routes (ES6 modules need .default when using require)
 const referralRoutes = require('./routes/referralRoutes');
 const adminRoutes = require('./routes/adminRoutes');
