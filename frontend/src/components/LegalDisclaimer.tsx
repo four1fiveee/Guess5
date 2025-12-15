@@ -35,10 +35,10 @@ export const LegalDisclaimer: React.FC<LegalDisclaimerProps> = ({ isOpen, onAcce
           <section>
             <h4 className="text-accent font-bold mb-2">1. Non-Custodial Service & User Control</h4>
             <ul className="list-none space-y-1 text-white/80 pl-4">
-              <li><strong>1.1 Non-Custodial Platform.</strong> Guess5 is a fully non-custodial platform built on the Solana blockchain. All match funds are held in a 2-of-3 multisignature vault (via Squads Protocol), in which you, your opponent, and the system are co-signers.</li>
+              <li><strong>1.1 Non-Custodial Platform.</strong> Guess5 is a fully non-custodial platform built on the Solana blockchain. All match funds are held in an on-chain escrow smart contract, which requires player signatures to release funds.</li>
               <li><strong>1.2 No Custody or Access.</strong> Guess5 never has unilateral control or custody of user funds and cannot transfer, freeze, seize, or move funds without your cryptographic signature.</li>
               <li><strong>1.3 User-Controlled Payouts.</strong> Match payouts require your active signature. The system cannot process any payout without your participation.</li>
-              <li><strong>1.4 Third-Party Smart Contract Infrastructure.</strong> Guess5 relies on smart contracts and infrastructure provided by third parties, including Squads Protocol. Guess5 does not control or guarantee the operation or security of those systems.</li>
+              <li><strong>1.4 Third-Party Smart Contract Infrastructure.</strong> Guess5 relies on smart contracts and infrastructure provided by third parties, including the Solana blockchain and RPC providers. Guess5 does not control or guarantee the operation or security of those systems.</li>
               <li><strong>1.5 Blockchain Immutability.</strong> Transactions on Solana are public, immutable, and irreversible once confirmed.</li>
             </ul>
           </section>
@@ -86,7 +86,7 @@ export const LegalDisclaimer: React.FC<LegalDisclaimerProps> = ({ isOpen, onAcce
             <ul className="list-none space-y-1 text-white/80 pl-4">
               <li><strong>5.1 "As Is" Service.</strong> Guess5 is provided "AS IS" and "AS AVAILABLE", without warranties of any kind—express, implied, or statutory—including but not limited to merchantability, fitness for a particular purpose, and non-infringement.</li>
               <li><strong>5.2 No Guarantee of Uptime.</strong> Guess5 does not warrant uninterrupted, error-free, or secure operation.</li>
-              <li><strong>5.3 Third-Party & Blockchain Dependencies.</strong> We are not liable for disruptions, failures, or bugs caused by Solana, Squads Protocol, wallet software, or any third-party provider.</li>
+              <li><strong>5.3 Third-Party & Blockchain Dependencies.</strong> We are not liable for disruptions, failures, or bugs caused by Solana, smart contract programs, wallet software, or any third-party provider.</li>
               <li><strong>5.4 Match Results.</strong> All outcomes are final, automated, and non-reviewable. No manual intervention or reversal will occur.</li>
               <li><strong>5.5 Modification or Suspension.</strong> We may modify, suspend, or discontinue Guess5 at any time without prior notice or liability.</li>
             </ul>
@@ -98,7 +98,7 @@ export const LegalDisclaimer: React.FC<LegalDisclaimerProps> = ({ isOpen, onAcce
               <li><strong>6.1 Maximum Liability Cap.</strong> To the maximum extent permitted by law, the total aggregate liability of Guess5 and its affiliates shall not exceed the greater of USD $100 or the total amount of SOL you staked in the match giving rise to the claim (capped at USD $250).</li>
               <li><strong>6.2 Exclusion of Damages.</strong> Guess5 shall not be liable for any indirect, incidental, special, consequential, exemplary, or punitive damages, including loss of data, profits, or funds.</li>
               <li><strong>6.3 No Responsibility for Third-Party Failures.</strong> Guess5 disclaims all liability for errors or losses arising from:</li>
-              <li className="pl-4">• Squads Protocol or Solana network failures;</li>
+              <li className="pl-4">• Solana network failures or smart contract bugs;</li>
               <li className="pl-4">• Wallet vulnerabilities;</li>
               <li className="pl-4">• Smart contract exploits;</li>
               <li className="pl-4">• Network congestion or downtime;</li>

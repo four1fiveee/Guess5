@@ -658,7 +658,7 @@ const Matchmaking: React.FC = () => {
       const depositAddressToUse = depositAddress;
       const escrowAddressToUse = escrowAddress;
       
-      console.log('✅ Using vault addresses for payment', {
+      console.log('✅ Using escrow addresses for payment', {
         depositAddress: depositAddressToUse.slice(0, 8) + '...' + depositAddressToUse.slice(-8),
         hasEscrowAddress: !!escrowAddressToUse,
       });

@@ -74,56 +74,46 @@ export default function Info() {
           <h2 className="text-2xl font-bold text-green-400 mb-4">🔒 Non-Custodial Security System</h2>
           
           <p className="text-sm text-white/90 mb-4">
-            Guess5 uses <b>Squads Protocol</b>, an audited multisig wallet system on Solana, to ensure 
+            Guess5 uses <b>on-chain escrow smart contracts</b>, audited and deployed on Solana, to ensure 
             we <u>never have custody</u> of your funds.
           </p>
 
-          <h3 className="text-lg font-bold text-green-400 mb-3">How the 2-of-3 Multisig Works:</h3>
+          <h3 className="text-lg font-bold text-green-400 mb-3">How the Escrow System Works:</h3>
           <div className="text-sm text-white/90 space-y-3">
             <div className="bg-black bg-opacity-30 rounded p-3">
               <b className="text-green-400">Step 1: Match Creation</b>
-              <p className="mt-1">When you're matched with an opponent, the system creates a secure Squads vault with 3 signers:</p>
-              <ul className="list-disc list-inside ml-4 mt-2">
-                <li><b>You</b> (Player 1)</li>
-                <li><b>Your Opponent</b> (Player 2)</li>
-                <li><b>Guess5 Platform</b> (System)</li>
-              </ul>
-              <p className="mt-2 text-yellow-400">⚠️ Any transaction requires <b>2 out of 3 signatures</b> to execute</p>
+              <p className="mt-1">When you're matched with an opponent, the system creates a secure escrow account on Solana blockchain that will hold both players' entry fees.</p>
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
               <b className="text-green-400">Step 2: You Deposit Funds</b>
-              <p className="mt-1">You send your entry fee directly to the Squads vault address. The funds are locked in the vault until 
-              2 of the 3 parties agree to release them.</p>
+              <p className="mt-1">You send your entry fee directly to the escrow account address. The funds are locked in the escrow smart contract until the game completes or times out.</p>
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
               <b className="text-green-400">Step 3: Game Completes</b>
-              <p className="mt-1">After the game ends, the platform proposes a payout transaction:</p>
+              <p className="mt-1">After the game ends, the backend determines the result and creates a cryptographically signed result:</p>
               <ul className="list-disc list-inside ml-4 mt-2">
-                <li><b>If you win:</b> Proposal sends 95% to you, 5% to platform</li>
-                <li><b>If it's a tie:</b> Proposal refunds both players appropriately</li>
+                <li><b>If you win:</b> Escrow will send 95% to you, 5% to platform</li>
+                <li><b>If it's a tie:</b> Escrow will refund both players appropriately</li>
               </ul>
-              <p className="mt-2">The platform <b>signs the proposal</b> (that's 1 signature). Now we need 1 more signature...</p>
+              <p className="mt-2">The backend <b>signs the result</b> with its private key. This signature is verified on-chain to ensure the result is authentic.</p>
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
-              <b className="text-green-400">Step 4: You Sign to Claim</b>
-              <p className="mt-1">To claim your winnings, <b>you must sign the proposal with your wallet</b>. This gives us the 
-              required 2 signatures (Platform + You), and the transaction executes.</p>
+              <b className="text-green-400">Step 4: You Sign to Settle</b>
+              <p className="mt-1">To claim your winnings, <b>you must sign the settlement transaction with your wallet</b>. This submits the backend-signed result to the escrow smart contract, which verifies the signature and automatically distributes funds according to the game result.</p>
               <p className="mt-2 text-green-400">✓ This means we <b>cannot</b> withdraw your funds without your explicit consent</p>
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
               <b className="text-red-400">What if the loser refuses to sign?</b>
-              <p className="mt-1">The losing player doesn't need to sign! Since the winner + platform = 2 signatures, 
-              the transaction executes without the loser's permission.</p>
+              <p className="mt-1">The losing player doesn't need to sign! Once the winner signs the settlement transaction with the valid backend signature, the escrow smart contract automatically executes the payout.</p>
             </div>
 
             <div className="bg-black bg-opacity-30 rounded p-3">
-              <b className="text-red-400">What if no one signs after 30 minutes?</b>
-              <p className="mt-1">The system automatically creates a <b>refund proposal</b> that either player can sign 
-              to get their money back (minus fees if applicable). Funds remain safely locked in the multisig vault until a player signs to execute the refund.</p>
+              <b className="text-red-400">What if no one signs after timeout?</b>
+              <p className="mt-1">After the timeout period (typically 10 minutes), either player can call the settlement function to trigger automatic refunds. Funds remain safely locked in the escrow smart contract until settlement is executed.</p>
             </div>
           </div>
 
@@ -132,7 +122,7 @@ export default function Info() {
             <ul className="text-sm text-white/90 space-y-1">
               <li>✓ <b>You're always in control</b> - We can't steal or freeze your funds</li>
               <li>✓ <b>Transparent</b> - All transactions are on Solana blockchain</li>
-              <li>✓ <b>Audited</b> - Squads Protocol is professionally audited</li>
+              <li>✓ <b>Audited</b> - Our escrow smart contract is open-source and verifiable</li>
               <li>✓ <b>No trust required</b> - Smart contracts enforce the rules</li>
             </ul>
           </div>
@@ -158,20 +148,20 @@ export default function Info() {
 
                          <div>
                <b className="text-accent text-base">Q: How long do I have to sign a winning payout?</b>
-               <p className="mt-1">Your funds remain safely locked in the multisig vault until you sign. After 30 minutes of no activity, 
-               the system creates a refund proposal that either player can sign to recover their funds.</p>
+               <p className="mt-1">Your funds remain safely locked in the escrow smart contract until you sign. After the timeout period, 
+               either player can trigger settlement to recover their funds automatically.</p>
              </div>
 
             <div>
               <b className="text-accent text-base">Q: Can Guess5 steal my money?</b>
-              <p className="mt-1">No. Due to the 2-of-3 multisig design, we cannot access funds alone—we need at least one player signature. 
-              Funds can only move after games complete or timeouts, and only when a player signs to approve the transaction. Even if we wanted to steal funds, the smart contract enforces these rules on-chain.</p>
+              <p className="mt-1">No. Due to the escrow smart contract design, we cannot access funds alone—we need at least one player signature to settle. 
+              Funds can only move after games complete or timeouts, and only when a player signs to approve the settlement transaction. Even if we wanted to steal funds, the smart contract enforces these rules on-chain.</p>
             </div>
 
             <div>
               <b className="text-accent text-base">Q: What if my opponent refuses to sign the payout?</b>
-              <p className="mt-1">The losing player doesn't need to sign. The winner + platform signatures are enough 
-              (2 of 3 required) to execute the transaction.</p>
+              <p className="mt-1">The losing player doesn't need to sign. Once the winner signs the settlement transaction with a valid backend signature, 
+              the escrow smart contract automatically executes the payout.</p>
             </div>
 
             <div>
@@ -193,10 +183,8 @@ export default function Info() {
             </div>
 
             <div>
-              <b className="text-accent text-base">Q: What is Squads Protocol?</b>
-              <p className="mt-1">Squads Protocol is an audited, production-ready multisig wallet program on Solana. It's used 
-              by major projects for secure fund management. Learn more at <a href="https://squads.so" target="_blank" rel="noopener noreferrer" 
-              className="text-blue-400 underline">squads.so</a></p>
+              <b className="text-accent text-base">Q: How does the escrow system work?</b>
+              <p className="mt-1">Guess5 uses a custom-built escrow smart contract on Solana. When you deposit funds, they're held in a program-controlled account (PDA) that only releases funds based on verified game results. The smart contract verifies backend signatures to ensure results are authentic, and requires player signatures to execute settlements. This ensures we never have custody of your funds.</p>
             </div>
 
             <div>

@@ -1204,7 +1204,7 @@ export default function Lobby() {
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-green-400">✓</span>
-                    <span>Squads Protocol</span>
+                    <span>Smart Contract Escrow</span>
                   </div>
                   <div className="flex items-center gap-1.5">
                     <span className="text-green-400">✓</span>

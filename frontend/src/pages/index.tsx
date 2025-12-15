@@ -34,11 +34,11 @@ export default function Home() {
           </div>
           <div className="flex items-center gap-1.5 bg-green-500/10 border border-green-500/30 rounded-full px-3 py-1.5">
             <span className="text-green-400 text-xs">✓</span>
-            <span className="text-white/90 text-xs font-medium">2-of-3 Multisig</span>
+            <span className="text-white/90 text-xs font-medium">On-Chain Escrow</span>
           </div>
           <div className="flex items-center gap-1.5 bg-green-500/10 border border-green-500/30 rounded-full px-3 py-1.5">
             <span className="text-green-400 text-xs">✓</span>
-            <span className="text-white/90 text-xs font-medium">Squads Protocol</span>
+            <span className="text-white/90 text-xs font-medium">Smart Contract</span>
           </div>
         </div>
 
@@ -56,7 +56,7 @@ export default function Home() {
           <div className="text-xs sm:text-sm text-white/90 space-y-2.5 sm:space-y-3">
             <div className="flex items-start space-x-2.5">
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">1.</span>
-              <span><b>Choose your stake:</b> Select $5, $20, $50, or $100 (paid in SOL). Entry fees are held in a secure multisig vault</span>
+              <span><b>Choose your stake:</b> Select $5, $20, $50, or $100 (paid in SOL). Entry fees are held in a secure on-chain escrow</span>
             </div>
             <div className="flex items-start space-x-2.5">
               <span className="text-accent font-bold text-base sm:text-lg flex-shrink-0">2.</span>
@@ -84,28 +84,28 @@ export default function Home() {
             <span>Your Funds Are Protected</span>
           </h2>
           <p className="text-xs sm:text-sm text-white/90 mb-4 text-center leading-relaxed">
-            We <b>never</b> have custody of your money. Guess5 uses <b>Squads Protocol 2-of-3 multisig vaults</b> to ensure you're always in control.
+            We <b>never</b> have custody of your money. Guess5 uses <b>on-chain escrow smart contracts</b> to ensure you're always in control.
           </p>
           
           <div className="bg-black bg-opacity-30 rounded-lg p-3 sm:p-4 mb-3 sm:mb-4">
             <div className="text-xs sm:text-sm text-white/90 space-y-3">
               <div className="flex items-start space-x-2.5">
                 <span className="text-green-400 font-bold text-base flex-shrink-0">•</span>
-                <span><b>2-of-3 Signatures:</b> Every match creates a vault requiring 2 of 3 signatures: <i>You</i>, <i>Your Opponent</i>, and <i>Guess5</i></span>
+                <span><b>On-Chain Escrow:</b> Every match creates a secure escrow account on Solana blockchain that holds both players' entry fees until the game completes</span>
               </div>
               <div className="flex items-start space-x-2.5">
                 <span className="text-green-400 font-bold text-base flex-shrink-0">•</span>
-                <span><b>You Must Sign to Claim:</b> Winners must sign with their wallet to receive payouts. We propose, you approve</span>
+                <span><b>You Must Sign to Claim:</b> Winners must sign with their wallet to receive payouts. The escrow smart contract automatically distributes funds based on game results</span>
               </div>
               <div className="flex items-start space-x-2.5">
                 <span className="text-green-400 font-bold text-base flex-shrink-0">•</span>
-                <span><b>Funds Locked On-Chain:</b> Your funds are stored in an audited Squads Protocol multisig vault on Solana blockchain during gameplay. We cannot access them alone—we need at least one player signature to move funds. Funds can only move after games complete or timeouts, and only when a player signs to approve the transaction.</span>
+                <span><b>Funds Locked On-Chain:</b> Your funds are stored in an audited escrow smart contract on Solana blockchain during gameplay. We cannot access them—the smart contract enforces all rules. Funds can only move after games complete or timeouts, and only when a player signs to approve the settlement transaction.</span>
               </div>
             </div>
           </div>
 
           <p className="text-xs sm:text-sm text-green-400 text-center font-semibold">
-            ✓ Squads Protocol • ✓ Non-Custodial • ✓ You're In Control
+            ✓ Smart Contract Escrow • ✓ Non-Custodial • ✓ You're In Control
           </p>
         </div>
 
