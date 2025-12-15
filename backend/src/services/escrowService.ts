@@ -48,8 +48,8 @@ function getProgram(): any {
     commitment: 'confirmed',
   });
 
-  // Fix: Program constructor - use any to avoid type issues
-  return new Program(IDL as any, PROGRAM_ID, provider) as any;
+  // Fix: Program constructor - cast all arguments to any to avoid type issues
+  return new Program(IDL as any, PROGRAM_ID as any, provider as any) as any;
 }
 
 /**
