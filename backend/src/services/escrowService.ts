@@ -42,13 +42,13 @@ function getProviderWallet(): Wallet {
   return new Wallet(keypair);
 }
 
-function getProgram(): Program {
+function getProgram(): Program<any> {
   const wallet = getProviderWallet();
   const provider = new AnchorProvider(connection, wallet, {
     commitment: 'confirmed',
   });
 
-  return new Program(IDL as any, PROGRAM_ID, provider);
+  return new Program(IDL as any, PROGRAM_ID, provider) as Program<any>;
 }
 
 /**
@@ -252,7 +252,7 @@ export async function settleMatch(
     const [escrowPDA] = deriveEscrowPDA(matchId);
 
     // Fetch escrow account to get winner
-    const escrowAccount = await program.account.gameEscrow.fetch(escrowPDA);
+    const escrowAccount = await (program.account as any).gameEscrow.fetch(escrowPDA);
     const winner = escrowAccount.winner;
 
     const feeWallet = new PublicKey(config.solana.feeWalletAddress);
@@ -371,7 +371,7 @@ export async function getEscrowState(
     const program = getProgram();
     const [escrowPDA] = deriveEscrowPDA(matchId);
 
-    const escrowAccount = await program.account.gameEscrow.fetch(escrowPDA);
+    const escrowAccount = await (program.account as any).gameEscrow.fetch(escrowPDA);
 
     return {
       success: true,

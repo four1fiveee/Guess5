@@ -43,6 +43,14 @@ export class SquadsVaultService {
     // Stub - no implementation
   }
 
+  getProgramId(): PublicKey {
+    return PublicKey.default;
+  }
+
+  deriveVaultPda(multisigAddress: string): string | null {
+    return null;
+  }
+
   // Stub methods to prevent runtime errors
   async createVault(): Promise<VaultCreationResult> {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
@@ -52,12 +60,28 @@ export class SquadsVaultService {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
-  async executeProposal(): Promise<any> {
+  async executeProposal(vaultAddress?: string, proposalId?: string, transactionIndex?: string, executor?: any): Promise<any> {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
   async getProposalStatus(): Promise<ProposalStatus> {
     return { executed: false, signers: [], needsSignatures: 0 };
+  }
+
+  async checkProposalStatus(vaultAddress: string, proposalId: string): Promise<ProposalStatus> {
+    return { executed: false, signers: [], needsSignatures: 0 };
+  }
+
+  async proposeWinnerPayout(vaultAddress: string, winner: PublicKey, amount: number, matchId: string): Promise<ProposalResult> {
+    return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
+  }
+
+  async proposeTieRefund(vaultAddress: string, playerA: PublicKey, playerB: PublicKey, matchId: string): Promise<ProposalResult> {
+    return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
+  }
+
+  async verifyDeposit(vaultAddress: string, player: PublicKey, amount: number): Promise<boolean> {
+    return false;
   }
 }
 
