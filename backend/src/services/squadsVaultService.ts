@@ -6752,13 +6752,13 @@ export class SquadsVaultService {
       const threshold = proposalAccount.threshold;
       
       // Full account dump
-      const accountDump = {
+      const accountDump: any = {
         status: proposalStatus,
         approvedSigners: approvedSigners.map((s: PublicKey) => s.toString()),
         approvedSignersCount: approvedSigners.length,
         threshold,
         hasEnoughSigners: approvedSigners.length >= threshold,
-        accountData: JSON.stringify(proposalAccount, (key, value) => {
+        accountData: JSON.stringify(proposalAccount, (key: string, value: any) => {
           // Serialize PublicKey objects
           if (value && typeof value === 'object' && 'toBase58' in value) {
             return value.toBase58();
@@ -6806,10 +6806,10 @@ export class SquadsVaultService {
         'confirmed'
       );
       
-      const vaultTxDump = {
+      const vaultTxDump: any = {
         hasMessage: !!vaultTxAccount.message,
         messageAccountKeysCount: (vaultTxAccount.message as any)?.accountKeys?.length || 0,
-        accountData: JSON.stringify(vaultTxAccount, (key, value) => {
+        accountData: JSON.stringify(vaultTxAccount, (key: string, value: any) => {
           if (value && typeof value === 'object' && 'toBase58' in value) {
             return value.toBase58();
           }
