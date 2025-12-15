@@ -6848,10 +6848,10 @@ export class SquadsVaultService {
   }
 
   private async buildExecutionErrorDetails(tx: VersionedTransaction | null, rawError: unknown): Promise<ExecutionErrorDetails> {
-    let message = rawError instanceof Error ? rawError.message : String(rawError);
-    let logs: string[] | undefined;
+    let message: string = rawError instanceof Error ? rawError.message : String(rawError);
+    let logs: string[] | undefined = undefined;
 
-    const errorLogs = (rawError as any)?.logs;
+    const errorLogs: any = (rawError as any)?.logs;
     if (Array.isArray(errorLogs)) {
       logs = errorLogs;
     }
@@ -6877,12 +6877,12 @@ export class SquadsVaultService {
   }
 
   private async collectSimulationLogs(tx: VersionedTransaction): Promise<{ logs?: string[]; errorInfo?: string }> {
-    const simulation = await this.connection.simulateTransaction(tx, {
+    const simulation: any = await this.connection.simulateTransaction(tx, {
       replaceRecentBlockhash: true,
       sigVerify: false,
     });
 
-    let errorInfo: string | undefined;
+    let errorInfo: string | undefined = undefined;
 
     if (simulation.value.err) {
       errorInfo = JSON.stringify(simulation.value.err);
