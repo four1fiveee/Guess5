@@ -5926,7 +5926,6 @@ export class SquadsVaultService {
               correlationId,
             };
           }
-          }
         }
     } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
