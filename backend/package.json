@@ -4,7 +4,7 @@
   "description": "Backend for Guess5 game",
   "main": "dist/server.js",
   "scripts": {
-    "build": "rm -rf dist && mkdir -p dist && tsc --project . --outDir dist --skipLibCheck || exit 1",
+    "build": "rm -rf dist && mkdir -p dist && tsc --project . --outDir dist --skipLibCheck && cp -r src/types dist/ || exit 1",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "test": "node --test -r ts-node/register ./src/tests/bonusService.test.ts",
