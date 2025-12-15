@@ -42,15 +42,14 @@ function getProviderWallet(): Wallet {
   return new Wallet(keypair);
 }
 
-function getProgram(): Program<any> {
+function getProgram(): any {
   const wallet = getProviderWallet();
   const provider = new AnchorProvider(connection, wallet, {
     commitment: 'confirmed',
   });
 
-  // Fix: Program constructor expects (idl, programId, provider)
-  const program = new Program(IDL as any, PROGRAM_ID as any, provider);
-  return program as Program<any>;
+  // Fix: Program constructor - use any to avoid type issues
+  return new Program(IDL as any, PROGRAM_ID, provider) as any;
 }
 
 /**
@@ -88,7 +87,7 @@ export async function initializeMatchEscrow(
     const matchIdBN = new BN(matchIdHex, 16);
     const entryFeeLamports = new BN(entryFee * LAMPORTS_PER_SOL);
 
-    const tx = await program.methods
+    const tx = await (program.methods as any)
       .initializeMatch(matchIdBN, entryFeeLamports)
       .accounts({
         gameEscrow: escrowPDA,

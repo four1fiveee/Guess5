@@ -80,7 +80,7 @@ export class SquadsVaultService {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
-  async verifyDeposit(matchId: string, player: PublicKey, amount: number, txSignature?: string): Promise<boolean> {
+  async verifyDeposit(matchId: string, player: string | PublicKey, amount: number, txSignature?: string): Promise<boolean> {
     return false;
   }
 }
