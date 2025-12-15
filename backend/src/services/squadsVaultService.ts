@@ -5928,7 +5928,6 @@ export class SquadsVaultService {
           }
         }
       }
-      }
     } catch (executionError: unknown) {
       const errorMessage = executionError instanceof Error ? executionError.message : String(executionError);
       const errorStack = executionError instanceof Error ? executionError.stack : undefined;
