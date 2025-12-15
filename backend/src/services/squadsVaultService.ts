@@ -60,7 +60,7 @@ export class SquadsVaultService {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
-  async executeProposal(vaultAddress?: string, proposalId?: string, transactionIndex?: string, executor?: any): Promise<any> {
+  async executeProposal(vaultAddress?: string, proposalId?: string, executor?: any, vaultPda?: string): Promise<any> {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
@@ -72,15 +72,15 @@ export class SquadsVaultService {
     return { executed: false, signers: [], needsSignatures: 0 };
   }
 
-  async proposeWinnerPayout(vaultAddress: string, winner: PublicKey, amount: number, matchId: string): Promise<ProposalResult> {
+  async proposeWinnerPayout(vaultAddress: string, winner: PublicKey, winnerAmount: number, feeWallet: PublicKey, feeAmount: number, vaultPda?: string): Promise<ProposalResult> {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
-  async proposeTieRefund(vaultAddress: string, playerA: PublicKey, playerB: PublicKey, matchId: string): Promise<ProposalResult> {
+  async proposeTieRefund(vaultAddress: string, playerA: PublicKey, playerB: PublicKey, refundAmount: number, vaultPda?: string): Promise<ProposalResult> {
     return { success: false, error: 'Squads vault service is deprecated. Use escrow system instead.' };
   }
 
-  async verifyDeposit(vaultAddress: string, player: PublicKey, amount: number): Promise<boolean> {
+  async verifyDeposit(matchId: string, player: PublicKey, amount: number, txSignature?: string): Promise<boolean> {
     return false;
   }
 }

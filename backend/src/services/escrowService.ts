@@ -48,7 +48,9 @@ function getProgram(): Program<any> {
     commitment: 'confirmed',
   });
 
-  return new Program(IDL as any, PROGRAM_ID, provider) as Program<any>;
+  // Fix: Program constructor expects (idl, programId, provider)
+  const program = new Program(IDL as any, PROGRAM_ID as any, provider);
+  return program as Program<any>;
 }
 
 /**
