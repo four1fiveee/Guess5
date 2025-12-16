@@ -5054,13 +5054,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           
             // Try synchronous creation with 5 second timeout (reduced from 20s to prevent status endpoint timeouts)
           try {
-              console.log('⏳ Calling createMatchVault...', { matchId: match.id });
-            const creationPromise = squadsVaultService.createMatchVault(
-          match.id,
-          new PublicKey(match.player1),
-          new PublicKey(match.player2),
-          match.entryFee
-        );
+              console.log('⏳ Calling deriveMatchEscrowAddress (escrow system)...', { matchId: match.id });
+            const escrowService = require('../services/escrowService');
+            const creationPromise = escrowService.deriveMatchEscrowAddress(match.id);
             
             const timeoutPromise = new Promise((_, reject) => 
               setTimeout(() => reject(new Error('Vault creation timeout')), 5000)
@@ -5191,22 +5187,26 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             console.log('🔄 Continuing vault creation in background...', { matchId: match.id });
             
             try {
-              const creation = await squadsVaultService.createMatchVault(
-                match.id,
-                new PublicKey(match.player1),
-                new PublicKey(match.player2),
-                match.entryFee
-              );
+              const escrowService = require('../services/escrowService');
+              const creation = await escrowService.deriveMatchEscrowAddress(match.id);
               
-              if (creation?.success && creation.vaultAddress) {
-                console.log('✅ Vault created in background', { 
+              if (creation?.success && creation.escrowAddress) {
+                // Update match in DB with escrow address
+                const { AppDataSource } = require('../db/index');
+                const matchRepository = AppDataSource.getRepository(Match);
+                await matchRepository.query(`
+                  UPDATE "match" 
+                  SET "escrowAddress" = $1, "escrowStatus" = $2, "updatedAt" = $3
+                  WHERE id = $4
+                `, [creation.escrowAddress, 'PENDING', new Date(), match.id]);
+                
+                console.log('✅ Escrow address derived in background', { 
                   matchId: match.id, 
-                  vault: creation.vaultAddress, 
-                  vaultPda: creation.vaultPda 
+                  escrowAddress: creation.escrowAddress
                 });
                 await redis.del(vaultCreationKey);
               } else {
-                console.error('❌ Background vault creation failed', {
+                console.error('❌ Background escrow address derivation failed', {
                   matchId: match.id,
                   error: creation?.error || 'Unknown error'
                 });
