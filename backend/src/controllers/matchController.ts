@@ -4826,8 +4826,7 @@ const submitResultHandler = async (req: any, res: any) => {
             return; // CRITICAL: Exit early - don't continue to winner determination
           }
         }
-
-    } catch (error: unknown) {
+  } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     
