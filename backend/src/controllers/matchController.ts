@@ -869,9 +869,16 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       let escrowResult;
       try {
-        // Use dynamic import to handle ES6 modules correctly
-        const escrowServiceModule = await import('../services/escrowService');
-        const { deriveMatchEscrowAddress } = escrowServiceModule;
+        // Try dynamic import first (for ES6 modules), fallback to require (for CommonJS)
+        let deriveMatchEscrowAddress;
+        try {
+          const escrowServiceModule = await import('../services/escrowService');
+          deriveMatchEscrowAddress = escrowServiceModule.deriveMatchEscrowAddress;
+        } catch (importError) {
+          // Fallback to require for CommonJS compatibility
+          const escrowServiceModule = require('../services/escrowService');
+          deriveMatchEscrowAddress = escrowServiceModule.deriveMatchEscrowAddress || escrowServiceModule.default?.deriveMatchEscrowAddress;
+        }
         
         if (!deriveMatchEscrowAddress || typeof deriveMatchEscrowAddress !== 'function') {
           throw new Error('deriveMatchEscrowAddress function not found in escrowService module');
