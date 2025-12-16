@@ -1572,7 +1572,7 @@ const Matchmaking: React.FC = () => {
             };
             
             const roundedUSD = calculateRoundedUSD(entryFee, solPrice);
-            const vaultAddress = matchData?.squadsVaultPda || matchData?.vaultPda || matchData?.squadsVaultAddress || matchData?.vaultAddress;
+            const vaultAddress = matchData?.escrowPda || matchData?.escrowAddress || matchData?.squadsVaultPda || matchData?.vaultPda || matchData?.squadsVaultAddress || matchData?.vaultAddress;
             
             // Helper to abbreviate wallet address
             const abbreviateAddress = (addr: string | null | undefined): string => {
@@ -1678,7 +1678,7 @@ const Matchmaking: React.FC = () => {
                 {/* Vault Address */}
                 {vaultAddress && (
                   <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-3 mb-4">
-                    <div className="text-green-400 text-sm font-medium mb-1">✓ Vault Ready</div>
+                    <div className="text-green-400 text-sm font-medium mb-1">✓ Escrow Ready</div>
                     <div className="text-white/60 text-xs break-all font-mono">
                       {vaultAddress.slice(0, 8)}...{vaultAddress.slice(-8)}
                     </div>
