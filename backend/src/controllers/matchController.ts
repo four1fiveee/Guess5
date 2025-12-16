@@ -858,41 +858,36 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         status: savedMatch.status
       });
       
-      // Create Squads vault for fund custody AFTER database record is confirmed
-      console.log('🔧 Creating Squads vault for fund custody...', {
+      // Initialize escrow for fund custody AFTER database record is confirmed
+      console.log('🔧 Initializing escrow for fund custody...', {
         matchId: matchData.matchId,
         player1: matchData.player1,
         player2: matchData.player2,
         entryFee: matchData.entryFee
       });
       
-      let vaultResult;
+      let escrowResult;
       try {
-        const player1Pubkey = new PublicKey(matchData.player1);
-        const player2Pubkey = new PublicKey(matchData.player2);
-        console.log('🔧 Creating vault with PublicKeys:', {
-          player1: player1Pubkey.toString(),
-          player2: player2Pubkey.toString()
-        });
-        // Create vault (with built-in retry logic in the service)
-        vaultResult = await squadsVaultService.createMatchVault(
+        const { initializeMatchEscrow } = require('../services/escrowService');
+        // Initialize escrow (with built-in retry logic in the service)
+        escrowResult = await initializeMatchEscrow(
           matchData.matchId,
-          player1Pubkey,
-          player2Pubkey,
+          matchData.player1,
+          matchData.player2,
           matchData.entryFee
         );
-        console.log('🔧 Vault creation result:', { success: vaultResult?.success, error: vaultResult?.error });
-      } catch (vaultError: unknown) {
-        const vaultErrorMessage = vaultError instanceof Error ? vaultError.message : String(vaultError);
-        console.error('❌ Exception during vault creation:', vaultErrorMessage);
-        console.error('❌ Vault creation stack:', vaultError instanceof Error ? vaultError.stack : 'No stack');
-        // Don't throw - return match without vault, on-demand creation will handle it
-        console.warn('⚠️ Vault creation failed, but match is saved - on-demand creation will handle it');
+        console.log('🔧 Escrow initialization result:', { success: escrowResult?.success, error: escrowResult?.error });
+      } catch (escrowError: unknown) {
+        const escrowErrorMessage = escrowError instanceof Error ? escrowError.message : String(escrowError);
+        console.error('❌ Exception during escrow initialization:', escrowErrorMessage);
+        console.error('❌ Escrow initialization stack:', escrowError instanceof Error ? escrowError.stack : 'No stack');
+        // Don't throw - return match without escrow, on-demand creation will handle it
+        console.warn('⚠️ Escrow initialization failed, but match is saved - on-demand creation will handle it');
         await matchRepository.query(`
           UPDATE "match" 
-          SET "matchStatus" = $1, "updatedAt" = $2
+          SET "escrowStatus" = $1, "updatedAt" = $2
           WHERE id = $3
-        `, ['VAULT_PENDING', new Date(), matchData.matchId]);
+        `, ['PENDING', new Date(), matchData.matchId]);
         
         return {
           status: 'matched',
@@ -900,22 +895,21 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           player1: matchData.player1,
           player2: matchData.player2,
           entryFee: matchData.entryFee,
-          squadsVaultAddress: null,
-        squadsVaultPda: null,
-          vaultAddress: null,
-          message: 'Match created - vault creation in progress, please wait'
+          escrowAddress: null,
+          escrowPda: null,
+          message: 'Match created - escrow initialization in progress, please wait'
         };
       }
       
-      if (!vaultResult || !vaultResult.success) {
-        console.error('❌ Failed to create multisig vault:', vaultResult?.error || 'Unknown error');
-        // Don't throw - return match without vault, on-demand creation will handle it
-        console.warn('⚠️ Returning match without vault - on-demand creation will handle it');
+      if (!escrowResult || !escrowResult.success) {
+        console.error('❌ Failed to initialize escrow:', escrowResult?.error || 'Unknown error');
+        // Don't throw - return match without escrow, on-demand creation will handle it
+        console.warn('⚠️ Returning match without escrow - on-demand creation will handle it');
         await matchRepository.query(`
           UPDATE "match" 
-          SET "matchStatus" = $1, "updatedAt" = $2
+          SET "escrowStatus" = $1, "updatedAt" = $2
           WHERE id = $3
-        `, ['VAULT_PENDING', new Date(), matchData.matchId]);
+        `, ['PENDING', new Date(), matchData.matchId]);
         
         return {
           status: 'matched',
@@ -923,35 +917,31 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           player1: matchData.player1,
           player2: matchData.player2,
           entryFee: matchData.entryFee,
-          squadsVaultAddress: null,
-        squadsVaultPda: null,
-          vaultAddress: null,
-          message: 'Match created - vault creation in progress, please wait'
+          escrowAddress: null,
+          escrowPda: null,
+          message: 'Match created - escrow initialization in progress, please wait'
         };
       }
       
-      console.log('✅ Multisig vault created:', {
-        squadsVaultAddress: vaultResult.vaultAddress,
-        vaultPda: vaultResult.vaultPda
+      console.log('✅ Escrow initialized:', {
+        escrowAddress: escrowResult.escrowAddress
       });
 
-      // Update match with vault addresses using raw SQL
+      // Update match with escrow address using raw SQL
       await matchRepository.query(`
         UPDATE "match" 
-        SET "squadsVaultAddress" = $1,
-            "squadsVaultPda" = $2,
-            "matchStatus" = $3,
-            "updatedAt" = $4
-        WHERE id = $5
+        SET "escrowAddress" = $1,
+            "escrowStatus" = $2,
+            "updatedAt" = $3
+        WHERE id = $4
       `, [
-        vaultResult.vaultAddress,
-        vaultResult.vaultPda ?? null,
-        'VAULT_CREATED',
+        escrowResult.escrowAddress,
+        'INITIALIZED',
         new Date(),
         matchData.matchId
       ]);
       
-      console.log(`✅ Match ${matchData.matchId} fully created with vault - both players can now find it`);
+      console.log(`✅ Match ${matchData.matchId} fully created with escrow - both players can now find it`);
       
       // Usernames were already fetched earlier (lines 757-758) for database storage
       // Reuse those values for the response
@@ -964,9 +954,8 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         player1Username: player1Username || null,
         player2Username: player2Username || null,
         entryFee: matchData.entryFee,
-        squadsVaultAddress: vaultResult.vaultAddress,
-        vaultAddress: vaultResult.vaultAddress,
-        squadsVaultPda: vaultResult.vaultPda ?? null,
+        escrowAddress: escrowResult.escrowAddress,
+        escrowPda: escrowResult.escrowAddress, // escrowPda is the same as escrowAddress for our system
         message: 'Match created - both players must pay entry fee to start game'
       };
     } else if (redisResult.status === 'waiting') {
@@ -4787,7 +4776,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       const matchRows = await matchRepository.query(`
         SELECT 
           id, "player1", "player2", "entryFee", status, word,
-          "squadsVaultAddress", "squadsVaultPda", "player1Paid", "player2Paid",
+          "squadsVaultAddress", "squadsVaultPda", "escrowAddress", "escrowPda", "escrowStatus",
+          "player1Paid", "player2Paid",
           "player1Result", "player2Result", "payoutResult",
           winner, "isCompleted", "createdAt", "updatedAt",
           "payoutProposalId", "tieRefundProposalId", "proposalStatus",
@@ -7156,9 +7146,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       player2: match.player2,
       player1Username: player1Username || null,
       player2Username: player2Username || null,
-      squadsVaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
-      squadsVaultPda: (match as any).squadsVaultPda || null,
-      vaultAddress: (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
+      escrowAddress: (match as any).escrowAddress || (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
+      escrowPda: (match as any).escrowPda || (match as any).escrowAddress || (match as any).squadsVaultPda || null,
+      escrowStatus: (match as any).escrowStatus || null,
+      // Backward compatibility fields
+      squadsVaultAddress: (match as any).escrowAddress || (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
+      squadsVaultPda: (match as any).escrowPda || (match as any).escrowAddress || (match as any).squadsVaultPda || null,
+      vaultAddress: (match as any).escrowAddress || (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
       player1Paid: match.player1Paid,
       player2Paid: match.player2Paid,
       word: match.word,
