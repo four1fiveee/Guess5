@@ -3361,7 +3361,6 @@ const submitResultHandler = async (req: any, res: any) => {
                           });
                         }
                       }
-                    }
                     } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
                     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3505,7 +3504,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               }
-              })();
+            })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
             (payoutResult as any).proposalStatus = 'PENDING';
@@ -3880,7 +3879,7 @@ const submitResultHandler = async (req: any, res: any) => {
               })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
-              (payoutResult as any).proposalStatus = 'PENDING';
+            (payoutResult as any).proposalStatus = 'PENDING';
               (payoutResult as any).tieRefundProposalId = null; // Will be populated when background process completes
               (payoutResult as any).proposalId = null; // Will be populated when background process completes
             }
@@ -4585,13 +4584,12 @@ const submitResultHandler = async (req: any, res: any) => {
                     }
                     }
                   }
-                  } finally {
+                } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
                 }
-              }
-            } catch (proposalError: unknown) {
+              } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
               console.error('❌ Failed to create proposals after match completion:', errorMessage);
             }
@@ -4763,13 +4761,12 @@ const submitResultHandler = async (req: any, res: any) => {
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
                     }
                   }
-                  } finally {
+                } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
                 }
-              }
-            } catch (proposalError: unknown) {
+              } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
               console.error('❌ Failed to create proposals for fallback save:', errorMessage);
             }
@@ -5747,13 +5744,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         }
       } else {
         console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
-        matchId: match.id,
-        isCompleted: match.isCompleted,
-        hasPlayer1Result: !!player1Result,
-        hasPlayer2Result: !!player2Result,
-        player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-        player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
-      });
+          matchId: match.id,
+          isCompleted: match.isCompleted,
+          hasPlayer1Result: !!player1Result,
+          hasPlayer2Result: !!player2Result,
+          player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
+          player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
+        });
       }
       } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
@@ -6059,16 +6056,16 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             
             // CRITICAL FIX: Actually create the proposal after acquiring the lock
             try {
-          const { AppDataSource } = require('../db/index');
-          const matchRepository = AppDataSource.getRepository(Match);
+              const { AppDataSource } = require('../db/index');
+              const matchRepository = AppDataSource.getRepository(Match);
               
               // Double-check proposal still doesn't exist
               const checkRows = await matchRepository.query(`
-            SELECT "payoutProposalId", "tieRefundProposalId"
-            FROM "match"
-            WHERE id = $1
-            LIMIT 1
-          `, [freshMatch.id]);
+                SELECT "payoutProposalId", "tieRefundProposalId"
+                FROM "match"
+                WHERE id = $1
+                LIMIT 1
+              `, [freshMatch.id]);
               if (checkRows && checkRows.length > 0 && (checkRows[0].payoutProposalId || checkRows[0].tieRefundProposalId)) {
                 console.log('✅ Proposal already exists (created by another process after lock release)');
                 (match as any).payoutProposalId = checkRows[0].payoutProposalId || (match as any).payoutProposalId;
@@ -6266,17 +6263,17 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 });
               }
             }
-            } catch (fallbackError: unknown) {
-        const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
-        console.error('❌ FINAL FALLBACK: Error creating winner payout proposal', {
-          matchId: match.id,
-          error: errorMessage
-        });
-      } finally {
-        await releaseProposalLock(freshMatch.id);
-      }
-    }
-    })(); // End async IIFE for winner payout proposal creation
+          } catch (fallbackError: unknown) {
+            const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
+            console.error('❌ FINAL FALLBACK: Error creating winner payout proposal', {
+              matchId: match.id,
+              error: errorMessage
+            });
+          } finally {
+            await releaseProposalLock(freshMatch.id);
+          }
+        }
+      })(); // End async IIFE for winner payout proposal creation
   }
   // Create proposal for tie refund (tie matches)
   // CRITICAL FIX: Make this non-blocking to prevent status endpoint timeouts
