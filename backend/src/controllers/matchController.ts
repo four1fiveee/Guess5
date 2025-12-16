@@ -4601,6 +4601,9 @@ const submitResultHandler = async (req: any, res: any) => {
                     await releaseProposalLock(finalMatch.id);
                   }
                 }
+              } catch (outerError: unknown) {
+                const errorMessage = outerError instanceof Error ? outerError.message : String(outerError);
+                console.error('❌ Error in proposal creation IIFE:', errorMessage);
               }
             })(); // Close async IIFE - execute in background without blocking
           } else {
