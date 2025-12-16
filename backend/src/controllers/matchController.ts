@@ -3506,7 +3506,6 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               }
-              }
             })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
@@ -3977,7 +3976,6 @@ const submitResultHandler = async (req: any, res: any) => {
           player2Result: currentMatch?.player2Result || null,
           message: 'Waiting for other player to finish'
         });
-      }
       }
     } else {
       // CRITICAL FIX: Check if both players have SUBMITTED RESULTS, not if they've "finished playing"
@@ -4775,6 +4773,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 console.error('❌ Failed to create proposals for fallback save:', errorMessage);
               }
             }
+          }
           }
           
           // DELAYED CLEANUP: Only delete Redis state after both players have submitted
