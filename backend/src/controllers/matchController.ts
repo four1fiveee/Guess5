@@ -5093,26 +5093,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 
                 console.log('📋 Fresh match data loaded', {
                   matchId: match.id,
-                  dbVaultAddress: freshMatch.squadsVaultAddress,
-                  dbVaultPda: freshMatch.squadsVaultPda,
-                  resultVaultAddress: creation.vaultAddress,
-                  resultVaultPda: creation.vaultPda
+                  dbEscrowAddress: freshMatch.escrowAddress,
+                  dbEscrowPda: freshMatch.escrowPda,
+                  resultEscrowAddress: creation.escrowAddress
                 });
-                
-                // Ensure vaultPda is set
-                if (!(match as any).squadsVaultPda && (match as any).squadsVaultAddress) {
-                  try {
-                    const { getSquadsVaultService } = require('../services/squadsVaultService');
-                    const squadsService = getSquadsVaultService();
-                    const derivedVaultPda = squadsService?.deriveVaultPda?.((match as any).squadsVaultAddress);
-                    if (derivedVaultPda) {
-                      (match as any).squadsVaultPda = derivedVaultPda;
-                      console.log('✅ Derived vaultPda', { matchId: match.id, vaultPda: derivedVaultPda });
-                    }
-                  } catch (deriveErr) {
-                    console.warn('⚠️ Could not derive vaultPda', { matchId: match.id, error: deriveErr });
-                  }
-                }
                 
                 console.log('✅ Vault created on-demand for match (synchronous)', { 
                   matchId: match.id, 
