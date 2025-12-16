@@ -955,6 +955,61 @@ const Matchmaking: React.FC = () => {
             try {
               const data = await getMatchStatus(currentMatchData.matchId);
               
+              // Get normalized status first
+              const normalizedStatus = data.status as string;
+
+              // ✅ CRITICAL: Check for cancelled status FIRST (even before escrow loads)
+              // This handles the case where a player quits before escrow is initialized
+              if (normalizedStatus === 'cancelled') {
+                const depositMade = !!data.player1Paid || !!data.player2Paid;
+                const hasEscrow = !!(data as any)?.escrowAddress || !!(data as any)?.escrowPda || 
+                                  !!(data as any)?.squadsVaultAddress || !!(data as any)?.vaultAddress;
+                
+                console.log('⚠️ Match cancelled detected during polling', {
+                  depositMade,
+                  hasEscrow,
+                  matchId: currentMatchData.matchId,
+                });
+                
+                matchDataRef.current = {
+                  ...(matchDataRef.current || {}),
+                  status: depositMade ? 'refund_pending' : 'opponent_left',
+                };
+                setMatchData((prev: any) =>
+                  prev
+                    ? {
+                        ...prev,
+                        status: depositMade ? 'refund_pending' : 'opponent_left',
+                      }
+                    : prev
+                );
+                clearInterval(pollInterval);
+                setIsPolling(false);
+                setIsMatchmakingInProgress(false);
+                
+                if (depositMade) {
+                  setStatus('refund_pending');
+                  if (currentMatchData.matchId) {
+                    localStorage.setItem('matchId', currentMatchData.matchId);
+                    if (data.entryFee) {
+                      localStorage.setItem('entryFee', data.entryFee.toString());
+                    }
+                  }
+                } else {
+                  // No deposit made - opponent left before escrow was ready
+                  localStorage.removeItem('matchId');
+                  localStorage.removeItem('word');
+                  localStorage.removeItem('entryFee');
+                  setStatus('opponent_left');
+                  
+                  // Show notification and redirect to lobby after a brief delay
+                  setTimeout(() => {
+                    router.push('/lobby');
+                  }, 2000);
+                }
+                return;
+              }
+              
               // Update match data with latest payment status
               setMatchData((prev: any) => {
                 const va =
