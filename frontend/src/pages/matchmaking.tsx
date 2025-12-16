@@ -1689,7 +1689,7 @@ const Matchmaking: React.FC = () => {
                   <div className="bg-yellow-500/20 border border-yellow-500/40 rounded-lg p-3 mb-4">
                     <div className="flex items-center justify-center mb-2">
                       <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-yellow-400 mr-2"></div>
-                      <div className="text-yellow-400 text-sm font-medium">Preparing secure vault...</div>
+                      <div className="text-yellow-400 text-sm font-medium">Preparing escrow...</div>
                     </div>
                     <p className="text-white/70 text-xs text-center">This usually takes a few seconds</p>
                   </div>
