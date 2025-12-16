@@ -446,7 +446,8 @@ const attemptAutoExecuteIfReady = async (
       }
     }
 
-    return true;
+      return true;
+    }
   } catch (error: unknown) {
     enhancedLogger.error('❌ Auto-execute readiness check failed', {
       matchId: match?.id,
@@ -4482,7 +4483,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   const { PublicKey } = require('@solana/web3.js');
                   
                   // Check if match uses escrow or Squads
-                  
+                  if ((reloadedMatch as any).escrowAddress) {
                     // NEW ESCROW SYSTEM: Settlement is handled by frontend/player calling settleMatch
                     console.log('✅ Escrow match - winner payout settlement will be triggered by player or frontend', {
                       matchId: reloadedMatch.id,
@@ -4760,7 +4761,6 @@ const submitResultHandler = async (req: any, res: any) => {
                           WHERE id = $9
                         `, [proposalResult.proposalId, proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
-                    }
                     }
                   }
                 } finally {
