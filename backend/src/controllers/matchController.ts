@@ -3506,7 +3506,6 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               }
-              }
             })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
@@ -4592,7 +4591,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     await releaseProposalLock(finalMatch.id);
                   }
                 }
-                } catch (proposalError: unknown) {
+              } catch (proposalError: unknown) {
                 const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                 console.error('❌ Failed to create proposals after match completion:', errorMessage);
               }
@@ -4769,12 +4768,12 @@ const submitResultHandler = async (req: any, res: any) => {
                     await releaseProposalLock(updatedMatch.id);
                   }
                 }
-                } catch (proposalError: unknown) {
-                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-                  console.error('❌ Failed to create proposals for fallback save:', errorMessage);
-                }
+              } catch (proposalError: unknown) {
+                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                console.error('❌ Failed to create proposals for fallback save:', errorMessage);
               }
             }
+          }
           
           // DELAYED CLEANUP: Only delete Redis state after both players have submitted
           // Don't delete immediately - wait a bit to allow the other player to submit
@@ -5740,12 +5739,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   });
                   }
                 }
+                }
               }
             } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
               console.error('❌ Error creating payout proposal:', errorMessage);
             }
           }
+        }
         }
       } else {
         console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
