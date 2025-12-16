@@ -44,55 +44,8 @@ export class Match {
   @Column({ nullable: true })
   escrowBackendSignature?: string; // Backend signature for result verification
 
-  // Squads Protocol fields (DEPRECATED - kept for migration)
-  @Column({ nullable: true })
-  squadsVaultAddress?: string;
-
-  @Column({ nullable: true })
-  squadsVaultPda?: string;
-
-  @Column({ nullable: true })
-  payoutProposalId?: string;
-
-  @Column({ nullable: true, type: 'varchar' })
-  payoutProposalTransactionIndex?: string; // CRITICAL: Transaction index used to derive proposal PDA
-
-  @Column({ nullable: true, default: 0 })
-  proposalAttemptCount?: number; // Track how many proposal creation attempts (for versioning/debugging)
-
-  @Column({ nullable: true })
-  proposalCreatedAt?: Date;
-
-  @Column({ nullable: true, default: 'PENDING' })
-  proposalStatus?: string; // PENDING, APPROVED, EXECUTED, REJECTED
-
-  @Column({ type: 'text', nullable: true })
-  proposalSigners?: string; // JSON array of public keys
-
-  @Column({ nullable: true, default: 2 })
-  needsSignatures?: number;
-
-  @Column({ nullable: true })
-  proposalExecutedAt?: Date;
-
-  @Column({ nullable: true })
-  proposalExpiresAt?: Date;
-
-  // Execution attempt tracking (expert recommendation)
-  @Column({ nullable: true, default: 0 })
-  executionAttempts?: number;
-
-  @Column({ nullable: true })
-  executionLastAttemptAt?: Date;
-
-  @Column({ nullable: true })
-  proposalTransactionId?: string;
-
-  @Column({ nullable: true })
-  tieRefundProposalId?: string;
-
-  @Column({ nullable: true, type: 'varchar' })
-  tieRefundProposalTransactionIndex?: string; // CRITICAL: Transaction index used to derive refund proposal PDA
+  // Squads Protocol fields REMOVED - migration 019_remove_squads_fields.ts
+  // All proposal-related fields removed (payoutProposalId, proposalStatus, proposalSigners, etc.)
 
   // Payment signature fields
   @Column({ nullable: true })
