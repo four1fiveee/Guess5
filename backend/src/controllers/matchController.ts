@@ -4160,6 +4160,7 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentInstructions = paymentInstructions;
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
+            }
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
@@ -7334,6 +7335,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         paidAt: (match as any).bonusPaidAt || null
       }
     });
+    }
   } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
     // Ensure CORS headers are set even on error
