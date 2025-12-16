@@ -4161,8 +4161,7 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
             }
-          }
-        } else if (payoutResult && payoutResult.winner === 'tie') {
+          } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
               updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
@@ -4586,7 +4585,6 @@ const submitResultHandler = async (req: any, res: any) => {
                     } else {
                       console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
                     }
-                    }
                   }
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
@@ -4595,7 +4593,6 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
-                }
                 }
               }
             })(); // Close async IIFE - execute in background without blocking
@@ -4765,7 +4762,6 @@ const submitResultHandler = async (req: any, res: any) => {
                         `, [proposalResult.proposalId, proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
                     }
-                    }
                   }
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
@@ -4774,7 +4770,6 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
-                }
                 }
               }
             }
@@ -4799,7 +4794,6 @@ const submitResultHandler = async (req: any, res: any) => {
               console.warn('⚠️ Error in delayed cleanup:', error);
             }
           }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
-          }
       } else {
         // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
         // Do NOT continue to winner determination or proposal creation
@@ -4818,7 +4812,6 @@ const submitResultHandler = async (req: any, res: any) => {
         });
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
-    }
     }
 
   } catch (error: unknown) {
