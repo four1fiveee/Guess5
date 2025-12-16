@@ -51,7 +51,7 @@ export class SquadsVaultService {
   }
 
   deriveVaultPda(multisigAddress: string): string | null {
-    return null;
+        return null;
   }
 
   // Stub methods to prevent runtime errors
@@ -84,8 +84,8 @@ export class SquadsVaultService {
   }
 
   async verifyDeposit(matchId: string, player: string | PublicKey, amount: number, txSignature?: string): Promise<boolean> {
-    return false;
-  }
+      return false;
+    }
 }
 
 export function deriveVaultTransactionPda(params: {

@@ -3458,12 +3458,11 @@ const submitResultHandler = async (req: any, res: any) => {
                       }
                     }
                   }
-                  }
                 } catch (innerProposalError: any) {
                   // Re-throw to outer catch - this catch exists only for syntax requirements
                   throw innerProposalError;
                 }
-              } catch (outerError: any) {
+                } catch (outerError: any) {
                 // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
                 console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
                   matchId: updatedMatch.id,
@@ -3506,6 +3505,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                   }
                 }
+              }
               }
             })();
             
@@ -4586,14 +4586,13 @@ const submitResultHandler = async (req: any, res: any) => {
                     } else {
                       console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
                     }
-                    }
                   }
                 } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
                 }
-              } catch (proposalError: unknown) {
+                } catch (proposalError: unknown) {
                 const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                 console.error('❌ Failed to create proposals after match completion:', errorMessage);
               }
@@ -4770,12 +4769,12 @@ const submitResultHandler = async (req: any, res: any) => {
                     await releaseProposalLock(updatedMatch.id);
                   }
                 }
-              } catch (proposalError: unknown) {
-                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-                console.error('❌ Failed to create proposals for fallback save:', errorMessage);
+                } catch (proposalError: unknown) {
+                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                  console.error('❌ Failed to create proposals for fallback save:', errorMessage);
+                }
               }
             }
-          }
           
           // DELAYED CLEANUP: Only delete Redis state after both players have submitted
           // Don't delete immediately - wait a bit to allow the other player to submit
@@ -4815,6 +4814,7 @@ const submitResultHandler = async (req: any, res: any) => {
         });
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
+    }
     }
 
   } catch (error: unknown) {
@@ -5756,7 +5756,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
           player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
         });
-      }
       }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
