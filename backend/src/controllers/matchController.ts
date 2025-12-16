@@ -4161,8 +4161,7 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
             }
-          }
-        } else if (payoutResult && payoutResult.winner === 'tie') {
+          } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
               updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
@@ -4586,16 +4585,14 @@ const submitResultHandler = async (req: any, res: any) => {
                     } else {
                       console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
                     }
-                    }
                   }
+                } catch (proposalError: unknown) {
+                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                  console.error('❌ Failed to create proposals after match completion:', errorMessage);
                 } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
-                }
-                } catch (proposalError: unknown) {
-                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-                  console.error('❌ Failed to create proposals after match completion:', errorMessage);
                 }
               }
             })(); // Close async IIFE - execute in background without blocking
@@ -4781,7 +4778,6 @@ const submitResultHandler = async (req: any, res: any) => {
           // DELAYED CLEANUP: Only delete Redis state after both players have submitted
           // Don't delete immediately - wait a bit to allow the other player to submit
           // The game state will be cleaned up by TTL (1 hour) or when both players have definitely finished
-          }
           setTimeout(async () => {
             try {
               // Double-check both players have submitted before deleting
@@ -4799,7 +4795,6 @@ const submitResultHandler = async (req: any, res: any) => {
               console.warn('⚠️ Error in delayed cleanup:', error);
             }
           }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
-          }
       } else {
         // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
         // Do NOT continue to winner determination or proposal creation
@@ -4818,7 +4813,6 @@ const submitResultHandler = async (req: any, res: any) => {
         });
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
-    }
     }
 
   } catch (error: unknown) {
@@ -5766,7 +5760,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('❌ Error recalculating winner (background):', errorMessage);
       }
-      }
     })(); // End background winner calculation
   }
 
@@ -6284,6 +6277,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           } finally {
             await releaseProposalLock(freshMatch.id);
           }
+        }
         }
       })(); // End async IIFE for winner payout proposal creation
   }
@@ -7335,7 +7329,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         paidAt: (match as any).bonusPaidAt || null
       }
     });
-    }
   } catch (error: unknown) {
     console.error('❌ Error getting match status:', error);
     // Ensure CORS headers are set even on error
