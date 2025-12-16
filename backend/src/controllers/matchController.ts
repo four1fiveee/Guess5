@@ -4592,6 +4592,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     }
                     }
                   }
+                }
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                   console.error('❌ Failed to create proposals after match completion:', errorMessage);
