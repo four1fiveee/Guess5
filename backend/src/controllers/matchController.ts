@@ -245,7 +245,11 @@ const attemptAutoExecuteIfReady = async (
       return false;
     }
 
-    if (!(match as any).squadsVaultAddress) {
+    // Check for escrow first (new system), then Squads (old system)
+    const hasEscrow = !!(match as any).escrowAddress;
+    const hasSquadsVault = !!(match as any).squadsVaultAddress;
+    
+    if (!hasEscrow && !hasSquadsVault) {
       return false;
     }
 
