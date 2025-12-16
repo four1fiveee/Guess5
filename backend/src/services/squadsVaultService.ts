@@ -2,6 +2,9 @@
 // DEPRECATED: This file is a stub for the deprecated Squads vault service.
 // The actual implementation has been moved to legacy/squadsVaultService.legacy.ts
 // This stub exists only to prevent import errors while we migrate to the new escrow system.
+//
+// NOTE: This file is kept for backward compatibility with old matches that still use Squads.
+// New matches use the escrow system exclusively. All methods return safe stub responses.
 
 import { PublicKey, Keypair } from '@solana/web3.js';
 
