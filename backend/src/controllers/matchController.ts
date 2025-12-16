@@ -4161,6 +4161,10 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
             }
+            } catch (error: unknown) {
+              const errorMessage = error instanceof Error ? error.message : String(error);
+              console.error('❌ Error in proposal creation:', errorMessage);
+            }
           } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
@@ -4585,6 +4589,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     } else {
                       console.error('❌ Failed to create tie refund proposal:', proposalResult.error);
                     }
+                    }
                   }
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
@@ -4593,6 +4598,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
+                }
                 }
               }
             })(); // Close async IIFE - execute in background without blocking
@@ -4762,6 +4768,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         `, [proposalResult.proposalId, proposalResult.proposalId, proposalResult.transactionIndex || null, new Date(), 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, new Date(), updatedMatch.id]);
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
                     }
+                    }
                   }
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
@@ -4770,6 +4777,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
+                }
                 }
               }
             }
