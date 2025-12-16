@@ -17,8 +17,23 @@ const { getRandomWord } = wordListModule;
 // Import database connection for pending claims handler
 const { AppDataSource } = require('../db/index');
 
-// Import Squads service for non-custodial vault operations
+// Import Squads service for non-custodial vault operations (backward compatibility only)
 const { squadsVaultService } = require('../services/squadsVaultService');
+// Import Escrow service for new matches
+const escrowService = require('../services/escrowService');
+
+/**
+ * Helper function to determine if a match uses escrow (new system) or Squads (old system)
+ * Returns: 'escrow' | 'squads' | null
+ */
+function getMatchSystem(match: any): 'escrow' | 'squads' | null {
+  const hasEscrow = !!(match?.escrowAddress || (match as any)?.escrowAddress);
+  const hasSquads = !!(match?.squadsVaultAddress || (match as any)?.squadsVaultAddress);
+  
+  if (hasEscrow) return 'escrow';
+  if (hasSquads) return 'squads';
+  return null;
+}
 
 // Import Redis helpers to replace in-memory storage
 const { getGameState, setGameState, deleteGameState } = require('../utils/redisGameState');
@@ -4085,16 +4100,31 @@ const submitResultHandler = async (req: any, res: any) => {
                 }
               } else {
               console.log('🔄 Creating winner payout proposal synchronously...');
-              const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                updatedMatch.squadsVaultAddress,
-                new PublicKey(winner),
-                winnerAmount,
-                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount,
-                updatedMatch.squadsVaultPda ?? undefined
-              );
               
-              if (proposalResult.success && proposalResult.proposalId) {
+              // Check if match uses escrow or Squads
+              const matchSystem = getMatchSystem(updatedMatch);
+              
+              if (matchSystem === 'escrow') {
+                // NEW ESCROW SYSTEM: Settlement is handled by frontend/player calling settleMatch
+                console.log('✅ Escrow match - winner payout settlement will be triggered by player or frontend', {
+                  matchId: updatedMatch.id,
+                  escrowAddress: updatedMatch.escrowAddress || (updatedMatch as any).escrowAddress,
+                  winner
+                });
+                // Escrow settlement is handled separately - don't create proposal
+                return;
+              } else if (matchSystem === 'squads') {
+                // OLD SQUADS SYSTEM: Use Squads proposal
+                const proposalResult = await squadsVaultService.proposeWinnerPayout(
+                  updatedMatch.squadsVaultAddress,
+                  new PublicKey(winner),
+                  winnerAmount,
+                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                  feeAmount,
+                  updatedMatch.squadsVaultPda ?? undefined
+                );
+                
+                if (proposalResult.success && proposalResult.proposalId) {
                 console.log('✅ COMPREHENSIVE: Squads winner payout proposal created:', {
                   matchId,
                   correlationId,
