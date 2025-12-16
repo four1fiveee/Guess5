@@ -577,7 +577,7 @@ const periodicCleanup = async () => {
     // Process refunds for payment_required matches that are too old (5 minutes) using raw SQL
     const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000);
   const oldPaymentRequiredRows = await matchRepository.query(`
-    SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda", status
+    SELECT id, "player1", "player2", "entryFee", "escrowAddress", "escrowPda", "squadsVaultAddress", "squadsVaultPda", status
     FROM "match"
     WHERE status = $1 AND "updatedAt" < $2
   `, ['payment_required', fiveMinutesAgo]);
