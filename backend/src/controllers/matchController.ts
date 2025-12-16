@@ -307,29 +307,29 @@ const attemptAutoExecuteIfReady = async (
       );
 
       if (!executeResult.success) {
-      const isVaultEmpty =
-        executeResult.error === 'INSUFFICIENT_VAULT_BALANCE' ||
-        executeResult.logs?.some((entry: string) =>
-          entry?.toLowerCase?.().includes('vault balance is zero')
-        );
+        const isVaultEmpty =
+          executeResult.error === 'INSUFFICIENT_VAULT_BALANCE' ||
+          executeResult.logs?.some((entry: string) =>
+            entry?.toLowerCase?.().includes('vault balance is zero')
+          );
 
-      const logPayload = {
-        matchId: match.id,
-        proposalId: proposalIdString,
-        context,
-        error: executeResult.error,
-        logs: executeResult.logs?.slice(-5),
-      };
+        const logPayload = {
+          matchId: match.id,
+          proposalId: proposalIdString,
+          context,
+          error: executeResult.error,
+          logs: executeResult.logs?.slice(-5),
+        };
 
-      if (isVaultEmpty) {
-        enhancedLogger.warn('⚠️ Auto-execute deferred - vault has no funds yet', logPayload);
-      } else {
-        enhancedLogger.error('❌ Auto-execute attempt failed', logPayload);
+        if (isVaultEmpty) {
+          enhancedLogger.warn('⚠️ Auto-execute deferred - vault has no funds yet', logPayload);
+        } else {
+          enhancedLogger.error('❌ Auto-execute attempt failed', logPayload);
+        }
+        return false;
       }
-      return false;
-    }
 
-    const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
+      const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
     const isTieRefund =
       !!(match as any).tieRefundProposalId &&
       String((match as any).tieRefundProposalId).trim() === proposalIdString;
@@ -4225,85 +4225,87 @@ const submitResultHandler = async (req: any, res: any) => {
             
             // OLD SQUADS SYSTEM: Only process if this is a Squads match
             if ((updatedMatch as any).squadsVaultAddress) {
-              const { getSquadsVaultService } = require('../services/squadsVaultService');
-              const squadsVaultService = getSquadsVaultService();
-              const { PublicKey } = require('@solana/web3.js');
-              
-              const tiePaymentStatus = {
-                ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
-                ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
-              };
-              
-              const refundResult = await squadsVaultService.proposeTieRefund(
-                (updatedMatch as any).squadsVaultAddress,
-                new PublicKey(updatedMatch.player1),
-                new PublicKey(updatedMatch.player2),
-                refundAmount,
-                (updatedMatch as any).squadsVaultPda ?? undefined,
-                tiePaymentStatus
-              );
+              try {
+                const { getSquadsVaultService } = require('../services/squadsVaultService');
+                const squadsVaultService = getSquadsVaultService();
+                const { PublicKey } = require('@solana/web3.js');
                 
-              if (refundResult.success && refundResult.proposalId) {
-                  console.log('✅ COMPREHENSIVE: Squads tie refund proposal created:', {
-                  matchId,
-                  correlationId,
-                  proposalId: refundResult.proposalId,
-                  needsSignatures: refundResult.needsSignatures,
-                  timestamp: new Date().toISOString(),
-                  action: 'tie_refund_proposal_created'
-                });
+                const tiePaymentStatus = {
+                  ...(updatedMatch.player1Paid !== undefined && { player1Paid: !!updatedMatch.player1Paid }),
+                  ...(updatedMatch.player2Paid !== undefined && { player2Paid: !!updatedMatch.player2Paid }),
+                };
+                
+                const refundResult = await squadsVaultService.proposeTieRefund(
+                  (updatedMatch as any).squadsVaultAddress,
+                  new PublicKey(updatedMatch.player1),
+                  new PublicKey(updatedMatch.player2),
+                  refundAmount,
+                  (updatedMatch as any).squadsVaultPda ?? undefined,
+                  tiePaymentStatus
+                );
                   
-                  const proposalState = buildInitialProposalState(refundResult.needsSignatures);
-
-                  // CRITICAL: Update match with proposal information using transaction
-                  await AppDataSource.transaction(async (transactionManager) => {
-                    await transactionManager.query(`
-                      UPDATE "match"
-                      SET "payoutProposalId" = NULL,
-                          "tieRefundProposalId" = $1,
-                          "proposalCreatedAt" = $2,
-                          "proposalStatus" = $3,
-                          "needsSignatures" = $4,
-                          "proposalSigners" = $5,
-                          "matchStatus" = $6,
-                          "updatedAt" = $7
-                      WHERE id = $8
-                    `, [
-                      refundResult.proposalId,
-                      new Date(),
-                      'ACTIVE',
-                      proposalState.normalizedNeeds,
-                      proposalState.signersJson,
-                      'PROPOSAL_CREATED',
-                      new Date(),
-                      updatedMatch.id
-                    ]);
+                if (refundResult.success && refundResult.proposalId) {
+                    console.log('✅ COMPREHENSIVE: Squads tie refund proposal created:', {
+                    matchId,
+                    correlationId,
+                    proposalId: refundResult.proposalId,
+                    needsSignatures: refundResult.needsSignatures,
+                    timestamp: new Date().toISOString(),
+                    action: 'tie_refund_proposal_created'
                   });
-                  
-                console.log('✅ COMPREHENSIVE: Match saved with tie refund proposal (ATOMIC):', {
-                  matchId: updatedMatch.id,
-                  correlationId,
-                  proposalId: refundResult.proposalId,
-                  proposalStatus: 'ACTIVE',
-                  needsSignatures: proposalState.normalizedNeeds,
-                  timestamp: new Date().toISOString(),
-                  action: 'database_updated_with_tie_refund_proposal'
-                });
+                    
+                    const proposalState = buildInitialProposalState(refundResult.needsSignatures);
 
-                  // Update the payout result to include proposal info
-                  (payoutResult as any).proposalId = refundResult.proposalId;
-                  (payoutResult as any).proposalStatus = 'ACTIVE';
-                  (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
-                  
-                } else {
-                  console.error('❌ Squads tie refund proposal creation failed:', refundResult.error);
-                  // Continue with fallback payment instructions
-                }
+                    // CRITICAL: Update match with proposal information using transaction
+                    await AppDataSource.transaction(async (transactionManager) => {
+                      await transactionManager.query(`
+                        UPDATE "match"
+                        SET "payoutProposalId" = NULL,
+                            "tieRefundProposalId" = $1,
+                            "proposalCreatedAt" = $2,
+                            "proposalStatus" = $3,
+                            "needsSignatures" = $4,
+                            "proposalSigners" = $5,
+                            "matchStatus" = $6,
+                            "updatedAt" = $7
+                        WHERE id = $8
+                      `, [
+                        refundResult.proposalId,
+                        new Date(),
+                        'ACTIVE',
+                        proposalState.normalizedNeeds,
+                        proposalState.signersJson,
+                        'PROPOSAL_CREATED',
+                        new Date(),
+                        updatedMatch.id
+                      ]);
+                    });
+                    
+                  console.log('✅ COMPREHENSIVE: Match saved with tie refund proposal (ATOMIC):', {
+                    matchId: updatedMatch.id,
+                    correlationId,
+                    proposalId: refundResult.proposalId,
+                    proposalStatus: 'ACTIVE',
+                    needsSignatures: proposalState.normalizedNeeds,
+                    timestamp: new Date().toISOString(),
+                    action: 'database_updated_with_tie_refund_proposal'
+                  });
+
+                    // Update the payout result to include proposal info
+                    (payoutResult as any).proposalId = refundResult.proposalId;
+                    (payoutResult as any).proposalStatus = 'ACTIVE';
+                    (payoutResult as any).needsSignatures = proposalState.normalizedNeeds;
+                    
+                  } else {
+                    console.error('❌ Squads tie refund proposal creation failed:', refundResult.error);
+                    // Continue with fallback payment instructions
+                  }
               } catch (error: unknown) {
                 const errorMessage = error instanceof Error ? error.message : String(error);
                 console.error('❌ Error creating Squads tie refund proposal (CRITICAL):', errorMessage);
                 // Continue with fallback payment instructions
               }
+            }
             
             // Set fallback payment instructions (proposal will be created in background)
             const paymentInstructions = {
@@ -4702,7 +4704,14 @@ const submitResultHandler = async (req: any, res: any) => {
                     }
                   }
                 }
-                } else {
+              } catch (error: unknown) {
+                const errorMessage = error instanceof Error ? error.message : String(error);
+                console.error('❌ Error creating Squads proposal (fallback):', errorMessage);
+              }
+            }
+            
+            // Handle tie scenarios
+            if (updatedMatch.winner === 'tie') {
                     // Parse player results from JSON strings
                     const player1ResultRaw = updatedMatch.player1Result;
                     const player2ResultRaw = updatedMatch.player2Result;
@@ -4730,6 +4739,9 @@ const submitResultHandler = async (req: any, res: any) => {
                     // OLD SQUADS SYSTEM: Only process if this is a Squads match
                     if ((updatedMatch as any).squadsVaultAddress) {
                       // OLD SQUADS SYSTEM: Use Squads proposal
+                      const { getSquadsVaultService } = require('../services/squadsVaultService');
+                      const squadsService = getSquadsVaultService();
+                      const { PublicKey } = require('@solana/web3.js');
                       const proposalResult = await squadsService.proposeTieRefund(
                         (updatedMatch as any).squadsVaultAddress,
                         new PublicKey(updatedMatch.player1),
@@ -5330,25 +5342,28 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   const feeWalletKeypair = getFeeWalletKeypair();
                   
                   // Only approve if it's a Squads match (escrow doesn't need proposals)
-                  if (matchSystemCatchup === 'squads') {
+                  if ((match as any).squadsVaultAddress) {
+                    const { getSquadsVaultService } = require('../services/squadsVaultService');
+                    const squadsService = getSquadsVaultService();
                     const approveResult = await squadsService.approveProposal(
                       vaultAddress,
                       proposalIdString,
                       feeWalletKeypair
                     );
                   
-                  if (approveResult.success) {
-                    console.log('✅ CATCH-UP: Fee wallet auto-approval successful', {
-                      matchId: match.id,
-                      proposalId: proposalIdString,
-                      signature: approveResult.signature,
-                    });
-                  } else {
-                    console.warn('⚠️ CATCH-UP: Fee wallet auto-approval failed', {
-                      matchId: match.id,
-                      proposalId: proposalIdString,
-                      error: approveResult.error,
-                    });
+                    if (approveResult.success) {
+                      console.log('✅ CATCH-UP: Fee wallet auto-approval successful', {
+                        matchId: match.id,
+                        proposalId: proposalIdString,
+                        signature: approveResult.signature,
+                      });
+                    } else {
+                      console.warn('⚠️ CATCH-UP: Fee wallet auto-approval failed', {
+                        matchId: match.id,
+                        proposalId: proposalIdString,
+                        error: approveResult.error,
+                      });
+                    }
                   }
                 } catch (catchUpError: any) {
                   console.warn('⚠️ CATCH-UP: Fee wallet auto-approval exception', {
