@@ -25,8 +25,40 @@ const IDL = require('../types/game-escrow.json');
  * Replaces the Squads multisig vault system
  */
 
-const connection = createPremiumSolanaConnection();
-const PROGRAM_ID = new PublicKey(config.smartContract.programId);
+// Lazy initialization to prevent errors during module load
+let connection: Connection | null = null;
+let PROGRAM_ID: PublicKey | null = null;
+
+function getConnection(): Connection {
+  if (!connection) {
+    try {
+      connection = createPremiumSolanaConnection();
+    } catch (error) {
+      console.error('❌ Failed to create Solana connection:', error);
+      throw new Error('Failed to initialize Solana connection. Check HELIUS_API_KEY and SOLANA_NETWORK environment variables.');
+    }
+  }
+  return connection;
+}
+
+function getProgramId(): PublicKey {
+  if (!PROGRAM_ID) {
+    try {
+      const programIdString = config.smartContract.programId;
+      if (!programIdString) {
+        throw new Error('SMART_CONTRACT_PROGRAM_ID environment variable is not set');
+      }
+      PROGRAM_ID = new PublicKey(programIdString);
+      console.log('✅ PROGRAM_ID initialized:', PROGRAM_ID.toString());
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('❌ Failed to initialize PROGRAM_ID:', errorMessage);
+      console.error('❌ Config smartContract.programId:', config.smartContract.programId);
+      throw new Error(`Failed to initialize PROGRAM_ID: ${errorMessage}. Check SMART_CONTRACT_PROGRAM_ID environment variable.`);
+    }
+  }
+  return PROGRAM_ID;
+}
 
 // Create a wallet from the fee wallet private key for Anchor provider
 function getProviderWallet(): Wallet {
@@ -45,12 +77,14 @@ function getProviderWallet(): Wallet {
 
 function getProgram(): any {
   const wallet = getProviderWallet();
-  const provider = new AnchorProvider(connection, wallet, {
+  const conn = getConnection();
+  const programId = getProgramId();
+  const provider = new AnchorProvider(conn, wallet, {
     commitment: 'confirmed',
   });
 
   // Fix: Program constructor - cast all arguments to any to avoid type issues
-  return new Program(IDL as any, PROGRAM_ID as any, provider as any) as any;
+  return new Program(IDL as any, programId as any, provider as any) as any;
 }
 
 /**
@@ -68,14 +102,12 @@ export function deriveEscrowPDA(matchId: string): [PublicKey, number] {
     
     const matchIdBytes = Buffer.from(uuidHex, 'hex');
     
-    // Validate PROGRAM_ID is set
-    if (!PROGRAM_ID) {
-      throw new Error('PROGRAM_ID is not initialized. Check SMART_CONTRACT_PROGRAM_ID environment variable.');
-    }
+    // Get PROGRAM_ID (will initialize if needed)
+    const programId = getProgramId();
 
     return PublicKey.findProgramAddressSync(
       [Buffer.from('match'), matchIdBytes],
-      PROGRAM_ID
+      programId
     );
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -83,6 +115,7 @@ export function deriveEscrowPDA(matchId: string): [PublicKey, number] {
       error: errorMessage,
       matchId,
       programId: PROGRAM_ID?.toString(),
+      envProgramId: process.env.SMART_CONTRACT_PROGRAM_ID,
       stack: error instanceof Error ? error.stack : undefined,
     });
     throw error;
@@ -102,15 +135,12 @@ export async function deriveMatchEscrowAddress(
       throw new Error(`Invalid matchId: ${matchId}`);
     }
     
-    // Validate PROGRAM_ID is initialized
-    if (!PROGRAM_ID) {
-      const programIdEnv = process.env.SMART_CONTRACT_PROGRAM_ID;
-      throw new Error(`PROGRAM_ID not initialized. SMART_CONTRACT_PROGRAM_ID=${programIdEnv || 'NOT SET'}`);
-    }
+    // Initialize PROGRAM_ID if needed (will throw if invalid)
+    const programId = getProgramId();
     
     console.log('🔍 Deriving escrow PDA for match:', {
       matchId,
-      programId: PROGRAM_ID.toString(),
+      programId: programId.toString(),
     });
     
     const [escrowPDA, bump] = deriveEscrowPDA(matchId);
@@ -135,6 +165,7 @@ export async function deriveMatchEscrowAddress(
       stack: errorStack,
       programId: PROGRAM_ID?.toString(),
       envProgramId: process.env.SMART_CONTRACT_PROGRAM_ID,
+      configProgramId: config.smartContract.programId,
     });
     return {
       success: false,
