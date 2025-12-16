@@ -5088,8 +5088,13 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               
               if (freshMatchRows && freshMatchRows.length > 0) {
                 const freshMatch = freshMatchRows[0];
-                (match as any).squadsVaultAddress = freshMatch.squadsVaultAddress || creation.vaultAddress;
-                (match as any).squadsVaultPda = freshMatch.squadsVaultPda || creation.vaultPda || null;
+                const escrowAddr = freshMatch.escrowAddress || creation.escrowAddress;
+                // For escrow system, escrowPda is the same as escrowAddress
+                (match as any).escrowAddress = escrowAddr;
+                (match as any).escrowPda = escrowAddr;
+                // Backward compatibility
+                (match as any).squadsVaultAddress = escrowAddr;
+                (match as any).squadsVaultPda = escrowAddr;
                 
                 console.log('📋 Fresh match data loaded', {
                   matchId: match.id,
@@ -5098,10 +5103,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   resultEscrowAddress: creation.escrowAddress
                 });
                 
-                console.log('✅ Vault created on-demand for match (synchronous)', { 
+                console.log('✅ Escrow address derived on-demand for match (synchronous)', { 
                   matchId: match.id, 
-                  vault: (match as any).squadsVaultAddress, 
-                  vaultPda: (match as any).squadsVaultPda 
+                  escrowAddress: (match as any).escrowAddress,
+                  escrowPda: (match as any).escrowPda
                 });
                 
               // Clear the rate limit key on success
