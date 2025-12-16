@@ -3361,7 +3361,7 @@ const submitResultHandler = async (req: any, res: any) => {
                           });
                         }
                       }
-                    } catch (error: unknown) {
+                  } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     const errorStack = error instanceof Error ? error.stack : String(error);
@@ -4590,9 +4590,9 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               } catch (proposalError: unknown) {
-              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-              console.error('❌ Failed to create proposals after match completion:', errorMessage);
-            }
+                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                console.error('❌ Failed to create proposals after match completion:', errorMessage);
+              }
             })(); // Close async IIFE - execute in background without blocking
           } else {
             // Fallback if reload fails
@@ -4767,8 +4767,9 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               } catch (proposalError: unknown) {
-              const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-              console.error('❌ Failed to create proposals for fallback save:', errorMessage);
+                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                console.error('❌ Failed to create proposals for fallback save:', errorMessage);
+              }
             }
           }
           
@@ -5522,9 +5523,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     // This ensures first player sees both results immediately
     (async () => {
       try {
-    // determineWinnerAndPayout can handle cases where only one player has results
-    // It will determine winner based on who has results and whether they won
-    if (atLeastOneHasResult) {
+        // determineWinnerAndPayout can handle cases where only one player has results
+        // It will determine winner based on who has results and whether they won
+        if (atLeastOneHasResult) {
           console.log('🔄 Calling determineWinnerAndPayout in background with:', {
           matchId: match.id,
             player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
@@ -5753,9 +5754,9 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         });
       }
       } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      console.error('❌ Error recalculating winner (background):', errorMessage);
-    }
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        console.error('❌ Error recalculating winner (background):', errorMessage);
+      }
     })(); // End background winner calculation
   }
 
