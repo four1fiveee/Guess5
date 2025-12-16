@@ -136,12 +136,24 @@ export async function deriveMatchEscrowAddress(
     }
     
     // Initialize PROGRAM_ID if needed (will throw if invalid)
-    const programId = getProgramId();
-    
-    console.log('🔍 Deriving escrow PDA for match:', {
-      matchId,
-      programId: programId.toString(),
-    });
+    let programId: PublicKey;
+    try {
+      programId = getProgramId();
+      console.log('🔍 Deriving escrow PDA for match:', {
+        matchId,
+        programId: programId.toString(),
+        envProgramId: process.env.SMART_CONTRACT_PROGRAM_ID,
+        configProgramId: config.smartContract.programId,
+      });
+    } catch (programIdError: unknown) {
+      const errorMsg = programIdError instanceof Error ? programIdError.message : String(programIdError);
+      console.error('❌ Failed to get PROGRAM_ID:', {
+        error: errorMsg,
+        envProgramId: process.env.SMART_CONTRACT_PROGRAM_ID,
+        configProgramId: config.smartContract.programId,
+      });
+      throw new Error(`PROGRAM_ID initialization failed: ${errorMsg}. Check SMART_CONTRACT_PROGRAM_ID environment variable.`);
+    }
     
     const [escrowPDA, bump] = deriveEscrowPDA(matchId);
 

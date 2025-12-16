@@ -959,6 +959,8 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       // Usernames were already fetched earlier (lines 757-758) for database storage
       // Reuse those values for the response
       
+      // For escrow system, escrowPda (deposit address) is the same as escrowAddress
+      // Both are the PDA address where players deposit funds
       return {
         status: 'matched',
         matchId: matchData.matchId,
@@ -969,6 +971,11 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         entryFee: matchData.entryFee,
         escrowAddress: escrowResult.escrowAddress,
         escrowPda: escrowResult.escrowAddress, // escrowPda is the same as escrowAddress for our system
+        // Backward compatibility fields
+        squadsVaultAddress: escrowResult.escrowAddress,
+        vaultAddress: escrowResult.escrowAddress,
+        squadsVaultPda: escrowResult.escrowAddress,
+        vaultPda: escrowResult.escrowAddress,
         message: 'Match created - both players must pay entry fee to start game'
       };
     } else if (redisResult.status === 'waiting') {
