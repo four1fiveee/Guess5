@@ -1076,7 +1076,10 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
     console.log(`⏰ Found ${stalePaymentMatches.length} stale payment_required matches for ${wallet}, processing refunds...`);
     for (const match of stalePaymentMatches) {
       // Process refunds if players have deposited
-      if ((match.player1Paid || match.player2Paid) || match.squadsVaultAddress) {
+      // Check for escrow or Squads vault
+      const hasEscrow = !!(match as any).escrowAddress;
+      const hasSquadsVault = !!match.squadsVaultAddress;
+      if ((match.player1Paid || match.player2Paid) || hasEscrow || hasSquadsVault) {
         console.log(`💰 Processing refund for stale match ${match.id} (players may have deposited)`);
         await processAutomatedRefunds(match, 'payment_timeout');
       }
@@ -1106,7 +1109,10 @@ const cleanupOldMatches = async (matchRepository: any, wallet: string) => {
   if (staleActiveMatches.length > 0) {
     console.log(`⏰ Found ${staleActiveMatches.length} stale active matches for ${wallet}, processing refunds...`);
     for (const match of staleActiveMatches) {
-      if (match.squadsVaultAddress) {
+      // Check for escrow or Squads vault
+      const hasEscrow = !!(match as any).escrowAddress;
+      const hasSquadsVault = !!match.squadsVaultAddress;
+      if (hasEscrow || hasSquadsVault) {
         console.log(`💰 Processing refund for stale active match ${match.id}`);
         await processAutomatedRefunds(match, 'game_abandoned');
       }
@@ -1148,7 +1154,7 @@ const checkExistingMatches = async (matchRepository: any, wallet: string) => {
     const existingMatch = existingMatches[0];
     console.log('⚠️ Player still has an active/escrow match after cleanup');
     return {
-      status: existingMatch.squadsVaultAddress ? 'matched' : 'vault_pending',
+      status: (existingMatch.escrowAddress || existingMatch.squadsVaultAddress) ? 'matched' : 'vault_pending',
       matchId: existingMatch.id,
       player1: existingMatch.player1,
       player2: existingMatch.player2,
@@ -3046,17 +3052,48 @@ const submitResultHandler = async (req: any, res: any) => {
                       return; // Proposal already exists, don't create another one
                     }
                     
-                    // Add timeout to prevent hanging forever
-                    const proposalPromise = squadsVaultService.proposeWinnerPayout(
-                      updatedMatch.squadsVaultAddress,
-                      new PublicKey(winner),
-                      winnerAmount,
-                      new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                      feeAmount,
-                      updatedMatch.squadsVaultPda ?? undefined
-                    );
+                    // Check if match uses escrow (new system) or Squads (old system)
+                    const escrowAddress = updatedMatch.escrowAddress || (updatedMatch as any).escrowAddress;
+                    const squadsVaultAddress = updatedMatch.squadsVaultAddress || (updatedMatch as any).squadsVaultAddress;
                     
-                    // CRITICAL: Increase timeout to 90 seconds to account for:
+                    if (escrowAddress) {
+                      // NEW ESCROW SYSTEM: Use escrow settlement
+                      console.log('💰 Using escrow system for winner payout', {
+                        matchId: updatedMatch.id,
+                        escrowAddress,
+                        winner,
+                        winnerAmount,
+                        feeAmount
+                      });
+                      
+                      const escrowService = require('../services/escrowService');
+                      // For escrow, settlement is done via settleMatch() instruction
+                      // The result should already be submitted, so we just need to call settle
+                      // But this is a background task, so we'll let the frontend/player trigger settle
+                      // For now, just log that escrow settlement is needed
+                      console.log('✅ Escrow match - settlement will be triggered by player or frontend');
+                      return; // Escrow settlement is handled separately
+                    } else if (squadsVaultAddress) {
+                      // OLD SQUADS SYSTEM: Use Squads proposal
+                      console.log('💰 Using Squads system for winner payout', {
+                        matchId: updatedMatch.id,
+                        squadsVaultAddress,
+                        winner,
+                        winnerAmount,
+                        feeAmount
+                      });
+                      
+                      // Add timeout to prevent hanging forever
+                      const proposalPromise = squadsVaultService.proposeWinnerPayout(
+                        squadsVaultAddress,
+                        new PublicKey(winner),
+                        winnerAmount,
+                        new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
+                        feeAmount,
+                        updatedMatch.squadsVaultPda ?? undefined
+                      );
+                      
+                      // CRITICAL: Increase timeout to 90 seconds to account for:
                     // - vaultTransactionCreate: ~5-10s
                     // - Account availability wait: ~2-5s
                     // - Transaction index verification: ~2-5s
