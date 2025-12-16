@@ -4763,14 +4763,14 @@ const submitResultHandler = async (req: any, res: any) => {
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
                     }
                   }
+                } catch (proposalError: unknown) {
+                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                  console.error('❌ Failed to create proposals for fallback save:', errorMessage);
                 } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
                 }
-              } catch (proposalError: unknown) {
-                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-                console.error('❌ Failed to create proposals for fallback save:', errorMessage);
               }
             }
           }
