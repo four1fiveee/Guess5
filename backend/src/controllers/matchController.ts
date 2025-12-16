@@ -4165,7 +4165,8 @@ const submitResultHandler = async (req: any, res: any) => {
               const errorMessage = error instanceof Error ? error.message : String(error);
               console.error('❌ Error in proposal creation:', errorMessage);
             }
-          } else if (payoutResult && payoutResult.winner === 'tie') {
+          }
+        } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
           if (updatedMatch.getPlayer1Result() && updatedMatch.getPlayer2Result() && 
               updatedMatch.getPlayer1Result().won && updatedMatch.getPlayer2Result().won) {
@@ -4599,7 +4600,6 @@ const submitResultHandler = async (req: any, res: any) => {
                     await releaseProposalLock(finalMatch.id);
                   }
                 }
-                }
               }
             })(); // Close async IIFE - execute in background without blocking
           } else {
@@ -4777,7 +4777,6 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
-                }
                 }
               }
             }
