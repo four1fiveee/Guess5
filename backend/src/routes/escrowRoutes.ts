@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import {
-  initializeEscrow,
+  getInitializeTransaction,
   getDepositTransaction,
   submitGameResult,
   settleEscrow,
@@ -10,7 +10,7 @@ import {
 
 const router = Router();
 
-router.post('/initialize', initializeEscrow);
+router.post('/initialize-transaction', getInitializeTransaction);
 router.post('/deposit-transaction', getDepositTransaction);
 router.post('/submit-result', submitGameResult);
 router.post('/settle', settleEscrow);

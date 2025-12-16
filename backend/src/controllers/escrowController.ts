@@ -2,7 +2,8 @@ import { Request, Response } from 'express';
 import { AppDataSource } from '../db';
 import { Match } from '../models/Match';
 import {
-  initializeMatchEscrow,
+  deriveMatchEscrowAddress,
+  createInitializeTransaction,
   createDepositTransaction,
   submitResult,
   settleMatch,
@@ -18,10 +19,10 @@ import { createSignedResult } from '../utils/escrowSigning';
  */
 
 /**
- * Initialize escrow for a new match
- * POST /api/escrow/initialize
+ * Get initialize transaction for Player A to sign
+ * POST /api/escrow/initialize-transaction
  */
-export const initializeEscrow = async (req: Request, res: Response) => {
+export const getInitializeTransaction = async (req: Request, res: Response) => {
   try {
     const { matchId, playerA, playerB, entryFee } = req.body;
 
@@ -31,19 +32,26 @@ export const initializeEscrow = async (req: Request, res: Response) => {
       });
     }
 
-    const result = await initializeMatchEscrow(matchId, playerA, playerB, entryFee);
+    const result = await createInitializeTransaction(matchId, playerA, playerB, entryFee);
 
     if (!result.success) {
       return res.status(500).json({ error: result.error });
     }
 
+    // Serialize transaction for frontend
+    const serialized = result.transaction!.serialize({
+      requireAllSignatures: false,
+      verifySignatures: false,
+    });
+
     res.json({
       success: true,
+      transaction: Buffer.from(serialized).toString('base64'),
       escrowAddress: result.escrowAddress,
     });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Error initializing escrow:', errorMessage);
+    console.error('❌ Error creating initialize transaction:', errorMessage);
     res.status(500).json({ error: errorMessage });
   }
 };

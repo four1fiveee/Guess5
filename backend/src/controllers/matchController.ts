@@ -858,8 +858,9 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         status: savedMatch.status
       });
       
-      // Initialize escrow for fund custody AFTER database record is confirmed
-      console.log('🔧 Initializing escrow for fund custody...', {
+      // Derive escrow address for fund custody AFTER database record is confirmed
+      // Note: Escrow will be initialized on-chain when Player A signs the initialize transaction
+      console.log('🔧 Deriving escrow address for fund custody...', {
         matchId: matchData.matchId,
         player1: matchData.player1,
         player2: matchData.player2,
@@ -868,21 +869,16 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       let escrowResult;
       try {
-        const { initializeMatchEscrow } = require('../services/escrowService');
-        // Initialize escrow (with built-in retry logic in the service)
-        escrowResult = await initializeMatchEscrow(
-          matchData.matchId,
-          matchData.player1,
-          matchData.player2,
-          matchData.entryFee
-        );
-        console.log('🔧 Escrow initialization result:', { success: escrowResult?.success, error: escrowResult?.error });
+        const { deriveMatchEscrowAddress } = require('../services/escrowService');
+        // Derive escrow address (doesn't initialize on-chain - that happens when Player A signs)
+        escrowResult = await deriveMatchEscrowAddress(matchData.matchId);
+        console.log('🔧 Escrow address derivation result:', { success: escrowResult?.success, error: escrowResult?.error });
       } catch (escrowError: unknown) {
         const escrowErrorMessage = escrowError instanceof Error ? escrowError.message : String(escrowError);
-        console.error('❌ Exception during escrow initialization:', escrowErrorMessage);
-        console.error('❌ Escrow initialization stack:', escrowError instanceof Error ? escrowError.stack : 'No stack');
-        // Don't throw - return match without escrow, on-demand creation will handle it
-        console.warn('⚠️ Escrow initialization failed, but match is saved - on-demand creation will handle it');
+        console.error('❌ Exception during escrow address derivation:', escrowErrorMessage);
+        console.error('❌ Escrow address derivation stack:', escrowError instanceof Error ? escrowError.stack : 'No stack');
+        // Don't throw - return match without escrow address, on-demand creation will handle it
+        console.warn('⚠️ Escrow address derivation failed, but match is saved - on-demand creation will handle it');
         await matchRepository.query(`
           UPDATE "match" 
           SET "escrowStatus" = $1, "updatedAt" = $2
@@ -897,14 +893,14 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           entryFee: matchData.entryFee,
           escrowAddress: null,
           escrowPda: null,
-          message: 'Match created - escrow initialization in progress, please wait'
+          message: 'Match created - escrow address derivation in progress, please wait'
         };
       }
       
       if (!escrowResult || !escrowResult.success) {
-        console.error('❌ Failed to initialize escrow:', escrowResult?.error || 'Unknown error');
-        // Don't throw - return match without escrow, on-demand creation will handle it
-        console.warn('⚠️ Returning match without escrow - on-demand creation will handle it');
+        console.error('❌ Failed to derive escrow address:', escrowResult?.error || 'Unknown error');
+        // Don't throw - return match without escrow address, on-demand creation will handle it
+        console.warn('⚠️ Returning match without escrow address - on-demand creation will handle it');
         await matchRepository.query(`
           UPDATE "match" 
           SET "escrowStatus" = $1, "updatedAt" = $2
@@ -919,15 +915,15 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
           entryFee: matchData.entryFee,
           escrowAddress: null,
           escrowPda: null,
-          message: 'Match created - escrow initialization in progress, please wait'
+          message: 'Match created - escrow address derivation in progress, please wait'
         };
       }
       
-      console.log('✅ Escrow initialized:', {
+      console.log('✅ Escrow address derived:', {
         escrowAddress: escrowResult.escrowAddress
       });
 
-      // Update match with escrow address using raw SQL
+      // Update match with escrow address using raw SQL (status is PENDING until Player A initializes on-chain)
       await matchRepository.query(`
         UPDATE "match" 
         SET "escrowAddress" = $1,
@@ -936,7 +932,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
         WHERE id = $4
       `, [
         escrowResult.escrowAddress,
-        'INITIALIZED',
+        'PENDING', // Will be INITIALIZED when Player A signs the initialize transaction
         new Date(),
         matchData.matchId
       ]);

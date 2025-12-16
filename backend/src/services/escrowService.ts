@@ -68,15 +68,45 @@ export function deriveEscrowPDA(matchId: string): [PublicKey, number] {
 }
 
 /**
- * Initialize a match escrow
- * Called when Player A creates a match
+ * Derive escrow address for a match (doesn't initialize on-chain)
+ * The escrow will be initialized when Player A signs the initialize transaction
  */
-export async function initializeMatchEscrow(
+export async function deriveMatchEscrowAddress(
+  matchId: string
+): Promise<{ success: boolean; escrowAddress?: string; error?: string }> {
+  try {
+    const [escrowPDA] = deriveEscrowPDA(matchId);
+
+    console.log('✅ Match escrow address derived:', {
+      matchId,
+      escrowAddress: escrowPDA.toString(),
+    });
+
+    return {
+      success: true,
+      escrowAddress: escrowPDA.toString(),
+    };
+  } catch (error: unknown) {
+    const errorMessage =
+      error instanceof Error ? error.message : String(error);
+    console.error('❌ Error deriving match escrow address:', errorMessage);
+    return {
+      success: false,
+      error: errorMessage,
+    };
+  }
+}
+
+/**
+ * Create initialize transaction for Player A to sign
+ * This returns a transaction that Player A must sign to initialize the escrow
+ */
+export async function createInitializeTransaction(
   matchId: string,
   playerA: string,
   playerB: string,
   entryFee: number
-): Promise<{ success: boolean; escrowAddress?: string; error?: string }> {
+): Promise<{ success: boolean; transaction?: Transaction; escrowAddress?: string; error?: string }> {
   try {
     const program = getProgram();
     const [escrowPDA, bump] = deriveEscrowPDA(matchId);
@@ -96,32 +126,22 @@ export async function initializeMatchEscrow(
         playerB: new PublicKey(playerB),
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .transaction();
 
-    console.log('✅ Match escrow initialized:', {
+    console.log('✅ Initialize transaction created:', {
       matchId,
       escrowAddress: escrowPDA.toString(),
-      transaction: tx,
     });
-
-    // Update match in database
-    const matchRepository = AppDataSource.getRepository(Match);
-    await matchRepository.update(
-      { id: matchId },
-      {
-        escrowAddress: escrowPDA.toString(),
-        escrowStatus: 'INITIALIZED',
-      }
-    );
 
     return {
       success: true,
+      transaction: tx,
       escrowAddress: escrowPDA.toString(),
     };
   } catch (error: unknown) {
     const errorMessage =
       error instanceof Error ? error.message : String(error);
-    console.error('❌ Error initializing match escrow:', errorMessage);
+    console.error('❌ Error creating initialize transaction:', errorMessage);
     return {
       success: false,
       error: errorMessage,
