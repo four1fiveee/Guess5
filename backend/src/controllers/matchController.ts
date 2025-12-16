@@ -3362,7 +3362,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                     }
-                  } catch (error: unknown) {
+                    } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     const errorStack = error instanceof Error ? error.stack : String(error);
@@ -4585,7 +4585,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     }
                     }
                   }
-                } finally {
+                  } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
@@ -4763,7 +4763,7 @@ const submitResultHandler = async (req: any, res: any) => {
                       console.log('✅ Tie refund proposal created (fallback):', { matchId: updatedMatch.id, proposalId: proposalResult.proposalId, transactionIndex: proposalResult.transactionIndex });
                     }
                   }
-                } finally {
+                  } finally {
                   if (lockAcquired) {
                     await releaseProposalLock(updatedMatch.id);
                   }
@@ -5744,8 +5744,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               console.error('❌ Error creating payout proposal:', errorMessage);
             }
           }
-      }
-    } else {
+        }
+      } else {
         console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
         matchId: match.id,
         isCompleted: match.isCompleted,
@@ -5754,8 +5754,8 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
         player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
       });
-    }
-    } catch (error: unknown) {
+      }
+      } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       console.error('❌ Error recalculating winner (background):', errorMessage);
     }
@@ -6174,7 +6174,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             hasProposal: false
           });
         }
-      }
         } else {
           try {
             // Double-check proposal still doesn't exist after acquiring lock
@@ -6267,7 +6266,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 });
               }
             }
-      } catch (fallbackError: unknown) {
+            } catch (fallbackError: unknown) {
         const errorMessage = fallbackError instanceof Error ? fallbackError.message : String(fallbackError);
         console.error('❌ FINAL FALLBACK: Error creating winner payout proposal', {
           matchId: match.id,
@@ -9807,7 +9806,7 @@ const manualExecuteProposalHandler = async (req: any, res: any) => {
       executedAt: executedAt.toISOString(),
       matchId,
     });
-    
+    }
   } catch (error: unknown) {
     console.error('❌ Error in manual execution:', error);
     res.status(500).json({ 
