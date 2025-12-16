@@ -3506,6 +3506,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   }
                 }
               }
+              }
             })();
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
@@ -3976,6 +3977,7 @@ const submitResultHandler = async (req: any, res: any) => {
           player2Result: currentMatch?.player2Result || null,
           message: 'Waiting for other player to finish'
         });
+      }
       }
     } else {
       // CRITICAL FIX: Check if both players have SUBMITTED RESULTS, not if they've "finished playing"
@@ -5747,7 +5749,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             }
           }
         }
-        }
       } else {
         console.warn('⚠️ Cannot recalculate winner: no player results found (background)', {
           matchId: match.id,
@@ -5761,6 +5762,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('❌ Error recalculating winner (background):', errorMessage);
+      }
       }
     })(); // End background winner calculation
   }
