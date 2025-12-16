@@ -140,3 +140,4 @@ await squads.executeProposal(vaultAddress, 2); // index 02
 5. ⏳ **TODO:** Consider Priority 4 (store transactionIndex) for better tracking
 
 
+
