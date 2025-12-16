@@ -869,48 +869,43 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       let escrowResult;
       try {
-        // Try dynamic import first (for ES6 modules), fallback to require (for CommonJS)
-        let deriveMatchEscrowAddress;
-        try {
-          const escrowServiceModule = await import('../services/escrowService');
-          deriveMatchEscrowAddress = escrowServiceModule.deriveMatchEscrowAddress;
-        } catch (importError) {
-          // Fallback to require for CommonJS compatibility
-          const escrowServiceModule = require('../services/escrowService');
-          deriveMatchEscrowAddress = escrowServiceModule.deriveMatchEscrowAddress || escrowServiceModule.default?.deriveMatchEscrowAddress;
-        }
+        // Use require for CommonJS compatibility (TypeScript compiles to CommonJS)
+        const escrowServiceModule = require('../services/escrowService');
+        const deriveMatchEscrowAddress = escrowServiceModule.deriveMatchEscrowAddress;
         
         if (!deriveMatchEscrowAddress || typeof deriveMatchEscrowAddress !== 'function') {
+          console.error('❌ deriveMatchEscrowAddress not found in module:', {
+            moduleKeys: Object.keys(escrowServiceModule),
+            hasDefault: !!escrowServiceModule.default,
+            defaultKeys: escrowServiceModule.default ? Object.keys(escrowServiceModule.default) : []
+          });
           throw new Error('deriveMatchEscrowAddress function not found in escrowService module');
         }
         
+        console.log('✅ Escrow service module loaded, calling deriveMatchEscrowAddress...');
+        
         // Derive escrow address (doesn't initialize on-chain - that happens when Player A signs)
         escrowResult = await deriveMatchEscrowAddress(matchData.matchId);
-        console.log('🔧 Escrow address derivation result:', { success: escrowResult?.success, error: escrowResult?.error });
+        console.log('🔧 Escrow address derivation result:', { 
+          success: escrowResult?.success, 
+          error: escrowResult?.error,
+          escrowAddress: escrowResult?.escrowAddress ? escrowResult.escrowAddress.substring(0, 8) + '...' + escrowResult.escrowAddress.substring(escrowResult.escrowAddress.length - 8) : null
+        });
       } catch (escrowError: unknown) {
         const escrowErrorMessage = escrowError instanceof Error ? escrowError.message : String(escrowError);
         const escrowErrorStack = escrowError instanceof Error ? escrowError.stack : 'No stack';
-        console.error('❌ Exception during escrow address derivation:', escrowErrorMessage);
-        console.error('❌ Escrow address derivation stack:', escrowErrorStack);
-        console.error('❌ Full error object:', escrowError);
-        // Don't throw - return match without escrow address, on-demand creation will handle it
-        console.warn('⚠️ Escrow address derivation failed, but match is saved - on-demand creation will handle it');
-        await matchRepository.query(`
-          UPDATE "match" 
-          SET "escrowStatus" = $1, "updatedAt" = $2
-          WHERE id = $3
-        `, ['PENDING', new Date(), matchData.matchId]);
-        
-        return {
-          status: 'matched',
+        console.error('❌ CRITICAL: Exception during escrow address derivation:', {
+          error: escrowErrorMessage,
+          stack: escrowErrorStack,
           matchId: matchData.matchId,
-          player1: matchData.player1,
-          player2: matchData.player2,
-          entryFee: matchData.entryFee,
-          escrowAddress: null,
-          escrowPda: null,
-          message: 'Match created - escrow address derivation in progress, please wait'
-        };
+          envProgramId: process.env.SMART_CONTRACT_PROGRAM_ID,
+          hasEscrowService: typeof require !== 'undefined',
+          fullError: escrowError
+        });
+        
+        // CRITICAL: Don't silently fail - throw the error so it's visible in logs
+        // The match is already saved, so we can return an error response
+        throw new Error(`Escrow address derivation failed: ${escrowErrorMessage}. Check backend logs for details.`);
       }
       
       if (!escrowResult || !escrowResult.success) {
