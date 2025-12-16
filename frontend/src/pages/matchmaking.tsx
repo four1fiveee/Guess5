@@ -247,8 +247,11 @@ const Matchmaking: React.FC = () => {
   }, [countdown, status, router, matchData, countdownStarted]);
   
   // Payment timeout effect - 2 minutes to pay or return to lobby
+  // Only start countdown when escrow is loaded (vaultAddress is available)
   useEffect(() => {
-    if ((status === 'payment_required' || status === 'waiting_for_payment') && paymentTimeRemaining > 0) {
+    const hasEscrow = !!matchData?.escrowAddress || !!matchData?.escrowPda || !!matchData?.squadsVaultAddress || !!matchData?.vaultAddress;
+    
+    if ((status === 'payment_required' || status === 'waiting_for_payment') && paymentTimeRemaining > 0 && hasEscrow) {
       const timer = setTimeout(() => {
         setPaymentTimeRemaining(prev => {
           if (prev <= 1) {
@@ -264,7 +267,7 @@ const Matchmaking: React.FC = () => {
       // Reset timeout when payment is no longer required
       setPaymentTimeRemaining(120);
     }
-  }, [status, paymentTimeRemaining, router]);
+  }, [status, paymentTimeRemaining, router, matchData]);
 
   const handleCancelAndReturn = async () => {
     if (isCancelling) {
@@ -996,8 +999,6 @@ const Matchmaking: React.FC = () => {
                 return updated;
               });
 
-              const normalizedStatus = data.status as string;
-
               if (normalizedStatus === 'active') {
                 setStatus('active');
                 
@@ -1019,8 +1020,18 @@ const Matchmaking: React.FC = () => {
                 return;
               }
 
+              // ✅ CRITICAL: Check for cancelled status FIRST (even before escrow loads)
+              // This handles the case where a player quits before escrow is initialized
               if (normalizedStatus === 'cancelled') {
                 const depositMade = !!data.player1Paid || !!data.player2Paid;
+                const hasEscrow = !!data.escrowAddress || !!data.escrowPda || !!data.squadsVaultAddress || !!data.vaultAddress;
+                
+                console.log('⚠️ Match cancelled detected', {
+                  depositMade,
+                  hasEscrow,
+                  matchId: currentMatchData.matchId,
+                });
+                
                 matchDataRef.current = {
                   ...(matchDataRef.current || {}),
                   status: depositMade ? 'refund_pending' : 'opponent_left',
@@ -1036,6 +1047,7 @@ const Matchmaking: React.FC = () => {
                 clearInterval(pollInterval);
                 setIsPolling(false);
                 setIsMatchmakingInProgress(false);
+                
                 if (depositMade) {
                   setStatus('refund_pending');
                   if (currentMatchData.matchId) {
@@ -1045,10 +1057,16 @@ const Matchmaking: React.FC = () => {
                     }
                   }
                 } else {
+                  // No deposit made - opponent left before escrow was ready
                   localStorage.removeItem('matchId');
                   localStorage.removeItem('word');
                   localStorage.removeItem('entryFee');
                   setStatus('opponent_left');
+                  
+                  // Show notification and redirect to lobby after a brief delay
+                  setTimeout(() => {
+                    router.push('/lobby');
+                  }, 2000);
                 }
                 return;
               }
@@ -1695,8 +1713,10 @@ const Matchmaking: React.FC = () => {
                   </div>
                 )}
 
-                {/* Payment Timeout Warning */}
-                {(status === 'payment_required' || status === 'waiting_for_payment') && paymentTimeRemaining > 0 && (
+                {/* Payment Timeout Warning - Only show when escrow is loaded */}
+                {(status === 'payment_required' || status === 'waiting_for_payment') && 
+                 paymentTimeRemaining > 0 && 
+                 (vaultAddress || matchData?.escrowAddress || matchData?.escrowPda) && (
                   <div className="bg-yellow-500/10 border border-yellow-400/30 rounded-lg p-3 mb-4">
                     <div className="flex items-center justify-between">
                       <div className="text-yellow-400 text-sm font-medium">
