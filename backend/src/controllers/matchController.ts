@@ -4808,24 +4808,24 @@ const submitResultHandler = async (req: any, res: any) => {
               }
             }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
           } else {
-          // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
-          // Do NOT continue to winner determination or proposal creation
-          console.log('⏳ Only one player has submitted - waiting for other player', {
-            matchId,
-            hasPlayer1Result: !!player1Result,
-            hasPlayer2Result: !!player2Result,
-            currentPlayerWon: result.won
-          });
-          
-          res.json({
-            status: 'waiting',
-            player1Result: player1Result,
-            player2Result: player2Result,
-            message: 'Waiting for other player to finish'
-          });
-          return; // CRITICAL: Exit early - don't continue to winner determination
+            // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
+            // Do NOT continue to winner determination or proposal creation
+            console.log('⏳ Only one player has submitted - waiting for other player', {
+              matchId,
+              hasPlayer1Result: !!player1Result,
+              hasPlayer2Result: !!player2Result,
+              currentPlayerWon: result.won
+            });
+            
+            res.json({
+              status: 'waiting',
+              player1Result: player1Result,
+              player2Result: player2Result,
+              message: 'Waiting for other player to finish'
+            });
+            return; // CRITICAL: Exit early - don't continue to winner determination
+          }
         }
-      }
 
     } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
