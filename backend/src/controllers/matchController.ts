@@ -869,14 +869,23 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       let escrowResult;
       try {
-        const { deriveMatchEscrowAddress } = require('../services/escrowService');
+        // Use dynamic import to handle ES6 modules correctly
+        const escrowServiceModule = await import('../services/escrowService');
+        const { deriveMatchEscrowAddress } = escrowServiceModule;
+        
+        if (!deriveMatchEscrowAddress || typeof deriveMatchEscrowAddress !== 'function') {
+          throw new Error('deriveMatchEscrowAddress function not found in escrowService module');
+        }
+        
         // Derive escrow address (doesn't initialize on-chain - that happens when Player A signs)
         escrowResult = await deriveMatchEscrowAddress(matchData.matchId);
         console.log('🔧 Escrow address derivation result:', { success: escrowResult?.success, error: escrowResult?.error });
       } catch (escrowError: unknown) {
         const escrowErrorMessage = escrowError instanceof Error ? escrowError.message : String(escrowError);
+        const escrowErrorStack = escrowError instanceof Error ? escrowError.stack : 'No stack';
         console.error('❌ Exception during escrow address derivation:', escrowErrorMessage);
-        console.error('❌ Escrow address derivation stack:', escrowError instanceof Error ? escrowError.stack : 'No stack');
+        console.error('❌ Escrow address derivation stack:', escrowErrorStack);
+        console.error('❌ Full error object:', escrowError);
         // Don't throw - return match without escrow address, on-demand creation will handle it
         console.warn('⚠️ Escrow address derivation failed, but match is saved - on-demand creation will handle it');
         await matchRepository.query(`
@@ -899,6 +908,7 @@ const performMatchmaking = async (wallet: string, entryFee: number) => {
       
       if (!escrowResult || !escrowResult.success) {
         console.error('❌ Failed to derive escrow address:', escrowResult?.error || 'Unknown error');
+        console.error('❌ Escrow result object:', escrowResult);
         // Don't throw - return match without escrow address, on-demand creation will handle it
         console.warn('⚠️ Returning match without escrow address - on-demand creation will handle it');
         await matchRepository.query(`
