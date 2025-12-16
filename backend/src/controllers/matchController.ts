@@ -3361,6 +3361,8 @@ const submitResultHandler = async (req: any, res: any) => {
                           });
                         }
                       }
+                    }
+                    }
                   } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
                     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3455,6 +3457,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                     }
+                  }
                   }
                 } catch (innerProposalError: any) {
                   // Re-throw to outer catch - this catch exists only for syntax requirements
@@ -3841,6 +3844,7 @@ const submitResultHandler = async (req: any, res: any) => {
                       WHERE id = $3
                     `, ['FAILED', new Date(), updatedMatch.id]);
                   }
+                  }
                 } catch (error: unknown) {
                   const elapsedTime = Date.now() - backgroundTaskStartTime;
                   const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3880,9 +3884,9 @@ const submitResultHandler = async (req: any, res: any) => {
             
             // Set proposalStatus to PENDING in response so frontend knows to poll
             (payoutResult as any).proposalStatus = 'PENDING';
-              (payoutResult as any).tieRefundProposalId = null; // Will be populated when background process completes
-              (payoutResult as any).proposalId = null; // Will be populated when background process completes
-            }
+            (payoutResult as any).tieRefundProposalId = null; // Will be populated when background process completes
+            (payoutResult as any).proposalId = null; // Will be populated when background process completes
+          }
           }
         }
         // Use raw SQL to update match completion status and payout result
@@ -5753,6 +5757,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null
         });
       }
+      }
       } catch (error: unknown) {
         const errorMessage = error instanceof Error ? error.message : String(error);
         console.error('❌ Error recalculating winner (background):', errorMessage);
@@ -6152,6 +6157,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                     matchId: freshMatch.id,
                     error: proposalResult.error
                   });
+                }
                 }
               }
             } catch (proposalError: any) {
