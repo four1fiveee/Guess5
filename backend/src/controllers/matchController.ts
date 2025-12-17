@@ -4347,26 +4347,26 @@ const submitResultHandler = async (req: any, res: any) => {
         }
         
         // Mark match as completed and ensure winner is set
-          // IMPORTANT: Reload match to get latest proposal info before final save
-          const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
-          if (finalMatch) {
-            finalMatch.isCompleted = true;
-            finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
-            finalMatch.setPayoutResult(payoutResult);
-            // Preserve proposal fields if they were set earlier
-            if ((updatedMatch as any).payoutProposalId) {
-              (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
-              (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
-              (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
-              (finalMatch as any).needsSignatures = normalizeRequiredSignatures((updatedMatch as any).needsSignatures);
-              console.log('✅ Preserving proposal fields in final save:', {
-                matchId: finalMatch.id,
-                proposalId: (finalMatch as any).payoutProposalId,
-                proposalStatus: (finalMatch as any).proposalStatus,
-                needsSignatures: (finalMatch as any).needsSignatures,
-              });
-            }
-            await matchRepository.save(finalMatch);
+        // IMPORTANT: Reload match to get latest proposal info before final save
+        const finalMatch = await matchRepository.findOne({ where: { id: matchId } });
+        if (finalMatch) {
+          finalMatch.isCompleted = true;
+          finalMatch.winner = payoutResult.winner; // Ensure winner is set from payout result
+          finalMatch.setPayoutResult(payoutResult);
+          // Preserve proposal fields if they were set earlier
+          if ((updatedMatch as any).payoutProposalId) {
+            (finalMatch as any).payoutProposalId = (updatedMatch as any).payoutProposalId;
+            (finalMatch as any).proposalStatus = (updatedMatch as any).proposalStatus || 'ACTIVE';
+            (finalMatch as any).proposalCreatedAt = (updatedMatch as any).proposalCreatedAt;
+            (finalMatch as any).needsSignatures = normalizeRequiredSignatures((updatedMatch as any).needsSignatures);
+            console.log('✅ Preserving proposal fields in final save:', {
+              matchId: finalMatch.id,
+              proposalId: (finalMatch as any).payoutProposalId,
+              proposalStatus: (finalMatch as any).proposalStatus,
+              needsSignatures: (finalMatch as any).needsSignatures,
+            });
+          }
+          await matchRepository.save(finalMatch);
             
             // CRITICAL: Ensure proposals are created after saving match
             // Create proposal in background to avoid blocking the response
@@ -4607,17 +4607,17 @@ const submitResultHandler = async (req: any, res: any) => {
                 console.error('❌ Error in proposal creation IIFE:', errorMessage);
               }
             })(); // Close async IIFE - execute in background without blocking
-          } else {
-            // Fallback if reload fails
-            updatedMatch.isCompleted = true;
-            updatedMatch.winner = payoutResult.winner;
-            updatedMatch.setPayoutResult(payoutResult);
-            await matchRepository.save(updatedMatch);
-            
-            // CRITICAL: Ensure proposals are created for fallback save as well
-            try {
-              if (!(updatedMatch as any).payoutProposalId && !(updatedMatch as any).tieRefundProposalId && updatedMatch.winner && (updatedMatch as any).squadsVaultAddress) {
-                // Acquire distributed lock to prevent race conditions
+        } else {
+          // Fallback if reload fails
+          updatedMatch.isCompleted = true;
+          updatedMatch.winner = payoutResult.winner;
+          updatedMatch.setPayoutResult(payoutResult);
+          await matchRepository.save(updatedMatch);
+          
+          // CRITICAL: Ensure proposals are created for fallback save as well
+          try {
+            if (!(updatedMatch as any).payoutProposalId && !(updatedMatch as any).tieRefundProposalId && updatedMatch.winner && (updatedMatch as any).squadsVaultAddress) {
+              // Acquire distributed lock to prevent race conditions
                 const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
                 const lockAcquired = await getProposalLock(updatedMatch.id);
                 
@@ -4784,7 +4784,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 await releaseProposalLock(updatedMatch.id);
               }
             }
-          }
+        }
         
       // DELAYED CLEANUP: Only delete Redis state after both players have submitted
       // Don't delete immediately - wait a bit to allow the other player to submit
