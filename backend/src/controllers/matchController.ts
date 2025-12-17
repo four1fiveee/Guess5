@@ -4615,11 +4615,12 @@ const submitResultHandler = async (req: any, res: any) => {
           await matchRepository.save(updatedMatch);
           
           // CRITICAL: Ensure proposals are created for fallback save as well
+          const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
+          let lockAcquired = false;
           try {
             if (!(updatedMatch as any).payoutProposalId && !(updatedMatch as any).tieRefundProposalId && updatedMatch.winner && (updatedMatch as any).squadsVaultAddress) {
               // Acquire distributed lock to prevent race conditions
-                const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
-                const lockAcquired = await getProposalLock(updatedMatch.id);
+                lockAcquired = await getProposalLock(updatedMatch.id);
                 
                 if (!lockAcquired) {
                   console.log('⚠️ Proposal lock not acquired (fallback), checking for stale locks...');
