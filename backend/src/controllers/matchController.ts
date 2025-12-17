@@ -4784,7 +4784,6 @@ const submitResultHandler = async (req: any, res: any) => {
                 await releaseProposalLock(updatedMatch.id);
               }
             }
-            }
           }
         
         // DELAYED CLEANUP: Only delete Redis state after both players have submitted
