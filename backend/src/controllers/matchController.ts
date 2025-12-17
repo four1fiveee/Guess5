@@ -4807,7 +4807,7 @@ const submitResultHandler = async (req: any, res: any) => {
             console.warn('⚠️ Error in delayed cleanup:', error);
           }
         }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
-        } else {
+      } else {
         // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
         // Do NOT continue to winner determination or proposal creation
         console.log('⏳ Only one player has submitted - waiting for other player', {
