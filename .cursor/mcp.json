@@ -2,11 +2,10 @@
   "mcpServers": {
     "solanaMcp": {
       "command": "npx",
-      "args": ["mcp-remote", "https://mcp.solana.com/mcp"]
-    },
-    "solana-web3js": {
-      "command": "node",
-      "args": ["${workspaceFolder}/solana-mcp-server/dist/index.js"]
+      "args": [
+        "mcp-remote",
+        "https://mcp.solana.com/mcp"
+      ]
     }
   }
 }

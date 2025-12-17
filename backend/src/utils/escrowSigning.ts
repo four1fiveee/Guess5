@@ -38,14 +38,45 @@ export async function signResultPayload(
     privateKeyBytes = privateKey;
   }
 
-  // Create message to sign
+  // Create message to sign using Borsh serialization (matches on-chain format)
   // CRITICAL: Must match on-chain format exactly
-  // Format: "match_id:{match_id},winner:{winner},result_type:{result_type}"
-  const winnerStr = payload.winner || 'None';
-  const resultTypeStr = payload.result_type;
-  const message = `match_id:${payload.match_id},winner:${winnerStr},result_type:${resultTypeStr}`;
-
-  const messageBytes = new TextEncoder().encode(message);
+  // Format: [match_id (u128 little-endian), winner_option (1 byte: 0=None, 1=Some), winner? (32 bytes if Some), result_type (u8)]
+  
+  // Convert match_id string to BigInt (u128)
+  const matchIdBigInt = BigInt(payload.match_id);
+  
+  // Map result type to enum value (matches Rust enum)
+  // 0 = Unresolved, 1 = Win, 2 = DrawFullRefund, 3 = DrawPartialRefund
+  const resultTypeEnum = {
+    'Win': 1,
+    'DrawFullRefund': 2,
+    'DrawPartialRefund': 3,
+  }[payload.result_type] || 0;
+  
+  // Manually serialize to match Rust Borsh format exactly
+  const buf = Buffer.alloc(16 + 1 + (payload.winner ? 32 : 0) + 1);
+  let offset = 0;
+  
+  // Serialize match_id as u128 (little-endian, 16 bytes)
+  const matchIdBytes = Buffer.alloc(16);
+  matchIdBytes.writeBigUInt64LE(matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
+  matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
+  matchIdBytes.copy(buf, offset);
+  offset += 16;
+  
+  // Serialize Option<Pubkey> - 1 byte (0=None, 1=Some) + 32 bytes if Some
+  if (payload.winner) {
+    buf.writeUInt8(1, offset++); // Some variant
+    new PublicKey(payload.winner).toBytes().copy(buf, offset);
+    offset += 32;
+  } else {
+    buf.writeUInt8(0, offset++); // None variant
+  }
+  
+  // Serialize result_type as u8
+  buf.writeUInt8(resultTypeEnum, offset);
+  
+  const messageBytes = buf;
 
   // Sign using Ed25519
   const signature = await ed.sign(messageBytes, privateKeyBytes.slice(0, 32));
@@ -71,12 +102,38 @@ export async function verifyResultSignature(
         ? new PublicKey(publicKey).toBytes()
         : publicKey.toBytes();
 
-    // CRITICAL: Must match backend signing format exactly
-    const winnerStr = payload.winner || 'None';
-    const resultTypeStr = payload.result_type;
-    const message = `match_id:${payload.match_id},winner:${winnerStr},result_type:${resultTypeStr}`;
-
-    const messageBytes = new TextEncoder().encode(message);
+    // CRITICAL: Must match backend signing format exactly (Borsh serialization)
+    const matchIdBigInt = BigInt(payload.match_id);
+    const resultTypeEnum = {
+      'Win': 1,
+      'DrawFullRefund': 2,
+      'DrawPartialRefund': 3,
+    }[payload.result_type] || 0;
+    
+    // Manually serialize to match Rust Borsh format exactly
+    const buf = Buffer.alloc(16 + 1 + (payload.winner ? 32 : 0) + 1);
+    let offset = 0;
+    
+    // Serialize match_id as u128 (little-endian, 16 bytes)
+    const matchIdBytes = Buffer.alloc(16);
+    matchIdBytes.writeBigUInt64LE(matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
+    matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
+    matchIdBytes.copy(buf, offset);
+    offset += 16;
+    
+    // Serialize Option<Pubkey>
+    if (payload.winner) {
+      buf.writeUInt8(1, offset++);
+      new PublicKey(payload.winner).toBytes().copy(buf, offset);
+      offset += 32;
+    } else {
+      buf.writeUInt8(0, offset++);
+    }
+    
+    // Serialize result_type as u8
+    buf.writeUInt8(resultTypeEnum, offset);
+    
+    const messageBytes = buf;
 
     return await ed.verify(signature, messageBytes, publicKeyBytes);
   } catch (error) {

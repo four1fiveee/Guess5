@@ -5,6 +5,8 @@ import {
   SystemProgram,
   Keypair,
   LAMPORTS_PER_SOL,
+  TransactionInstruction,
+  SYSVAR_INSTRUCTIONS_PUBKEY,
 } from '@solana/web3.js';
 import { Program, AnchorProvider, Wallet, BN } from '@coral-xyz/anchor';
 import { AppDataSource } from '../db';
@@ -277,11 +279,57 @@ export async function createDepositTransaction(
 }
 
 /**
- * Submit a game result (called by player to approve result)
+ * Create Ed25519 signature instruction for transaction
+ * This instruction must be added BEFORE the submit_result instruction
+ * Format: [num_signatures(1), sig_offset(2), sig_ix_idx(1), pubkey_offset(2), pubkey_ix_idx(1),
+ *          msg_offset(2), msg_len(2), msg_ix_idx(1), signature(64), pubkey(32), message(...)]
+ * All instruction indices reference index 0 (this instruction itself)
+ */
+function createEd25519SignatureInstruction(
+  publicKey: PublicKey,
+  signature: Uint8Array,
+  message: Uint8Array
+): TransactionInstruction {
+  const ed25519ProgramId = new PublicKey('Ed25519SigVerify111111111111111111111111111');
+  
+  const numSignatures = 1;
+  const sigOffset = 9; // After header (9 bytes)
+  const pubkeyOffset = sigOffset + 64; // After signature
+  const msgOffset = pubkeyOffset + 32; // After pubkey
+  const msgLen = message.length;
+  const instructionIndex = 0; // This instruction is at index 0
+  
+  const instructionData = Buffer.alloc(9 + 64 + 32 + message.length);
+  let offset = 0;
+  
+  // Header (9 bytes)
+  instructionData.writeUInt8(numSignatures, offset++); // num_signatures
+  instructionData.writeUInt16LE(sigOffset, offset); offset += 2; // sig_offset
+  instructionData.writeUInt8(instructionIndex, offset++); // sig_ix_idx
+  instructionData.writeUInt16LE(pubkeyOffset, offset); offset += 2; // pubkey_offset
+  instructionData.writeUInt8(instructionIndex, offset++); // pubkey_ix_idx
+  instructionData.writeUInt16LE(msgOffset, offset); offset += 2; // msg_offset
+  instructionData.writeUInt16LE(msgLen, offset); offset += 2; // msg_len
+  instructionData.writeUInt8(instructionIndex, offset++); // msg_ix_idx
+  
+  // Data (signature, pubkey, message)
+  Buffer.from(signature).copy(instructionData, offset); offset += 64;
+  publicKey.toBytes().copy(instructionData, offset); offset += 32;
+  Buffer.from(message).copy(instructionData, offset);
+  
+  return new TransactionInstruction({
+    programId: ed25519ProgramId,
+    keys: [], // Ed25519 program doesn't use accounts
+    data: instructionData,
+  });
+}
+
+/**
+ * Submit a game result (backend can submit directly, or players can submit)
  */
 export async function submitResult(
   matchId: string,
-  playerPubkey: string,
+  playerPubkey: string | null, // Optional - backend can submit directly
   winner: string | null,
   resultType: 'Win' | 'DrawFullRefund' | 'DrawPartialRefund'
 ): Promise<{ success: boolean; transaction?: Transaction; error?: string }> {
@@ -314,18 +362,65 @@ export async function submitResult(
         throw new Error(`Invalid result type: ${resultType}`);
     }
 
-    // Get ed25519 program ID
-    const ed25519ProgramId = new PublicKey('Ed25519SigVerify111111111111111111111111111');
+    // Get the message bytes that were signed (for ed25519 instruction)
+    // This must match what was signed in createSignedResult
+    const matchIdBigInt = BigInt(matchId);
+    const resultTypeEnumValue = {
+      'Win': 1,
+      'DrawFullRefund': 2,
+      'DrawPartialRefund': 3,
+    }[resultType] || 0;
+    
+    // Manually serialize to match Rust Borsh format exactly (same as escrowSigning.ts)
+    const buf = Buffer.alloc(16 + 1 + (winner ? 32 : 0) + 1);
+    let offset = 0;
+    
+    // Serialize match_id as u128 (little-endian, 16 bytes)
+    const matchIdBytes = Buffer.alloc(16);
+    matchIdBytes.writeBigUInt64LE(matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
+    matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
+    matchIdBytes.copy(buf, offset);
+    offset += 16;
+    
+    // Serialize Option<Pubkey>
+    if (winner) {
+      buf.writeUInt8(1, offset++);
+      new PublicKey(winner).toBytes().copy(buf, offset);
+      offset += 32;
+    } else {
+      buf.writeUInt8(0, offset++);
+    }
+    
+    // Serialize result_type as u8
+    buf.writeUInt8(resultTypeEnumValue, offset);
+    
+    const messageBytes = buf;
 
-    const tx = await program.methods
+    // Create ed25519 signature instruction (must be FIRST in transaction)
+    const ed25519Ix = createEd25519SignatureInstruction(
+      backendSigner,
+      signedResult.signature,
+      messageBytes
+    );
+
+    // Determine who submits (backend or player)
+    const submitterPubkey = playerPubkey ? new PublicKey(playerPubkey) : backendSigner;
+
+    // Create submit_result instruction
+    const submitIx = await program.methods
       .submitResult(winnerPubkey, resultTypeEnum, signatureArray)
       .accounts({
         gameEscrow: escrowPDA,
         backendSigner: backendSigner,
-        player: new PublicKey(playerPubkey),
-        ed25519Program: ed25519ProgramId,
+        player: submitterPubkey, // Can be backend or player
+        instructionsSysvar: SYSVAR_INSTRUCTIONS_PUBKEY,
       })
-      .transaction();
+      .instruction();
+
+    // Build transaction with ed25519 instruction FIRST, then submit_result
+    const tx = new Transaction();
+    tx.add(ed25519Ix); // Must be first
+    tx.add(submitIx);  // Then submit_result
 
     return {
       success: true,

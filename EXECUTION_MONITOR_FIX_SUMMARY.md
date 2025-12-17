@@ -141,3 +141,4 @@ await squads.executeProposal(vaultAddress, 2); // index 02
 
 
 
+
