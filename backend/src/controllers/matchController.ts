@@ -4807,7 +4807,7 @@ const submitResultHandler = async (req: any, res: any) => {
           console.warn('⚠️ Error in delayed cleanup:', error);
         }
       }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
-    } else {
+      } else {
         // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
         // Do NOT continue to winner determination or proposal creation
         console.log('⏳ Only one player has submitted - waiting for other player', {
@@ -4825,8 +4825,7 @@ const submitResultHandler = async (req: any, res: any) => {
         });
         return; // CRITICAL: Exit early - don't continue to winner determination
       }
-    }
-  } catch (error: unknown) {
+    } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     const errorStack = error instanceof Error ? error.stack : undefined;
     
