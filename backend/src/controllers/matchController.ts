@@ -4786,26 +4786,26 @@ const submitResultHandler = async (req: any, res: any) => {
             }
           }
         
-        // DELAYED CLEANUP: Only delete Redis state after both players have submitted
-        // Don't delete immediately - wait a bit to allow the other player to submit
-        // The game state will be cleaned up by TTL (1 hour) or when both players have definitely finished
-        setTimeout(async () => {
-          try {
-            // Double-check both players have submitted before deleting
-            const checkRows = await matchRepository.query(`
-              SELECT "player1Result", "player2Result", "isCompleted"
-              FROM "match"
-              WHERE id = $1
-            `, [matchId]);
-            if (checkRows && checkRows.length > 0 && checkRows[0].isCompleted && 
-                checkRows[0].player1Result && checkRows[0].player2Result) {
-              await deleteGameState(matchId);
-              console.log(`🧹 Cleaned up Redis game state for completed match: ${matchId}`);
-            }
-          } catch (error) {
-            console.warn('⚠️ Error in delayed cleanup:', error);
+      // DELAYED CLEANUP: Only delete Redis state after both players have submitted
+      // Don't delete immediately - wait a bit to allow the other player to submit
+      // The game state will be cleaned up by TTL (1 hour) or when both players have definitely finished
+      setTimeout(async () => {
+        try {
+          // Double-check both players have submitted before deleting
+          const checkRows = await matchRepository.query(`
+            SELECT "player1Result", "player2Result", "isCompleted"
+            FROM "match"
+            WHERE id = $1
+          `, [matchId]);
+          if (checkRows && checkRows.length > 0 && checkRows[0].isCompleted && 
+              checkRows[0].player1Result && checkRows[0].player2Result) {
+            await deleteGameState(matchId);
+            console.log(`🧹 Cleaned up Redis game state for completed match: ${matchId}`);
           }
-        }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
+        } catch (error) {
+          console.warn('⚠️ Error in delayed cleanup:', error);
+        }
+      }, 30000); // Wait 30 seconds before cleanup to allow other player to submit
       } else {
         // CRITICAL FIX: If only one player has submitted, return immediately with waiting status
         // Do NOT continue to winner determination or proposal creation
