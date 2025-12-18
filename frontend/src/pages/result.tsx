@@ -3554,50 +3554,50 @@ const Result: React.FC = () => {
                         if (payoutData?.isSmartContractPayout && !payoutData?.proposalId) {
                           const isTie = payoutData.isTie || payoutData.winner === 'tie';
                           const didWin = !!payoutData.won && !isTie;
-
+          \t
                           // Base pricing information (from match data or derived)
                           const solPrice =
                             (payoutData as any).solPriceAtTransaction ??
                             (payoutData as any).solPrice ??
-                            FALLBACK_SOL_PRICE_USD;
-
+                            FALLBACK_SOL_PRICE_USD; // e.g. 125
+\t\t\t\t\t\t\t\t\t\t
                           // Entry fee in SOL (from payoutData or derived from refund + fee)
                           const rawEntryFeeSol =
                             typeof payoutData.entryFee === 'string'
                               ? Number(payoutData.entryFee)
                               : payoutData.entryFee ?? null;
-
+\t\t\t\t\t\t\t\t\t\t
                           const refundSolRaw =
                             typeof payoutData.refundAmount === 'string'
                               ? Number(payoutData.refundAmount)
                               : payoutData.refundAmount ?? null;
-
+\t\t\t\t\t\t\t\t\t\t
                           const feeAmountRaw =
                             typeof payoutData.feeAmount === 'string'
                               ? Number(payoutData.feeAmount)
                               : payoutData.feeAmount ?? null;
-
+\t\t\t\t\t\t\t\t\t\t
                           const perPlayerFeeSol =
                             feeAmountRaw != null && isTie ? feeAmountRaw / 2 : null;
-
+\t\t\t\t\t\t\t\t\t\t
                           let entryFeeSol = rawEntryFeeSol;
                           if ((!entryFeeSol || entryFeeSol === 0) && refundSolRaw != null && perPlayerFeeSol != null) {
                             entryFeeSol = refundSolRaw + perPlayerFeeSol;
                           }
-
+\t\t\t\t\t\t\t\t\t\t
                           // Clean entry-fee tier and winnings USD
                           const roundedEntryFeeUsd =
                             (payoutData.entryFeeUSD as number | undefined) != null && payoutData.entryFeeUSD !== 0
                               ? Math.round(Number(payoutData.entryFeeUSD))
                               : entryFeeSol && solPrice
-                              ? getExpectedEntryFeeUSD(entryFeeSol, solPrice)
+                              ? getExpectedEntryFeeUSD(entryFeeSol, solPrice) // snaps to 5/20/50/100
                               : null;
-
+\t\t\t\t\t\t\t\t\t\t
                           const cleanUsdWinnings =
                             didWin && roundedEntryFeeUsd != null
                               ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
                               : null;
-
+\t\t\t\t\t\t\t\t\t\t
                           // SOL amounts from on-chain / SQL data
                           const winnerSol =
                             typeof payoutData.winnerAmount === 'string'
@@ -3605,16 +3605,16 @@ const Result: React.FC = () => {
                               : payoutData.winnerAmount ??
                                 (payoutData as any).payoutResult?.winnerAmount ??
                                 null;
-
+\t\t\t\t\t\t\t\t\t\t
                           const refundSol = refundSolRaw;
-
+\t\t\t\t\t\t\t\t\t\t
                           return (
                             <div>
                               <div className="text-accent text-lg font-semibold mb-2">
                                 ✅ On-Chain Payout Completed
                               </div>
-
-                              {/* Winner path */}
+\t\t\t\t\t\t\t\t\t\t
+                              {/* Winner view */}
                               {!isTie && didWin && winnerSol != null && winnerSol > 0 && (
                                 <p className="text-white text-sm mb-1">
                                   You received{' '}
@@ -3629,7 +3629,7 @@ const Result: React.FC = () => {
                                       {' '}
                                       95% of combined entry fees:{' '}
                                       <span className="font-semibold">
-                                        ${ (roundedEntryFeeUsd * 2).toFixed(2) } USD
+                                        ${(roundedEntryFeeUsd * 2).toFixed(2)} USD
                                       </span>
                                       {entryFeeSol != null && entryFeeSol > 0 && (
                                         <> ({(entryFeeSol * 2).toFixed(4)} SOL).</>
@@ -3638,8 +3638,8 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-
-                              {/* Loser path (no payout) */}
+\t\t\t\t\t\t\t\t\t\t
+                              {/* Loser view */}
                               {!isTie && !didWin && winnerSol != null && winnerSol > 0 && (
                                 <p className="text-white/80 text-sm mb-1">
                                   You did not receive a payout this match. Your opponent received{' '}
@@ -3649,7 +3649,7 @@ const Result: React.FC = () => {
                                       {' '}
                                       (95% of combined entry fees:{' '}
                                       <span className="font-semibold">
-                                        ${ (roundedEntryFeeUsd * 2).toFixed(2) } USD
+                                        ${(roundedEntryFeeUsd * 2).toFixed(2)} USD
                                       </span>
                                       {entryFeeSol != null && entryFeeSol > 0 && (
                                         <> / {(entryFeeSol * 2).toFixed(4)} SOL)</>
@@ -3659,8 +3659,8 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-
-                              {/* Losing tie / refund path */}
+\t\t\t\t\t\t\t\t\t\t
+                              {/* Tie refund view */}
                               {isTie && refundSol != null && refundSol > 0 && (
                                 <p className="text-white text-sm mb-1">
                                   You were refunded <span className="font-semibold">{refundSol} SOL</span> on-chain.
@@ -3669,7 +3669,7 @@ const Result: React.FC = () => {
                                       {' '}
                                       95% of entry fee paid:{' '}
                                       <span className="font-semibold">
-                                        ${ (roundedEntryFeeUsd * 0.95).toFixed(2) } USD
+                                        ${(roundedEntryFeeUsd * 0.95).toFixed(2)} USD
                                       </span>
                                       {entryFeeSol != null && entryFeeSol > 0 && (
                                         <> ({entryFeeSol.toFixed(6)} SOL − ${roundedEntryFeeUsd.toFixed(2)} USD).</>
@@ -3678,7 +3678,8 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-
+\t\t\t\t\t\t\t\t\t\t
+                              {/* Entry fee line */}
                               {(entryFeeSol != null && entryFeeSol > 0) || roundedEntryFeeUsd != null ? (
                                 <p className="text-white/70 text-xs mt-1">
                                   Entry fee paid:{' '}
@@ -3686,7 +3687,7 @@ const Result: React.FC = () => {
                                   {entryFeeSol != null && entryFeeSol > 0 ? `(${entryFeeSol} SOL).` : null}
                                 </p>
                               ) : null}
-
+\t\t\t\t\t\t\t\t\t\t
                               <p className="text-white/80 text-sm mt-3">
                                 Your match result has been settled directly by the smart contract. Your winnings (or refunds)
                                 have been handled on-chain. For a full breakdown of this match and its transactions, visit
