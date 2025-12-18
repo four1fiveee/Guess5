@@ -164,12 +164,25 @@ const Game: React.FC = () => {
         const playerResult = isPlayer1 ? player1Result : player2Result;
         const opponentResult = isPlayer1 ? player2Result : player1Result;
         
+        // Compute a rounded USD tier for entry fee based on current SOL price
+        const entryFeeUsdTier =
+          entryFee > 0 && solPrice
+            ? (() => {
+                const usdAmount = entryFee * solPrice;
+                const categories = [5, 20, 50, 100];
+                return categories.reduce((prev, curr) =>
+                  Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+                );
+              })()
+            : null;
+
         const payoutData = {
           won: data.winner === publicKey?.toString() && data.winner !== 'tie',
           isTie: data.winner === 'tie',
           winner: data.winner,
           numGuesses: playerResult?.numGuesses || result.numGuesses,
           entryFee: entryFee, // Use the actual entry fee from match data
+          entryFeeUSD: entryFeeUsdTier,
           timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
           opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
           opponentGuesses: opponentResult?.numGuesses || 0,
@@ -263,12 +276,25 @@ const Game: React.FC = () => {
                   };
                   safeLocalStorage.setItem('bothPlayersResults', JSON.stringify(resultsData));
                 
+                const entryFeeUsdTier =
+                  (matchData.entryFee || entryFee) && solPrice
+                    ? (() => {
+                        const sol = matchData.entryFee || entryFee;
+                        const usdAmount = sol * solPrice;
+                        const categories = [5, 20, 50, 100];
+                        return categories.reduce((prev, curr) =>
+                          Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+                        );
+                      })()
+                    : null;
+
                 const payoutData = {
                   won: matchData.winner === publicKey?.toString(),
                   isTie: matchData.winner === 'tie',
                   winner: matchData.winner,
                   numGuesses: playerResult?.numGuesses || result.numGuesses,
                   entryFee: matchData.entryFee || entryFee,
+                  entryFeeUSD: entryFeeUsdTier,
                   timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : `${Math.floor(result.totalTime / 1000)}s`,
                   opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : 'N/A',
                   opponentGuesses: opponentResult?.numGuesses || 0,
@@ -318,7 +344,7 @@ const Game: React.FC = () => {
     } finally {
       setIsSubmittingResult(false);
     }
-  }, [matchId, publicKey, guesses, startTime, entryFee, router, isSubmittingResult]);
+  }, [matchId, publicKey, guesses, startTime, entryFee, solPrice, router, isSubmittingResult]);
 
   // Update the ref whenever handleGameEnd changes
   useEffect(() => {
