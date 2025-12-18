@@ -54,9 +54,9 @@ export function buildMatchResultMessage(payload: ResultPayload): Buffer {
 
   // Serialize winner_pubkey as [u8; 32]; [0; 32] for draw
   if (payload.winner) {
-    new PublicKey(payload.winner).toBytes().copy(buf, offset);
+    Buffer.from(new PublicKey(payload.winner).toBytes()).copy(buf, offset);
   } else {
-    // Leave as zeros for draw
+    // Leave as zeros for draw (buffer is already zero-initialized)
   }
   offset += 32;
 

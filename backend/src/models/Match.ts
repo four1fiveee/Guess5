@@ -46,6 +46,24 @@ export class Match {
 
   // Squads Protocol fields REMOVED - migration 019_remove_squads_fields.ts
   // All proposal-related fields removed (payoutProposalId, proposalStatus, proposalSigners, etc.)
+  //
+  // NOTE: We keep the TypeScript properties below (without @Column decorators)
+  // so that legacy admin/tools code which still references these fields
+  // continues to type-check, even though the columns no longer exist in
+  // the database schema.
+
+  // Legacy vault + proposal fields (TS-only, not persisted)
+  squadsVaultAddress?: string;
+  squadsVaultPda?: string;
+  payoutProposalId?: string;
+  tieRefundProposalId?: string;
+  proposalStatus?: string;
+  proposalTransactionId?: string;
+  proposalCreatedAt?: Date;
+  proposalExpiresAt?: Date;
+  proposalSigners?: string;
+  needsSignatures?: number;
+  executionAttempts?: number;
 
   // Payment signature fields
   @Column({ nullable: true })

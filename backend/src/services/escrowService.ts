@@ -315,7 +315,7 @@ function createEd25519SignatureInstruction(
   
   // Data (signature, pubkey, message)
   Buffer.from(signature).copy(instructionData, offset); offset += 64;
-  publicKey.toBytes().copy(instructionData, offset); offset += 32;
+  Buffer.from(publicKey.toBytes()).copy(instructionData, offset); offset += 32;
   Buffer.from(message).copy(instructionData, offset);
   
   return new TransactionInstruction({
