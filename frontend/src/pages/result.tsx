@@ -3624,6 +3624,8 @@ const Result: React.FC = () => {
 
                           // 95% of combined entry fees in SOL (for display alongside USD)
                           const combinedEntrySol = entryFeeSol != null ? entryFeeSol * 2 : null;
+                          const combinedEntryUsd =
+                            roundedEntryFeeUsd != null ? roundedEntryFeeUsd * 2 : null;
                           const ninetyFivePctSol =
                             combinedEntrySol != null ? combinedEntrySol * 0.95 : winnerSol ?? null;
 
@@ -3651,7 +3653,17 @@ const Result: React.FC = () => {
                                         ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
                                       </span>
                                       {ninetyFivePctSol != null && ninetyFivePctSol > 0 && (
-                                        <> / {ninetyFivePctSol.toFixed(6)} SOL (from {(combinedEntrySol ?? 0).toFixed(4)} SOL pot).</>
+                                        <>
+                                          {' '}
+                                          / {ninetyFivePctSol.toFixed(6)} SOL
+                                          {combinedEntryUsd != null && combinedEntrySol != null && (
+                                            <>
+                                              {' '}
+                                              (from ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL pot)
+                                            </>
+                                          )}
+                                          .
+                                        </>
                                       )}
                                     </>
                                   )}
@@ -3671,7 +3683,16 @@ const Result: React.FC = () => {
                                         ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
                                       </span>
                                       {ninetyFivePctSol != null && ninetyFivePctSol > 0 && (
-                                        <> / {ninetyFivePctSol.toFixed(6)} SOL (from {(combinedEntrySol ?? 0).toFixed(4)} SOL pot)</>
+                                        <>
+                                          {' '}
+                                          / {ninetyFivePctSol.toFixed(6)} SOL
+                                          {combinedEntryUsd != null && combinedEntrySol != null && (
+                                            <>
+                                              {' '}
+                                              (from ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL pot)
+                                            </>
+                                          )}
+                                        </>
                                       )}
                                       .
                                     </>
