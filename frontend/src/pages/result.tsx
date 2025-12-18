@@ -3643,7 +3643,7 @@ const Result: React.FC = () => {
                                       {' '}
                                       95% of combined entry fees:{' '}
                                       <span className="font-semibold">
-                                        ${(roundedEntryFeeUsd * 2).toFixed(2)} USD
+                                        ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
                                       </span>
                                       {entryFeeSol != null && entryFeeSol > 0 && (
                                         <> ({(entryFeeSol * 2).toFixed(4)} SOL).</>
@@ -3663,7 +3663,7 @@ const Result: React.FC = () => {
                                       {' '}
                                       (95% of combined entry fees:{' '}
                                       <span className="font-semibold">
-                                        ${(roundedEntryFeeUsd * 2).toFixed(2)} USD
+                                        ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
                                       </span>
                                       {entryFeeSol != null && entryFeeSol > 0 && (
                                         <> / {(entryFeeSol * 2).toFixed(4)} SOL)</>
