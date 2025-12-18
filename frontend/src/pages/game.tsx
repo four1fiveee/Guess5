@@ -347,7 +347,7 @@ const Game: React.FC = () => {
         
         if (!data.success) {
           console.error('❌ Game state fetch failed:', data.error);
-          setNetworkStatus('disconnected');
+          setNetworkStatus('degraded');
           return;
         }
         
