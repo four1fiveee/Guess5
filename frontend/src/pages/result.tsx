@@ -555,12 +555,14 @@ const Result: React.FC = () => {
               winner: matchData.winner,
               tieReason, // Add tie reason for better UX
               numGuesses: playerResult?.numGuesses || currentPayoutData?.numGuesses || 0,
-              entryFee: matchData.entryFee || currentPayoutData?.entryFee || 0,
+              // Preserve client-computed entryFee / entryFeeUSD if present; otherwise fall back to backend-derived values
+              entryFee: currentPayoutData?.entryFee ?? matchData.entryFee ?? 0,
               entryFeeUSD:
+                currentPayoutData?.entryFeeUSD ??
                 (matchData.entryFee && solPriceForMatch
                   ? getExpectedEntryFeeUSD(Number(matchData.entryFee), solPriceForMatch)
-                  : currentPayoutData?.entryFeeUSD) ?? null,
-              solPriceAtTransaction: solPriceForMatch || currentPayoutData?.solPriceAtTransaction || null,
+                  : null),
+              solPriceAtTransaction: currentPayoutData?.solPriceAtTransaction || solPriceForMatch || null,
               timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : (currentPayoutData?.timeElapsed || 'N/A'),
               opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : (currentPayoutData?.opponentTimeElapsed || 'N/A'),
               opponentGuesses: opponentResult?.numGuesses || currentPayoutData?.opponentGuesses || 0,
@@ -3620,7 +3622,8 @@ const Result: React.FC = () => {
 
                               <p className="text-white/80 text-sm mt-3">
                                 Your match result has been settled directly by the smart contract. Your winnings (or refunds)
-                                have been handled on-chain.
+                                have been handled on-chain. For a full breakdown of this match and its transactions, visit
+                                the Match History section from the home page.
                               </p>
                             </div>
                           );
