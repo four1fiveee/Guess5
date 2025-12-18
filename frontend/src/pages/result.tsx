@@ -3610,10 +3610,10 @@ const Result: React.FC = () => {
                           }
 
                           // Clean entry-fee tier and winnings USD
+                          // CRITICAL: For smart-contract payouts, always derive from SOL + solPrice
+                          // to ensure stable 5/20/50/100 tiers, ignoring any raw DB USD values.
                           const roundedEntryFeeUsd =
-                            (payoutData.entryFeeUSD as number | undefined) != null && payoutData.entryFeeUSD !== 0
-                              ? Math.round(Number(payoutData.entryFeeUSD))
-                              : entryFeeSol && solPrice
+                            entryFeeSol && solPrice
                               ? getExpectedEntryFeeUSD(entryFeeSol, solPrice) // snaps to 5/20/50/100
                               : null;
 
