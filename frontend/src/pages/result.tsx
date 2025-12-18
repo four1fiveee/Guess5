@@ -396,7 +396,62 @@ const Result: React.FC = () => {
           // Check if both players have results (more reliable indicator of completion)
           const bothPlayersHaveResults = matchData.player1Result && matchData.player2Result;
           const isCompleted = matchData.isCompleted || bothPlayersHaveResults;
-          
+
+          // Detect "no game played" cancellation where only one player paid
+          const exactlyOnePlayerPaid =
+            (matchData.player1Paid && !matchData.player2Paid) ||
+            (!matchData.player1Paid && matchData.player2Paid);
+          const isCancelledNoPlay =
+            (matchData.matchOutcome === 'cancelled' || matchData.status === 'cancelled') &&
+            exactlyOnePlayerPaid;
+
+          if (isCancelledNoPlay) {
+            const currentWallet = publicKey?.toString() || '';
+            const viewerIsPlayer1 = currentWallet === matchData.player1;
+            const viewerIsPlayer2 = currentWallet === matchData.player2;
+            const payerWallet = matchData.player1Paid ? matchData.player1 : matchData.player2;
+            const viewerPaid = !!currentWallet && currentWallet === payerWallet;
+
+            const currentPayoutData = payoutData || {};
+            const cancelledNoGamePayout = {
+              ...currentPayoutData,
+              matchId,
+              entryFee: matchData.entryFee || currentPayoutData.entryFee || 0,
+              player1: matchData.player1,
+              player2: matchData.player2,
+              player1Paid: !!matchData.player1Paid,
+              player2Paid: !!matchData.player2Paid,
+              viewerWallet: currentWallet,
+              viewerIsPlayer1,
+              viewerIsPlayer2,
+              viewerPaid,
+              won: false,
+              isTie: false,
+              winner: null,
+              refundAmount: 0,
+              refundReason: currentPayoutData.refundReason || 'single_player_paid_no_game',
+              matchOutcome: matchData.matchOutcome || matchData.status || 'cancelled',
+              rawStatus: matchData.status || currentPayoutData.rawStatus || null,
+              noGamePlayed: true,
+            };
+
+            console.log('🔍 Detected cancelled match with no game played:', {
+              matchId,
+              status: matchData.status,
+              matchOutcome: matchData.matchOutcome,
+              player1Paid: matchData.player1Paid,
+              player2Paid: matchData.player2Paid,
+              viewerWallet: currentWallet,
+              viewerPaid,
+            });
+
+            setPayoutData(cancelledNoGamePayout);
+            setIsPolling(false);
+            stopRefreshLoops();
+            setLoading(false);
+            return;
+          }
+
           if (isCompleted) {
             // Get player results from match data
             const isPlayer1 = publicKey?.toString() === matchData.player1;
@@ -2102,6 +2157,7 @@ const Result: React.FC = () => {
   const playerWallet = publicKey?.toString() || '';
   const matchWasCancelled =
     payoutData.matchOutcome === 'cancelled' ||
+    payoutData.matchOutcome === 'cancelled_no_play' ||
     payoutData.winner === 'cancelled' ||
     (!!payoutData.refundReason &&
       !payoutData.won &&
@@ -2111,6 +2167,8 @@ const Result: React.FC = () => {
   const readableRefundReason = (() => {
     if (!payoutData.refundReason) return null;
     switch (payoutData.refundReason) {
+      case 'single_player_paid_no_game':
+        return 'Only one player paid. Match cancelled before it started.';
       case 'payment_timeout':
         return 'Opponent payment timeout';
       case 'player_cancelled_after_payment':
@@ -2361,11 +2419,26 @@ const Result: React.FC = () => {
                 </div>
               )}
               
-              {/* Payout Information - Non-Custodial Proposal System */}
+              {/* Payout Information - Smart Contract / Legacy Multisig */}
               <div className="mb-6">
                 <h2 className="text-xl font-bold text-accent mb-3">Payout Details</h2>
-                
-                {payoutData && payoutData.proposalId ? (
+
+                {/* Special case: match was cancelled before it ever started (only one player paid) */}
+                {payoutData?.noGamePlayed ? (
+                  <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-6 text-left">
+                    <div className="text-white/60 text-xs uppercase tracking-[0.3em] mb-2">
+                      Match Cancelled – No Game Played
+                    </div>
+                    <p className="text-white font-semibold text-base mb-3">
+                      {payoutData.viewerPaid
+                        ? 'You paid the entry fee, but your opponent never joined. No game was started and no winner was decided.'
+                        : 'Your opponent paid the entry fee, but you never joined. No game was started and no winner was decided.'}
+                    </p>
+                    <p className="text-white/60 text-sm">
+                      Your wallet balance is unchanged by this cancelled match. You can safely create or join a new game from the lobby.
+                    </p>
+                  </div>
+                ) : payoutData && payoutData.proposalId ? (
                   <div className={`
                     ${payoutData.won && payoutData.proposalStatus === 'EXECUTED' 
                       ? 'bg-gradient-to-br from-accent/20 to-yellow-500/20 border-2 border-accent shadow-lg shadow-accent/50' 
