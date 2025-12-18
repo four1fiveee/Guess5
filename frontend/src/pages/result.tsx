@@ -556,6 +556,11 @@ const Result: React.FC = () => {
               tieReason, // Add tie reason for better UX
               numGuesses: playerResult?.numGuesses || currentPayoutData?.numGuesses || 0,
               entryFee: matchData.entryFee || currentPayoutData?.entryFee || 0,
+              entryFeeUSD:
+                (matchData.entryFee && solPriceForMatch
+                  ? getExpectedEntryFeeUSD(Number(matchData.entryFee), solPriceForMatch)
+                  : currentPayoutData?.entryFeeUSD) ?? null,
+              solPriceAtTransaction: solPriceForMatch || currentPayoutData?.solPriceAtTransaction || null,
               timeElapsed: playerResult ? `${Math.floor(playerResult.totalTime / 1000)}s` : (currentPayoutData?.timeElapsed || 'N/A'),
               opponentTimeElapsed: opponentResult ? `${Math.floor(opponentResult.totalTime / 1000)}s` : (currentPayoutData?.opponentTimeElapsed || 'N/A'),
               opponentGuesses: opponentResult?.numGuesses || currentPayoutData?.opponentGuesses || 0,
@@ -2369,6 +2374,11 @@ const Result: React.FC = () => {
                                 {payoutData.won ? '✓ Solved on last guess' : '✗ Used all guesses'}
                               </span>
                             )}
+                            {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
+                              <span className="text-orange-400 text-sm ml-2 block mt-1">
+                                ⏱️ Timed out – puzzle not solved
+                              </span>
+                            )}
                           </div>
                   </div>
                   <div>
@@ -2391,9 +2401,9 @@ const Result: React.FC = () => {
                                 {payoutData.winner !== 'tie' && payoutData.winner !== publicKey?.toString() ? '✓ Solved on last guess' : '✗ Used all guesses'}
                               </span>
                             )}
-                            {payoutData.opponentTimeElapsed && payoutData.opponentTimeElapsed !== 'N/A' && payoutData.opponentTimeElapsed.includes('120') && (payoutData as any).tieReason === 'timeout_and_all_guesses' && (
+                            {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
                               <span className="text-orange-400 text-sm ml-2 block mt-1">
-                                ⏱️ Timed out
+                                ⏱️ Timed out – puzzle not solved
                               </span>
                             )}
                           </div>
@@ -3514,25 +3524,70 @@ const Result: React.FC = () => {
                       {(() => {
                         // New smart-contract payout path: no proposal to create or sign.
                         if (payoutData?.isSmartContractPayout && !payoutData?.proposalId) {
-                          // Compute clean USD display: rounded(entryFeeUSD * 2 * 0.95) with 2 decimals
-                          const rawEntryFeeUsd = payoutData.entryFeeUSD ?? payoutData.entryFeeUsd ?? null;
-                          const roundedEntryFeeUsd = rawEntryFeeUsd != null
-                            ? Math.round(Number(rawEntryFeeUsd))
-                            : null;
-                          const cleanUsdWinnings = roundedEntryFeeUsd != null
-                            ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
-                            : null;
+                          const isTie = payoutData.isTie || payoutData.winner === 'tie';
+                          const didWin = !!payoutData.won && !isTie;
+
+                          // Base pricing information (from match data or derived)
+                          const solPrice =
+                            (payoutData as any).solPriceAtTransaction ??
+                            (payoutData as any).solPrice ??
+                            null;
+
+                          // Entry fee in SOL (from payoutData or derived from refund + fee)
+                          const rawEntryFeeSol =
+                            typeof payoutData.entryFee === 'string'
+                              ? Number(payoutData.entryFee)
+                              : payoutData.entryFee ?? null;
+
+                          const refundSolRaw =
+                            typeof payoutData.refundAmount === 'string'
+                              ? Number(payoutData.refundAmount)
+                              : payoutData.refundAmount ?? null;
+
+                          const feeAmountRaw =
+                            typeof payoutData.feeAmount === 'string'
+                              ? Number(payoutData.feeAmount)
+                              : payoutData.feeAmount ?? null;
+
+                          const perPlayerFeeSol =
+                            feeAmountRaw != null && isTie ? feeAmountRaw / 2 : null;
+
+                          let entryFeeSol = rawEntryFeeSol;
+                          if ((!entryFeeSol || entryFeeSol === 0) && refundSolRaw != null && perPlayerFeeSol != null) {
+                            entryFeeSol = refundSolRaw + perPlayerFeeSol;
+                          }
+
+                          // Clean entry-fee tier and winnings USD
+                          const roundedEntryFeeUsd =
+                            (payoutData.entryFeeUSD as number | undefined) != null && payoutData.entryFeeUSD !== 0
+                              ? Math.round(Number(payoutData.entryFeeUSD))
+                              : entryFeeSol && solPrice
+                              ? getExpectedEntryFeeUSD(entryFeeSol, solPrice)
+                              : null;
+
+                          const cleanUsdWinnings =
+                            didWin && roundedEntryFeeUsd != null
+                              ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
+                              : null;
 
                           // SOL amounts from on-chain / SQL data
-                          const winnerSol = payoutData.winnerAmount ?? payoutData.payoutResult?.winnerAmount ?? null;
-                          const entryFeeSol = payoutData.entryFee ?? null;
+                          const winnerSol =
+                            typeof payoutData.winnerAmount === 'string'
+                              ? Number(payoutData.winnerAmount)
+                              : payoutData.winnerAmount ??
+                                (payoutData as any).payoutResult?.winnerAmount ??
+                                null;
+
+                          const refundSol = refundSolRaw;
 
                           return (
                             <div>
                               <div className="text-accent text-lg font-semibold mb-2">
                                 ✅ On-Chain Payout Completed
                               </div>
-                              {winnerSol != null && (
+
+                              {/* Winner path */}
+                              {!isTie && didWin && winnerSol != null && winnerSol > 0 && (
                                 <p className="text-white text-sm mb-1">
                                   You received <span className="font-semibold">{winnerSol} SOL</span> on-chain.
                                   {cleanUsdWinnings && (
@@ -3540,12 +3595,29 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-                              {entryFeeSol != null && (
+
+                              {/* Loser path (no payout) */}
+                              {!isTie && !didWin && winnerSol != null && winnerSol > 0 && (
+                                <p className="text-white/80 text-sm mb-1">
+                                  You did not receive a payout this match. Your opponent received{' '}
+                                  <span className="font-semibold">{winnerSol} SOL</span> on-chain.
+                                </p>
+                              )}
+
+                              {/* Losing tie / refund path */}
+                              {isTie && refundSol != null && refundSol > 0 && (
+                                <p className="text-white text-sm mb-1">
+                                  You were refunded <span className="font-semibold">{refundSol} SOL</span> on-chain.
+                                </p>
+                              )}
+
+                              {entryFeeSol != null && entryFeeSol > 0 && (
                                 <p className="text-white/70 text-xs mt-1">
                                   Entry fee paid: {roundedEntryFeeUsd != null ? `$${roundedEntryFeeUsd} USD` : '—'}{' '}
                                   ({entryFeeSol} SOL).
                                 </p>
                               )}
+
                               <p className="text-white/80 text-sm mt-3">
                                 Your match result has been settled directly by the smart contract. Your winnings (or refunds)
                                 have been handled on-chain.
