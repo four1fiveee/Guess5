@@ -3629,6 +3629,25 @@ const Result: React.FC = () => {
                           const ninetyFivePctSol =
                             combinedEntrySol != null ? combinedEntrySol * 0.95 : winnerSol ?? null;
 
+                          // Bonus + total (for smart-contract wins with bonus payouts)
+                          const bonusSol =
+                            payoutData?.bonus?.paid && payoutData.bonus?.amountSol
+                              ? Number(payoutData.bonus.amountSol)
+                              : 0;
+                          const bonusTierUsd =
+                            payoutData?.bonus?.paid &&
+                            payoutData.bonus?.tier &&
+                            BONUS_USD_BY_TIER[payoutData.bonus.tier] !== undefined
+                              ? BONUS_USD_BY_TIER[payoutData.bonus.tier]
+                              : payoutData?.bonus?.amountUSD || payoutData?.bonus?.expectedUSD || 0;
+                          const hasBonus = bonusSol > 0 || bonusTierUsd > 0;
+                          const totalSolReceived =
+                            winnerSol != null ? winnerSol + (hasBonus ? bonusSol : 0) : null;
+                          const totalUsdExpected =
+                            cleanUsdWinnings != null && hasBonus
+                              ? (Number(cleanUsdWinnings) + bonusTierUsd).toFixed(2)
+                              : cleanUsdWinnings;
+
                           return (
                             <div>
                               <div className="text-accent text-lg font-semibold mb-2">
@@ -3637,17 +3656,39 @@ const Result: React.FC = () => {
 
                               {/* Winner view */}
                               {!isTie && didWin && winnerSol != null && winnerSol > 0 && (
-                                <p className="text-white text-sm mb-1">
-                                  You received{' '}
-                                  {cleanUsdWinnings && (
-                                    <>
-                                      <span className="font-semibold">${cleanUsdWinnings} USD</span>,{' '}
-                                    </>
-                                  )}
-                                  <span className="font-semibold">{winnerSol} SOL</span> on-chain.
+                                <div className="mb-2">
+                                  {/* Primary headline payout */}
+                                  <p className="text-lg font-semibold text-yellow-300 mb-1">
+                                    You received{' '}
+                                    {totalUsdExpected && (
+                                      <>
+                                        <span className="font-bold">
+                                          ${totalUsdExpected} USD
+                                        </span>
+                                        {hasBonus && cleanUsdWinnings && (
+                                          <span className="text-yellow-200/80 text-xs ml-2">
+                                            (includes ${cleanUsdWinnings} match winnings + $
+                                            {bonusTierUsd.toFixed(2)} bonus)
+                                          </span>
+                                        )}
+                                        {', '}
+                                      </>
+                                    )}
+                                    <span className="font-bold">
+                                      {totalSolReceived != null ? totalSolReceived.toFixed(6) : winnerSol}{' '}
+                                      SOL
+                                    </span>
+                                    {hasBonus && (
+                                      <span className="text-yellow-200/80 text-xs ml-2">
+                                        (base {winnerSol.toFixed(6)} SOL + bonus {bonusSol.toFixed(6)} SOL)
+                                      </span>
+                                    )}
+                                    {' '}on-chain.
+                                  </p>
+
+                                  {/* Match winnings breakdown (95% of combined entry fees) */}
                                   {roundedEntryFeeUsd != null && (
-                                    <>
-                                      {' '}
+                                    <p className="text-white text-xs">
                                       95% of combined entry fees:{' '}
                                       <span className="font-semibold">
                                         ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
@@ -3665,9 +3706,29 @@ const Result: React.FC = () => {
                                           .
                                         </>
                                       )}
-                                    </>
+                                    </p>
                                   )}
-                                </p>
+
+                                  {/* Bonus line for clarity */}
+                                  {hasBonus && (
+                                    <p className="text-green-300 text-xs mt-1">
+                                      Bonus received:{' '}
+                                      {bonusTierUsd > 0 && (
+                                        <span className="font-semibold">
+                                          +${bonusTierUsd.toFixed(2)} USD
+                                        </span>
+                                      )}
+                                      {bonusSol > 0 && (
+                                        <>
+                                          {' '}
+                                          / <span className="font-semibold">
+                                            +{bonusSol.toFixed(6)} SOL
+                                          </span>
+                                        </>
+                                      )}
+                                    </p>
+                                  )}
+                                </div>
                               )}
 
                               {/* Loser view */}
