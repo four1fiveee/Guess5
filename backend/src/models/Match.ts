@@ -35,13 +35,11 @@ export class Match {
   @Column({ nullable: true, default: 'PENDING' })
   escrowStatus?: string; // PENDING, INITIALIZED, ACTIVE, SETTLED, REFUNDED
 
-  @Column({ nullable: true })
+  // The following fields are currently tracked in-memory / via logs only.
+  // They are left as TS-only properties to avoid DB schema churn while
+  // we stabilize the new on-chain escrow flow.
   escrowResultSubmittedAt?: Date; // When result was submitted
-
-  @Column({ nullable: true })
   escrowResultSubmittedBy?: string; // Which player submitted the result
-
-  @Column({ nullable: true })
   escrowBackendSignature?: string; // Backend signature for result verification
 
   // Squads Protocol fields REMOVED - migration 019_remove_squads_fields.ts
