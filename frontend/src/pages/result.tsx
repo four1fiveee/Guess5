@@ -3613,12 +3613,13 @@ const Result: React.FC = () => {
                                 </p>
                               )}
 
-                              {entryFeeSol != null && entryFeeSol > 0 && (
+                              {(entryFeeSol != null && entryFeeSol > 0) || roundedEntryFeeUsd != null ? (
                                 <p className="text-white/70 text-xs mt-1">
-                                  Entry fee paid: {roundedEntryFeeUsd != null ? `$${roundedEntryFeeUsd} USD` : '—'}{' '}
-                                  ({entryFeeSol} SOL).
+                                  Entry fee paid:{' '}
+                                  {roundedEntryFeeUsd != null ? `$${roundedEntryFeeUsd} USD` : '—'}{' '}
+                                  {entryFeeSol != null && entryFeeSol > 0 ? `(${entryFeeSol} SOL).` : null}
                                 </p>
-                              )}
+                              ) : null}
 
                               <p className="text-white/80 text-sm mt-3">
                                 Your match result has been settled directly by the smart contract. Your winnings (or refunds)
