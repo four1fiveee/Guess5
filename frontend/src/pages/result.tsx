@@ -3514,14 +3514,41 @@ const Result: React.FC = () => {
                       {(() => {
                         // New smart-contract payout path: no proposal to create or sign.
                         if (payoutData?.isSmartContractPayout && !payoutData?.proposalId) {
+                          // Compute clean USD display: rounded(entryFeeUSD * 2 * 0.95) with 2 decimals
+                          const rawEntryFeeUsd = payoutData.entryFeeUSD ?? payoutData.entryFeeUsd ?? null;
+                          const roundedEntryFeeUsd = rawEntryFeeUsd != null
+                            ? Math.round(Number(rawEntryFeeUsd))
+                            : null;
+                          const cleanUsdWinnings = roundedEntryFeeUsd != null
+                            ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
+                            : null;
+
+                          // SOL amounts from on-chain / SQL data
+                          const winnerSol = payoutData.winnerAmount ?? payoutData.payoutResult?.winnerAmount ?? null;
+                          const entryFeeSol = payoutData.entryFee ?? null;
+
                           return (
                             <div>
                               <div className="text-accent text-lg font-semibold mb-2">
                                 ✅ On-Chain Payout Completed
                               </div>
-                              <p className="text-white/80 text-sm">
-                                Your match result has been settled directly by the smart contract. There is no proposal to sign –
-                                your winnings (or refunds) have been handled on-chain.
+                              {winnerSol != null && (
+                                <p className="text-white text-sm mb-1">
+                                  You received <span className="font-semibold">{winnerSol} SOL</span> on-chain.
+                                  {cleanUsdWinnings && (
+                                    <> (~${cleanUsdWinnings} USD)</>
+                                  )}
+                                </p>
+                              )}
+                              {entryFeeSol != null && (
+                                <p className="text-white/70 text-xs mt-1">
+                                  Entry fee paid: {roundedEntryFeeUsd != null ? `$${roundedEntryFeeUsd} USD` : '—'}{' '}
+                                  ({entryFeeSol} SOL).
+                                </p>
+                              )}
+                              <p className="text-white/80 text-sm mt-3">
+                                Your match result has been settled directly by the smart contract. Your winnings (or refunds)
+                                have been handled on-chain.
                               </p>
                             </div>
                           );
