@@ -64,6 +64,7 @@ export class Match {
   proposalSigners?: string;
   needsSignatures?: number;
   executionAttempts?: number;
+  executionLastAttemptAt?: Date;
 
   // Payment signature fields
   @Column({ nullable: true })
