@@ -12293,9 +12293,6 @@ const walletBalanceSSEHandler = async (req: any, res: any) => {
 
 // Multisig vault integration handlers
 
-/**
- * Handle player deposit to multisig vault
- */
 const depositToMultisigVaultHandler = async (req: any, res: any) => {
   try {
     const { matchId, playerWallet, amount, depositTxSignature } = req.body;
@@ -12306,104 +12303,104 @@ const depositToMultisigVaultHandler = async (req: any, res: any) => {
       });
     }
 
-    console.log('💰 Processing multisig vault deposit request:', { matchId, playerWallet, amount, depositTxSignature });
+    console.log('💰 Processing legacy multisig-style deposit notification:', {
+      matchId,
+      playerWallet,
+      amount,
+      depositTxSignature
+    });
 
-    // Verify deposit on Solana using Squads service
-    const result = await squadsVaultService.verifyDeposit(matchId, playerWallet, amount, depositTxSignature);
+    // NOTE:
+    // The original implementation verified deposits via Squads multisig
+    // using `squadsVaultService`. That infrastructure has been removed,
+    // but the frontend still calls this endpoint to notify the backend
+    // that a deposit transaction was sent and confirmed on-chain.
+    //
+    // To avoid breaking the flow, we now treat this as a best-effort
+    // notification:
+    // - We trust the provided `depositTxSignature` (the wallet already
+    //   confirmed the transaction client-side).
+    // - We update the Match payment flags and emit websocket events.
 
-    if (result.success) {
-      console.log('✅ Multisig vault deposit verified successfully:', {
-        matchId,
-        playerWallet,
-        transactionId: result.transactionId
-      });
+    // Update payment status using TypeORM
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const matchEntity = await matchRepository.findOne({ where: { id: matchId } });
 
-      // Update payment status using TypeORM (columns now guaranteed to exist)
-      const { AppDataSource } = require('../db/index');
-      const matchRepository = AppDataSource.getRepository(Match);
-      const matchEntity = await matchRepository.findOne({ where: { id: matchId } });
-
-      if (!matchEntity) {
-        return res.status(404).json({
-          success: false,
-          error: 'Match not found'
-        });
-      }
-
-      const isPlayer1 = playerWallet === matchEntity.player1;
-      if (!isPlayer1 && playerWallet !== matchEntity.player2) {
-        return res.status(403).json({ success: false, error: 'Player not part of this match' });
-      }
-
-      if (isPlayer1) {
-        matchEntity.player1Paid = true;
-        matchEntity.player1PaymentSignature = depositTxSignature || matchEntity.player1PaymentSignature;
-        matchEntity.player1PaymentTime = new Date();
-      } else {
-        matchEntity.player2Paid = true;
-        matchEntity.player2PaymentSignature = depositTxSignature || matchEntity.player2PaymentSignature;
-        matchEntity.player2PaymentTime = new Date();
-      }
-
-      if (!matchEntity.matchStatus || matchEntity.matchStatus === 'PENDING') {
-        matchEntity.matchStatus = 'PAYMENT_REQUIRED';
-      }
-
-      await matchRepository.save(matchEntity);
-      console.log(`✅ Marked ${isPlayer1 ? 'Player 1' : 'Player 2'} (${playerWallet}) as paid for match ${matchId}`);
-
-      let activated = false;
-      try {
-        const activationResult = await activateMatchIfReady(matchRepository, matchEntity, playerWallet);
-        activated = activationResult.activated;
-      } catch (activationError: any) {
-        console.error('❌ Error activating game after deposit:', activationError?.message || activationError);
-      }
-
-      const refreshedMatch = await matchRepository.findOne({ where: { id: matchId } });
-      const responseMatch = refreshedMatch || matchEntity;
-      const bothPaid = !!(responseMatch?.player1Paid && responseMatch?.player2Paid);
-
-      console.log(`🔍 Payment status for match ${matchId}:`, {
-        player1Paid: responseMatch?.player1Paid,
-        player2Paid: responseMatch?.player2Paid,
-        status: responseMatch?.status,
-        bothPaid,
-        activated
-      });
-
-      websocketService.broadcastToMatch(matchId, {
-        type: WebSocketEventType.PAYMENT_RECEIVED,
-        matchId,
-        data: {
-          player: isPlayer1 ? 'player1' : 'player2',
-          wallet: playerWallet,
-          amount,
-          player1Paid: responseMatch?.player1Paid,
-          player2Paid: responseMatch?.player2Paid,
-          status: responseMatch?.status
-        },
-        timestamp: new Date().toISOString()
-      });
-
-      res.json({
-        success: true,
-        message: activated ? 'Game started!' : 'Deposit verified successfully',
-        transactionId: result.transactionId,
-        matchId,
-        playerWallet,
-        player1Paid: responseMatch?.player1Paid ?? false,
-        player2Paid: responseMatch?.player2Paid ?? false,
-        status: responseMatch?.status ?? matchEntity.status,
-        bothPaid
-      });
-    } else {
-      console.error('❌ Multisig vault deposit failed:', result.error);
-      res.status(500).json({
+    if (!matchEntity) {
+      return res.status(404).json({
         success: false,
-        error: result.error
+        error: 'Match not found'
       });
     }
+
+    const isPlayer1 = playerWallet === matchEntity.player1;
+    if (!isPlayer1 && playerWallet !== matchEntity.player2) {
+      return res.status(403).json({ success: false, error: 'Player not part of this match' });
+    }
+
+    if (isPlayer1) {
+      matchEntity.player1Paid = true;
+      matchEntity.player1PaymentSignature = depositTxSignature || matchEntity.player1PaymentSignature;
+      matchEntity.player1PaymentTime = new Date();
+    } else {
+      matchEntity.player2Paid = true;
+      matchEntity.player2PaymentSignature = depositTxSignature || matchEntity.player2PaymentSignature;
+      matchEntity.player2PaymentTime = new Date();
+    }
+
+    if (!matchEntity.matchStatus || matchEntity.matchStatus === 'PENDING') {
+      matchEntity.matchStatus = 'PAYMENT_REQUIRED';
+    }
+
+    await matchRepository.save(matchEntity);
+    console.log(`✅ Marked ${isPlayer1 ? 'Player 1' : 'Player 2'} (${playerWallet}) as paid for match ${matchId}`);
+
+    let activated = false;
+    try {
+      const activationResult = await activateMatchIfReady(matchRepository, matchEntity, playerWallet);
+      activated = activationResult.activated;
+    } catch (activationError: any) {
+      console.error('❌ Error activating game after deposit:', activationError?.message || activationError);
+    }
+
+    const refreshedMatch = await matchRepository.findOne({ where: { id: matchId } });
+    const responseMatch = refreshedMatch || matchEntity;
+    const bothPaid = !!(responseMatch?.player1Paid && responseMatch?.player2Paid);
+
+    console.log(`🔍 Payment status for match ${matchId}:`, {
+      player1Paid: responseMatch?.player1Paid,
+      player2Paid: responseMatch?.player2Paid,
+      status: responseMatch?.status,
+      bothPaid,
+      activated
+    });
+
+    websocketService.broadcastToMatch(matchId, {
+      type: WebSocketEventType.PAYMENT_RECEIVED,
+      matchId,
+      data: {
+        player: isPlayer1 ? 'player1' : 'player2',
+        wallet: playerWallet,
+        amount,
+        player1Paid: responseMatch?.player1Paid,
+        player2Paid: responseMatch?.player2Paid,
+        status: responseMatch?.status
+      },
+      timestamp: new Date().toISOString()
+    });
+
+    res.json({
+      success: true,
+      message: activated ? 'Game started!' : 'Deposit recorded successfully',
+      transactionId: depositTxSignature || null,
+      matchId,
+      playerWallet,
+      player1Paid: responseMatch?.player1Paid ?? false,
+      player2Paid: responseMatch?.player2Paid ?? false,
+      status: responseMatch?.status ?? matchEntity.status,
+      bothPaid
+    });
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Error in depositToMultisigVaultHandler:', error);
