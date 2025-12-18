@@ -452,6 +452,12 @@ const Result: React.FC = () => {
             return;
           }
 
+          // Determine whether this match uses a legacy multisig proposal (payoutProposalId)
+          // or the new direct smart contract payout (no proposal IDs at all).
+          const extractedProposalId = matchData.payoutProposalId || matchData.tieRefundProposalId;
+          const hasOnchainProposal = !!extractedProposalId;
+          const isSmartContractPayout = !hasOnchainProposal;
+
           if (isCompleted) {
             // Get player results from match data
             const isPlayer1 = publicKey?.toString() === matchData.player1;
@@ -480,7 +486,6 @@ const Result: React.FC = () => {
               expectedBonusUsd && solPriceForMatch
                 ? expectedBonusUsd / solPriceForMatch
                 : bonusAmountSol;
-            const extractedProposalId = matchData.payoutProposalId || matchData.tieRefundProposalId;
             
             console.log('🔍 CRITICAL DEBUG: Proposal ID extraction:', {
               matchId,
@@ -510,17 +515,19 @@ const Result: React.FC = () => {
             
             // CRITICAL: Preserve EXECUTING status if it exists in current state
             // Don't overwrite with null/undefined from backend
-            const preservedStatus = 
-              currentPayoutData?.proposalStatus === 'EXECUTING' && !matchData.proposalStatus
-                ? 'EXECUTING'
-                : (matchData.proposalStatus || currentPayoutData?.proposalStatus);
+            const preservedStatus = hasOnchainProposal
+              ? (currentPayoutData?.proposalStatus === 'EXECUTING' && !matchData.proposalStatus
+                  ? 'EXECUTING'
+                  : (matchData.proposalStatus || currentPayoutData?.proposalStatus))
+              : undefined;
             
             // CRITICAL: Preserve needsSignatures if it's 0 in current state and backend hasn't updated yet
-            const preservedNeedsSignatures = 
-              currentPayoutData?.needsSignatures === 0 && 
-              (matchData.needsSignatures === null || matchData.needsSignatures === undefined)
-                ? 0
-                : (matchData.needsSignatures ?? currentPayoutData?.needsSignatures ?? 0);
+            const preservedNeedsSignatures = hasOnchainProposal
+              ? (currentPayoutData?.needsSignatures === 0 && 
+                  (matchData.needsSignatures === null || matchData.needsSignatures === undefined)
+                    ? 0
+                    : (matchData.needsSignatures ?? currentPayoutData?.needsSignatures ?? 0))
+              : undefined;
             
             // Determine tie reason for better UX
             let tieReason: string | null = null;
@@ -560,10 +567,12 @@ const Result: React.FC = () => {
               transactions: matchData.payout?.transactions || currentPayoutData?.transactions || [],
               vaultAddress: matchData.squadsVaultAddress || matchData.vaultAddress || currentPayoutData?.vaultAddress,
               vaultDepositAddress: matchData.squadsVaultPda || matchData.vaultPda || currentPayoutData?.vaultDepositAddress || null,
-              proposalId: extractedProposalId || currentPayoutData?.proposalId,
-              proposalStatus: preservedStatus,
-              proposalSigners: mergedSigners,
-              needsSignatures: preservedNeedsSignatures,
+              // For legacy multisig/proposal matches, keep proposal fields.
+              // For smart contract payouts (no proposal IDs), intentionally leave them undefined.
+              proposalId: hasOnchainProposal ? (extractedProposalId || currentPayoutData?.proposalId) : currentPayoutData?.proposalId,
+              proposalStatus: hasOnchainProposal ? preservedStatus : undefined,
+              proposalSigners: hasOnchainProposal ? mergedSigners : [],
+              needsSignatures: hasOnchainProposal ? preservedNeedsSignatures : undefined,
               proposalExecutedAt: matchData.proposalExecutedAt || currentPayoutData?.proposalExecutedAt,
               proposalTransactionId: matchData.proposalTransactionId || currentPayoutData.proposalTransactionId,
               automatedPayout: matchData.payout?.paymentSuccess ?? currentPayoutData.automatedPayout ?? false,
@@ -586,7 +595,8 @@ const Result: React.FC = () => {
                   : matchData.payout?.winnerAmount || currentPayoutData.totalPayoutSol || 0,
               refundReason: matchData.refundReason || currentPayoutData.refundReason || null,
               matchOutcome: matchData.matchOutcome || matchData.status || currentPayoutData.matchOutcome || null,
-              rawStatus: matchData.status || currentPayoutData.rawStatus || null
+              rawStatus: matchData.status || currentPayoutData.rawStatus || null,
+              isSmartContractPayout,
             };
             
             // CRITICAL: Prevent regressions from rate-limited backend responses
@@ -3502,6 +3512,20 @@ const Result: React.FC = () => {
                   <div className="bg-secondary bg-opacity-10 border border-accent rounded-lg p-6">
                     <div className="text-center">
                       {(() => {
+                        // New smart-contract payout path: no proposal to create or sign.
+                        if (payoutData?.isSmartContractPayout && !payoutData?.proposalId) {
+                          return (
+                            <div>
+                              <div className="text-accent text-lg font-semibold mb-2">
+                                ✅ On-Chain Payout Completed
+                              </div>
+                              <p className="text-white/80 text-sm">
+                                Your match result has been settled directly by the smart contract. There is no proposal to sign –
+                                your winnings (or refunds) have been handled on-chain.
+                              </p>
+                            </div>
+                          );
+                        }
                         // CRITICAL: Check EXECUTING status first - highest priority
                         const isExecuting = payoutData?.proposalStatus === 'EXECUTING' || 
                                            (payoutData?.needsSignatures === 0 && !payoutData?.proposalExecutedAt);
@@ -3596,21 +3620,26 @@ const Result: React.FC = () => {
                 <button
                   onClick={handlePlayAgain}
                   disabled={
-                    !payoutData?.proposalExecutedAt || 
-                    payoutData?.proposalStatus !== 'EXECUTED' ||
-                    onChainVerified !== true
+                    payoutData?.isSmartContractPayout
+                      ? false
+                      : (!payoutData?.proposalExecutedAt || 
+                         payoutData?.proposalStatus !== 'EXECUTED' ||
+                         onChainVerified !== true)
                   }
                   className={`
-                    ${!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
-                      ? 'bg-gray-600 cursor-not-allowed opacity-50'
-                      : 'bg-accent hover:bg-yellow-400 hover:shadow-lg'
+                    ${payoutData?.isSmartContractPayout
+                      ? 'bg-accent hover:bg-yellow-400 hover:shadow-lg'
+                      : (!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
+                          ? 'bg-gray-600 cursor-not-allowed opacity-50'
+                          : 'bg-accent hover:bg-yellow-400 hover:shadow-lg')
                     } text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center
                   `}
                 >
-                  {!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
-                    ? (onChainVerified === null ? 'Verifying Transaction...' : 'Waiting for Execution...')
-                    : 'Play Again'
-                  }
+                  {payoutData?.isSmartContractPayout
+                    ? 'Play Again'
+                    : (!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
+                        ? (onChainVerified === null ? 'Verifying Transaction...' : 'Waiting for Execution...')
+                        : 'Play Again')}
                 </button>
                 
                 {/* Social Links */}
