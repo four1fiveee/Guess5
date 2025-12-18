@@ -3580,9 +3580,33 @@ const Result: React.FC = () => {
                           const perPlayerFeeSol =
                             feeAmountRaw != null && isTie ? feeAmountRaw / 2 : null;
 
+                          // SOL amounts from on-chain / SQL data
+                          const winnerSol =
+                            typeof payoutData.winnerAmount === 'string'
+                              ? Number(payoutData.winnerAmount)
+                              : payoutData.winnerAmount ??
+                                (payoutData as any).payoutResult?.winnerAmount ??
+                                null;
+
+                          const refundSol = refundSolRaw;
+
+                          // Derive entry fee in SOL from best available data
                           let entryFeeSol = rawEntryFeeSol;
+
+                          // 1) Tie case: derive from refund + per-player fee
                           if ((!entryFeeSol || entryFeeSol === 0) && refundSolRaw != null && perPlayerFeeSol != null) {
                             entryFeeSol = refundSolRaw + perPlayerFeeSol;
+                          }
+
+                          // 2) Winner case: back-solve entry fee from on-chain winner amount
+                          // winnerSol = 2 * entryFeeSol * 0.95  => entryFeeSol = winnerSol / (2 * 0.95)
+                          if (
+                            (!entryFeeSol || entryFeeSol === 0) &&
+                            !isTie &&
+                            winnerSol != null &&
+                            winnerSol > 0
+                          ) {
+                            entryFeeSol = winnerSol / (2 * 0.95);
                           }
 
                           // Clean entry-fee tier and winnings USD
@@ -3597,16 +3621,6 @@ const Result: React.FC = () => {
                             didWin && roundedEntryFeeUsd != null
                               ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
                               : null;
-
-                          // SOL amounts from on-chain / SQL data
-                          const winnerSol =
-                            typeof payoutData.winnerAmount === 'string'
-                              ? Number(payoutData.winnerAmount)
-                              : payoutData.winnerAmount ??
-                                (payoutData as any).payoutResult?.winnerAmount ??
-                                null;
-
-                          const refundSol = refundSolRaw;
 
                           return (
                             <div>
@@ -3638,7 +3652,7 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-\t\t\t\t\t\t\t\t\t\t
+
                               {/* Loser view */}
                               {!isTie && !didWin && winnerSol != null && winnerSol > 0 && (
                                 <p className="text-white/80 text-sm mb-1">
@@ -3659,7 +3673,7 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-\t\t\t\t\t\t\t\t\t\t
+
                               {/* Tie refund view */}
                               {isTie && refundSol != null && refundSol > 0 && (
                                 <p className="text-white text-sm mb-1">
@@ -3678,7 +3692,7 @@ const Result: React.FC = () => {
                                   )}
                                 </p>
                               )}
-\t\t\t\t\t\t\t\t\t\t
+
                               {/* Entry fee line */}
                               {(entryFeeSol != null && entryFeeSol > 0) || roundedEntryFeeUsd != null ? (
                                 <p className="text-white/70 text-xs mt-1">
@@ -3687,7 +3701,7 @@ const Result: React.FC = () => {
                                   {entryFeeSol != null && entryFeeSol > 0 ? `(${entryFeeSol} SOL).` : null}
                                 </p>
                               ) : null}
-\t\t\t\t\t\t\t\t\t\t
+
                               <p className="text-white/80 text-sm mt-3">
                                 Your match result has been settled directly by the smart contract. Your winnings (or refunds)
                                 have been handled on-chain. For a full breakdown of this match and its transactions, visit
