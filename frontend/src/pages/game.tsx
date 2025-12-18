@@ -453,7 +453,7 @@ const Game: React.FC = () => {
         setNetworkStatus('connected');
       } else {
         console.error('❌ Failed to fetch game state:', response.status, response.statusText);
-        setNetworkStatus('disconnected');
+        setNetworkStatus('degraded');
         // Don't show error to user for polling failures, just log them
       }
     } catch (error) {
@@ -462,7 +462,7 @@ const Game: React.FC = () => {
         setNetworkStatus('reconnecting');
       } else {
         console.error('❌ Error fetching game state:', error);
-        setNetworkStatus('disconnected');
+        setNetworkStatus('degraded');
       }
       // Don't show error to user for polling failures, just log them
     }
