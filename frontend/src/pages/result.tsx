@@ -79,6 +79,10 @@ const calculateRoundedUSD = (solAmount: number, solPrice: number | null): number
   );
 };
 
+// Fallback SOL price (USD) used when we don't have per-match pricing.
+// This is only for display-tier rounding (5, 20, 50, 100), not accounting.
+const FALLBACK_SOL_PRICE_USD = 125;
+
 // Helper function to get expected USD amount based on entry fee tier
 // This ensures consistent USD display regardless of SOL price fluctuations
 const getExpectedEntryFeeUSD = (solAmount: number, solPrice: number | null): number | null => {
@@ -2367,22 +2371,33 @@ const Result: React.FC = () => {
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
                       <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Your Run</div>
                       <div className="flex flex-col gap-3">
-                  <div>
+                        <div>
                           <div className="text-white/60 text-xs">Guesses Used</div>
                           <div className="text-white text-2xl font-semibold">
                             {payoutData.numGuesses || 0}/7
-                            {payoutData.numGuesses === 7 && (
-                              <span className="text-white/50 text-sm ml-2 block mt-1">
-                                {payoutData.won ? '✓ Solved on last guess' : '✗ Used all guesses'}
-                              </span>
-                            )}
-                            {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
-                              <span className="text-orange-400 text-sm ml-2 block mt-1">
-                                ⏱️ Timed out – puzzle not solved
-                              </span>
-                            )}
                           </div>
-                  </div>
+                          {payoutData.numGuesses === 7 && (
+                            <span className="flex items-center gap-1 text-sm ml-1 mt-1">
+                              {payoutData.won ? (
+                                <>
+                                  <span className="text-green-400">✅</span>
+                                  <span className="text-green-300">Solved on last guess</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-red-400">❌</span>
+                                  <span className="text-red-300">Used all guesses</span>
+                                </>
+                              )}
+                            </span>
+                          )}
+                          {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
+                            <span className="flex items-center gap-1 text-sm ml-1 mt-1 text-orange-300">
+                              <span>⏱️</span>
+                              <span>Timed out – puzzle not solved</span>
+                            </span>
+                          )}
+                        </div>
                   <div>
                           <div className="text-white/60 text-xs">Time to Solve</div>
                           <div className="text-white text-lg font-medium">
@@ -2394,22 +2409,33 @@ const Result: React.FC = () => {
                     <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
                       <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Opponent</div>
                       <div className="flex flex-col gap-3">
-                  <div>
+                        <div>
                           <div className="text-white/60 text-xs">Guesses Used</div>
                           <div className="text-white text-2xl font-semibold">
                             {payoutData.opponentGuesses || 0}/7
-                            {payoutData.opponentGuesses === 7 && (
-                              <span className="text-white/50 text-sm ml-2 block mt-1">
-                                {payoutData.winner !== 'tie' && payoutData.winner !== publicKey?.toString() ? '✓ Solved on last guess' : '✗ Used all guesses'}
-                              </span>
-                            )}
-                            {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
-                              <span className="text-orange-400 text-sm ml-2 block mt-1">
-                                ⏱️ Timed out – puzzle not solved
-                              </span>
-                            )}
                           </div>
-                  </div>
+                          {payoutData.opponentGuesses === 7 && (
+                            <span className="flex items-center gap-1 text-sm ml-1 mt-1">
+                              {payoutData.winner !== 'tie' && payoutData.winner !== publicKey?.toString() ? (
+                                <>
+                                  <span className="text-green-400">✅</span>
+                                  <span className="text-green-300">Solved on last guess</span>
+                                </>
+                              ) : (
+                                <>
+                                  <span className="text-red-400">❌</span>
+                                  <span className="text-red-300">Used all guesses</span>
+                                </>
+                              )}
+                            </span>
+                          )}
+                          {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
+                            <span className="flex items-center gap-1 text-sm ml-1 mt-1 text-orange-300">
+                              <span>⏱️</span>
+                              <span>Timed out – puzzle not solved</span>
+                            </span>
+                          )}
+                        </div>
                   <div>
                           <div className="text-white/60 text-xs">Time to Solve</div>
                           <div className="text-white text-lg font-medium">
@@ -3533,7 +3559,7 @@ const Result: React.FC = () => {
                           const solPrice =
                             (payoutData as any).solPriceAtTransaction ??
                             (payoutData as any).solPrice ??
-                            null;
+                            FALLBACK_SOL_PRICE_USD;
 
                           // Entry fee in SOL (from payoutData or derived from refund + fee)
                           const rawEntryFeeSol =
@@ -3591,9 +3617,24 @@ const Result: React.FC = () => {
                               {/* Winner path */}
                               {!isTie && didWin && winnerSol != null && winnerSol > 0 && (
                                 <p className="text-white text-sm mb-1">
-                                  You received <span className="font-semibold">{winnerSol} SOL</span> on-chain.
+                                  You received{' '}
                                   {cleanUsdWinnings && (
-                                    <> (~${cleanUsdWinnings} USD)</>
+                                    <>
+                                      <span className="font-semibold">${cleanUsdWinnings} USD</span>,{' '}
+                                    </>
+                                  )}
+                                  <span className="font-semibold">{winnerSol} SOL</span> on-chain.
+                                  {roundedEntryFeeUsd != null && (
+                                    <>
+                                      {' '}
+                                      95% of combined entry fees:{' '}
+                                      <span className="font-semibold">
+                                        ${ (roundedEntryFeeUsd * 2).toFixed(2) } USD
+                                      </span>
+                                      {entryFeeSol != null && entryFeeSol > 0 && (
+                                        <> ({(entryFeeSol * 2).toFixed(4)} SOL).</>
+                                      )}
+                                    </>
                                   )}
                                 </p>
                               )}
@@ -3603,6 +3644,19 @@ const Result: React.FC = () => {
                                 <p className="text-white/80 text-sm mb-1">
                                   You did not receive a payout this match. Your opponent received{' '}
                                   <span className="font-semibold">{winnerSol} SOL</span> on-chain.
+                                  {roundedEntryFeeUsd != null && (
+                                    <>
+                                      {' '}
+                                      (95% of combined entry fees:{' '}
+                                      <span className="font-semibold">
+                                        ${ (roundedEntryFeeUsd * 2).toFixed(2) } USD
+                                      </span>
+                                      {entryFeeSol != null && entryFeeSol > 0 && (
+                                        <> / {(entryFeeSol * 2).toFixed(4)} SOL)</>
+                                      )}
+                                      .
+                                    </>
+                                  )}
                                 </p>
                               )}
 
@@ -3610,6 +3664,18 @@ const Result: React.FC = () => {
                               {isTie && refundSol != null && refundSol > 0 && (
                                 <p className="text-white text-sm mb-1">
                                   You were refunded <span className="font-semibold">{refundSol} SOL</span> on-chain.
+                                  {roundedEntryFeeUsd != null && (
+                                    <>
+                                      {' '}
+                                      95% of entry fee paid:{' '}
+                                      <span className="font-semibold">
+                                        ${ (roundedEntryFeeUsd * 0.95).toFixed(2) } USD
+                                      </span>
+                                      {entryFeeSol != null && entryFeeSol > 0 && (
+                                        <> ({entryFeeSol.toFixed(6)} SOL − ${roundedEntryFeeUsd.toFixed(2)} USD).</>
+                                      )}
+                                    </>
+                                  )}
                                 </p>
                               )}
 
