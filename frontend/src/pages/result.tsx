@@ -3554,37 +3554,37 @@ const Result: React.FC = () => {
                         if (payoutData?.isSmartContractPayout && !payoutData?.proposalId) {
                           const isTie = payoutData.isTie || payoutData.winner === 'tie';
                           const didWin = !!payoutData.won && !isTie;
-          \t
+
                           // Base pricing information (from match data or derived)
                           const solPrice =
                             (payoutData as any).solPriceAtTransaction ??
                             (payoutData as any).solPrice ??
                             FALLBACK_SOL_PRICE_USD; // e.g. 125
-\t\t\t\t\t\t\t\t\t\t
+
                           // Entry fee in SOL (from payoutData or derived from refund + fee)
                           const rawEntryFeeSol =
                             typeof payoutData.entryFee === 'string'
                               ? Number(payoutData.entryFee)
                               : payoutData.entryFee ?? null;
-\t\t\t\t\t\t\t\t\t\t
+
                           const refundSolRaw =
                             typeof payoutData.refundAmount === 'string'
                               ? Number(payoutData.refundAmount)
                               : payoutData.refundAmount ?? null;
-\t\t\t\t\t\t\t\t\t\t
+
                           const feeAmountRaw =
                             typeof payoutData.feeAmount === 'string'
                               ? Number(payoutData.feeAmount)
                               : payoutData.feeAmount ?? null;
-\t\t\t\t\t\t\t\t\t\t
+
                           const perPlayerFeeSol =
                             feeAmountRaw != null && isTie ? feeAmountRaw / 2 : null;
-\t\t\t\t\t\t\t\t\t\t
+
                           let entryFeeSol = rawEntryFeeSol;
                           if ((!entryFeeSol || entryFeeSol === 0) && refundSolRaw != null && perPlayerFeeSol != null) {
                             entryFeeSol = refundSolRaw + perPlayerFeeSol;
                           }
-\t\t\t\t\t\t\t\t\t\t
+
                           // Clean entry-fee tier and winnings USD
                           const roundedEntryFeeUsd =
                             (payoutData.entryFeeUSD as number | undefined) != null && payoutData.entryFeeUSD !== 0
@@ -3592,12 +3592,12 @@ const Result: React.FC = () => {
                               : entryFeeSol && solPrice
                               ? getExpectedEntryFeeUSD(entryFeeSol, solPrice) // snaps to 5/20/50/100
                               : null;
-\t\t\t\t\t\t\t\t\t\t
+
                           const cleanUsdWinnings =
                             didWin && roundedEntryFeeUsd != null
                               ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
                               : null;
-\t\t\t\t\t\t\t\t\t\t
+
                           // SOL amounts from on-chain / SQL data
                           const winnerSol =
                             typeof payoutData.winnerAmount === 'string'
@@ -3605,15 +3605,15 @@ const Result: React.FC = () => {
                               : payoutData.winnerAmount ??
                                 (payoutData as any).payoutResult?.winnerAmount ??
                                 null;
-\t\t\t\t\t\t\t\t\t\t
+
                           const refundSol = refundSolRaw;
-\t\t\t\t\t\t\t\t\t\t
+
                           return (
                             <div>
                               <div className="text-accent text-lg font-semibold mb-2">
                                 ✅ On-Chain Payout Completed
                               </div>
-\t\t\t\t\t\t\t\t\t\t
+
                               {/* Winner view */}
                               {!isTie && didWin && winnerSol != null && winnerSol > 0 && (
                                 <p className="text-white text-sm mb-1">
