@@ -432,10 +432,14 @@ export async function settleMatch(
     }
 
     const program = getProgram();
+    const connection = program.provider.connection;
     const [escrowPDA] = deriveEscrowPDA(matchId);
 
-    // Fetch escrow account to get winner
+    // Fetch escrow account to get winner and pre-settle lamports for accounting
     const escrowAccount = await (program.account as any).gameEscrow.fetch(escrowPDA);
+    const preAccountInfo = await connection.getAccountInfo(escrowPDA);
+    const preLamports = preAccountInfo?.lamports ?? 0;
+
     const winner = escrowAccount.winner;
 
     const feeWallet = new PublicKey(config.solana.feeWalletAddress);
@@ -452,17 +456,40 @@ export async function settleMatch(
       })
       .rpc();
 
+    // Confirm and compute exact lamports moved out of the escrow PDA
+    await connection.confirmTransaction(tx, 'confirmed');
+    const postAccountInfo = await connection.getAccountInfo(escrowPDA);
+    const postLamports = postAccountInfo?.lamports ?? 0;
+    const payoutTotalLamports = preLamports > postLamports ? preLamports - postLamports : 0;
+
     console.log('✅ Match settled:', {
       matchId,
       transaction: tx,
     });
 
-    // Update match in database
+    // Update match in database with on-chain trace info and attach signature to payoutResult.transactions
+    const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
+    let updatedPayoutResult = freshMatch?.payoutResult
+      ? JSON.parse(freshMatch.payoutResult)
+      : null;
+
+    if (updatedPayoutResult && Array.isArray(updatedPayoutResult.transactions)) {
+      updatedPayoutResult.transactions = updatedPayoutResult.transactions.map((t: any) => ({
+        ...t,
+        signature: tx,
+      }));
+    }
+
     await matchRepository.update(
       { id: matchId },
       {
         escrowStatus: 'SETTLED',
-        payoutTxHash: tx,
+        payoutTxHash: tx,              // legacy field
+        payoutTxSignature: tx,         // canonical field
+        payoutTotalLamports: payoutTotalLamports || null,
+        payoutResult: updatedPayoutResult
+          ? JSON.stringify(updatedPayoutResult)
+          : freshMatch?.payoutResult ?? null,
       }
     );
 

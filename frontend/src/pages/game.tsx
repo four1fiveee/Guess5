@@ -36,7 +36,7 @@ const Game: React.FC = () => {
   const [matchDataState, setMatchDataState] = useState<any>(null);
   const [remainingGuesses, setRemainingGuesses] = useState<number>(7);
   const [targetWord, setTargetWord] = useState<string>('');
-  const [networkStatus, setNetworkStatus] = useState<'connected' | 'disconnected' | 'reconnecting'>('connected');
+  const [networkStatus, setNetworkStatus] = useState<'connected' | 'degraded' | 'reconnecting'>('connected');
   const [solPrice, setSolPrice] = useState<number | null>(null);
 
   const [isSubmittingGuess, setIsSubmittingGuess] = useState(false);
@@ -201,16 +201,13 @@ const Game: React.FC = () => {
         console.log('⏳ Waiting for other player to finish...');
         setGameState('waiting');
         
-        // CRITICAL FIX: Start polling IMMEDIATELY with no delay to catch second player's submission instantly
-        // Start polling for game completion
+        // Start polling for game completion.
+        // Treat network issues as transient: keep last-known state and back off polling a bit.
         const pollForCompletion = async () => {
           try {
             const apiUrl = process.env.NEXT_PUBLIC_API_URL;
             const controller = new AbortController();
-            // CRITICAL FIX: Increase timeout to 35 seconds to account for backend proposal creation
-            // Backend proposal creation can take up to 90s, but status endpoint should respond within 30s
-            // This prevents premature timeouts when proposal creation is in progress
-            const timeoutId = setTimeout(() => controller.abort(), 35000); // 35 second timeout
+            const timeoutId = setTimeout(() => controller.abort(), 35000);
             
             try {
               const response = await fetch(`${apiUrl}/api/match/status/${matchId}?wallet=${publicKey?.toString()}`, {
@@ -218,15 +215,19 @@ const Game: React.FC = () => {
               });
               
               clearTimeout(timeoutId);
-              
-              // Handle timeout (408) or other errors
+
+              // Handle timeout (408) or other errors more gracefully:
+              // mark network as degraded but DO NOT reset UI aggressively
               if (response.status === 408 || response.status >= 500) {
-                console.warn('⚠️ Status endpoint timeout or error, will retry:', response.status);
-                setTimeout(pollForCompletion, 2000);
+                console.warn('⚠️ Status endpoint timeout or error, will retry (non-fatal):', response.status);
+                setNetworkStatus('degraded');
+                setTimeout(pollForCompletion, 3000);
                 return;
               }
-            
+
             if (response.ok) {
+              // On success, restore network status
+              setNetworkStatus('connected');
               const matchData = await response.json();
               
               // CRITICAL FIX: ONLY redirect if BOTH players have submitted results
@@ -291,36 +292,19 @@ const Game: React.FC = () => {
             } catch (fetchError: any) {
               clearTimeout(timeoutId);
               if (fetchError.name === 'AbortError') {
-                console.warn('⚠️ Status request timed out, will retry');
-                // CRITICAL FIX: Even on timeout, try to redirect if we have both results in localStorage
-                // This handles the case where status endpoint is slow but match is actually complete
-                try {
-                  const storedData = localStorage.getItem('payoutData');
-                  if (storedData) {
-                    const data = JSON.parse(storedData);
-                    // If we have both results stored, redirect anyway
-                    // The results page will handle waiting for proposal
-                    if (data.player1Result && data.player2Result) {
-                      console.log('🔄 Timeout but have both results in localStorage, redirecting to results page');
-                      router.push(`/result?matchId=${matchId}`);
-                      return;
-                    }
-                  }
-                } catch (localStorageError) {
-                  // Ignore localStorage errors, continue polling
-                }
+                console.warn('⚠️ Status request timed out, will retry later (non-fatal)');
               } else {
                 console.error('❌ Error fetching status:', fetchError);
               }
+              setNetworkStatus('degraded');
             }
           } catch (error) {
             console.error('❌ Error polling for completion:', error);
+            setNetworkStatus('degraded');
           }
           
-          // Continue polling if not completed
-          // CRITICAL: Use very fast polling (100ms) when waiting for opponent to ensure first player sees status change immediately
-          // This ensures both players redirect within 100ms of each other when second player submits
-          setTimeout(pollForCompletion, 100);
+          // Continue polling if not completed, with modest backoff to avoid thrashing.
+          setTimeout(pollForCompletion, 2000);
         };
         
         // Start polling immediately (no delay) to catch status changes as fast as possible
@@ -699,12 +683,15 @@ const Game: React.FC = () => {
     // Handle browser visibility changes (tab switching, minimizing)
     const handleVisibilityChange = () => {
       if (document.hidden) {
-        console.log('📱 Tab/window hidden - pausing game updates');
-        setNetworkStatus('disconnected');
+        console.log('📱 Tab/window hidden - reducing update frequency (network degraded)');
+        // Don't hard-stop timers; just note degraded network while backgrounded
+        setNetworkStatus('degraded');
       } else {
-        console.log('📱 Tab/window visible - resuming game updates');
-        setNetworkStatus('connected');
-        // Refresh game state when tab becomes visible
+        console.log('📱 Tab/window visible - resuming normal updates');
+        // When user comes back, briefly mark as reconnecting until next successful poll
+        setNetworkStatus(prev =>
+          prev === 'connected' ? 'connected' : 'reconnecting'
+        );
         if (gameState === 'playing') {
           memoizedFetchGameStateRef.current?.();
         }

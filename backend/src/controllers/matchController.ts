@@ -1987,7 +1987,9 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     console.log('🤝 Tie payout calculated:', payoutResult);
   }
 
-  // Update match with winner and payout using raw SQL
+  // Update match with winner and payout using raw SQL.
+  // Note: payoutResult is stored in JSON (SOL units), while payoutTotalLamports / payoutTxSignature
+  // can be populated by the smart-contract settlement layer when available.
   // Parse existing results from JSON strings
   const player1ResultRaw = match.player1Result;
   const player2ResultRaw = match.player2Result;

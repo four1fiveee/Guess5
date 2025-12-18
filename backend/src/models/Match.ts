@@ -243,6 +243,13 @@ export class Match {
   @Column({ type: 'text', nullable: true })
   payoutResult?: string;
 
+  // On-chain payout tracing: capture canonical settle tx and amounts
+  @Column({ type: 'varchar', length: 128, nullable: true })
+  payoutTxSignature?: string | null;
+
+  @Column({ type: 'bigint', nullable: true })
+  payoutTotalLamports?: number | null;
+
   @CreateDateColumn()
   createdAt!: Date;
 
