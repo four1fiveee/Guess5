@@ -3687,25 +3687,13 @@ const Result: React.FC = () => {
                                   </p>
 
                                   {/* Match winnings breakdown (95% of combined entry fees) */}
-                                  {roundedEntryFeeUsd != null && (
+                                  {roundedEntryFeeUsd != null && combinedEntryUsd != null && combinedEntrySol != null && (
                                     <p className="text-white text-xs">
-                                      95% of combined entry fees:{' '}
+                                      95% of combined entry fees from{' '}
                                       <span className="font-semibold">
-                                        ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
-                                      </span>
-                                      {ninetyFivePctSol != null && ninetyFivePctSol > 0 && (
-                                        <>
-                                          {' '}
-                                          / {ninetyFivePctSol.toFixed(6)} SOL
-                                          {combinedEntryUsd != null && combinedEntrySol != null && (
-                                            <>
-                                              {' '}
-                                              (from ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL pot)
-                                            </>
-                                          )}
-                                          .
-                                        </>
-                                      )}
+                                        ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL
+                                      </span>{' '}
+                                      pot.
                                     </p>
                                   )}
 
@@ -3736,26 +3724,14 @@ const Result: React.FC = () => {
                                 <p className="text-white/80 text-sm mb-1">
                                   You did not receive a payout this match. Your opponent received{' '}
                                   <span className="font-semibold">{winnerSol} SOL</span> on-chain.
-                                  {roundedEntryFeeUsd != null && (
+                                  {roundedEntryFeeUsd != null && combinedEntryUsd != null && combinedEntrySol != null && (
                                     <>
                                       {' '}
-                                      (95% of combined entry fees:{' '}
+                                      (95% of combined entry fees from{' '}
                                       <span className="font-semibold">
-                                        ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
-                                      </span>
-                                      {ninetyFivePctSol != null && ninetyFivePctSol > 0 && (
-                                        <>
-                                          {' '}
-                                          / {ninetyFivePctSol.toFixed(6)} SOL
-                                          {combinedEntryUsd != null && combinedEntrySol != null && (
-                                            <>
-                                              {' '}
-                                              (from ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL pot)
-                                            </>
-                                          )}
-                                        </>
-                                      )}
-                                      .
+                                        ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL
+                                      </span>{' '}
+                                      pot).
                                     </>
                                   )}
                                 </p>
