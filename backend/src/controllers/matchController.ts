@@ -1624,7 +1624,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
              "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
              "proposalSigners", "needsSignatures", "proposalExecutedAt", 
              "proposalTransactionId", "player1Result", "player2Result", 
-             winner, "isCompleted", "matchStatus"
+             winner, "isCompleted", "matchStatus", "escrowAddress"
       FROM "match"
       WHERE id = $1
       FOR UPDATE
@@ -1642,7 +1642,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
              "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
              "proposalSigners", "needsSignatures", "proposalExecutedAt", 
              "proposalTransactionId", "player1Result", "player2Result", 
-             winner, "isCompleted", "matchStatus"
+             winner, "isCompleted", "matchStatus", "escrowAddress"
       FROM "match"
       WHERE id = $1
     `, [matchId]);
@@ -2030,6 +2030,133 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   }
   
   console.log('✅ Match saved successfully with winner:', winner);
+
+  // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
+  // Check if this match uses the escrow system (has escrowAddress)
+  if ((match as any).escrowAddress && winner && winner !== 'tie') {
+    try {
+      console.log('🏦 Escrow match detected - automatically settling on-chain...', {
+        matchId,
+        escrowAddress: (match as any).escrowAddress,
+        winner,
+      });
+      
+      const settleResult = await escrowService.settleMatch(matchId);
+      
+      if (settleResult.success && settleResult.signature) {
+        console.log('✅ Escrow settlement transaction executed successfully:', {
+          matchId,
+          signature: settleResult.signature,
+        });
+        
+        // Settlement updates escrowStatus, payoutTxSignature, etc. in database
+        // Now disburse bonus if eligible
+        try {
+          const entryFeeSol = match.entryFee ? Number(match.entryFee) : 0;
+          const entryFeeUsd = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
+          
+          // Get solPriceAtTransaction from match or use current price
+          const matchRepository = AppDataSource.getRepository(Match);
+          const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
+          const solPriceAtTransaction = freshMatch?.solPriceAtTransaction 
+            ? Number(freshMatch.solPriceAtTransaction) 
+            : undefined;
+          
+          const bonusAlreadyPaid = (freshMatch as any)?.bonusPaid === true;
+          const bonusSignatureExisting = (freshMatch as any)?.bonusSignature || null;
+
+          const bonusResult = await disburseBonusIfEligible({
+            matchId: matchId,
+            winner: winner,
+            entryFeeSol,
+            entryFeeUsd,
+            solPriceAtTransaction,
+            alreadyPaid: bonusAlreadyPaid,
+            existingSignature: bonusSignatureExisting,
+            executionSignature: settleResult.signature,
+            executionTimestamp: new Date(),
+            executionSlot: undefined, // Escrow settlement doesn't return slot
+          });
+
+          if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
+            await matchRepository.query(`
+              UPDATE "match"
+              SET "bonusPaid" = true,
+                  "bonusSignature" = $1,
+                  "bonusAmount" = $2,
+                  "bonusAmountUSD" = $3,
+                  "bonusPercent" = $4,
+                  "bonusTier" = $5,
+                  "bonusPaidAt" = NOW(),
+                  "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
+              WHERE id = $7
+            `, [
+              bonusResult.signature,
+              bonusResult.bonusSol ?? null,
+              bonusResult.bonusUsd ?? null,
+              bonusResult.bonusPercent ?? null,
+              bonusResult.tierId ?? null,
+              bonusResult.solPriceUsed ?? null,
+              matchId,
+            ]);
+
+            console.log('✅ Bonus disbursed after escrow settlement:', {
+              matchId,
+              bonusSignature: bonusResult.signature,
+              bonusSol: bonusResult.bonusSol,
+              bonusUsd: bonusResult.bonusUsd,
+            });
+          }
+        } catch (bonusError: any) {
+          console.error('❌ Error disbursing bonus after escrow settlement:', {
+            matchId,
+            error: bonusError?.message || String(bonusError),
+          });
+          // Don't throw - settlement succeeded, bonus can be retried
+        }
+      } else {
+        console.error('❌ Escrow settlement failed:', {
+          matchId,
+          error: settleResult.error,
+        });
+        // Don't throw - match is already marked completed, settlement can be retried
+      }
+    } catch (settleError: any) {
+      console.error('❌ Error during escrow settlement:', {
+        matchId,
+        error: settleError?.message || String(settleError),
+      });
+      // Don't throw - match is already marked completed, settlement can be retried via /settle-match endpoint
+    }
+  } else if ((match as any).escrowAddress && winner === 'tie') {
+    // For ties, settlement still needs to happen to refund players
+    try {
+      console.log('🏦 Escrow match tie - automatically settling on-chain...', {
+        matchId,
+        escrowAddress: (match as any).escrowAddress,
+        winner: 'tie',
+      });
+      
+      const settleResult = await escrowService.settleMatch(matchId);
+      
+      if (settleResult.success && settleResult.signature) {
+        console.log('✅ Escrow settlement transaction executed successfully for tie:', {
+          matchId,
+          signature: settleResult.signature,
+        });
+      } else {
+        console.error('❌ Escrow settlement failed for tie:', {
+          matchId,
+          error: settleResult.error,
+        });
+      }
+    } catch (settleError: any) {
+      console.error('❌ Error during escrow settlement for tie:', {
+        matchId,
+        error: settleError?.message || String(settleError),
+      });
+    }
+  }
 
   // Calculate net profit and referral earnings after match completion
   // Do this outside the transaction to avoid blocking

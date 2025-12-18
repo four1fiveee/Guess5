@@ -1512,9 +1512,9 @@ const Matchmaking: React.FC = () => {
 
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-primary relative">
       <TopRightWallet />
-      <div className="flex flex-col items-center">
+      <div className="flex flex-col items-center w-full">
         <div className="logo-shell mb-6 sm:mb-8">
           <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
         </div>
@@ -1796,8 +1796,8 @@ const Matchmaking: React.FC = () => {
           )}
 
           {status === 'active' && countdown !== null && countdown > 0 && (
-            <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
-              {/* Minimal, clean countdown display – no vertical bars or glow circle */}
+            <div className="fixed inset-0 z-50 animate-fade-in flex flex-col items-center justify-center bg-primary">
+              {/* Minimal, clean countdown display – no vertical bars or dividers, fully blended background */}
               <span className="text-[10rem] font-black text-accent drop-shadow-[0_0_35px_rgba(255,215,0,0.7)] leading-none mb-6">
                 {countdown}
               </span>

@@ -3686,14 +3686,25 @@ const Result: React.FC = () => {
                                     {' '}on-chain.
                                   </p>
 
-                                  {/* Match winnings breakdown (95% of combined entry fees) */}
+                                  {/* Match winnings breakdown (95% of combined entry fees + bonus if applicable) */}
                                   {roundedEntryFeeUsd != null && combinedEntryUsd != null && combinedEntrySol != null && (
                                     <p className="text-white text-xs">
                                       95% of combined entry fees from{' '}
                                       <span className="font-semibold">
                                         ${combinedEntryUsd.toFixed(2)} USD / {combinedEntrySol.toFixed(4)} SOL
                                       </span>{' '}
-                                      pot.
+                                      pot
+                                      {hasBonus && bonusTierUsd > 0 && bonusSol > 0 && (
+                                        <>
+                                          {' '}
+                                          +{' '}
+                                          <span className="font-semibold text-green-300">
+                                            ${bonusTierUsd.toFixed(2)} USD / {bonusSol.toFixed(6)} SOL
+                                          </span>{' '}
+                                          platform bonus
+                                        </>
+                                      )}
+                                      .
                                     </p>
                                   )}
 
