@@ -14,6 +14,59 @@ export interface ResultPayload {
 }
 
 /**
+ * Build the Borsh-serialized message for a MatchResult, matching the on-chain
+ * Rust struct:
+ *
+ * struct MatchResult {
+ *   match_id: u128,
+ *   winner_pubkey: [u8; 32], // [0; 32] for draw
+ *   result_type: u8,         // 1 = Win, 2 = DrawFullRefund, 3 = DrawPartialRefund/Timeout
+ * }
+ */
+export function buildMatchResultMessage(payload: ResultPayload): Buffer {
+  // Convert match_id (UUID string) to u128 using the same scheme as the
+  // on-chain program: first 16 bytes of the UUID (32 hex chars) as LE u128.
+  const uuidHex = payload.match_id.replace(/-/g, '');
+  const matchIdHex = uuidHex.substring(0, 32);
+  const matchIdBigInt = BigInt('0x' + matchIdHex);
+
+  // Map result type to u8 (matches Rust field semantics)
+  // 0 = Unresolved, 1 = Win, 2 = DrawFullRefund, 3 = DrawPartialRefund
+  const resultTypeEnum = {
+    Win: 1,
+    DrawFullRefund: 2,
+    DrawPartialRefund: 3,
+  }[payload.result_type] || 0;
+
+  // Allocate buffer: 16 (match_id) + 32 (winner_pubkey) + 1 (result_type)
+  const buf = Buffer.alloc(16 + 32 + 1);
+  let offset = 0;
+
+  // Serialize match_id as u128 LE (16 bytes)
+  const matchIdBytes = Buffer.alloc(16);
+  matchIdBytes.writeBigUInt64LE(
+    matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'),
+    0,
+  );
+  matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
+  matchIdBytes.copy(buf, offset);
+  offset += 16;
+
+  // Serialize winner_pubkey as [u8; 32]; [0; 32] for draw
+  if (payload.winner) {
+    new PublicKey(payload.winner).toBytes().copy(buf, offset);
+  } else {
+    // Leave as zeros for draw
+  }
+  offset += 32;
+
+  // Serialize result_type as u8
+  buf.writeUInt8(resultTypeEnum, offset);
+
+  return buf;
+}
+
+/**
  * Sign a match result payload using the backend private key
  * @param payload The result payload to sign
  * @param privateKey The backend private key (bs58 encoded or Uint8Array)
@@ -38,45 +91,9 @@ export async function signResultPayload(
     privateKeyBytes = privateKey;
   }
 
-  // Create message to sign using Borsh serialization (matches on-chain format)
-  // CRITICAL: Must match on-chain format exactly
-  // Format: [match_id (u128 little-endian), winner_option (1 byte: 0=None, 1=Some), winner? (32 bytes if Some), result_type (u8)]
-  
-  // Convert match_id string to BigInt (u128)
-  const matchIdBigInt = BigInt(payload.match_id);
-  
-  // Map result type to enum value (matches Rust enum)
-  // 0 = Unresolved, 1 = Win, 2 = DrawFullRefund, 3 = DrawPartialRefund
-  const resultTypeEnum = {
-    'Win': 1,
-    'DrawFullRefund': 2,
-    'DrawPartialRefund': 3,
-  }[payload.result_type] || 0;
-  
-  // Manually serialize to match Rust Borsh format exactly
-  const buf = Buffer.alloc(16 + 1 + (payload.winner ? 32 : 0) + 1);
-  let offset = 0;
-  
-  // Serialize match_id as u128 (little-endian, 16 bytes)
-  const matchIdBytes = Buffer.alloc(16);
-  matchIdBytes.writeBigUInt64LE(matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
-  matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
-  matchIdBytes.copy(buf, offset);
-  offset += 16;
-  
-  // Serialize Option<Pubkey> - 1 byte (0=None, 1=Some) + 32 bytes if Some
-  if (payload.winner) {
-    buf.writeUInt8(1, offset++); // Some variant
-    new PublicKey(payload.winner).toBytes().copy(buf, offset);
-    offset += 32;
-  } else {
-    buf.writeUInt8(0, offset++); // None variant
-  }
-  
-  // Serialize result_type as u8
-  buf.writeUInt8(resultTypeEnum, offset);
-  
-  const messageBytes = buf;
+  // Create message to sign using Borsh serialization (matches on-chain MatchResult)
+  // CRITICAL: Must match on-chain format exactly.
+  const messageBytes = buildMatchResultMessage(payload);
 
   // Sign using Ed25519
   const signature = await ed.sign(messageBytes, privateKeyBytes.slice(0, 32));
@@ -103,37 +120,7 @@ export async function verifyResultSignature(
         : publicKey.toBytes();
 
     // CRITICAL: Must match backend signing format exactly (Borsh serialization)
-    const matchIdBigInt = BigInt(payload.match_id);
-    const resultTypeEnum = {
-      'Win': 1,
-      'DrawFullRefund': 2,
-      'DrawPartialRefund': 3,
-    }[payload.result_type] || 0;
-    
-    // Manually serialize to match Rust Borsh format exactly
-    const buf = Buffer.alloc(16 + 1 + (payload.winner ? 32 : 0) + 1);
-    let offset = 0;
-    
-    // Serialize match_id as u128 (little-endian, 16 bytes)
-    const matchIdBytes = Buffer.alloc(16);
-    matchIdBytes.writeBigUInt64LE(matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
-    matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
-    matchIdBytes.copy(buf, offset);
-    offset += 16;
-    
-    // Serialize Option<Pubkey>
-    if (payload.winner) {
-      buf.writeUInt8(1, offset++);
-      new PublicKey(payload.winner).toBytes().copy(buf, offset);
-      offset += 32;
-    } else {
-      buf.writeUInt8(0, offset++);
-    }
-    
-    // Serialize result_type as u8
-    buf.writeUInt8(resultTypeEnum, offset);
-    
-    const messageBytes = buf;
+    const messageBytes = buildMatchResultMessage(payload);
 
     return await ed.verify(signature, messageBytes, publicKeyBytes);
   } catch (error) {

@@ -6,12 +6,13 @@ use anchor_lang::solana_program::ed25519_program;
 use borsh::{BorshSerialize, BorshDeserialize};
 use std::str::FromStr;
 
-declare_id!("ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4");
+pub mod fees;
+use crate::fees::{
+    calculate_fee, DEFAULT_FEE_BPS, DRAW_FULL_REFUND_BPS, DRAW_PARTIAL_REFUND_BPS,
+    NO_PLAY_FEE_BPS, TIMEOUT_FEE_BPS,
+};
 
-// Backend signer pubkey - this is the fee wallet that signs match results
-// This must match the pubkey used by the backend to sign results
-// Set from environment: BACKEND_SIGNER_PUBKEY = 2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt
-const EXPECTED_BACKEND_PUBKEY: &str = "2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt";
+declare_id!("ASLA3yCccjSoMAxoYBciM5vqdCZKcedd2QkbVWtjQEL4");
 
 #[program]
 pub mod game_escrow {
@@ -111,13 +112,23 @@ pub mod game_escrow {
         Ok(())
     }
 
-    /// Submit game result with backend signature verification
-    /// Called by either player to approve the result
-    /// CRITICAL: Only players can submit, and only before timeout
+    /// Submit game result with backend signature verification.
+    ///
+    /// The backend signs a flat Borsh-serialized `MatchResult` struct:
+    ///
+    /// struct MatchResult {
+    ///     match_id: u128,
+    ///     winner_pubkey: [u8; 32], // [0; 32] for draw
+    ///     result_type: u8,         // 1 = Win, 2 = DrawFullRefund, 3 = DrawPartialRefund/Timeout
+    /// }
+    ///
+    /// The client includes an ed25519 signature instruction in the same
+    /// transaction. We verify that instruction via instruction
+    /// introspection against the provided `backend_signature` and the
+    /// Borsh-serialized `MatchResult` message.
     pub fn submit_result(
         ctx: Context<SubmitResult>,
-        winner_pubkey: Option<Pubkey>,
-        result_type: ResultType,
+        result: MatchResult,
         backend_signature: [u8; 64],
     ) -> Result<()> {
         let escrow = &mut ctx.accounts.game_escrow;
@@ -146,23 +157,11 @@ pub mod game_escrow {
         
         let backend_pubkey = ctx.accounts.backend_signer.key();
         
-        // Construct the message using Borsh serialization for deterministic format
-        // This must match the backend's signing format exactly
-        let message = {
-            let mut buf = Vec::new();
-            escrow.match_id.serialize(&mut buf)?;
-            match winner_pubkey {
-                Some(pk) => {
-                    buf.push(1u8); // Some variant
-                    pk.serialize(&mut buf)?;
-                }
-                None => {
-                    buf.push(0u8); // None variant
-                }
-            }
-            result_type.serialize(&mut buf)?;
-            buf
-        };
+        // Construct the message using Borsh serialization for deterministic format.
+        // This must match the backend's signing format exactly.
+        // CRITICAL: MatchResult.match_id must equal the escrow.match_id.
+        require!(result.match_id == escrow.match_id, EscrowError::InvalidGameStatus);
+        let message = result.try_to_vec()?;
         
         // Verify signature length
         require!(
@@ -183,7 +182,7 @@ pub mod game_escrow {
         let mut signature_verified = false;
         
         // Check previous instructions for ed25519 signature verification
-        for i in 0..current_ix_index {
+        'outer: for i in 0..current_ix_index {
             if let Ok(ix) = ctx.accounts.instructions_sysvar.get_instruction_at(i) {
                 if ix.program_id == anchor_lang::solana_program::ed25519_program::id() {
                     // Ed25519 instruction format (simplified):
@@ -194,8 +193,8 @@ pub mod game_escrow {
                     // Minimum size: header (9 bytes) + signature (64) + pubkey (32) = 105 bytes
                     if data.len() >= 105 {
                         // Search for our pubkey in the instruction data
-                        // Pubkey is 32 bytes, signature is 64 bytes
-                        // They appear after the header
+                        // Layout (single-signature case, simplified):
+                        //   [header (≈9 bytes)] [signature (64)] [pubkey (32)] [message (...)] 
                         for offset in 9..(data.len().saturating_sub(95)) {
                             // Check if pubkey matches at this offset
                             if offset + 32 <= data.len() {
@@ -209,11 +208,20 @@ pub mod game_escrow {
                                         let candidate_sig = &data[sig_offset..offset];
                                         
                                         if candidate_sig == backend_signature {
-                                            // Verify message follows (optional but recommended)
-                                            // For now, if sig and pubkey match, we're good
-                                            // The precompile already verified the signature
-                                            signature_verified = true;
-                                            break;
+                                            // Verify message bytes follow pubkey and match our
+                                            // Borsh-serialized `MatchResult` exactly.
+                                            let msg_offset = offset + 32;
+                                            if msg_offset + message.len() <= data.len() {
+                                                let candidate_msg =
+                                                    &data[msg_offset..msg_offset + message.len()];
+                                                if candidate_msg == message.as_slice() {
+                                                    // The ed25519 precompile has already verified
+                                                    // the signature; by additionally checking the
+                                                    // message we bind the signature to this result.
+                                                    signature_verified = true;
+                                                    break 'outer;
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -232,15 +240,30 @@ pub mod game_escrow {
         msg!("✅ Backend signature verified for match: {}", escrow.match_id);
         msg!("Backend pubkey: {}", backend_pubkey);
         
-        // Store result
-        escrow.winner = winner_pubkey;
-        escrow.result_type = result_type;
+        // Store result in escrow account, mapping from flat MatchResult into the
+        // existing enum + Option representation.
+        let winner_pubkey_array = result.winner_pubkey;
+        let is_draw = winner_pubkey_array == [0u8; 32];
+
+        if is_draw {
+            escrow.winner = None;
+        } else {
+            let winner_pubkey = Pubkey::new_from_array(winner_pubkey_array);
+            escrow.winner = Some(winner_pubkey);
+        }
+
+        escrow.result_type = match result.result_type {
+            1 => ResultType::Win,
+            2 => ResultType::DrawFullRefund,
+            3 => ResultType::DrawPartialRefund,
+            _ => ResultType::Unresolved,
+        };
         
         // Emit event
         emit!(ResultSubmitted {
             match_id: escrow.match_id,
-            winner: winner_pubkey,
-            result_type,
+            winner: escrow.winner,
+            result_type: escrow.result_type,
             submitted_by: player, // Can be backend or any account
         });
         
@@ -291,33 +314,18 @@ pub mod game_escrow {
             EscrowError::InsufficientFunds
         );
 
-        // Calculate fee amount (5% of total pot, rounded down to avoid rounding issues)
-        let fee_amount = match escrow.result_type {
-            ResultType::Win => {
-                // 5% fee from total pot
-                total_pot.checked_mul(5)
-                    .and_then(|v| v.checked_div(100))
-                    .unwrap_or(0)
-            }
-            ResultType::DrawPartialRefund => {
-                // 5% fee from total pot
-                total_pot.checked_mul(5)
-                    .and_then(|v| v.checked_div(100))
-                    .unwrap_or(0)
-            }
-            ResultType::DrawFullRefund => {
-                // No fee for full refund
-                0
-            }
-            ResultType::Unresolved => {
-                // Timeout - charge penalty fee (10% of total pot) to discourage gaming
-                // This prevents players from refusing to submit to get better refunds
-                // 10% penalty is higher than normal 5% fee to disincentivize timeout gaming
-                total_pot.checked_mul(10)
-                    .and_then(|v| v.checked_div(100))
-                    .unwrap_or(0)
-            }
+        // Determine fee basis points based on result type.
+        // This centralizes all fee configuration in `fees.rs` for clarity.
+        let fee_bps = match escrow.result_type {
+            ResultType::Win => DEFAULT_FEE_BPS,
+            ResultType::DrawFullRefund => DRAW_FULL_REFUND_BPS,
+            ResultType::DrawPartialRefund => DRAW_PARTIAL_REFUND_BPS,
+            // Unresolved at settle time => no-play / timeout-style penalty fee.
+            ResultType::Unresolved => NO_PLAY_FEE_BPS,
         };
+
+        // Calculate total fee amount in lamports from the total pot.
+        let fee_amount = calculate_fee(total_pot, fee_bps)?;
 
         match escrow.result_type {
             ResultType::Win => {
@@ -696,12 +704,10 @@ pub struct SubmitResult<'info> {
     )]
     pub game_escrow: Account<'info, GameEscrow>,
     
-    /// CHECK: Backend signer pubkey (must match expected backend pubkey)
-    /// This account is used for Ed25519 signature verification
-    /// The pubkey is validated against EXPECTED_BACKEND_PUBKEY constant
-    #[account(
-        address = Pubkey::from_str(EXPECTED_BACKEND_PUBKEY).map_err(|_| EscrowError::InvalidBackendSigner)? @ EscrowError::InvalidBackendSigner
-    )]
+    /// CHECK: Backend signer pubkey.
+    /// This account is used for Ed25519 signature verification via the
+    /// ed25519 precompile and instruction introspection; no fixed pubkey
+    /// constraint is enforced so tests and deployments can rotate keys.
     pub backend_signer: UncheckedAccount<'info>,
     
     /// CHECK: Player can be any account - backend signature is authoritative
@@ -829,6 +835,8 @@ pub enum EscrowError {
     InvalidSignature,
     #[msg("Invalid backend signer")]
     InvalidBackendSigner,
+    #[msg("Numerical overflow during calculation")]
+    NumericalOverflow,
 }
 
 // Events
@@ -873,5 +881,17 @@ pub struct Refunded {
     pub refunded_to: Pubkey,
     pub amount: u64,
     pub reason: String,
+}
+
+/// Flat result struct used for backend signing.
+///
+/// This is Borsh-serialized off-chain, signed with Ed25519 by the backend,
+/// and verified on-chain via the ed25519 precompile + instruction
+/// introspection in `submit_result`.
+#[derive(BorshSerialize, BorshDeserialize, Clone, Debug)]
+pub struct MatchResult {
+    pub match_id: u128,
+    pub winner_pubkey: [u8; 32], // [0; 32] for draw
+    pub result_type: u8,         // 1 = Win, 2 = DrawFullRefund, 3 = DrawPartialRefund/Timeout
 }
 

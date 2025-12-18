@@ -14,6 +14,7 @@ import { Match } from '../models/Match';
 import { createPremiumSolanaConnection } from '../config/solanaConnection';
 import { config } from '../config/environment';
 import {
+  buildMatchResultMessage,
   createSignedResult,
   getBackendSignerPubkey,
 } from '../utils/escrowSigning';
@@ -338,63 +339,16 @@ export async function submitResult(
     const [escrowPDA] = deriveEscrowPDA(matchId);
 
     // Create signed result from backend
-    const signedResult = await createSignedResult(matchId, winner, resultType);
+  const signedResult = await createSignedResult(matchId, winner, resultType);
 
-    // Convert signature to [u8; 64] format
-    const signatureArray = Array.from(signedResult.signature);
+  // Convert signature to [u8; 64] format
+  const signatureArray = Array.from(signedResult.signature);
 
-    const winnerPubkey = winner ? new PublicKey(winner) : null;
     const backendSigner = getBackendSignerPubkey();
 
-    // Map result type to enum (Anchor IDL format)
-    let resultTypeEnum: any;
-    switch (resultType) {
-      case 'Win':
-        resultTypeEnum = { win: {} };
-        break;
-      case 'DrawFullRefund':
-        resultTypeEnum = { drawFullRefund: {} };
-        break;
-      case 'DrawPartialRefund':
-        resultTypeEnum = { drawPartialRefund: {} };
-        break;
-      default:
-        throw new Error(`Invalid result type: ${resultType}`);
-    }
-
-    // Get the message bytes that were signed (for ed25519 instruction)
-    // This must match what was signed in createSignedResult
-    const matchIdBigInt = BigInt(matchId);
-    const resultTypeEnumValue = {
-      'Win': 1,
-      'DrawFullRefund': 2,
-      'DrawPartialRefund': 3,
-    }[resultType] || 0;
-    
-    // Manually serialize to match Rust Borsh format exactly (same as escrowSigning.ts)
-    const buf = Buffer.alloc(16 + 1 + (winner ? 32 : 0) + 1);
-    let offset = 0;
-    
-    // Serialize match_id as u128 (little-endian, 16 bytes)
-    const matchIdBytes = Buffer.alloc(16);
-    matchIdBytes.writeBigUInt64LE(matchIdBigInt & BigInt('0xFFFFFFFFFFFFFFFF'), 0);
-    matchIdBytes.writeBigUInt64LE(matchIdBigInt >> BigInt(64), 8);
-    matchIdBytes.copy(buf, offset);
-    offset += 16;
-    
-    // Serialize Option<Pubkey>
-    if (winner) {
-      buf.writeUInt8(1, offset++);
-      new PublicKey(winner).toBytes().copy(buf, offset);
-      offset += 32;
-    } else {
-      buf.writeUInt8(0, offset++);
-    }
-    
-    // Serialize result_type as u8
-    buf.writeUInt8(resultTypeEnumValue, offset);
-    
-    const messageBytes = buf;
+  // Get the message bytes that were signed (for ed25519 instruction).
+  // This must match what was signed in createSignedResult.
+  const messageBytes = buildMatchResultMessage(signedResult.payload);
 
     // Create ed25519 signature instruction (must be FIRST in transaction)
     const ed25519Ix = createEd25519SignatureInstruction(
@@ -403,12 +357,35 @@ export async function submitResult(
       messageBytes
     );
 
-    // Determine who submits (backend or player)
-    const submitterPubkey = playerPubkey ? new PublicKey(playerPubkey) : backendSigner;
+  // Determine who submits (backend or player)
+  const submitterPubkey = playerPubkey
+    ? new PublicKey(playerPubkey)
+    : backendSigner;
 
-    // Create submit_result instruction
-    const submitIx = await program.methods
-      .submitResult(winnerPubkey, resultTypeEnum, signatureArray)
+  // Build MatchResult struct argument expected by the Anchor program
+  // NOTE: Field names must match the IDL (camelCase representation).
+  const uuidHex = matchId.replace(/-/g, '');
+  const matchIdHex = uuidHex.substring(0, 32);
+  const matchIdBN = new BN(matchIdHex, 16);
+  const winnerBytes = winner
+    ? new PublicKey(winner).toBytes()
+    : new Uint8Array(32); // [0; 32] for draw
+  const resultTypeByte =
+    {
+      Win: 1,
+      DrawFullRefund: 2,
+      DrawPartialRefund: 3,
+    }[resultType] || 0;
+
+  const matchResultArg: any = {
+    matchId: matchIdBN,
+    winnerPubkey: Array.from(winnerBytes),
+    resultType: resultTypeByte,
+  };
+
+  // Create submit_result instruction
+  const submitIx = await program.methods
+    .submitResult(matchResultArg, signatureArray)
       .accounts({
         gameEscrow: escrowPDA,
         backendSigner: backendSigner,
