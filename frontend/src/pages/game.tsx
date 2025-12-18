@@ -1139,7 +1139,7 @@ const Game: React.FC = () => {
                   <span className="text-yellow-400 text-sm font-semibold animate-pulse">🟡 Reconnecting...</span>
                 </div>
               )}
-              {networkStatus === 'disconnected' && (
+              {networkStatus === 'degraded' && (
                 <div className="flex items-center gap-2 bg-red-500/10 border border-red-400/30 rounded-full px-3 py-1">
                   <span className="text-red-400 text-sm font-semibold">🔴 Disconnected</span>
                 </div>
