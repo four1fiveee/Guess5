@@ -3622,6 +3622,11 @@ const Result: React.FC = () => {
                               ? (roundedEntryFeeUsd * 2 * 0.95).toFixed(2)
                               : null;
 
+                          // 95% of combined entry fees in SOL (for display alongside USD)
+                          const combinedEntrySol = entryFeeSol != null ? entryFeeSol * 2 : null;
+                          const ninetyFivePctSol =
+                            combinedEntrySol != null ? combinedEntrySol * 0.95 : winnerSol ?? null;
+
                           return (
                             <div>
                               <div className="text-accent text-lg font-semibold mb-2">
@@ -3645,8 +3650,8 @@ const Result: React.FC = () => {
                                       <span className="font-semibold">
                                         ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
                                       </span>
-                                      {entryFeeSol != null && entryFeeSol > 0 && (
-                                        <> ({(entryFeeSol * 2).toFixed(4)} SOL).</>
+                                      {ninetyFivePctSol != null && ninetyFivePctSol > 0 && (
+                                        <> / {ninetyFivePctSol.toFixed(6)} SOL (from {(combinedEntrySol ?? 0).toFixed(4)} SOL pot).</>
                                       )}
                                     </>
                                   )}
@@ -3665,8 +3670,8 @@ const Result: React.FC = () => {
                                       <span className="font-semibold">
                                         ${(roundedEntryFeeUsd * 2 * 0.95).toFixed(2)} USD
                                       </span>
-                                      {entryFeeSol != null && entryFeeSol > 0 && (
-                                        <> / {(entryFeeSol * 2).toFixed(4)} SOL)</>
+                                      {ninetyFivePctSol != null && ninetyFivePctSol > 0 && (
+                                        <> / {ninetyFivePctSol.toFixed(6)} SOL (from {(combinedEntrySol ?? 0).toFixed(4)} SOL pot)</>
                                       )}
                                       .
                                     </>
