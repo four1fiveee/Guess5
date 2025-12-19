@@ -2030,6 +2030,13 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   }
   
   console.log('✅ Match saved successfully with winner:', winner);
+  
+  // ESCROW SETTLEMENT: Starting escrow check for match:', matchId
+  console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
+    matchId,
+    winner,
+    timestamp: new Date().toISOString(),
+  });
 
   // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
   // Check if this match uses the escrow system (has escrowAddress)
