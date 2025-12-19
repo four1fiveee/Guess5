@@ -2031,16 +2031,24 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   
   console.log('✅ Match saved successfully with winner:', winner);
   
-  // ESCROW SETTLEMENT: Starting escrow check for match:', matchId
-  console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
-    matchId,
-    winner,
-    timestamp: new Date().toISOString(),
-  });
+  // CRITICAL DEBUG: Log immediately after match save to confirm execution reaches here
+  console.log('[DEBUG] About to start escrow settlement check. matchId:', matchId, 'winner:', winner);
+  
+  try {
+    // ESCROW SETTLEMENT: Starting escrow check for match:', matchId
+    console.log('=== ESCROW SETTLEMENT START ===');
+    console.log('Match ID:', matchId);
+    console.log('Winner:', winner);
+    console.log('Timestamp:', new Date().toISOString());
+    console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
+      matchId,
+      winner,
+      timestamp: new Date().toISOString(),
+    });
 
-  // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
-  // Check if this match uses the escrow system (has escrowAddress)
-  // CRITICAL: Must call submit_result FIRST, then settle
+    // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
+    // Check if this match uses the escrow system (has escrowAddress)
+    // CRITICAL: Must call submit_result FIRST, then settle
   
   // Reload match to ensure we have the latest escrowAddress AND winner values from database
   // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
@@ -2308,6 +2316,18 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       'winnerFromDbLength': winnerFromDb && typeof winnerFromDb === 'string' ? winnerFromDb.length : 'N/A',
       'reason': !hasEscrow ? 'Missing escrowAddress' : !hasWinner ? 'Missing or invalid winner' : 'Unknown',
     });
+  }
+  
+  } catch (escrowBlockError: any) {
+    // CRITICAL: Catch any errors in the entire escrow settlement block to prevent silent failures
+    console.error('❌ CRITICAL ERROR in escrow settlement block:', {
+      matchId,
+      winner,
+      error: escrowBlockError?.message || String(escrowBlockError),
+      stack: escrowBlockError?.stack,
+      errorType: escrowBlockError?.constructor?.name,
+    });
+    // Don't throw - allow function to continue and return payoutResult
   }
 
   // Calculate net profit and referral earnings after match completion
