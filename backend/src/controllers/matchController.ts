@@ -2035,54 +2035,89 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   // Check if this match uses the escrow system (has escrowAddress)
   // CRITICAL: Must call submit_result FIRST, then settle
   
-  // Reload match to ensure we have the latest escrowAddress value
+  // Reload match to ensure we have the latest escrowAddress AND winner values from database
   // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
+  type MatchMeta = {
+    escrowAddress: string | null;
+    winner: string | null;
+    status: string | null;
+    escrowStatus: string | null;
+  };
+  
   const matchRepository = AppDataSource.getRepository(Match);
   let escrowAddress: string | null = null;
+  let winnerFromDb: string | null = null;
   
   try {
-    const escrowCheckRows = await matchRepository.query(`
+    const escrowCheckRows: MatchMeta[] = await matchRepository.query(`
       SELECT "escrowAddress", winner, status, "escrowStatus"
       FROM "match"
       WHERE id = $1
       LIMIT 1
     `, [matchId]);
-    escrowAddress = escrowCheckRows?.[0]?.escrowAddress || (match as any)?.escrowAddress || null;
+    
+    // SQL Row Existence Check: Ensure query returned results
+    if (!escrowCheckRows || escrowCheckRows.length === 0 || !escrowCheckRows[0]) {
+      console.error('❌ Match not found when refreshing winner & escrow:', {
+        matchId,
+        queryResult: escrowCheckRows,
+      });
+      throw new Error(`Match ${matchId} not found when refreshing winner & escrow`);
+    }
+    
+    const matchMeta = escrowCheckRows[0];
+    escrowAddress = matchMeta.escrowAddress || (match as any)?.escrowAddress || null;
+    winnerFromDb = matchMeta.winner || winner || null; // Use DB value, fallback to local variable
+    
+    // Assertion: Ensure winner exists if we have an escrow address
+    if (escrowAddress && !winnerFromDb) {
+      console.error('❌ Escrow address exists but winner is null:', {
+        matchId,
+        escrowAddress,
+        winnerFromDb,
+        winnerLocal: winner,
+      });
+      // Don't throw - this might be a tie that hasn't been processed yet
+      // But log it for monitoring
+    }
   } catch (escrowCheckError: any) {
     console.error('❌ Error checking escrow address:', {
       matchId,
       error: escrowCheckError?.message || String(escrowCheckError),
+      stack: escrowCheckError?.stack,
     });
     // Continue - escrowAddress will be null and settlement won't run
+    winnerFromDb = winner; // Fallback to local variable if DB query fails
   }
   
   console.log('🔍 Escrow check debug:', {
     matchId,
     escrowAddress,
-    winner,
+    winner: winnerFromDb, // Use DB value for logging
+    winnerLocal: winner, // Also log local variable for debugging
     hasEscrowAddress: !!escrowAddress,
-    winnerType: typeof winner,
-    winnerTruthy: !!winner,
+    winnerType: typeof winnerFromDb,
+    winnerTruthy: !!winnerFromDb,
   });
   
   // Unified escrow settlement handler for wins, ties, and all scenarios
   // CRITICAL: escrowAddress must be non-null and winner must be truthy (including 'tie')
   const hasEscrow = escrowAddress && typeof escrowAddress === 'string' && escrowAddress.trim().length > 0;
-  const hasWinner = winner && typeof winner === 'string' && winner.trim().length > 0;
+  const hasWinner = winnerFromDb && typeof winnerFromDb === 'string' && winnerFromDb.trim().length > 0;
   
   if (hasEscrow && hasWinner) {
     try {
       console.log('🏦 Escrow match detected - submitting result and settling on-chain...', {
         matchId,
         escrowAddress,
-        winner,
+        winner: winnerFromDb, // Use DB value
       });
       
       // Determine result type and winner based on match outcome
       let resultType: 'Win' | 'DrawFullRefund' | 'DrawPartialRefund';
       let winnerForEscrow: string | null;
       
-      if (winner === 'tie') {
+      if (winnerFromDb === 'tie') { // Use DB value
         // Ties: refund both players (95% refund via DrawFullRefund)
         resultType = 'DrawFullRefund';
         winnerForEscrow = null; // null winner for ties
@@ -2093,7 +2128,13 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       } else {
         // Wins: winner takes 95% of combined entry fees
         resultType = 'Win';
-        winnerForEscrow = winner;
+        winnerForEscrow = winnerFromDb; // Use DB value
+        
+        // Extra Safety Assertion: Ensure winner exists for Win result type
+        if (!winnerForEscrow || winnerForEscrow.trim().length === 0) {
+          throw new Error(`❌ Cannot settle escrow: no winner for match ${matchId}. Result type: ${resultType}, winnerFromDb: ${winnerFromDb}`);
+        }
+        
         console.log('🏦 Processing escrow WIN settlement...', {
           matchId,
           winner: winnerForEscrow,
@@ -2121,25 +2162,25 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
         });
         
         // Settlement updates escrowStatus, payoutTxSignature, etc. in database
-        // For wins only: disburse bonus if eligible (ties don't get bonuses)
-        if (resultType === 'Win' && winnerForEscrow) {
-          try {
-          const entryFeeSol = match.entryFee ? Number(match.entryFee) : 0;
-          const entryFeeUsd = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
-          
-          // Get solPriceAtTransaction from match or use current price
-          const matchRepository = AppDataSource.getRepository(Match);
-          const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
-          const solPriceAtTransaction = freshMatch?.solPriceAtTransaction 
-            ? Number(freshMatch.solPriceAtTransaction) 
-            : undefined;
-          
-          const bonusAlreadyPaid = (freshMatch as any)?.bonusPaid === true;
-          const bonusSignatureExisting = (freshMatch as any)?.bonusSignature || null;
+            // For wins only: disburse bonus if eligible (ties don't get bonuses)
+            if (resultType === 'Win' && winnerForEscrow) {
+              try {
+              const entryFeeSol = match.entryFee ? Number(match.entryFee) : 0;
+              const entryFeeUsd = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
+              
+              // Get solPriceAtTransaction from match or use current price
+              const matchRepository = AppDataSource.getRepository(Match);
+              const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
+              const solPriceAtTransaction = freshMatch?.solPriceAtTransaction 
+                ? Number(freshMatch.solPriceAtTransaction) 
+                : undefined;
+              
+              const bonusAlreadyPaid = (freshMatch as any)?.bonusPaid === true;
+              const bonusSignatureExisting = (freshMatch as any)?.bonusSignature || null;
 
-          const bonusResult = await disburseBonusIfEligible({
-            matchId: matchId,
-            winner: winner,
+              const bonusResult = await disburseBonusIfEligible({
+                matchId: matchId,
+                winner: winnerFromDb, // Use DB value
             entryFeeSol,
             entryFeeUsd,
             solPriceAtTransaction,
