@@ -1623,41 +1623,43 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   
   // Wrap match loading in try-catch to catch any errors
   try {
-  if (manager) {
-    // Use raw SQL with FOR UPDATE lock in transaction
-    const matchRows = await manager.query(`
-      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
-             "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
-             "proposalSigners", "needsSignatures", "proposalExecutedAt", 
-             "proposalTransactionId", "player1Result", "player2Result", 
-             winner, "isCompleted", "matchStatus", "escrowAddress"
-      FROM "match"
-      WHERE id = $1
-      FOR UPDATE
-    `, [matchId]);
+    if (manager) {
+      // Use raw SQL with FOR UPDATE lock in transaction
+      const matchRows = await manager.query(`
+        SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
+               "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
+               "proposalSigners", "needsSignatures", "proposalExecutedAt", 
+               "proposalTransactionId", "player1Result", "player2Result", 
+               winner, "isCompleted", "matchStatus", "escrowAddress"
+        FROM "match"
+        WHERE id = $1
+        FOR UPDATE
+      `, [matchId]);
+      
+      if (!matchRows || matchRows.length === 0) {
+        console.warn('[Escrow Debug] Match not found, skipping settlement', { matchId });
+        throw new Error('Match not found');
+      }
+      match = matchRows[0];
+    } else {
+      const matchRepository = AppDataSource.getRepository(Match);
+      // Use raw SQL to avoid querying non-existent proposalExpiresAt column
+      const matchRows = await matchRepository.query(`
+        SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
+               "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
+               "proposalSigners", "needsSignatures", "proposalExecutedAt", 
+               "proposalTransactionId", "player1Result", "player2Result", 
+               winner, "isCompleted", "matchStatus", "escrowAddress"
+        FROM "match"
+        WHERE id = $1
+      `, [matchId]);
     
-    if (!matchRows || matchRows.length === 0) {
-      throw new Error('Match not found');
+      if (!matchRows || matchRows.length === 0) {
+        console.warn('[Escrow Debug] Match not found, skipping settlement', { matchId });
+        throw new Error('Match not found');
+      }
+      match = matchRows[0];
     }
-    match = matchRows[0];
-  } else {
-  const matchRepository = AppDataSource.getRepository(Match);
-    // Use raw SQL to avoid querying non-existent proposalExpiresAt column
-    const matchRows = await matchRepository.query(`
-      SELECT id, "player1", "player2", "entryFee", "squadsVaultAddress", "squadsVaultPda",
-             "payoutProposalId", "tieRefundProposalId", "proposalStatus", 
-             "proposalSigners", "needsSignatures", "proposalExecutedAt", 
-             "proposalTransactionId", "player1Result", "player2Result", 
-             winner, "isCompleted", "matchStatus", "escrowAddress"
-      FROM "match"
-      WHERE id = $1
-    `, [matchId]);
-  
-    if (!matchRows || matchRows.length === 0) {
-      console.warn('[Escrow Debug] Match not found, skipping settlement', { matchId });
-      throw new Error('Match not found');
-    }
-    match = matchRows[0];
   } catch (matchLoadError: any) {
     console.error('[Escrow Debug] Error loading match:', { 
       matchId, 
