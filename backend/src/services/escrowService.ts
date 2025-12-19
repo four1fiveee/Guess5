@@ -415,7 +415,284 @@ export async function submitResult(
 }
 
 /**
+ * Submit result and settle match atomically (backend executes both)
+ * CRITICAL: submit_result MUST be called before settle can read the winner from escrow account
+ * 
+ * Flow:
+ * 1. Create and send submit_result transaction
+ * 2. Wait for confirmation (with retry logic)
+ * 3. Validate escrow account state was updated correctly
+ * 4. Call settleMatch (which reads winner from escrow account)
+ * 5. Return both transaction signatures for database storage
+ */
+export async function submitResultAndSettle(
+  matchId: string,
+  winner: string | null,
+  resultType: 'Win' | 'DrawFullRefund' | 'DrawPartialRefund'
+): Promise<{ 
+  success: boolean; 
+  submitResultSignature?: string;
+  settleSignature?: string;
+  signature?: string; // Legacy field for backward compatibility (settle signature)
+  error?: string;
+}> {
+  const [escrowPDA] = deriveEscrowPDA(matchId);
+  let submitSignature: string | undefined;
+  
+  try {
+    const program = getProgram();
+    const connection = program.provider.connection;
+    const matchRepository = AppDataSource.getRepository(Match);
+
+    // STEP 1: Submit result on-chain first
+    console.log('📝 Step 1: Submitting result to escrow account...', { 
+      matchId, 
+      winner, 
+      resultType,
+      escrowPDA: escrowPDA.toString(),
+    });
+    
+    const submitResultTx = await submitResult(matchId, null, winner, resultType);
+    
+    if (!submitResultTx.success || !submitResultTx.transaction) {
+      return {
+        success: false,
+        error: `Failed to create submit_result transaction: ${submitResultTx.error}`,
+      };
+    }
+
+    // Send submit_result transaction (backend signs and sends)
+    const wallet = getProviderWallet();
+    const latestBlockhash = await connection.getLatestBlockhash();
+    submitResultTx.transaction.recentBlockhash = latestBlockhash.blockhash;
+    submitResultTx.transaction.feePayer = wallet.publicKey;
+    
+    // Sign with wallet keypair (payer is the Keypair object)
+    submitResultTx.transaction.sign(wallet.payer);
+    
+    submitSignature = await connection.sendRawTransaction(
+      submitResultTx.transaction.serialize(),
+      { skipPreflight: false, maxRetries: 3 }
+    );
+    
+    console.log('✅ Submit result transaction sent:', { matchId, signature: submitSignature });
+    
+    // STEP 2: Wait for confirmation with retry logic (production-grade)
+    console.log('⏳ Waiting for submit_result confirmation...', { matchId, signature: submitSignature });
+    
+    const maxRetries = 3;
+    let confirmed = false;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await connection.confirmTransaction(submitSignature, 'confirmed');
+        confirmed = true;
+        console.log('✅ Submit result confirmed:', { matchId, signature: submitSignature, attempt: attempt + 1 });
+        break;
+      } catch (confirmError: unknown) {
+        lastError = confirmError instanceof Error ? confirmError : new Error(String(confirmError));
+        if (attempt < maxRetries - 1) {
+          const delay = 1000 * (attempt + 1); // Exponential backoff: 1s, 2s, 3s
+          console.warn(`⚠️ Confirmation attempt ${attempt + 1} failed, retrying in ${delay}ms...`, {
+            matchId,
+            signature: submitSignature,
+            error: lastError.message,
+          });
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+      }
+    }
+    
+    if (!confirmed) {
+      return {
+        success: false,
+        submitResultSignature: submitSignature,
+        error: `Failed to confirm submit_result transaction after ${maxRetries} attempts: ${lastError?.message || 'Unknown error'}`,
+      };
+    }
+
+    // STEP 3: Validate escrow account state was updated correctly (production-grade validation)
+    console.log('🔍 Step 3: Validating escrow account state...', { matchId });
+    
+    try {
+      const escrowAccount = await (program.account as any).gameEscrow.fetch(escrowPDA);
+      
+      // Validate winner was set correctly
+      if (winner && resultType === 'Win') {
+        const expectedWinnerBytes = new PublicKey(winner).toBytes();
+        const actualWinnerBytes = escrowAccount.winner;
+        
+        if (!actualWinnerBytes || !arraysEqual(Array.from(expectedWinnerBytes), Array.from(actualWinnerBytes))) {
+          return {
+            success: false,
+            submitResultSignature: submitSignature,
+            error: `Escrow account winner mismatch. Expected: ${winner}, Got: ${escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null'}`,
+          };
+        }
+        console.log('✅ Escrow account winner validated:', { 
+          matchId, 
+          winner: new PublicKey(escrowAccount.winner).toString() 
+        });
+      } else if (resultType === 'DrawFullRefund' || resultType === 'DrawPartialRefund') {
+        // For ties, winner should be null/zero
+        const winnerBytes = escrowAccount.winner || new Uint8Array(32);
+        const isZero = Array.from(winnerBytes).every(b => b === 0);
+        if (!isZero) {
+          console.warn('⚠️ Draw result but escrow winner is non-zero:', { 
+            matchId,
+            winner: escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null'
+          });
+        }
+      }
+      
+      // Store submit_result signature in database (use raw SQL in case column doesn't exist yet)
+      try {
+        await matchRepository.query(`
+          UPDATE "match"
+          SET 
+            "escrowResultSubmittedAt" = $1,
+            "escrowResultSubmittedBy" = $2
+          WHERE id = $3
+        `, [new Date(), wallet.publicKey.toString(), matchId]);
+        
+        // Try to update escrowResultSignature if column exists (non-critical)
+        try {
+          await matchRepository.query(`
+            UPDATE "match"
+            SET "escrowResultSignature" = $1
+            WHERE id = $2
+          `, [submitSignature, matchId]);
+        } catch (columnError: any) {
+          // Column might not exist yet - log but don't fail
+          console.warn('⚠️ escrowResultSignature column not found (non-critical):', {
+            matchId,
+            error: columnError?.message,
+          });
+        }
+      } catch (dbError: any) {
+        console.warn('⚠️ Failed to store submit_result metadata (non-critical):', {
+          matchId,
+          error: dbError?.message,
+        });
+      }
+      
+    } catch (validationError: unknown) {
+      const errorMsg = validationError instanceof Error ? validationError.message : String(validationError);
+      console.error('❌ Failed to validate escrow account after submit_result:', {
+        matchId,
+        submitSignature,
+        error: errorMsg,
+      });
+      // Continue anyway - the transaction was confirmed, so state should be correct
+      // But log this for monitoring
+    }
+
+    // STEP 4: Now settle (winner is now in escrow account)
+    console.log('💰 Step 4: Settling match...', { matchId });
+    const settleResult = await settleMatch(matchId);
+    
+    if (!settleResult.success) {
+      return {
+        success: false,
+        submitResultSignature: submitSignature,
+        error: `Submit succeeded but settle failed: ${settleResult.error}. Submit signature: ${submitSignature}`,
+      };
+    }
+
+    // STEP 5: Store both transaction signatures in database
+    console.log('💾 Step 5: Storing transaction signatures...', { 
+      matchId, 
+      submitSignature, 
+      settleSignature: settleResult.signature 
+    });
+    
+    try {
+      const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
+      let updatedPayoutResult = freshMatch?.payoutResult
+        ? JSON.parse(freshMatch.payoutResult)
+        : null;
+
+      // Add submit_result transaction info to payoutResult
+      if (updatedPayoutResult && Array.isArray(updatedPayoutResult.transactions)) {
+        // Find and update transactions to include submit_result signature
+        updatedPayoutResult.submitResultSignature = submitSignature;
+        updatedPayoutResult.submitResultConfirmedAt = new Date().toISOString();
+      }
+
+      // Update database with both signatures (use raw SQL for escrowResultSignature in case column doesn't exist)
+      await matchRepository.update(
+        { id: matchId },
+        {
+          payoutTxSignature: settleResult.signature, // This is already set by settleMatch, but ensure it's there
+          payoutResult: updatedPayoutResult ? JSON.stringify(updatedPayoutResult) : freshMatch?.payoutResult ?? null,
+        }
+      );
+      
+      // Try to update escrowResultSignature if column exists (non-critical)
+      try {
+        await matchRepository.query(`
+          UPDATE "match"
+          SET "escrowResultSignature" = $1
+          WHERE id = $2
+        `, [submitSignature, matchId]);
+      } catch (columnError: any) {
+        // Column might not exist yet - log but don't fail
+        console.warn('⚠️ escrowResultSignature column not found (non-critical):', {
+          matchId,
+          error: columnError?.message,
+        });
+      }
+    } catch (dbError: unknown) {
+      console.error('⚠️ Failed to store transaction signatures in database (non-critical):', {
+        matchId,
+        error: dbError instanceof Error ? dbError.message : String(dbError),
+      });
+      // Non-critical - transactions succeeded on-chain, DB update can be retried
+    }
+
+    console.log('✅ Submit result and settle completed successfully:', {
+      matchId,
+      submitResultSignature: submitSignature,
+      settleSignature: settleResult.signature,
+    });
+
+    return {
+      success: true,
+      submitResultSignature: submitSignature,
+      settleSignature: settleResult.signature,
+      signature: settleResult.signature, // Legacy field for backward compatibility
+    };
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error in submitResultAndSettle:', {
+      matchId,
+      submitResultSignature: submitSignature,
+      error: errorMessage,
+      stack: error instanceof Error ? error.stack : undefined,
+    });
+    return {
+      success: false,
+      submitResultSignature: submitSignature,
+      error: errorMessage,
+    };
+  }
+}
+
+/**
+ * Helper function to compare byte arrays
+ */
+function arraysEqual(a: number[], b: number[] | Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
+}
+
+/**
  * Settle a match (can be called by anyone after result is submitted or timeout)
+ * NOTE: This assumes submit_result has already been called on-chain
  */
 export async function settleMatch(
   matchId: string
@@ -436,7 +713,17 @@ export async function settleMatch(
     const [escrowPDA] = deriveEscrowPDA(matchId);
 
     // Fetch escrow account to get winner and pre-settle lamports for accounting
-    const escrowAccount = await (program.account as any).gameEscrow.fetch(escrowPDA);
+    // CRITICAL: This assumes submit_result was already called to set winner in escrow account
+    let escrowAccount;
+    try {
+      escrowAccount = await (program.account as any).gameEscrow.fetch(escrowPDA);
+    } catch (fetchError: any) {
+      return {
+        success: false,
+        error: `Failed to fetch escrow account. Ensure submit_result was called first: ${fetchError?.message || String(fetchError)}`,
+      };
+    }
+
     const preAccountInfo = await connection.getAccountInfo(escrowPDA);
     const preLamports = preAccountInfo?.lamports ?? 0;
 

@@ -3630,16 +3630,29 @@ const Result: React.FC = () => {
                             combinedEntrySol != null ? combinedEntrySol * 0.95 : winnerSol ?? null;
 
                           // Bonus + total (for smart-contract wins with bonus payouts)
-                          const bonusSol =
-                            payoutData?.bonus?.paid && payoutData.bonus?.amountSol
-                              ? Number(payoutData.bonus.amountSol)
-                              : 0;
-                          const bonusTierUsd =
-                            payoutData?.bonus?.paid &&
-                            payoutData.bonus?.tier &&
-                            BONUS_USD_BY_TIER[payoutData.bonus.tier] !== undefined
-                              ? BONUS_USD_BY_TIER[payoutData.bonus.tier]
-                              : payoutData?.bonus?.amountUSD || payoutData?.bonus?.expectedUSD || 0;
+                          // Calculate expected bonus from entry fee tier if not provided
+                          let expectedBonusUsdFromTier = 0;
+                          if (roundedEntryFeeUsd != null) {
+                            // Determine bonus tier based on entry fee
+                            if (roundedEntryFeeUsd >= 100) {
+                              expectedBonusUsdFromTier = BONUS_USD_BY_TIER.vip || 2.00;
+                            } else if (roundedEntryFeeUsd >= 50) {
+                              expectedBonusUsdFromTier = BONUS_USD_BY_TIER.highRoller || 0.75;
+                            } else if (roundedEntryFeeUsd >= 20) {
+                              expectedBonusUsdFromTier = BONUS_USD_BY_TIER.competitive || 0.25;
+                            }
+                          }
+                          
+                          // Use paid bonus if available, otherwise use expected bonus from tier
+                          const bonusTierUsd = payoutData?.bonus?.paid && payoutData.bonus?.tier && BONUS_USD_BY_TIER[payoutData.bonus.tier] !== undefined
+                            ? BONUS_USD_BY_TIER[payoutData.bonus.tier]
+                            : payoutData?.bonus?.amountUSD || payoutData?.bonus?.expectedUSD || expectedBonusUsdFromTier;
+                          
+                          // Calculate bonus SOL from USD if not provided
+                          const bonusSol = payoutData?.bonus?.paid && payoutData.bonus?.amountSol
+                            ? Number(payoutData.bonus.amountSol)
+                            : (bonusTierUsd > 0 && solPrice ? bonusTierUsd / solPrice : 0);
+                          
                           const hasBonus = bonusSol > 0 || bonusTierUsd > 0;
                           const totalSolReceived =
                             winnerSol != null ? winnerSol + (hasBonus ? bonusSol : 0) : null;

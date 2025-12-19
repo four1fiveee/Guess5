@@ -2033,15 +2033,23 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
 
   // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
   // Check if this match uses the escrow system (has escrowAddress)
+  // CRITICAL: Must call submit_result FIRST, then settle
   if ((match as any).escrowAddress && winner && winner !== 'tie') {
     try {
-      console.log('🏦 Escrow match detected - automatically settling on-chain...', {
+      console.log('🏦 Escrow match detected - submitting result and settling on-chain...', {
         matchId,
         escrowAddress: (match as any).escrowAddress,
         winner,
       });
       
-      const settleResult = await escrowService.settleMatch(matchId);
+      // CRITICAL FIX: submit_result MUST be called before settle
+      // submit_result sets the winner in the escrow account on-chain
+      // settle then reads that winner and pays out
+      const settleResult = await escrowService.submitResultAndSettle(
+        matchId,
+        winner,
+        'Win'
+      );
       
       if (settleResult.success && settleResult.signature) {
         console.log('✅ Escrow settlement transaction executed successfully:', {
@@ -2130,14 +2138,21 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     }
   } else if ((match as any).escrowAddress && winner === 'tie') {
     // For ties, settlement still needs to happen to refund players
+    // CRITICAL: Must call submit_result FIRST for ties too
     try {
-      console.log('🏦 Escrow match tie - automatically settling on-chain...', {
+      console.log('🏦 Escrow match tie - submitting result and settling on-chain...', {
         matchId,
         escrowAddress: (match as any).escrowAddress,
         winner: 'tie',
       });
       
-      const settleResult = await escrowService.settleMatch(matchId);
+      // Determine result type for tie (DrawFullRefund or DrawPartialRefund)
+      // For now, use DrawFullRefund (95% refund) - can be adjusted based on business logic
+      const settleResult = await escrowService.submitResultAndSettle(
+        matchId,
+        null, // null winner for ties
+        'DrawFullRefund'
+      );
       
       if (settleResult.success && settleResult.signature) {
         console.log('✅ Escrow settlement transaction executed successfully for tie:', {

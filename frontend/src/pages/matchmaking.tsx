@@ -1810,7 +1810,7 @@ const Matchmaking: React.FC = () => {
           )}
           
           {status === 'active' && countdown === 0 && (
-            <div className="animate-fade-in flex flex-col items-center justify-center min-h-screen w-full bg-primary">
+            <div className="fixed inset-0 z-50 animate-fade-in flex flex-col items-center justify-center bg-primary">
               <div className="text-center space-y-6">
                 <div className="relative">
                   <h2 className="text-[10rem] font-black text-accent drop-shadow-[0_0_50px_rgba(255,215,0,0.9)] animate-pulse leading-none">
