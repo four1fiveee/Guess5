@@ -1659,6 +1659,14 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   console.log('🔍 CRITICAL DEBUG - Player 1 result:', JSON.stringify(player1Result, null, 2));
   console.log('🔍 CRITICAL DEBUG - Player 2 result:', JSON.stringify(player2Result, null, 2));
   console.log('🔍 CRITICAL DEBUG - VERIFICATION: player1Result.numGuesses =', player1Result?.numGuesses, ', player2Result.numGuesses =', player2Result?.numGuesses);
+  // Log escrowAddress immediately after match load to track its state
+  console.log('🔍 [Escrow Debug] Match loaded - escrowAddress check:', {
+    matchId,
+    'escrowAddress': match?.escrowAddress || null,
+    'escrowAddressType': typeof match?.escrowAddress,
+    'escrowAddressLength': match?.escrowAddress && typeof match.escrowAddress === 'string' ? match.escrowAddress.trim().length : 0,
+    'escrowAddressPresent': !!(match?.escrowAddress),
+  });
 
   let winner = null;
   let payoutResult = null;
@@ -2063,7 +2071,15 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   }
   
   // CRITICAL DEBUG: Log immediately after match save to confirm execution reaches here
+  // ALWAYS log this - if it doesn't appear, execution stopped before this point
   console.log('[DEBUG] About to start escrow settlement check. matchId:', matchId, 'winner:', winner);
+  console.log('[DEBUG] Match object escrowAddress check:', {
+    matchId,
+    'matchExists': !!match,
+    'matchEscrowAddress': match?.escrowAddress || null,
+    'matchEscrowAddressType': typeof match?.escrowAddress,
+    'matchEscrowAddressLength': match?.escrowAddress && typeof match.escrowAddress === 'string' ? match.escrowAddress.trim().length : 0,
+  });
   
   // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
   // ROOT CAUSE FIX: We already have escrowAddress from the initial match load (line ~1627/1645)

@@ -3752,23 +3752,34 @@ const Result: React.FC = () => {
                                 </p>
                               )}
 
-                              {/* Tie refund view */}
+                              {/* Tie refund view - styled like winner view */}
                               {isTie && refundSol != null && refundSol > 0 && (
-                                <p className="text-white text-sm mb-1">
-                                  You were refunded <span className="font-semibold">{refundSol} SOL</span> on-chain.
-                                  {roundedEntryFeeUsd != null && (
-                                    <>
-                                      {' '}
-                                      95% of entry fee paid:{' '}
+                                <div className="mb-2">
+                                  {/* Primary headline refund - make it pop like winner */}
+                                  <p className="text-lg font-semibold text-yellow-300 mb-1">
+                                    You were refunded{' '}
+                                    {roundedEntryFeeUsd != null && (
+                                      <>
+                                        <span className="font-bold">
+                                          ~${(roundedEntryFeeUsd * 0.95).toFixed(2)} USD
+                                        </span>
+                                        {' - '}
+                                      </>
+                                    )}
+                                    <span className="font-bold">{refundSol.toFixed(5)} SOL</span> on-chain.
+                                  </p>
+
+                                  {/* Refund breakdown - clean single line */}
+                                  {roundedEntryFeeUsd != null && entryFeeSol != null && entryFeeSol > 0 && (
+                                    <p className="text-white text-xs">
+                                      95% of entry fee paid (
                                       <span className="font-semibold">
-                                        ${(roundedEntryFeeUsd * 0.95).toFixed(2)} USD
+                                        {entryFeeSol.toFixed(6)} SOL − ${roundedEntryFeeUsd.toFixed(2)} USD
                                       </span>
-                                      {entryFeeSol != null && entryFeeSol > 0 && (
-                                        <> ({entryFeeSol.toFixed(6)} SOL − ${roundedEntryFeeUsd.toFixed(2)} USD).</>
-                                      )}
-                                    </>
+                                      ).
+                                    </p>
                                   )}
-                                </p>
+                                </div>
                               )}
 
                               {/* Entry fee line */}
