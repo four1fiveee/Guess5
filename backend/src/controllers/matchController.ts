@@ -2034,11 +2034,25 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
   // Check if this match uses the escrow system (has escrowAddress)
   // CRITICAL: Must call submit_result FIRST, then settle
-  if ((match as any).escrowAddress && winner && winner !== 'tie') {
+  
+  // Reload match to ensure we have the latest escrowAddress value
+  const matchRepository = AppDataSource.getRepository(Match);
+  const freshMatchForEscrow = await matchRepository.findOne({ where: { id: matchId } });
+  const escrowAddress = freshMatchForEscrow?.escrowAddress || (match as any)?.escrowAddress;
+  
+  console.log('🔍 Escrow check debug:', {
+    matchId,
+    escrowAddress,
+    winner,
+    hasEscrowAddress: !!escrowAddress,
+    winnerIsNotTie: winner && winner !== 'tie',
+  });
+  
+  if (escrowAddress && winner && winner !== 'tie') {
     try {
       console.log('🏦 Escrow match detected - submitting result and settling on-chain...', {
         matchId,
-        escrowAddress: (match as any).escrowAddress,
+        escrowAddress,
         winner,
       });
       
@@ -15839,7 +15853,12 @@ const getPlayerMatchStatsHandler = async (req: any, res: any) => {
         "bonusTier"
       FROM "match"
       WHERE ("player1" = $1 OR "player2" = $2)
-        AND ("player1Paid" = true OR "player2Paid" = true)
+        AND (
+          "player1Paid" = true 
+          OR "player2Paid" = true
+          OR "escrowAddress" IS NOT NULL  -- Include escrow matches (players paid to escrow)
+          OR status = 'completed'  -- Include completed matches regardless of paid flags
+        )
       ORDER BY "createdAt" DESC
     `, [wallet, wallet]);
 

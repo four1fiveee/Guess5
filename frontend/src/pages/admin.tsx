@@ -424,6 +424,65 @@ export default function AdminPage() {
     }
   };
 
+  const handleSettleEscrowMatch = async (matchId: string) => {
+    if (!token) {
+      alert('Not authenticated. Please log in again.');
+      return;
+    }
+
+    if (!matchId || matchId.trim() === '') {
+      alert('Please enter a valid Match ID');
+      return;
+    }
+
+    if (!confirm(`Are you sure you want to manually settle escrow match ${matchId}?\n\nThis will:\n• Submit the result on-chain\n• Settle the escrow and pay out the winner\n\nMatch must be completed with a winner (not a tie).`)) {
+      return;
+    }
+
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/settle-escrow-match/${matchId}`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || data.details || `Failed to settle escrow match: ${response.status}`);
+      }
+
+      let message = `✅ Escrow match settled successfully!\n\nMatch ID: ${matchId}\n`;
+      if (data.submitResultSignature) {
+        message += `Submit Result TX: ${data.submitResultSignature}\n`;
+      }
+      if (data.settleSignature) {
+        message += `Settle TX: ${data.settleSignature}\n`;
+      }
+      alert(message);
+      
+      // Clear the input field
+      const input = document.getElementById('settleMatchIdInput') as HTMLInputElement;
+      if (input) {
+        input.value = '';
+      }
+      
+      // Reload dashboard data to reflect the update
+      loadDashboardData();
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to settle escrow match';
+      setError(errorMsg);
+      alert(`❌ Error settling escrow match:\n\n${errorMsg}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleDownloadCSV = async () => {
     if (!token) {
       alert('Not authenticated. Please log in again.');
@@ -1094,8 +1153,43 @@ export default function AdminPage() {
         <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
           <h2 className="text-xl font-bold text-white mb-4">Match Management</h2>
           <div className="space-y-6">
-            {/* Delete Individual Match */}
+            {/* Settle Escrow Match */}
             <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white">Manually Settle Escrow Match</h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  id="settleMatchIdInput"
+                  placeholder="Enter Match ID (e.g., ea02a7cd-54d8-4883-bf81-9661b24af12d)"
+                  className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      const input = e.target as HTMLInputElement;
+                      handleSettleEscrowMatch(input.value);
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const input = document.getElementById('settleMatchIdInput') as HTMLInputElement;
+                    if (input?.value) {
+                      handleSettleEscrowMatch(input.value);
+                    } else {
+                      alert('Please enter a Match ID');
+                    }
+                  }}
+                  className="px-6 py-2 bg-green-500/20 hover:bg-green-500/30 text-green-300 rounded-lg transition-colors border border-green-500/30 font-semibold"
+                >
+                  💰 Settle Escrow Match
+                </button>
+              </div>
+              <p className="text-white/50 text-sm">
+                Enter a Match ID above to manually trigger escrow settlement. This will submit the result on-chain and settle the escrow to pay out the winner. Use this if automatic settlement failed.
+              </p>
+            </div>
+
+            {/* Delete Individual Match */}
+            <div className="space-y-4 border-t border-white/10 pt-6">
               <h3 className="text-lg font-semibold text-white">Delete Individual Match</h3>
               <div className="flex gap-3">
                 <input

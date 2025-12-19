@@ -2,6 +2,7 @@
 const { Router } = require('express');
 const {
   adminDeleteMatch,
+  adminSettleEscrowMatch,
   adminDeleteAllMatches,
   adminBackfillReferrals,
   adminGetOwedReferrals,
@@ -39,6 +40,7 @@ router.use(requireAdminAuth);
 
 // Match management
 router.post('/delete-match/:matchId', adminDeleteMatch);
+router.post('/settle-escrow-match/:matchId', adminSettleEscrowMatch);
 router.post('/delete-all-matches', adminDeleteAllMatches);
 router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
 router.post('/clear-lock-and-delete/:matchId', adminClearLockAndDeleteMatch);

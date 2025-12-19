@@ -83,6 +83,105 @@ export const adminDeleteMatch = async (req: Request, res: Response) => {
 };
 
 /**
+ * Admin endpoint to manually settle an escrow match
+ * POST /api/admin/settle-escrow-match/:matchId
+ * This triggers submit_result and settle for escrow matches that failed to settle automatically
+ */
+export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    
+    console.log('🏦 Admin manually settling escrow match:', matchId);
+    
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+    
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+    
+    if (!match) {
+      return res.status(404).json({ error: 'Match not found' });
+    }
+    
+    // Check if this is an escrow match
+    if (!match.escrowAddress) {
+      return res.status(400).json({ 
+        error: 'This match does not use the escrow system. Escrow settlement is only for matches with escrowAddress.' 
+      });
+    }
+    
+    // Check if match is completed
+    if (!match.isCompleted || match.status !== 'completed') {
+      return res.status(400).json({ 
+        error: 'Match must be completed before settlement. Current status: ' + (match.status || 'unknown') 
+      });
+    }
+    
+    // Check if already settled
+    if (match.escrowStatus === 'SETTLED' && match.payoutTxSignature) {
+      return res.status(400).json({ 
+        error: 'Match is already settled. Settlement signature: ' + match.payoutTxSignature 
+      });
+    }
+    
+    // Get winner from match
+    const winner = match.winner;
+    if (!winner || winner === 'tie') {
+      return res.status(400).json({ 
+        error: 'Match must have a winner (not a tie) to settle. Current winner: ' + (winner || 'null') 
+      });
+    }
+    
+    // Import escrow service
+    const escrowService = require('../services/escrowService');
+    
+    // Call submitResultAndSettle (this does submit_result first, then settle)
+    const settleResult = await escrowService.submitResultAndSettle(
+      matchId,
+      winner,
+      'Win'
+    );
+    
+    if (settleResult.success && settleResult.settleSignature) {
+      console.log('✅ Admin escrow settlement successful:', {
+        matchId,
+        submitResultSignature: settleResult.submitResultSignature,
+        settleSignature: settleResult.settleSignature,
+      });
+      
+      return res.json({
+        success: true,
+        message: 'Escrow match settled successfully',
+        matchId,
+        submitResultSignature: settleResult.submitResultSignature,
+        settleSignature: settleResult.settleSignature,
+      });
+    } else {
+      console.error('❌ Admin escrow settlement failed:', {
+        matchId,
+        error: settleResult.error,
+      });
+      
+      return res.status(500).json({
+        success: false,
+        error: settleResult.error || 'Settlement failed',
+        submitResultSignature: settleResult.submitResultSignature || null,
+      });
+    }
+    
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Failed to settle escrow match:', errorMessage);
+    
+    return res.status(500).json({ 
+      error: 'Internal server error',
+      details: errorMessage 
+    });
+  }
+};
+
+/**
  * Admin endpoint to delete all matches (for testing/cleanup)
  * POST /api/admin/delete-all-matches
  */
