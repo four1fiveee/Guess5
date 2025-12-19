@@ -89,9 +89,18 @@ export const adminDeleteMatch = async (req: Request, res: Response) => {
  * This triggers submit_result and settle for escrow matches that failed to settle automatically
  */
 export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
-  const { matchId } = req.params;
+  let matchId: string | undefined;
   
   try {
+    matchId = req.params?.matchId;
+    
+    if (!matchId) {
+      return res.status(400).json({ 
+        success: false,
+        error: 'Match ID is required',
+        matchId: null
+      });
+    }
     
     console.log('🏦 Admin manually settling escrow match:', matchId);
     

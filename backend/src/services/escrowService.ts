@@ -467,8 +467,14 @@ export async function submitResultAndSettle(
     submitResultTx.transaction.recentBlockhash = latestBlockhash.blockhash;
     submitResultTx.transaction.feePayer = wallet.publicKey;
     
-    // Sign with wallet keypair (payer is the Keypair object)
-    submitResultTx.transaction.sign(wallet.payer);
+    // Sign with wallet keypair - Wallet.payer is the Keypair
+    // Extract it safely with fallback error handling
+    const keypair = (wallet as any).payer;
+    if (!keypair || typeof keypair.sign !== 'function') {
+      const walletKeys = wallet ? Object.keys(wallet) : [];
+      throw new Error(`Failed to extract valid keypair from wallet. Wallet keys: ${walletKeys.join(', ')}`);
+    }
+    submitResultTx.transaction.sign(keypair);
     
     submitSignature = await connection.sendRawTransaction(
       submitResultTx.transaction.serialize(),

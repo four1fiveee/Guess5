@@ -2038,23 +2038,39 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   // Reload match to ensure we have the latest escrowAddress value
   // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
   const matchRepository = AppDataSource.getRepository(Match);
-  const escrowCheckRows = await matchRepository.query(`
-    SELECT "escrowAddress", winner, status, "escrowStatus"
-    FROM "match"
-    WHERE id = $1
-    LIMIT 1
-  `, [matchId]);
-  const escrowAddress = escrowCheckRows?.[0]?.escrowAddress || (match as any)?.escrowAddress;
+  let escrowAddress: string | null = null;
+  
+  try {
+    const escrowCheckRows = await matchRepository.query(`
+      SELECT "escrowAddress", winner, status, "escrowStatus"
+      FROM "match"
+      WHERE id = $1
+      LIMIT 1
+    `, [matchId]);
+    escrowAddress = escrowCheckRows?.[0]?.escrowAddress || (match as any)?.escrowAddress || null;
+  } catch (escrowCheckError: any) {
+    console.error('❌ Error checking escrow address:', {
+      matchId,
+      error: escrowCheckError?.message || String(escrowCheckError),
+    });
+    // Continue - escrowAddress will be null and settlement won't run
+  }
   
   console.log('🔍 Escrow check debug:', {
     matchId,
     escrowAddress,
     winner,
     hasEscrowAddress: !!escrowAddress,
+    winnerType: typeof winner,
+    winnerTruthy: !!winner,
   });
   
   // Unified escrow settlement handler for wins, ties, and all scenarios
-  if (escrowAddress && winner) {
+  // CRITICAL: escrowAddress must be non-null and winner must be truthy (including 'tie')
+  const hasEscrow = escrowAddress && typeof escrowAddress === 'string' && escrowAddress.trim().length > 0;
+  const hasWinner = winner && typeof winner === 'string' && winner.trim().length > 0;
+  
+  if (hasEscrow && hasWinner) {
     try {
       console.log('🏦 Escrow match detected - submitting result and settling on-chain...', {
         matchId,
