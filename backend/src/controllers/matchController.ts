@@ -5137,7 +5137,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           winner, "isCompleted", "createdAt", "updatedAt",
           "payoutProposalId", "tieRefundProposalId", "proposalStatus",
           "proposalSigners", "needsSignatures", "proposalExecutedAt",
-          "proposalTransactionId", "entryFeeUSD", "solPriceAtTransaction",
+          "proposalTransactionId", "payoutTxSignature", "entryFeeUSD", "solPriceAtTransaction",
           "bonusPercent", "bonusAmount", "bonusAmountUSD",
           "bonusSignature", "bonusPaid", "bonusPaidAt", "bonusTier",
           "refundReason", "refundedAt", "matchOutcome"
@@ -7548,6 +7548,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       escrowAddress: (match as any).escrowAddress || (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
       escrowPda: (match as any).escrowPda || (match as any).escrowAddress || (match as any).squadsVaultPda || null,
       escrowStatus: (match as any).escrowStatus || null,
+      payoutTxSignature: (match as any).payoutTxSignature || null,
       // Backward compatibility fields
       squadsVaultAddress: (match as any).escrowAddress || (match as any).squadsVaultAddress || (match as any).vaultAddress || null,
       squadsVaultPda: (match as any).escrowPda || (match as any).escrowAddress || (match as any).squadsVaultPda || null,

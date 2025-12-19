@@ -233,6 +233,25 @@ const Result: React.FC = () => {
   };
 
   const shouldContinuePolling = (info: any) => {
+    // CRITICAL: Stop polling if smart contract payout is completed (escrow settlement)
+    // Check for escrowStatus SETTLED or payoutTxSignature (smart contract payout signature)
+    if (info?.isSmartContractPayout) {
+      const isSettled = info?.escrowStatus === 'SETTLED' || !!info?.payoutTxSignature;
+      if (isSettled) {
+        console.log('🛑 Stopping polling: Smart contract payout completed', {
+          escrowStatus: info?.escrowStatus,
+          payoutTxSignature: info?.payoutTxSignature,
+        });
+        return false;
+      }
+      // Continue polling if smart contract payout is pending
+      console.log('🔄 Continue polling: Smart contract payout pending', {
+        escrowStatus: info?.escrowStatus,
+        payoutTxSignature: info?.payoutTxSignature,
+      });
+      return true;
+    }
+    
     // CRITICAL: Stop polling if proposal is executed
     if (info?.proposalStatus === 'EXECUTED' || info?.proposalExecutedAt) {
       console.log('🛑 Stopping polling: Proposal is executed', {
@@ -588,6 +607,9 @@ const Result: React.FC = () => {
               proposalTransactionId: matchData.proposalTransactionId || currentPayoutData.proposalTransactionId,
               automatedPayout: matchData.payout?.paymentSuccess ?? currentPayoutData.automatedPayout ?? false,
               payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || currentPayoutData.payoutSignature || null,
+              // Smart contract payout fields
+              escrowStatus: matchData.escrowStatus || currentPayoutData.escrowStatus || null,
+              payoutTxSignature: matchData.payoutTxSignature || currentPayoutData.payoutTxSignature || null,
               bonus: {
                 eligible: expectedBonusUsd > 0 || currentPayoutData.bonus?.eligible || false,
                 paid: !!bonusInfo.paid || currentPayoutData.bonus?.paid || false,
@@ -3670,7 +3692,7 @@ const Result: React.FC = () => {
                               {/* Winner view */}
                               {!isTie && didWin && winnerSol != null && winnerSol > 0 && (
                                 <div className="mb-2">
-                                  {/* Primary headline payout */}
+                                  {/* Primary headline payout - clean and simple like $5 tier */}
                                   <p className="text-lg font-semibold text-yellow-300 mb-1">
                                     You received{' '}
                                     {totalUsdExpected && (
@@ -3678,12 +3700,6 @@ const Result: React.FC = () => {
                                         <span className="font-bold">
                                           ${totalUsdExpected} USD
                                         </span>
-                                        {hasBonus && cleanUsdWinnings && (
-                                          <span className="text-yellow-200/80 text-xs ml-2">
-                                            (includes ${cleanUsdWinnings} match winnings + $
-                                            {bonusTierUsd.toFixed(2)} bonus)
-                                          </span>
-                                        )}
                                         {', '}
                                       </>
                                     )}
@@ -3691,15 +3707,10 @@ const Result: React.FC = () => {
                                       {totalSolReceived != null ? totalSolReceived.toFixed(6) : winnerSol}{' '}
                                       SOL
                                     </span>
-                                    {hasBonus && (
-                                      <span className="text-yellow-200/80 text-xs ml-2">
-                                        (base {winnerSol.toFixed(6)} SOL + bonus {bonusSol.toFixed(6)} SOL)
-                                      </span>
-                                    )}
                                     {' '}on-chain.
                                   </p>
 
-                                  {/* Match winnings breakdown (95% of combined entry fees + bonus if applicable) */}
+                                  {/* Match winnings breakdown - clean single line like $5 tier */}
                                   {roundedEntryFeeUsd != null && combinedEntryUsd != null && combinedEntrySol != null && (
                                     <p className="text-white text-xs">
                                       95% of combined entry fees from{' '}
@@ -3711,33 +3722,13 @@ const Result: React.FC = () => {
                                         <>
                                           {' '}
                                           +{' '}
-                                          <span className="font-semibold text-green-300">
+                                          <span className="font-semibold">
                                             ${bonusTierUsd.toFixed(2)} USD / {bonusSol.toFixed(6)} SOL
                                           </span>{' '}
                                           platform bonus
                                         </>
                                       )}
                                       .
-                                    </p>
-                                  )}
-
-                                  {/* Bonus line for clarity */}
-                                  {hasBonus && (
-                                    <p className="text-green-300 text-xs mt-1">
-                                      Bonus received:{' '}
-                                      {bonusTierUsd > 0 && (
-                                        <span className="font-semibold">
-                                          +${bonusTierUsd.toFixed(2)} USD
-                                        </span>
-                                      )}
-                                      {bonusSol > 0 && (
-                                        <>
-                                          {' '}
-                                          / <span className="font-semibold">
-                                            +{bonusSol.toFixed(6)} SOL
-                                          </span>
-                                        </>
-                                      )}
                                     </p>
                                   )}
                                 </div>
