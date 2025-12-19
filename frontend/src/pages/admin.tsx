@@ -451,7 +451,25 @@ export default function AdminPage() {
         },
       });
 
-      const data = await response.json();
+      // Check content type before parsing JSON
+      const contentType = response.headers.get('content-type');
+      let data: any;
+      
+      if (contentType && contentType.includes('application/json')) {
+        try {
+          data = await response.json();
+        } catch (jsonError: any) {
+          // If JSON parsing fails, get the text response for debugging
+          const textResponse = await response.text();
+          console.error('Failed to parse JSON response:', textResponse);
+          throw new Error(`Invalid JSON response from server. Response: ${textResponse.substring(0, 200)}`);
+        }
+      } else {
+        // Non-JSON response - get text for error message
+        const textResponse = await response.text();
+        console.error('Non-JSON response received:', textResponse);
+        throw new Error(`Server returned non-JSON response (${contentType}). Response: ${textResponse.substring(0, 200)}`);
+      }
 
       if (!response.ok) {
         throw new Error(data.error || data.message || data.details || `Failed to settle escrow match: ${response.status}`);

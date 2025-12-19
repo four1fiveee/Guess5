@@ -153,11 +153,36 @@ export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
     }
     
     // Call submitResultAndSettle (this does submit_result first, then settle)
-    const settleResult = await submitResultAndSettle(
-      matchId,
-      winner === 'tie' ? null : winner, // Pass null for ties, winner address otherwise
-      resultType
-    );
+    let settleResult;
+    try {
+      settleResult = await submitResultAndSettle(
+        matchId,
+        winner === 'tie' ? null : winner, // Pass null for ties, winner address otherwise
+        resultType
+      );
+    } catch (settleError: unknown) {
+      const settleErrorMessage = settleError instanceof Error ? settleError.message : String(settleError);
+      console.error('❌ Exception thrown by submitResultAndSettle:', {
+        matchId,
+        error: settleErrorMessage,
+        stack: settleError instanceof Error ? settleError.stack : undefined,
+      });
+      
+      return res.status(500).json({
+        success: false,
+        error: `Settlement function threw exception: ${settleErrorMessage}`,
+        matchId,
+      });
+    }
+    
+    if (!settleResult) {
+      console.error('❌ submitResultAndSettle returned undefined/null:', { matchId });
+      return res.status(500).json({
+        success: false,
+        error: 'Settlement function returned undefined result',
+        matchId,
+      });
+    }
     
     if (settleResult.success && (settleResult.settleSignature || settleResult.signature)) {
       const settlementSignature = settleResult.settleSignature || settleResult.signature;
@@ -177,8 +202,9 @@ export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
     } else {
       console.error('❌ Admin escrow settlement failed:', {
         matchId,
-        error: settleResult.error,
+        error: settleResult.error || 'Unknown error',
         submitResultSignature: settleResult.submitResultSignature || null,
+        settleResultKeys: settleResult ? Object.keys(settleResult) : 'null',
       });
       
       return res.status(500).json({

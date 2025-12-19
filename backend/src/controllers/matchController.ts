@@ -2005,7 +2005,29 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   });
   
   // Use raw SQL to update match (avoids proposalExpiresAt column issue)
-  const payoutResultJson = JSON.stringify(payoutResult);
+  // CRITICAL: Validate payoutResult before stringifying
+  if (!payoutResult) {
+    console.error('❌ CRITICAL ERROR: payoutResult is null/undefined before saving match', {
+      matchId,
+      winner,
+      payoutResultType: typeof payoutResult,
+    });
+    throw new Error(`Cannot save match: payoutResult is ${payoutResult === null ? 'null' : 'undefined'}`);
+  }
+  
+  let payoutResultJson: string;
+  try {
+    payoutResultJson = JSON.stringify(payoutResult);
+  } catch (stringifyError: any) {
+    console.error('❌ CRITICAL ERROR: Failed to stringify payoutResult:', {
+      matchId,
+      winner,
+      error: stringifyError?.message || String(stringifyError),
+      payoutResultKeys: payoutResult ? Object.keys(payoutResult) : 'null',
+    });
+    throw new Error(`Failed to stringify payoutResult: ${stringifyError?.message || String(stringifyError)}`);
+  }
+  
   if (manager) {
     await manager.query(`
       UPDATE "match"
@@ -2031,192 +2053,58 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   
   console.log('✅ Match saved successfully with winner:', winner);
   
-  // CRITICAL: Add small delay to ensure DB commit completes before escrow check
-  // This prevents race conditions where escrow block reads stale data
-  const ESCROW_CHECK_DELAY_MS = 150; // 150ms should be enough for most DB commits
-  console.log(`⏳ Waiting ${ESCROW_CHECK_DELAY_MS}ms for DB commit to complete before escrow check...`);
-  await new Promise(resolve => setTimeout(resolve, ESCROW_CHECK_DELAY_MS));
-  console.log('✅ Delay completed, proceeding with escrow check');
+  // CRITICAL: Validate payoutResult exists before proceeding
+  if (!payoutResult) {
+    console.error('❌ CRITICAL: payoutResult is null/undefined - cannot proceed with escrow settlement', {
+      matchId,
+      winner,
+    });
+    return payoutResult; // Early return if payoutResult is missing
+  }
   
   // CRITICAL DEBUG: Log immediately after match save to confirm execution reaches here
   console.log('[DEBUG] About to start escrow settlement check. matchId:', matchId, 'winner:', winner);
   
+  // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
+  // ROOT CAUSE FIX: We already have escrowAddress from the initial match load (line ~1627/1645)
+  // and we just saved the winner. No need to re-query the database - use what we already have!
+  // This eliminates race conditions, transaction isolation issues, and query failures.
+  
   try {
-    // ESCROW SETTLEMENT: Starting escrow check for match:', matchId
-    console.log('=== ESCROW SETTLEMENT START ===');
-    
-    try {
-      console.log('Match ID:', matchId);
-      console.log('Winner:', winner);
-      console.log('Timestamp:', new Date().toISOString());
-    } catch (logError: any) {
-      console.error('❌ Error in initial escrow logs:', logError?.message || String(logError));
-    }
-    
-    try {
-      console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
-        matchId,
-        winner,
-        timestamp: new Date().toISOString(),
-      });
-    } catch (logError2: any) {
-      console.error('❌ Error in structured escrow log:', logError2?.message || String(logError2));
-    }
-
-    // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
-    // Check if this match uses the escrow system (has escrowAddress)
-    // CRITICAL: Must call submit_result FIRST, then settle
-  
-    // Reload match to ensure we have the latest escrowAddress AND winner values from database
-    // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
-    type MatchMeta = {
-      escrowAddress: string | null;
-      winner: string | null;
-      status: string | null;
-      escrowStatus: string | null;
-    };
-    
-    let matchRepository;
-    try {
-      matchRepository = AppDataSource.getRepository(Match);
-      console.log('✅ Repository obtained successfully');
-    } catch (repoError: any) {
-      console.error('❌ Error getting repository:', repoError?.message || String(repoError));
-      throw repoError; // Re-throw to be caught by outer catch
-    }
-    
-    let escrowAddress: string | null = null;
-    let winnerFromDb: string | null = null;
-    
-    console.log('🔍 [Escrow Check] About to query database for escrowAddress and winner');
-    
-    // RETRY LOGIC: Retry reading from DB in case of race condition (DB commit not yet visible)
-    const MAX_RETRIES = 3;
-    const RETRY_DELAY_MS = 100; // Start with 100ms, then exponential backoff
-    let escrowCheckRows: MatchMeta[] | null = null;
-    let lastError: Error | null = null;
-    
-    try {
-    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      try {
-        console.log(`🔍 [Escrow Check] Executing SQL query for matchId: ${matchId} (attempt ${attempt}/${MAX_RETRIES})`);
-        escrowCheckRows = await matchRepository.query(`
-          SELECT "escrowAddress", winner, status, "escrowStatus"
-          FROM "match"
-          WHERE id = $1
-          LIMIT 1
-        `, [matchId]);
-        
-        console.log(`🔍 [Escrow Check] SQL query completed (attempt ${attempt}), rows returned:`, escrowCheckRows?.length || 0);
-        
-        // SQL Row Existence Check: Ensure query returned results
-        if (!escrowCheckRows || escrowCheckRows.length === 0 || !escrowCheckRows[0]) {
-          const errorMsg = `Match ${matchId} not found when refreshing winner & escrow (attempt ${attempt})`;
-          console.error('❌ Match not found when refreshing winner & escrow:', {
-            matchId,
-            attempt,
-            queryResult: escrowCheckRows,
-          });
-          lastError = new Error(errorMsg);
-          if (attempt < MAX_RETRIES) {
-            const delay = RETRY_DELAY_MS * attempt; // Exponential backoff: 100ms, 200ms, 300ms
-            console.log(`⏳ Retrying in ${delay}ms...`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-            continue;
-          } else {
-            throw lastError;
-          }
-        }
-        
-        // Success - break out of retry loop
-        break;
-      } catch (queryError: any) {
-        lastError = queryError instanceof Error ? queryError : new Error(String(queryError));
-        console.error(`❌ SQL query failed (attempt ${attempt}/${MAX_RETRIES}):`, {
-          matchId,
-          error: lastError.message,
-          attempt,
-        });
-        
-        if (attempt < MAX_RETRIES) {
-          const delay = RETRY_DELAY_MS * attempt;
-          console.log(`⏳ Retrying SQL query in ${delay}ms...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        } else {
-          throw lastError; // Re-throw on final attempt
-        }
-      }
-    }
-    
-    if (!escrowCheckRows || escrowCheckRows.length === 0 || !escrowCheckRows[0]) {
-      throw new Error(`Failed to load match data after ${MAX_RETRIES} attempts`);
-    }
-    
-    const matchMeta = escrowCheckRows[0];
-    
-    // Log raw database values IMMEDIATELY after query to avoid truncation
-    console.log('🔍 [Escrow Check] Raw DB values:', {
+    console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
       matchId,
-      'rawEscrowAddress': matchMeta.escrowAddress,
-      'rawWinner': matchMeta.winner,
-      'rawStatus': matchMeta.status,
-      'rawEscrowStatus': matchMeta.escrowStatus,
+      winner,
+      'escrowAddressFromMatch': match?.escrowAddress,
+      timestamp: new Date().toISOString(),
     });
     
-    escrowAddress = matchMeta.escrowAddress || (match as any)?.escrowAddress || null;
-    winnerFromDb = matchMeta.winner || winner || null; // Use DB value, fallback to local variable
+    // ROOT CAUSE FIX: Use values we already have instead of re-querying
+    // escrowAddress was loaded at the start of the function (line ~1627/1645)
+    // winner was just calculated and saved - we have it in the local variable
+    const finalEscrowAddress = match?.escrowAddress || null;
+    const finalWinner = winner; // We just saved this, use it directly
     
-    // Log parsed values separately to avoid truncation
-    console.log('🔍 [Escrow Check] Parsed values:', {
+    // Log what we're using
+    console.log('🔍 [Escrow Check] Using known values (no re-query needed):', {
       matchId,
-      'parsedEscrowAddress': escrowAddress,
-      'parsedWinnerFromDb': winnerFromDb,
-      'winnerLocalVar': winner,
-      'escrowAddressType': typeof escrowAddress,
-      'winnerFromDbType': typeof winnerFromDb,
+      'finalEscrowAddress': finalEscrowAddress,
+      'finalEscrowAddressType': typeof finalEscrowAddress,
+      'finalEscrowAddressLength': finalEscrowAddress && typeof finalEscrowAddress === 'string' ? finalEscrowAddress.trim().length : 0,
+      'finalWinner': finalWinner,
+      'finalWinnerType': typeof finalWinner,
+      'finalWinnerLength': finalWinner && typeof finalWinner === 'string' ? finalWinner.trim().length : 0,
     });
     
-    // Assertion: Ensure winner exists if we have an escrow address
-    if (escrowAddress && !winnerFromDb) {
-      console.error('❌ Escrow address exists but winner is null:', {
-        matchId,
-        escrowAddress,
-        winnerFromDb,
-        winnerLocal: winner,
-      });
-      // Don't throw - this might be a tie that hasn't been processed yet
-      // But log it for monitoring
+    // Validate we have the required data
+    if (!finalEscrowAddress) {
+      console.log('ℹ️ [Escrow Check] No escrowAddress found - match does not use escrow system. Skipping escrow settlement.');
     }
-  } catch (escrowCheckError: any) {
-    console.error('❌ Error checking escrow address:', {
-      matchId,
-      error: escrowCheckError?.message || String(escrowCheckError),
-      stack: escrowCheckError?.stack,
-    });
-    // Continue - escrowAddress will be null and settlement won't run
-    winnerFromDb = winner; // Fallback to local variable if DB query fails
-  }
-  
-  // Log condition checks separately to avoid truncation
-  console.log('🔍 [Escrow Check] Condition evaluation:', {
-    matchId,
-    'escrowAddressExists': !!escrowAddress,
-    'escrowAddressIsString': typeof escrowAddress === 'string',
-    'escrowAddressLength': escrowAddress && typeof escrowAddress === 'string' ? escrowAddress.trim().length : 0,
-  });
-  
-  console.log('🔍 [Escrow Check] Winner evaluation:', {
-    matchId,
-    'winnerFromDbExists': !!winnerFromDb,
-    'winnerFromDbIsString': typeof winnerFromDb === 'string',
-    'winnerFromDbLength': winnerFromDb && typeof winnerFromDb === 'string' ? winnerFromDb.trim().length : 0,
-    'winnerFromDbValue': winnerFromDb, // Log actual value
-  });
-  
-  // Unified escrow settlement handler for wins, ties, and all scenarios
-  // CRITICAL: escrowAddress must be non-null and winner must be truthy (including 'tie')
-  const hasEscrow = escrowAddress && typeof escrowAddress === 'string' && escrowAddress.trim().length > 0;
-  const hasWinner = winnerFromDb && typeof winnerFromDb === 'string' && winnerFromDb.trim().length > 0;
+    if (!finalWinner) {
+      console.warn('⚠️ [Escrow Check] No winner found - cannot settle escrow. This should not happen after determining winner.');
+    }
+    
+    const hasEscrow = finalEscrowAddress && typeof finalEscrowAddress === 'string' && finalEscrowAddress.trim().length > 0;
+    const hasWinner = finalWinner && typeof finalWinner === 'string' && finalWinner.trim().length > 0;
   
   // Log final condition result separately
   console.log('🔍 [Escrow Check] Final condition result:', {
@@ -2230,15 +2118,15 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     try {
       console.log('🏦 Escrow match detected - submitting result and settling on-chain...', {
         matchId,
-        escrowAddress,
-        winner: winnerFromDb, // Use DB value
+        escrowAddress: finalEscrowAddress,
+        winner: finalWinner, // Use final value (DB or fallback)
       });
       
       // Determine result type and winner based on match outcome
       let resultType: 'Win' | 'DrawFullRefund' | 'DrawPartialRefund';
       let winnerForEscrow: string | null;
       
-      if (winnerFromDb === 'tie') { // Use DB value
+      if (finalWinner === 'tie') { // Use final value
         // Ties: refund both players (95% refund via DrawFullRefund)
         resultType = 'DrawFullRefund';
         winnerForEscrow = null; // null winner for ties
@@ -2249,11 +2137,11 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       } else {
         // Wins: winner takes 95% of combined entry fees
         resultType = 'Win';
-        winnerForEscrow = winnerFromDb; // Use DB value
+        winnerForEscrow = finalWinner; // Use final value
         
         // Extra Safety Assertion: Ensure winner exists for Win result type
         if (!winnerForEscrow || winnerForEscrow.trim().length === 0) {
-          throw new Error(`❌ Cannot settle escrow: no winner for match ${matchId}. Result type: ${resultType}, winnerFromDb: ${winnerFromDb}`);
+          throw new Error(`❌ Cannot settle escrow: no winner for match ${matchId}. Result type: ${resultType}, finalWinner: ${finalWinner}`);
         }
         
         console.log('🏦 Processing escrow WIN settlement...', {
@@ -2299,9 +2187,9 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
               const bonusAlreadyPaid = (freshMatch as any)?.bonusPaid === true;
               const bonusSignatureExisting = (freshMatch as any)?.bonusSignature || null;
 
-              const bonusResult = await disburseBonusIfEligible({
-                matchId: matchId,
-                winner: winnerFromDb, // Use DB value
+                const bonusResult = await disburseBonusIfEligible({
+                  matchId: matchId,
+                  winner: finalWinner, // Use final value
             entryFeeSol,
             entryFeeUsd,
             solPriceAtTransaction,
@@ -2358,7 +2246,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       } else {
         console.error('❌ Escrow settlement failed:', {
           matchId,
-          resultType: winner === 'tie' ? 'DrawFullRefund' : 'Win',
+          resultType: finalWinner === 'tie' ? 'DrawFullRefund' : 'Win',
           error: settleResult.error,
           submitResultSignature: settleResult.submitResultSignature || null,
         });
@@ -2367,8 +2255,8 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     } catch (settleError: any) {
       console.error('❌ Error during escrow settlement:', {
         matchId,
-        winner,
-        escrowAddress,
+        winner: finalWinner,
+        escrowAddress: finalEscrowAddress,
         error: settleError?.message || String(settleError),
         stack: settleError?.stack,
       });
@@ -2380,12 +2268,12 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       matchId,
       'hasEscrow': hasEscrow,
       'hasWinner': hasWinner,
-      'escrowAddress': escrowAddress,
-      'escrowAddressType': typeof escrowAddress,
-      'escrowAddressLength': escrowAddress && typeof escrowAddress === 'string' ? escrowAddress.length : 'N/A',
-      'winnerFromDb': winnerFromDb,
-      'winnerFromDbType': typeof winnerFromDb,
-      'winnerFromDbLength': winnerFromDb && typeof winnerFromDb === 'string' ? winnerFromDb.length : 'N/A',
+      'finalEscrowAddress': finalEscrowAddress,
+      'finalEscrowAddressType': typeof finalEscrowAddress,
+      'finalEscrowAddressLength': finalEscrowAddress && typeof finalEscrowAddress === 'string' ? finalEscrowAddress.length : 0,
+      'finalWinner': finalWinner,
+      'finalWinnerType': typeof finalWinner,
+      'finalWinnerLength': finalWinner && typeof finalWinner === 'string' ? finalWinner.length : 0,
       'reason': !hasEscrow ? 'Missing escrowAddress' : !hasWinner ? 'Missing or invalid winner' : 'Unknown',
     });
   }
