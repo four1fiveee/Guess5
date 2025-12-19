@@ -2066,8 +2066,28 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     }
     
     const matchMeta = escrowCheckRows[0];
+    
+    // Log raw database values IMMEDIATELY after query to avoid truncation
+    console.log('🔍 [Escrow Check] Raw DB values:', {
+      matchId,
+      'rawEscrowAddress': matchMeta.escrowAddress,
+      'rawWinner': matchMeta.winner,
+      'rawStatus': matchMeta.status,
+      'rawEscrowStatus': matchMeta.escrowStatus,
+    });
+    
     escrowAddress = matchMeta.escrowAddress || (match as any)?.escrowAddress || null;
     winnerFromDb = matchMeta.winner || winner || null; // Use DB value, fallback to local variable
+    
+    // Log parsed values separately to avoid truncation
+    console.log('🔍 [Escrow Check] Parsed values:', {
+      matchId,
+      'parsedEscrowAddress': escrowAddress,
+      'parsedWinnerFromDb': winnerFromDb,
+      'winnerLocalVar': winner,
+      'escrowAddressType': typeof escrowAddress,
+      'winnerFromDbType': typeof winnerFromDb,
+    });
     
     // Assertion: Ensure winner exists if we have an escrow address
     if (escrowAddress && !winnerFromDb) {
@@ -2090,20 +2110,34 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     winnerFromDb = winner; // Fallback to local variable if DB query fails
   }
   
-  console.log('🔍 Escrow check debug:', {
+  // Log condition checks separately to avoid truncation
+  console.log('🔍 [Escrow Check] Condition evaluation:', {
     matchId,
-    escrowAddress,
-    winner: winnerFromDb, // Use DB value for logging
-    winnerLocal: winner, // Also log local variable for debugging
-    hasEscrowAddress: !!escrowAddress,
-    winnerType: typeof winnerFromDb,
-    winnerTruthy: !!winnerFromDb,
+    'escrowAddressExists': !!escrowAddress,
+    'escrowAddressIsString': typeof escrowAddress === 'string',
+    'escrowAddressLength': escrowAddress && typeof escrowAddress === 'string' ? escrowAddress.trim().length : 0,
+  });
+  
+  console.log('🔍 [Escrow Check] Winner evaluation:', {
+    matchId,
+    'winnerFromDbExists': !!winnerFromDb,
+    'winnerFromDbIsString': typeof winnerFromDb === 'string',
+    'winnerFromDbLength': winnerFromDb && typeof winnerFromDb === 'string' ? winnerFromDb.trim().length : 0,
+    'winnerFromDbValue': winnerFromDb, // Log actual value
   });
   
   // Unified escrow settlement handler for wins, ties, and all scenarios
   // CRITICAL: escrowAddress must be non-null and winner must be truthy (including 'tie')
   const hasEscrow = escrowAddress && typeof escrowAddress === 'string' && escrowAddress.trim().length > 0;
   const hasWinner = winnerFromDb && typeof winnerFromDb === 'string' && winnerFromDb.trim().length > 0;
+  
+  // Log final condition result separately
+  console.log('🔍 [Escrow Check] Final condition result:', {
+    matchId,
+    'hasEscrow': hasEscrow,
+    'hasWinner': hasWinner,
+    'willTriggerSettlement': hasEscrow && hasWinner,
+  });
   
   if (hasEscrow && hasWinner) {
     try {
@@ -2253,6 +2287,20 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
       });
       // Don't throw - match is already marked completed, settlement can be retried via admin endpoint
     }
+  } else {
+    // Settlement condition failed - log why it didn't trigger
+    console.warn('⚠️ [Escrow Check] Settlement condition FAILED - settlement will NOT trigger:', {
+      matchId,
+      'hasEscrow': hasEscrow,
+      'hasWinner': hasWinner,
+      'escrowAddress': escrowAddress,
+      'escrowAddressType': typeof escrowAddress,
+      'escrowAddressLength': escrowAddress && typeof escrowAddress === 'string' ? escrowAddress.length : 'N/A',
+      'winnerFromDb': winnerFromDb,
+      'winnerFromDbType': typeof winnerFromDb,
+      'winnerFromDbLength': winnerFromDb && typeof winnerFromDb === 'string' ? winnerFromDb.length : 'N/A',
+      'reason': !hasEscrow ? 'Missing escrowAddress' : !hasWinner ? 'Missing or invalid winner' : 'Unknown',
+    });
   }
 
   // Calculate net profit and referral earnings after match completion
