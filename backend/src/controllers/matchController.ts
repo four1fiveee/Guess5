@@ -2045,10 +2045,10 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     escrowAddress,
     winner,
     hasEscrowAddress: !!escrowAddress,
-    winnerIsNotTie: winner && winner !== 'tie',
   });
   
-  if (escrowAddress && winner && winner !== 'tie') {
+  // Unified escrow settlement handler for wins, ties, and all scenarios
+  if (escrowAddress && winner) {
     try {
       console.log('🏦 Escrow match detected - submitting result and settling on-chain...', {
         matchId,
@@ -2056,24 +2056,52 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
         winner,
       });
       
+      // Determine result type and winner based on match outcome
+      let resultType: 'Win' | 'DrawFullRefund' | 'DrawPartialRefund';
+      let winnerForEscrow: string | null;
+      
+      if (winner === 'tie') {
+        // Ties: refund both players (95% refund via DrawFullRefund)
+        resultType = 'DrawFullRefund';
+        winnerForEscrow = null; // null winner for ties
+        console.log('🏦 Processing escrow TIE settlement...', {
+          matchId,
+          resultType: 'DrawFullRefund',
+        });
+      } else {
+        // Wins: winner takes 95% of combined entry fees
+        resultType = 'Win';
+        winnerForEscrow = winner;
+        console.log('🏦 Processing escrow WIN settlement...', {
+          matchId,
+          winner: winnerForEscrow,
+          resultType: 'Win',
+        });
+      }
+      
       // CRITICAL FIX: submit_result MUST be called before settle
       // submit_result sets the winner in the escrow account on-chain
-      // settle then reads that winner and pays out
+      // settle then reads that winner and pays out (or refunds for ties)
       const settleResult = await escrowService.submitResultAndSettle(
         matchId,
-        winner,
-        'Win'
+        winnerForEscrow,
+        resultType
       );
       
-      if (settleResult.success && settleResult.signature) {
+      if (settleResult.success && (settleResult.signature || settleResult.settleSignature)) {
+        const settlementSignature = settleResult.settleSignature || settleResult.signature;
         console.log('✅ Escrow settlement transaction executed successfully:', {
           matchId,
-          signature: settleResult.signature,
+          resultType,
+          signature: settlementSignature,
+          submitResultSignature: settleResult.submitResultSignature,
+          settleSignature: settleResult.settleSignature,
         });
         
         // Settlement updates escrowStatus, payoutTxSignature, etc. in database
-        // Now disburse bonus if eligible
-        try {
+        // For wins only: disburse bonus if eligible (ties don't get bonuses)
+        if (resultType === 'Win' && winnerForEscrow) {
+          try {
           const entryFeeSol = match.entryFee ? Number(match.entryFee) : 0;
           const entryFeeUsd = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
           
@@ -2095,7 +2123,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
             solPriceAtTransaction,
             alreadyPaid: bonusAlreadyPaid,
             existingSignature: bonusSignatureExisting,
-            executionSignature: settleResult.signature,
+            executionSignature: settleResult.settleSignature || settleResult.signature,
             executionTimestamp: new Date(),
             executionSlot: undefined, // Escrow settlement doesn't return slot
           });
@@ -2127,63 +2155,40 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
               bonusSignature: bonusResult.signature,
               bonusSol: bonusResult.bonusSol,
               bonusUsd: bonusResult.bonusUsd,
+              tierId: bonusResult.tierId,
+            });
+          } else if (bonusResult.triggered && !bonusResult.success) {
+            console.error('❌ Bonus disbursement failed after escrow settlement:', {
+              matchId,
+              error: bonusResult.error,
             });
           }
         } catch (bonusError: any) {
-          console.error('❌ Error disbursing bonus after escrow settlement:', {
-            matchId,
-            error: bonusError?.message || String(bonusError),
-          });
-          // Don't throw - settlement succeeded, bonus can be retried
+            console.error('❌ Error during bonus disbursement after escrow settlement:', {
+              matchId,
+              error: bonusError?.message || String(bonusError),
+            });
+            // Don't throw - settlement succeeded, bonus can be retried
+          }
         }
       } else {
         console.error('❌ Escrow settlement failed:', {
           matchId,
+          resultType: winner === 'tie' ? 'DrawFullRefund' : 'Win',
           error: settleResult.error,
+          submitResultSignature: settleResult.submitResultSignature || null,
         });
-        // Don't throw - match is already marked completed, settlement can be retried
+        // Don't throw - match is already marked completed, settlement can be retried via admin endpoint
       }
     } catch (settleError: any) {
       console.error('❌ Error during escrow settlement:', {
         matchId,
+        winner,
+        escrowAddress,
         error: settleError?.message || String(settleError),
+        stack: settleError?.stack,
       });
-      // Don't throw - match is already marked completed, settlement can be retried via /settle-match endpoint
-    }
-  } else if ((match as any).escrowAddress && winner === 'tie') {
-    // For ties, settlement still needs to happen to refund players
-    // CRITICAL: Must call submit_result FIRST for ties too
-    try {
-      console.log('🏦 Escrow match tie - submitting result and settling on-chain...', {
-        matchId,
-        escrowAddress: (match as any).escrowAddress,
-        winner: 'tie',
-      });
-      
-      // Determine result type for tie (DrawFullRefund or DrawPartialRefund)
-      // For now, use DrawFullRefund (95% refund) - can be adjusted based on business logic
-      const settleResult = await escrowService.submitResultAndSettle(
-        matchId,
-        null, // null winner for ties
-        'DrawFullRefund'
-      );
-      
-      if (settleResult.success && settleResult.signature) {
-        console.log('✅ Escrow settlement transaction executed successfully for tie:', {
-          matchId,
-          signature: settleResult.signature,
-        });
-      } else {
-        console.error('❌ Escrow settlement failed for tie:', {
-          matchId,
-          error: settleResult.error,
-        });
-      }
-    } catch (settleError: any) {
-      console.error('❌ Error during escrow settlement for tie:', {
-        matchId,
-        error: settleError?.message || String(settleError),
-      });
+      // Don't throw - match is already marked completed, settlement can be retried via admin endpoint
     }
   }
 

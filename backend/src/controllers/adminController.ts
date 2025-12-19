@@ -14,6 +14,7 @@ import { UserService } from '../services/userService';
 import { getNextSunday1300EST, isWithinLockWindow, isWithinExecuteWindow, getCurrentEST, getTimeUntilLockWindow } from '../utils/referralUtils';
 import { PayoutLock } from '../models/PayoutLock';
 import { notifyAdmin } from '../services/notificationService';
+import { submitResultAndSettle } from '../services/escrowService';
 import * as fs from 'fs';
 // csv-parse will be installed as dependency
 let csv: any;
@@ -125,22 +126,27 @@ export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
       });
     }
     
-    // Get winner from match
+    // Get winner from match and determine result type
     const winner = match.winner;
-    if (!winner || winner === 'tie') {
+    let resultType: 'Win' | 'DrawFullRefund' | 'DrawPartialRefund';
+    
+    if (!winner) {
       return res.status(400).json({ 
-        error: 'Match must have a winner (not a tie) to settle. Current winner: ' + (winner || 'null') 
+        error: 'Match must have a winner or tie result. Current winner: null' 
       });
     }
     
-    // Import escrow service
-    const escrowService = require('../services/escrowService');
+    if (winner === 'tie') {
+      resultType = 'DrawFullRefund'; // Use DrawFullRefund for ties (both players get refund)
+    } else {
+      resultType = 'Win';
+    }
     
     // Call submitResultAndSettle (this does submit_result first, then settle)
-    const settleResult = await escrowService.submitResultAndSettle(
+    const settleResult = await submitResultAndSettle(
       matchId,
-      winner,
-      'Win'
+      winner === 'tie' ? null : winner, // Pass null for ties, winner address otherwise
+      resultType
     );
     
     if (settleResult.success && settleResult.settleSignature) {
