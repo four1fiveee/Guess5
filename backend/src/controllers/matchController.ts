@@ -1612,11 +1612,17 @@ const cleanupSelfMatchesHandler = async (req: any, res: any) => {
 // Helper function to determine winner and calculate payout instructions
 // Accepts optional transaction manager for atomic operations
 const determineWinnerAndPayout = async (matchId: any, player1Result: any, player2Result: any, manager?: any) => {
+  // CRITICAL DEBUG: Log function entry - this should ALWAYS appear
+  console.log('[Escrow Debug] Starting determineWinnerAndPayout', { matchId, hasManager: !!manager });
+  
   const { AppDataSource } = require('../db/index');
   
   // Use row-level locking if in transaction (FOR UPDATE prevents concurrent modifications)
   // Use raw SQL to avoid querying non-existent proposalExpiresAt column
   let match: any;
+  
+  // Wrap match loading in try-catch to catch any errors
+  try {
   if (manager) {
     // Use raw SQL with FOR UPDATE lock in transaction
     const matchRows = await manager.query(`
@@ -1648,10 +1654,35 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     `, [matchId]);
   
     if (!matchRows || matchRows.length === 0) {
-    throw new Error('Match not found');
+      console.warn('[Escrow Debug] Match not found, skipping settlement', { matchId });
+      throw new Error('Match not found');
     }
     match = matchRows[0];
+  } catch (matchLoadError: any) {
+    console.error('[Escrow Debug] Error loading match:', { 
+      matchId, 
+      error: matchLoadError?.message || String(matchLoadError),
+      stack: matchLoadError?.stack,
+    });
+    throw matchLoadError; // Re-throw to preserve error flow
   }
+  
+  // CRITICAL DEBUG: Validate match was loaded successfully
+  if (!match) {
+    console.warn('[Escrow Debug] Match is null after load, skipping settlement', { matchId });
+    throw new Error('Match is null after load');
+  }
+  
+  // CRITICAL DEBUG: Enhanced logging immediately after match load
+  console.log('[Escrow Debug] Match loaded', {
+    matchId,
+    escrowAddress: match?.escrowAddress || null,
+    winner: match?.winner || null,
+    isCompleted: match?.isCompleted || false,
+    status: match?.status || match?.matchStatus || null,
+    player1: match?.player1 || null,
+    player2: match?.player2 || null,
+  });
 
   console.log('🏆 Determining winner for match:', matchId);
   console.log('🔍 CRITICAL DEBUG - Player 1 address:', match.player1);
@@ -1670,8 +1701,10 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
 
   let winner = null;
   let payoutResult = null;
-
-  // Winner determination logic:
+  
+  // Wrap winner determination and match saving in try-catch to catch any errors
+  try {
+    // Winner determination logic:
   // 1. Did you solve the puzzle? (Yes/No)
   // 2. If both solved → Fewest moves wins
   // 3. If same moves → Tie breaker by time (faster wins)
@@ -2060,6 +2093,20 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   }
   
   console.log('✅ Match saved successfully with winner:', winner);
+  
+  } catch (winnerDeterminationError: any) {
+    // CRITICAL: Catch any errors during winner determination or match saving
+    console.error('[Escrow Debug] Error before settlement block:', {
+      matchId,
+      error: winnerDeterminationError?.message || String(winnerDeterminationError),
+      stack: winnerDeterminationError?.stack,
+      errorName: winnerDeterminationError?.name,
+      winner,
+      hasPayoutResult: !!payoutResult,
+    });
+    // Re-throw to preserve error flow - caller should handle this
+    throw winnerDeterminationError;
+  }
   
   // CRITICAL: Validate payoutResult exists before proceeding
   if (!payoutResult) {
