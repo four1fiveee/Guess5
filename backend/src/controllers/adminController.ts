@@ -1065,8 +1065,6 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         "bonusAmount",
         "bonusAmountUSD",
         "platformFee",
-        "squadsCost",
-        "squadsCostUSD",
         "netProfit",
         "netProfitUSD",
         "player1Paid",
@@ -1089,7 +1087,6 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       let totalEntryFees = 0;
       let totalPlatformFee = 0;
       let totalBonus = 0;
-      let totalSquadsCost = 0;
       let totalGasCost = 0; // Estimated gas costs
       let totalPayouts = 0;
 
@@ -1115,10 +1112,6 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
           const bonusAmount = parseFloat(match.bonusAmount) || 0;
           totalBonus += bonusAmount;
 
-          // Squads cost
-          const squadsCost = parseFloat(match.squadsCost) || 0;
-          totalSquadsCost += squadsCost;
-
           // Estimate gas costs (roughly 0.001 SOL per transaction)
           const estimatedGas = 0.001; // Conservative estimate
           totalGasCost += estimatedGas;
@@ -1134,14 +1127,13 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         }
       }
 
-      // Net profit = Platform fee - Bonus - Squads cost - Gas (calculate in SOL first)
-      const netProfitSOL = totalPlatformFee - totalBonus - totalSquadsCost - totalGasCost;
+      // Net profit = Platform fee - Bonus - Gas (calculate in SOL first)
+      const netProfitSOL = totalPlatformFee - totalBonus - totalGasCost;
       
       // Convert all SOL amounts to USD using current exchange rate
       const totalEntryFeesUSD = totalEntryFees * solPriceUSD;
       const totalPlatformFeeUSD = totalPlatformFee * solPriceUSD;
       const totalBonusUSD = totalBonus * solPriceUSD;
-      const totalSquadsCostUSD = totalSquadsCost * solPriceUSD;
       const totalGasCostUSD = totalGasCost * solPriceUSD;
       const totalPayoutsUSD = totalPayouts * solPriceUSD;
       const netProfitUSD = netProfitSOL * solPriceUSD;
@@ -1152,7 +1144,6 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         totalEntryFeesSOL: parseFloat(totalEntryFees.toFixed(6)),
         totalPlatformFeeSOL: parseFloat(totalPlatformFee.toFixed(6)),
         totalBonusSOL: parseFloat(totalBonus.toFixed(6)),
-        totalSquadsCostSOL: parseFloat(totalSquadsCost.toFixed(6)),
         totalGasCostSOL: parseFloat(totalGasCost.toFixed(6)),
         totalPayoutsSOL: parseFloat(totalPayouts.toFixed(6)),
         netProfitSOL: parseFloat(netProfitSOL.toFixed(6)),
@@ -1160,7 +1151,6 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         totalEntryFeesUSD: parseFloat(totalEntryFeesUSD.toFixed(2)),
         totalPlatformFeeUSD: parseFloat(totalPlatformFeeUSD.toFixed(2)),
         totalBonusUSD: parseFloat(totalBonusUSD.toFixed(2)),
-        totalSquadsCostUSD: parseFloat(totalSquadsCostUSD.toFixed(2)),
         totalGasCostUSD: parseFloat(totalGasCostUSD.toFixed(2)),
         totalPayoutsUSD: parseFloat(totalPayoutsUSD.toFixed(2)),
         netProfitUSD: parseFloat(netProfitUSD.toFixed(2)),

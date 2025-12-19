@@ -17,7 +17,6 @@ interface FinancialMetrics {
     totalEntryFeesSOL: number;
     totalPlatformFeeSOL: number;
     totalBonusSOL: number;
-    totalSquadsCostSOL: number;
     totalGasCostSOL: number;
     totalPayoutsSOL: number;
     netProfitSOL: number;
@@ -25,7 +24,6 @@ interface FinancialMetrics {
     totalEntryFeesUSD: number;
     totalPlatformFeeUSD: number;
     totalBonusUSD: number;
-    totalSquadsCostUSD: number;
     totalGasCostUSD: number;
     totalPayoutsUSD: number;
     netProfitUSD: number;
@@ -132,6 +130,13 @@ export default function AdminPage() {
   const [referralCsvStartDate, setReferralCsvStartDate] = useState('');
   const [referralCsvEndDate, setReferralCsvEndDate] = useState('');
   const [downloadingReferralCSV, setDownloadingReferralCSV] = useState(false);
+  
+  // Delete all matches state
+  const [deletingAllMatches, setDeletingAllMatches] = useState(false);
+  const [deleteAllConfirmations, setDeleteAllConfirmations] = useState({
+    first: false,
+    second: false,
+  });
 
   // Check if already authenticated on mount
   useEffect(() => {
@@ -273,6 +278,101 @@ export default function AdminPage() {
     setFinancialMetrics(null);
     setFeeWalletBalance(null);
     setReferralPayoutExecution(null);
+  };
+
+  const handleDeleteAllMatches = async () => {
+    if (!token) {
+      alert('Not authenticated. Please log in again.');
+      return;
+    }
+
+    // Reset confirmations
+    setDeleteAllConfirmations({ first: false, second: false });
+
+    // First confirmation
+    const firstConfirm = confirm(
+      '⚠️ WARNING: This will delete ALL match history from the database.\n\n' +
+      'This action is IRREVERSIBLE and will permanently remove:\n' +
+      '• All match records\n' +
+      '• All match statistics\n' +
+      '• All match transaction data\n\n' +
+      'Click OK to proceed to the final confirmation, or Cancel to abort.'
+    );
+
+    if (!firstConfirm) {
+      return;
+    }
+
+    setDeleteAllConfirmations({ first: true, second: false });
+
+    // Second confirmation with different wording
+    const secondConfirm = confirm(
+      '🚨 FINAL CONFIRMATION REQUIRED 🚨\n\n' +
+      'You are about to DELETE ALL MATCH HISTORY.\n\n' +
+      'This will:\n' +
+      '• Permanently delete every match record\n' +
+      '• Remove all historical data\n' +
+      '• Cannot be undone\n\n' +
+      'Type "DELETE ALL" in the next prompt to confirm, or click Cancel to abort.\n\n' +
+      'Are you absolutely certain you want to proceed?'
+    );
+
+    if (!secondConfirm) {
+      setDeleteAllConfirmations({ first: false, second: false });
+      return;
+    }
+
+    // Third confirmation - text input
+    const textConfirm = prompt(
+      '🔴 TYPE "DELETE ALL" TO CONFIRM 🔴\n\n' +
+      'This is your final chance to cancel.\n' +
+      'Type exactly "DELETE ALL" (without quotes) to proceed with deletion:'
+    );
+
+    if (textConfirm !== 'DELETE ALL') {
+      alert('Deletion cancelled. Text did not match "DELETE ALL".');
+      setDeleteAllConfirmations({ first: false, second: false });
+      return;
+    }
+
+    setDeleteAllConfirmations({ first: true, second: true });
+    setDeletingAllMatches(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_URL}/api/admin/delete-all-matches`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || data.message || `Failed to delete all matches: ${response.status}`);
+      }
+
+      alert(
+        `✅ All matches deleted successfully!\n\n` +
+        `Deleted ${data.deletedCount || 0} matches.\n\n` +
+        `The database has been reset and match history will start fresh from this point forward.`
+      );
+
+      // Reset confirmations
+      setDeleteAllConfirmations({ first: false, second: false });
+      
+      // Reload dashboard data
+      loadDashboardData();
+    } catch (err: any) {
+      const errorMsg = err.message || 'Failed to delete all matches';
+      setError(errorMsg);
+      alert(`❌ Error deleting all matches:\n\n${errorMsg}`);
+      setDeleteAllConfirmations({ first: false, second: false });
+    } finally {
+      setDeletingAllMatches(false);
+    }
   };
 
   const handleDeleteMatch = async (matchId: string) => {
@@ -708,13 +808,6 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Squads Costs:</span>
-                      <div className="text-right">
-                        <div className="text-red-400 font-bold">-{financialMetrics.weekly.totalSquadsCostSOL.toFixed(6)} SOL</div>
-                        <div className="text-white/60 text-xs">-${financialMetrics.weekly.totalSquadsCostUSD.toFixed(2)}</div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-white/70">Gas Costs:</span>
                       <div className="text-right">
                         <div className="text-red-400 font-bold">-{financialMetrics.weekly.totalGasCostSOL.toFixed(6)} SOL</div>
@@ -765,13 +858,6 @@ export default function AdminPage() {
                       </div>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-white/70">Squads Costs:</span>
-                      <div className="text-right">
-                        <div className="text-red-400 font-bold">-{financialMetrics.quarterly.totalSquadsCostSOL.toFixed(6)} SOL</div>
-                        <div className="text-white/60 text-xs">-${financialMetrics.quarterly.totalSquadsCostUSD.toFixed(2)}</div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between">
                       <span className="text-white/70">Gas Costs:</span>
                       <div className="text-right">
                         <div className="text-red-400 font-bold">-{financialMetrics.quarterly.totalGasCostSOL.toFixed(6)} SOL</div>
@@ -819,13 +905,6 @@ export default function AdminPage() {
                       <div className="text-right">
                         <div className="text-red-400 font-bold">-{financialMetrics.yearly.totalBonusSOL.toFixed(6)} SOL</div>
                         <div className="text-white/60 text-xs">-${financialMetrics.yearly.totalBonusUSD.toFixed(2)}</div>
-                      </div>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-white/70">Squads Costs:</span>
-                      <div className="text-right">
-                        <div className="text-red-400 font-bold">-{financialMetrics.yearly.totalSquadsCostSOL.toFixed(6)} SOL</div>
-                        <div className="text-white/60 text-xs">-${financialMetrics.yearly.totalSquadsCostUSD.toFixed(2)}</div>
                       </div>
                     </div>
                     <div className="flex justify-between">
@@ -1014,37 +1093,93 @@ export default function AdminPage() {
         {/* Match Management */}
         <div className="bg-white/10 backdrop-blur-sm rounded-xl p-6 border border-white/20">
           <h2 className="text-xl font-bold text-white mb-4">Match Management</h2>
-          <div className="space-y-4">
-            <div className="flex gap-3">
-              <input
-                type="text"
-                id="matchIdInput"
-                placeholder="Enter Match ID (e.g., 15dcfba1-b4a5-4896-b563-937fa04d45f5)"
-                className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
-                onKeyPress={(e) => {
-                  if (e.key === 'Enter') {
-                    const input = e.target as HTMLInputElement;
-                    handleDeleteMatch(input.value);
-                  }
-                }}
-              />
-              <button
-                onClick={() => {
-                  const input = document.getElementById('matchIdInput') as HTMLInputElement;
-                  if (input?.value) {
-                    handleDeleteMatch(input.value);
-                  } else {
-                    alert('Please enter a Match ID');
-                  }
-                }}
-                className="px-6 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors border border-red-500/30 font-semibold"
-              >
-                🗑️ Delete Match
-              </button>
+          <div className="space-y-6">
+            {/* Delete Individual Match */}
+            <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-white">Delete Individual Match</h3>
+              <div className="flex gap-3">
+                <input
+                  type="text"
+                  id="matchIdInput"
+                  placeholder="Enter Match ID (e.g., 15dcfba1-b4a5-4896-b563-937fa04d45f5)"
+                  className="flex-1 px-4 py-2 bg-white/10 border border-white/20 rounded-lg text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500"
+                  onKeyPress={(e) => {
+                    if (e.key === 'Enter') {
+                      const input = e.target as HTMLInputElement;
+                      handleDeleteMatch(input.value);
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    const input = document.getElementById('matchIdInput') as HTMLInputElement;
+                    if (input?.value) {
+                      handleDeleteMatch(input.value);
+                    } else {
+                      alert('Please enter a Match ID');
+                    }
+                  }}
+                  className="px-6 py-2 bg-red-500/20 hover:bg-red-500/30 text-red-300 rounded-lg transition-colors border border-red-500/30 font-semibold"
+                >
+                  🗑️ Delete Match
+                </button>
+              </div>
+              <p className="text-white/50 text-sm">
+                Enter a Match ID above and click Delete to remove it from the database. This is useful for cleaning up test matches.
+              </p>
             </div>
-            <p className="text-white/50 text-sm">
-              Enter a Match ID above and click Delete to remove it from the database. This is useful for cleaning up test matches.
-            </p>
+
+            {/* Delete All Matches - DANGER ZONE */}
+            <div className="border-t border-red-500/30 pt-6">
+              <div className="bg-red-500/10 border-2 border-red-500/40 rounded-xl p-6">
+                <h3 className="text-lg font-bold text-red-400 mb-2">⚠️ DANGER ZONE: Delete All Match History</h3>
+                <p className="text-white/80 text-sm mb-4">
+                  This will permanently delete <strong>ALL</strong> match records from the database. This action is <strong>IRREVERSIBLE</strong>.
+                </p>
+                <div className="bg-red-900/20 border border-red-500/30 rounded-lg p-4 mb-4">
+                  <p className="text-red-300 text-sm font-semibold mb-2">This will delete:</p>
+                  <ul className="text-white/70 text-sm list-disc list-inside space-y-1">
+                    <li>All match records</li>
+                    <li>All match statistics</li>
+                    <li>All match transaction data</li>
+                    <li>All historical match information</li>
+                  </ul>
+                </div>
+                <div className="flex items-center gap-4">
+                  <button
+                    onClick={handleDeleteAllMatches}
+                    disabled={deletingAllMatches}
+                    className={`px-6 py-3 rounded-lg transition-colors border font-bold ${
+                      deletingAllMatches
+                        ? 'bg-gray-500/20 text-gray-400 border-gray-500/30 cursor-not-allowed'
+                        : deleteAllConfirmations.first && deleteAllConfirmations.second
+                        ? 'bg-red-600 hover:bg-red-700 text-white border-red-600 animate-pulse'
+                        : 'bg-red-500/20 hover:bg-red-500/30 text-red-300 border-red-500/40 cursor-pointer'
+                    }`}
+                    title={
+                      deletingAllMatches
+                        ? 'Deleting matches...'
+                        : 'Click to delete all match history (requires multiple confirmations)'
+                    }
+                  >
+                    {deletingAllMatches ? '⏳ Deleting All Matches...' : '🗑️ Delete All Match History'}
+                  </button>
+                  {deleteAllConfirmations.first && (
+                    <span className="text-yellow-400 text-sm font-semibold">
+                      ⚠️ First confirmation accepted - proceed with caution
+                    </span>
+                  )}
+                  {deleteAllConfirmations.second && (
+                    <span className="text-red-400 text-sm font-bold animate-pulse">
+                      🚨 Final confirmation pending - this is your last chance
+                    </span>
+                  )}
+                </div>
+                <p className="text-white/50 text-xs mt-4">
+                  You will be required to confirm multiple times before deletion proceeds. This action cannot be undone.
+                </p>
+              </div>
+            </div>
           </div>
         </div>
 

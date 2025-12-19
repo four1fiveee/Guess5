@@ -10828,7 +10828,7 @@ const generateReportHandler = async (req: any, res: any) => {
         "entryFee",
           "entryFeeUSD",
         status,
-        "squadsVaultAddress",
+        "escrowAddress",
         "depositATx",
         "depositBTx",
         "depositAConfirmations",
@@ -10884,7 +10884,6 @@ const generateReportHandler = async (req: any, res: any) => {
           "bonusPaidAt"
       FROM "match" 
       WHERE ${dateFilter}${walletFilter}
-        AND "squadsVaultAddress" IS NOT NULL
         AND (
             -- Executed payouts (most complete data)
             ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
@@ -10892,8 +10891,8 @@ const generateReportHandler = async (req: any, res: any) => {
             -- Completed matches (may not have proposalStatus set yet)
           (status = 'completed' AND "isCompleted" = true)
           OR 
-            -- Cancelled with refunds
-            (status = 'cancelled' AND "proposalTransactionId" IS NOT NULL)
+            -- Cancelled/refunded matches
+            (status = 'cancelled' OR status = 'canceled')
           OR
             -- Matches with transaction IDs (payouts executed)
             ("proposalTransactionId" IS NOT NULL)
@@ -10909,10 +10908,11 @@ const generateReportHandler = async (req: any, res: any) => {
       console.log(`✅ Full query succeeded with ${matches.length} matches`);
       console.log(`📊 Query stats:`, {
         dateFilter,
-        hasSquadsVault: matches.filter((m: any) => m.squadsVaultAddress).length,
+        hasEscrow: matches.filter((m: any) => m.escrowAddress).length,
         bothPaid: matches.filter((m: any) => m.player1Paid && m.player2Paid).length,
         executed: matches.filter((m: any) => m.proposalStatus === 'EXECUTED').length,
         completed: matches.filter((m: any) => m.status === 'completed').length,
+        canceled: matches.filter((m: any) => m.status === 'cancelled' || m.status === 'canceled').length,
       });
       
       // If no matches found, try relaxed query
@@ -10925,7 +10925,7 @@ const generateReportHandler = async (req: any, res: any) => {
             "player2",
             "entryFee",
             status,
-            "squadsVaultAddress",
+            "escrowAddress",
             "depositATx",
             "depositBTx",
             "player1Paid",
@@ -10945,7 +10945,6 @@ const generateReportHandler = async (req: any, res: any) => {
             "needsSignatures"
           FROM "match" 
           WHERE ${dateFilter}${walletFilter}
-            AND "squadsVaultAddress" IS NOT NULL
           ORDER BY "createdAt" DESC
           LIMIT 100
         `);
@@ -10967,7 +10966,7 @@ const generateReportHandler = async (req: any, res: any) => {
             "player2",
             "entryFee",
             status,
-            "squadsVaultAddress",
+            "escrowAddress",
             "depositATx",
             "depositBTx",
             "player1Paid",
@@ -10997,7 +10996,6 @@ const generateReportHandler = async (req: any, res: any) => {
             "gameEndTimeUtc"
           FROM "match" 
           WHERE ${dateFilter}${walletFilter}
-            AND "squadsVaultAddress" IS NOT NULL
             AND (
               -- Executed payouts
               ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
@@ -11013,6 +11011,9 @@ const generateReportHandler = async (req: any, res: any) => {
               OR
               -- Matches with transaction IDs
               ("proposalTransactionId" IS NOT NULL)
+              OR
+              -- Cancelled/refunded matches
+              (status = 'cancelled' OR status = 'canceled')
             )
           ORDER BY "createdAt" DESC
           LIMIT 100
@@ -11020,7 +11021,7 @@ const generateReportHandler = async (req: any, res: any) => {
         console.log(`✅ Fallback query succeeded with ${matches.length} matches`);
         console.log(`📊 Fallback query stats:`, {
           dateFilter,
-          hasSquadsVault: matches.filter((m: any) => m.squadsVaultAddress).length,
+          hasEscrow: matches.filter((m: any) => m.escrowAddress).length,
           bothPaid: matches.filter((m: any) => m.player1Paid && m.player2Paid).length,
         });
       } catch (fallbackError: any) {
@@ -11035,7 +11036,7 @@ const generateReportHandler = async (req: any, res: any) => {
             "player2",
             "entryFee",
             status,
-            "squadsVaultAddress",
+            "escrowAddress",
             "depositATx",
             "depositBTx",
             "player1Paid",
@@ -11055,7 +11056,6 @@ const generateReportHandler = async (req: any, res: any) => {
             "proposalSigners"
           FROM "match" 
           WHERE ${dateFilter}${walletFilter}
-            AND "squadsVaultAddress" IS NOT NULL
             AND (
               -- Executed payouts
               ("proposalStatus" = 'EXECUTED' AND "proposalTransactionId" IS NOT NULL)
@@ -11071,6 +11071,9 @@ const generateReportHandler = async (req: any, res: any) => {
               OR
               -- Matches with transaction IDs
               ("proposalTransactionId" IS NOT NULL)
+              OR
+              -- Cancelled/refunded matches
+              (status = 'cancelled' OR status = 'canceled')
             )
           ORDER BY "createdAt" DESC
           LIMIT 100
@@ -11078,7 +11081,7 @@ const generateReportHandler = async (req: any, res: any) => {
         console.log(`✅ Minimal query succeeded with ${matches.length} matches`);
         console.log(`📊 Minimal query stats:`, {
           dateFilter,
-          hasSquadsVault: matches.filter((m: any) => m.squadsVaultAddress).length,
+          hasEscrow: matches.filter((m: any) => m.escrowAddress).length,
         });
       }
     }
