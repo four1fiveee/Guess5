@@ -2031,53 +2031,124 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   
   console.log('✅ Match saved successfully with winner:', winner);
   
+  // CRITICAL: Add small delay to ensure DB commit completes before escrow check
+  // This prevents race conditions where escrow block reads stale data
+  const ESCROW_CHECK_DELAY_MS = 150; // 150ms should be enough for most DB commits
+  console.log(`⏳ Waiting ${ESCROW_CHECK_DELAY_MS}ms for DB commit to complete before escrow check...`);
+  await new Promise(resolve => setTimeout(resolve, ESCROW_CHECK_DELAY_MS));
+  console.log('✅ Delay completed, proceeding with escrow check');
+  
   // CRITICAL DEBUG: Log immediately after match save to confirm execution reaches here
   console.log('[DEBUG] About to start escrow settlement check. matchId:', matchId, 'winner:', winner);
   
   try {
     // ESCROW SETTLEMENT: Starting escrow check for match:', matchId
     console.log('=== ESCROW SETTLEMENT START ===');
-    console.log('Match ID:', matchId);
-    console.log('Winner:', winner);
-    console.log('Timestamp:', new Date().toISOString());
-    console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
-      matchId,
-      winner,
-      timestamp: new Date().toISOString(),
-    });
+    
+    try {
+      console.log('Match ID:', matchId);
+      console.log('Winner:', winner);
+      console.log('Timestamp:', new Date().toISOString());
+    } catch (logError: any) {
+      console.error('❌ Error in initial escrow logs:', logError?.message || String(logError));
+    }
+    
+    try {
+      console.log('🔍 [ESCROW SETTLEMENT START] Beginning escrow settlement check for match:', {
+        matchId,
+        winner,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (logError2: any) {
+      console.error('❌ Error in structured escrow log:', logError2?.message || String(logError2));
+    }
 
     // ESCROW SYSTEM: Automatically settle escrow matches after winner is determined
     // Check if this match uses the escrow system (has escrowAddress)
     // CRITICAL: Must call submit_result FIRST, then settle
   
-  // Reload match to ensure we have the latest escrowAddress AND winner values from database
-  // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
-  type MatchMeta = {
-    escrowAddress: string | null;
-    winner: string | null;
-    status: string | null;
-    escrowStatus: string | null;
-  };
-  
-  const matchRepository = AppDataSource.getRepository(Match);
-  let escrowAddress: string | null = null;
-  let winnerFromDb: string | null = null;
-  
-  try {
-    const escrowCheckRows: MatchMeta[] = await matchRepository.query(`
-      SELECT "escrowAddress", winner, status, "escrowStatus"
-      FROM "match"
-      WHERE id = $1
-      LIMIT 1
-    `, [matchId]);
+    // Reload match to ensure we have the latest escrowAddress AND winner values from database
+    // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
+    type MatchMeta = {
+      escrowAddress: string | null;
+      winner: string | null;
+      status: string | null;
+      escrowStatus: string | null;
+    };
     
-    // SQL Row Existence Check: Ensure query returned results
+    let matchRepository;
+    try {
+      matchRepository = AppDataSource.getRepository(Match);
+      console.log('✅ Repository obtained successfully');
+    } catch (repoError: any) {
+      console.error('❌ Error getting repository:', repoError?.message || String(repoError));
+      throw repoError; // Re-throw to be caught by outer catch
+    }
+    
+    let escrowAddress: string | null = null;
+    let winnerFromDb: string | null = null;
+    
+    console.log('🔍 [Escrow Check] About to query database for escrowAddress and winner');
+    
+    // RETRY LOGIC: Retry reading from DB in case of race condition (DB commit not yet visible)
+    const MAX_RETRIES = 3;
+    const RETRY_DELAY_MS = 100; // Start with 100ms, then exponential backoff
+    let escrowCheckRows: MatchMeta[] | null = null;
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      try {
+        console.log(`🔍 [Escrow Check] Executing SQL query for matchId: ${matchId} (attempt ${attempt}/${MAX_RETRIES})`);
+        escrowCheckRows = await matchRepository.query(`
+          SELECT "escrowAddress", winner, status, "escrowStatus"
+          FROM "match"
+          WHERE id = $1
+          LIMIT 1
+        `, [matchId]);
+        
+        console.log(`🔍 [Escrow Check] SQL query completed (attempt ${attempt}), rows returned:`, escrowCheckRows?.length || 0);
+        
+        // SQL Row Existence Check: Ensure query returned results
+        if (!escrowCheckRows || escrowCheckRows.length === 0 || !escrowCheckRows[0]) {
+          const errorMsg = `Match ${matchId} not found when refreshing winner & escrow (attempt ${attempt})`;
+          console.error('❌ Match not found when refreshing winner & escrow:', {
+            matchId,
+            attempt,
+            queryResult: escrowCheckRows,
+          });
+          lastError = new Error(errorMsg);
+          if (attempt < MAX_RETRIES) {
+            const delay = RETRY_DELAY_MS * attempt; // Exponential backoff: 100ms, 200ms, 300ms
+            console.log(`⏳ Retrying in ${delay}ms...`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            continue;
+          } else {
+            throw lastError;
+          }
+        }
+        
+        // Success - break out of retry loop
+        break;
+      } catch (queryError: any) {
+        lastError = queryError instanceof Error ? queryError : new Error(String(queryError));
+        console.error(`❌ SQL query failed (attempt ${attempt}/${MAX_RETRIES}):`, {
+          matchId,
+          error: lastError.message,
+          attempt,
+        });
+        
+        if (attempt < MAX_RETRIES) {
+          const delay = RETRY_DELAY_MS * attempt;
+          console.log(`⏳ Retrying SQL query in ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        } else {
+          throw lastError; // Re-throw on final attempt
+        }
+      }
+    }
+    
     if (!escrowCheckRows || escrowCheckRows.length === 0 || !escrowCheckRows[0]) {
-      console.error('❌ Match not found when refreshing winner & escrow:', {
-        matchId,
-        queryResult: escrowCheckRows,
-      });
-      throw new Error(`Match ${matchId} not found when refreshing winner & escrow`);
+      throw new Error(`Failed to load match data after ${MAX_RETRIES} attempts`);
     }
     
     const matchMeta = escrowCheckRows[0];
