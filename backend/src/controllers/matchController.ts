@@ -2096,6 +2096,7 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
     let escrowCheckRows: MatchMeta[] | null = null;
     let lastError: Error | null = null;
     
+    try {
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
         console.log(`🔍 [Escrow Check] Executing SQL query for matchId: ${matchId} (attempt ${attempt}/${MAX_RETRIES})`);
