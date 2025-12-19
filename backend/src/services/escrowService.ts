@@ -70,12 +70,33 @@ function getProviderWallet(): Wallet {
     throw new Error('FEE_WALLET_PRIVATE_KEY must be set');
   }
 
-  // Decode private key
-  const keypair = Keypair.fromSecretKey(
-    new Uint8Array(JSON.parse(privateKey))
-  );
+  // Decode private key - handle potential prefix/suffix issues
+  try {
+    // Trim any whitespace and check if it's already an array-like string
+    const trimmedKey = privateKey.trim();
+    
+    // Try to parse as JSON array
+    const parsedKey = JSON.parse(trimmedKey);
+    
+    // Ensure it's an array
+    if (!Array.isArray(parsedKey)) {
+      throw new Error('FEE_WALLET_PRIVATE_KEY must be a JSON array');
+    }
+    
+    const keypair = Keypair.fromSecretKey(
+      new Uint8Array(parsedKey)
+    );
 
-  return new Wallet(keypair);
+    return new Wallet(keypair);
+  } catch (parseError: unknown) {
+    const errorMsg = parseError instanceof Error ? parseError.message : String(parseError);
+    console.error('❌ Failed to parse FEE_WALLET_PRIVATE_KEY:', {
+      error: errorMsg,
+      privateKeyPreview: privateKey.substring(0, 20) + '...',
+      privateKeyLength: privateKey.length,
+    });
+    throw new Error(`Failed to parse FEE_WALLET_PRIVATE_KEY: ${errorMsg}`);
+  }
 }
 
 function getProgram(): any {
@@ -440,9 +461,11 @@ export async function submitResultAndSettle(
   let submitSignature: string | undefined;
   
   try {
+    console.log('🔧 [submitResultAndSettle] Initializing program, connection, and repository...', { matchId });
     const program = getProgram();
     const connection = program.provider.connection;
     const matchRepository = AppDataSource.getRepository(Match);
+    console.log('✅ [submitResultAndSettle] Initialization complete', { matchId });
 
     // STEP 1: Submit result on-chain first
     console.log('📝 Step 1: Submitting result to escrow account...', { 
