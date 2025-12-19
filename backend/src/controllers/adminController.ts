@@ -149,40 +149,51 @@ export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
       resultType
     );
     
-    if (settleResult.success && settleResult.settleSignature) {
+    if (settleResult.success && (settleResult.settleSignature || settleResult.signature)) {
+      const settlementSignature = settleResult.settleSignature || settleResult.signature;
       console.log('✅ Admin escrow settlement successful:', {
         matchId,
         submitResultSignature: settleResult.submitResultSignature,
-        settleSignature: settleResult.settleSignature,
+        settleSignature: settlementSignature,
       });
       
       return res.json({
         success: true,
         message: 'Escrow match settled successfully',
         matchId,
-        submitResultSignature: settleResult.submitResultSignature,
-        settleSignature: settleResult.settleSignature,
+        submitResultSignature: settleResult.submitResultSignature || null,
+        settleSignature: settlementSignature,
       });
     } else {
       console.error('❌ Admin escrow settlement failed:', {
         matchId,
         error: settleResult.error,
+        submitResultSignature: settleResult.submitResultSignature || null,
       });
       
       return res.status(500).json({
         success: false,
         error: settleResult.error || 'Settlement failed',
         submitResultSignature: settleResult.submitResultSignature || null,
+        matchId,
       });
     }
     
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
-    console.error('❌ Failed to settle escrow match:', errorMessage);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    console.error('❌ Failed to settle escrow match:', {
+      matchId,
+      error: errorMessage,
+      stack: errorStack,
+    });
     
+    // Ensure we always return valid JSON
     return res.status(500).json({ 
+      success: false,
       error: 'Internal server error',
-      details: errorMessage 
+      details: errorMessage,
+      matchId,
     });
   }
 };

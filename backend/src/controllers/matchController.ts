@@ -2036,9 +2036,15 @@ const determineWinnerAndPayout = async (matchId: any, player1Result: any, player
   // CRITICAL: Must call submit_result FIRST, then settle
   
   // Reload match to ensure we have the latest escrowAddress value
+  // Use raw SQL to ensure we get escrowAddress even if TypeORM doesn't select it
   const matchRepository = AppDataSource.getRepository(Match);
-  const freshMatchForEscrow = await matchRepository.findOne({ where: { id: matchId } });
-  const escrowAddress = freshMatchForEscrow?.escrowAddress || (match as any)?.escrowAddress;
+  const escrowCheckRows = await matchRepository.query(`
+    SELECT "escrowAddress", winner, status, "escrowStatus"
+    FROM "match"
+    WHERE id = $1
+    LIMIT 1
+  `, [matchId]);
+  const escrowAddress = escrowCheckRows?.[0]?.escrowAddress || (match as any)?.escrowAddress;
   
   console.log('🔍 Escrow check debug:', {
     matchId,
