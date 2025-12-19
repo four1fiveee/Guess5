@@ -778,9 +778,25 @@ export async function settleMatch(
 
     // Update match in database with on-chain trace info and attach signature to payoutResult.transactions
     const freshMatch = await matchRepository.findOne({ where: { id: matchId } });
-    let updatedPayoutResult = freshMatch?.payoutResult
-      ? JSON.parse(freshMatch.payoutResult)
-      : null;
+    let updatedPayoutResult = null;
+    if (freshMatch?.payoutResult) {
+      try {
+        // Handle both string and already-parsed JSON
+        updatedPayoutResult = typeof freshMatch.payoutResult === 'string' 
+          ? JSON.parse(freshMatch.payoutResult)
+          : freshMatch.payoutResult;
+      } catch (parseError: unknown) {
+        console.warn('⚠️ Failed to parse payoutResult in settleMatch (non-critical):', {
+          matchId,
+          error: parseError instanceof Error ? parseError.message : String(parseError),
+          payoutResultPreview: typeof freshMatch.payoutResult === 'string' 
+            ? freshMatch.payoutResult.substring(0, 50) 
+            : 'not a string',
+        });
+        // Continue with null - we'll just not update the payoutResult field
+        updatedPayoutResult = null;
+      }
+    }
 
     if (updatedPayoutResult && Array.isArray(updatedPayoutResult.transactions)) {
       updatedPayoutResult.transactions = updatedPayoutResult.transactions.map((t: any) => ({
