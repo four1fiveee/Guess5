@@ -116,7 +116,9 @@ function getProgram(): any {
  */
 export function deriveEscrowPDA(matchId: string): [PublicKey, number] {
   try {
-    // Convert UUID to bytes (remove dashes and convert hex to bytes)
+    // Convert UUID to bytes matching Rust's u128.to_le_bytes() format
+    // Rust does: match_id.to_le_bytes() where match_id is u128
+    // In TypeScript, we need to: UUID hex -> BN -> little-endian bytes (16 bytes)
     const uuidHex = matchId.replace(/-/g, '');
     
     // Validate UUID format (should be 32 hex chars after removing dashes)
@@ -124,7 +126,11 @@ export function deriveEscrowPDA(matchId: string): [PublicKey, number] {
       throw new Error(`Invalid matchId format: expected 32 hex characters, got ${uuidHex.length} (matchId: ${matchId})`);
     }
     
-    const matchIdBytes = Buffer.from(uuidHex, 'hex');
+    // Take first 32 hex chars (16 bytes) and convert to BN, then to little-endian bytes
+    // This matches Rust: match_id.to_le_bytes() where match_id is u128
+    const matchIdHex = uuidHex.substring(0, 32);
+    const matchIdBN = new BN(matchIdHex, 16);
+    const matchIdBytes = matchIdBN.toArrayLike(Buffer, 'le', 16);
     
     // Get PROGRAM_ID (will initialize if needed)
     const programId = getProgramId();
