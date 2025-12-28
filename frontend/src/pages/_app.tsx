@@ -23,10 +23,9 @@ function MyApp({ Component, pageProps }: AppProps) {
     () => [
       new PhantomWalletAdapter(),
       new SolflareWalletAdapter(),
-      new BackpackWalletAdapter(),
-      new GlowWalletAdapter(),
-      new TorusWalletAdapter(),
+      new CoinbaseWalletAdapter(),
       new LedgerWalletAdapter(),
+      new TrustWalletAdapter(),
     ],
     []
   );
