@@ -1,6 +1,7 @@
 import { useRouter } from 'next/router'
 import { WalletConnectButton } from '../components/WalletConnect'
 import { useWallet } from '@solana/wallet-adapter-react'
+import { WalletSetupGuide } from '../components/WalletSetupGuide'
 import { requestMatch, getMatchStatus, getUsername, setUsername as setUsernameAPI, checkUsernameAvailability } from '../utils/api'
 import { Connection, LAMPORTS_PER_SOL } from '@solana/web3.js'
 import { useState, useEffect, useMemo } from 'react'
@@ -638,9 +639,13 @@ export default function Lobby() {
         )}
 
         {!publicKey ? (
-          <div className="bg-secondary bg-opacity-10 rounded-2xl p-8 max-w-md w-full text-center border border-white/10 backdrop-blur-sm">
-            <div className="text-white text-lg font-medium mb-2">Connect Your Wallet</div>
-            <div className="text-white/70 text-sm">Please connect your Phantom wallet to start playing</div>
+          <div className="w-full max-w-4xl">
+            <div className="bg-secondary bg-opacity-10 rounded-2xl p-8 mb-6 text-center border border-white/10 backdrop-blur-sm">
+              <div className="text-white text-lg font-medium mb-2">Connect Your Wallet</div>
+              <div className="text-white/70 text-sm mb-4">Please connect your Solana wallet to start playing</div>
+              <WalletConnectButton />
+            </div>
+            <WalletSetupGuide />
           </div>
         ) : (
           <div className="w-full">

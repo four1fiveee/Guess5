@@ -1,4 +1,5 @@
 import { TopRightWallet } from '../components/WalletConnect';
+import { WalletSetupGuide } from '../components/WalletSetupGuide';
 import Link from 'next/link';
 
 export default function Info() {
@@ -24,7 +25,7 @@ export default function Info() {
           
           <h3 className="text-xl font-bold text-accent mb-3 mt-4">How to Play</h3>
           <ol className="list-decimal list-inside text-sm text-white/90 space-y-2">
-            <li><b>Connect your Phantom wallet</b> using the wallet button in the top right</li>
+            <li><b>Connect your Solana wallet</b> using the wallet button in the top right</li>
             <li><b>Choose a lobby:</b> Select $5, $20, $50, or $100 entry fee (paid in SOL at current market rate)</li>
             <li><b>Get matched:</b> Wait for another player to join the same lobby</li>
             <li><b>Deposit funds:</b> Send your entry fee to the secure multisig vault address</li>
@@ -178,8 +179,8 @@ export default function Info() {
 
             <div>
               <b className="text-accent text-base">Q: Can I play on mobile?</b>
-              <p className="mt-1">Yes! Guess5 works on mobile browsers with Phantom wallet's mobile app. Connect your wallet 
-              through the Phantom app and play directly in your mobile browser.</p>
+              <p className="mt-1">Yes! Guess5 works on mobile browsers with Solana wallet mobile apps (Phantom, Solflare, Backpack, Glow). Connect your wallet 
+              through your wallet app and play directly in your mobile browser.</p>
             </div>
 
             <div>
@@ -195,6 +196,11 @@ export default function Info() {
               Both players will pay the same amount (the lower of the two entry fees) to ensure fairness.</p>
             </div>
           </div>
+        </div>
+
+        {/* Wallet Setup Guide */}
+        <div className="mt-8 w-full">
+          <WalletSetupGuide />
         </div>
 
         {/* Transparency & Data Download */}

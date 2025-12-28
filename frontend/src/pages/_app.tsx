@@ -6,13 +6,31 @@ import { ConnectionProvider, WalletProvider } from '@solana/wallet-adapter-react
 import { WalletModalProvider } from '@solana/wallet-adapter-react-ui';
 import { useMemo, useEffect } from 'react';
 import { Analytics } from '@vercel/analytics/react';
+import {
+  PhantomWalletAdapter,
+  SolflareWalletAdapter,
+  BackpackWalletAdapter,
+  GlowWalletAdapter,
+  TorusWalletAdapter,
+  LedgerWalletAdapter,
+} from '@solana/wallet-adapter-wallets';
 
 function MyApp({ Component, pageProps }: AppProps) {
   const network = WalletAdapterNetwork.Devnet;
   const endpoint = useMemo(() => process.env.NEXT_PUBLIC_SOLANA_NETWORK || 'https://api.devnet.solana.com', []);
-  // Phantom is now a Standard Wallet and doesn't need explicit adapter
-  // The wallet adapter will auto-detect it
-  const wallets = useMemo(() => [], []);
+  
+  // Configure multiple wallet adapters for broader wallet support
+  const wallets = useMemo(
+    () => [
+      new PhantomWalletAdapter(),
+      new SolflareWalletAdapter(),
+      new BackpackWalletAdapter(),
+      new GlowWalletAdapter(),
+      new TorusWalletAdapter(),
+      new LedgerWalletAdapter(),
+    ],
+    []
+  );
 
   // Global error handler to catch CSP violations and other network errors
   useEffect(() => {
