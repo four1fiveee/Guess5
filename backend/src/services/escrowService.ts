@@ -823,31 +823,6 @@ export async function settleMatch(
       }
     }
 
-    // Validate result was submitted or timeout passed
-    const isUnresolved = escrowAccount.resultType === 'Unresolved' || escrowAccount.resultType?.unresolved !== undefined;
-    if (isUnresolved) {
-      // Check if timeout has passed (timeoutAt is i64 in Rust, stored as BN in Anchor)
-      const timeoutAt = escrowAccount.timeoutAt;
-      const timeoutTimestamp = timeoutAt?.toNumber ? timeoutAt.toNumber() : (typeof timeoutAt === 'number' ? timeoutAt : 0);
-      
-      if (timeoutTimestamp > 0) {
-        const currentSlot = await connection.getSlot();
-        const currentBlockTime = await connection.getBlockTime(currentSlot);
-        const currentTimestamp = currentBlockTime || Math.floor(Date.now() / 1000);
-        
-        if (currentTimestamp < timeoutTimestamp) {
-          console.error('❌ Cannot settle: result not submitted and timeout not passed');
-          return {
-            success: false,
-            error: `Cannot settle: result not submitted and timeout not passed. Timeout at: ${new Date(timeoutTimestamp * 1000).toISOString()}, Current: ${new Date(currentTimestamp * 1000).toISOString()}`,
-          };
-        }
-        console.log('⚠️ Settling with Unresolved result (timeout passed)');
-      } else {
-        console.warn('⚠️ Timeout timestamp not available, proceeding with settlement');
-      }
-    }
-
     // Check fee wallet balance
     const feeWalletBalance = await connection.getBalance(feeWallet);
     const minBalance = 0.1 * LAMPORTS_PER_SOL;
