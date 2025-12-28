@@ -9,10 +9,9 @@ import { Analytics } from '@vercel/analytics/react';
 import {
   PhantomWalletAdapter,
   SolflareWalletAdapter,
-  BackpackWalletAdapter,
-  GlowWalletAdapter,
-  TorusWalletAdapter,
   LedgerWalletAdapter,
+  CoinbaseWalletAdapter,
+  TrustWalletAdapter,
 } from '@solana/wallet-adapter-wallets';
 
 function MyApp({ Component, pageProps }: AppProps) {
