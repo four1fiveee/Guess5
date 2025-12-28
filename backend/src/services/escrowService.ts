@@ -775,17 +775,24 @@ export async function settleMatch(
       };
     }
 
-    // PRE-SETTLEMENT VALIDATION
-    console.log('🔍 Pre-settlement validation:', {
-      matchId,
-      escrowPDA: escrowPDA.toString(),
-      gameStatus: escrowAccount.gameStatus,
-      resultType: escrowAccount.resultType,
-      winner: escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null',
-    });
+    // ✅ STEP 1 — Confirm Escrow Account State Is Valid
+    console.log('🏁 About to settle match:', matchId);
+    console.log('🔢 Escrow PDA:', escrowPDA.toString());
+    console.log('⛳ Escrow Status:', escrowAccount.gameStatus);
+    console.log('⛳ Result Type:', escrowAccount.resultType);
+    console.log('⛳ Winner Pubkey:', escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null');
+    console.log('🧾 Players:', match.player1, match.player2);
+    
+    const feeWallet = new PublicKey(config.solana.feeWalletAddress);
+    console.log('💰 Fee Wallet:', feeWallet.toString());
+    
+    const winner = escrowAccount.winner;
+    const winnerPubkey = winner ? new PublicKey(winner).toString() : 'SystemProgram';
+    console.log('🏆 Winner Pubkey:', winnerPubkey);
 
     // Validate escrow is in Active status
     if (escrowAccount.gameStatus !== 'Active') {
+      console.error('❌ Escrow not in Active status. Current status:', JSON.stringify(escrowAccount.gameStatus));
       return {
         success: false,
         error: `Escrow not in Active status. Current status: ${JSON.stringify(escrowAccount.gameStatus)}. Cannot settle.`,
@@ -816,10 +823,35 @@ export async function settleMatch(
       }
     }
 
+    // Validate result was submitted or timeout passed
+    const isUnresolved = escrowAccount.resultType === 'Unresolved' || escrowAccount.resultType?.unresolved !== undefined;
+    if (isUnresolved) {
+      // Check if timeout has passed (timeoutAt is i64 in Rust, stored as BN in Anchor)
+      const timeoutAt = escrowAccount.timeoutAt;
+      const timeoutTimestamp = timeoutAt?.toNumber ? timeoutAt.toNumber() : (typeof timeoutAt === 'number' ? timeoutAt : 0);
+      
+      if (timeoutTimestamp > 0) {
+        const currentSlot = await connection.getSlot();
+        const currentBlockTime = await connection.getBlockTime(currentSlot);
+        const currentTimestamp = currentBlockTime || Math.floor(Date.now() / 1000);
+        
+        if (currentTimestamp < timeoutTimestamp) {
+          console.error('❌ Cannot settle: result not submitted and timeout not passed');
+          return {
+            success: false,
+            error: `Cannot settle: result not submitted and timeout not passed. Timeout at: ${new Date(timeoutTimestamp * 1000).toISOString()}, Current: ${new Date(currentTimestamp * 1000).toISOString()}`,
+          };
+        }
+        console.log('⚠️ Settling with Unresolved result (timeout passed)');
+      } else {
+        console.warn('⚠️ Timeout timestamp not available, proceeding with settlement');
+      }
+    }
+
     // Check fee wallet balance
-    const feeWallet = new PublicKey(config.solana.feeWalletAddress);
     const feeWalletBalance = await connection.getBalance(feeWallet);
     const minBalance = 0.1 * LAMPORTS_PER_SOL;
+    console.log('💰 Fee Wallet Balance:', feeWalletBalance / 1e9, 'SOL');
     
     if (feeWalletBalance < minBalance) {
       console.warn('⚠️ Fee wallet low balance:', {
@@ -830,17 +862,43 @@ export async function settleMatch(
       // Continue anyway - might still work if balance is close
     }
 
+    // Get pre-settlement balances for verification
     const preAccountInfo = await connection.getAccountInfo(escrowPDA);
     const preLamports = preAccountInfo?.lamports ?? 0;
+    const preFeeWalletBalance = feeWalletBalance;
+    const preWinnerBalance = winner ? await connection.getBalance(new PublicKey(winner)) : 0;
+    const prePlayerABalance = await connection.getBalance(new PublicKey(match.player1));
+    const prePlayerBBalance = await connection.getBalance(new PublicKey(match.player2!));
+    
+    console.log('📊 Pre-settlement balances:');
+    console.log('  Escrow PDA:', preLamports / 1e9, 'SOL');
+    console.log('  Fee Wallet:', preFeeWalletBalance / 1e9, 'SOL');
+    if (winner) {
+      console.log('  Winner:', preWinnerBalance / 1e9, 'SOL');
+    }
+    console.log('  Player A:', prePlayerABalance / 1e9, 'SOL');
+    console.log('  Player B:', prePlayerBBalance / 1e9, 'SOL');
 
-    const winner = escrowAccount.winner;
+    // ✅ STEP 2 — Build and Simulate the settle() Transaction
+    console.log('✅ STEP 2: Building settle() instruction...');
+    
+    // Determine winner account based on result type
+    let winnerAccount: PublicKey;
+    if (escrowAccount.resultType?.win !== undefined && winner) {
+      // Win result - use actual winner
+      winnerAccount = new PublicKey(winner);
+      console.log('  Result Type: Win, Winner:', winnerAccount.toString());
+    } else {
+      // Draw/Timeout - use SystemProgram as dummy
+      winnerAccount = SystemProgram.programId;
+      console.log('  Result Type: Draw/Timeout, Using SystemProgram as dummy winner');
+    }
 
-    // Build settle instruction
     const settleIx = await program.methods
       .settle()
       .accounts({
         gameEscrow: escrowPDA,
-        winner: winner ? new PublicKey(winner) : SystemProgram.programId, // Fallback if no winner
+        winner: winnerAccount,
         playerA: new PublicKey(match.player1),
         playerB: new PublicKey(match.player2!),
         feeWallet: feeWallet,
@@ -848,8 +906,7 @@ export async function settleMatch(
       })
       .instruction();
 
-    // SIMULATE TRANSACTION BEFORE SENDING
-    console.log('🧪 Simulating settle transaction...', { matchId });
+    console.log('✅ STEP 2: Simulating settle() transaction...');
     const transaction = new Transaction().add(settleIx);
     const { blockhash } = await connection.getLatestBlockhash();
     transaction.recentBlockhash = blockhash;
@@ -861,32 +918,32 @@ export async function settleMatch(
     });
 
     if (simulation.value.err) {
-      const errorDetails = {
-        error: simulation.value.err,
-        logs: simulation.value.logs || [],
-        computeUnitsUsed: simulation.value.unitsConsumed,
-      };
-      console.error('❌ Settle simulation failed:', {
-        matchId,
-        escrowPDA: escrowPDA.toString(),
-        ...errorDetails,
-      });
+      console.error('❌ settle() simulation failed:', simulation.value.err);
+      console.error('🪵 Logs:', simulation.value.logs);
+      console.error('📊 Compute Units Used:', simulation.value.unitsConsumed);
+      console.error('📊 Compute Units Requested:', simulation.value.unitsRequested);
+      
       return {
         success: false,
         error: `Settle simulation failed: ${JSON.stringify(simulation.value.err)}. Logs: ${simulation.value.logs?.join('; ') || 'none'}`,
       };
     }
 
-    console.log('✅ Settle simulation successful:', {
-      matchId,
-      computeUnitsUsed: simulation.value.unitsConsumed,
-      computeUnitsRequested: simulation.value.unitsRequested,
-    });
+    console.log('✅ Simulation passed.');
+    console.log('📊 Simulation Results:');
+    console.log('  Compute Units Used:', simulation.value.unitsConsumed);
+    console.log('  Compute Units Requested:', simulation.value.unitsRequested);
+    if (simulation.value.logs) {
+      console.log('  Logs:', simulation.value.logs.slice(0, 10)); // First 10 logs
+    }
 
-    // SEND TRANSACTION
+    // ✅ STEP 3 — Send the Transaction If Simulation Passes
+    console.log('✅ STEP 3: Sending settle() transaction...');
+    
     const wallet = getProviderWallet();
     const keypair = (wallet as any).payer;
     if (!keypair || typeof keypair.sign !== 'function') {
+      console.error('❌ Failed to get fee wallet keypair for signing');
       return {
         success: false,
         error: 'Failed to get fee wallet keypair for signing',
@@ -899,17 +956,49 @@ export async function settleMatch(
       { skipPreflight: false, maxRetries: 3 }
     );
 
-    console.log('📤 Settle transaction sent:', { matchId, signature: tx });
-
-    // Confirm and compute exact lamports moved out of the escrow PDA
+    console.log('✅ Settle transaction sent:', tx);
+    
+    // Wait for confirmation
+    console.log('⏳ Waiting for confirmation...');
     await connection.confirmTransaction(tx, 'confirmed');
+    console.log('✅ Transaction confirmed:', tx);
+
+    // ✅ STEP 4 — Verify Transfers (From PDA)
+    console.log('✅ STEP 4: Verifying transfers...');
+    
     const postAccountInfo = await connection.getAccountInfo(escrowPDA);
     const postLamports = postAccountInfo?.lamports ?? 0;
     const payoutTotalLamports = preLamports > postLamports ? preLamports - postLamports : 0;
+    
+    const postFeeWalletBalance = await connection.getBalance(feeWallet);
+    const postWinnerBalance = winner ? await connection.getBalance(new PublicKey(winner)) : 0;
+    const postPlayerABalance = await connection.getBalance(new PublicKey(match.player1));
+    const postPlayerBBalance = await connection.getBalance(new PublicKey(match.player2!));
+    
+    console.log('📊 Post-settlement balances:');
+    console.log('  Escrow PDA:', postLamports / 1e9, 'SOL', `(${preLamports > postLamports ? '↓' : '='} ${(preLamports - postLamports) / 1e9} SOL)`);
+    console.log('  Fee Wallet:', postFeeWalletBalance / 1e9, 'SOL', `(${postFeeWalletBalance > preFeeWalletBalance ? '↑' : '='} ${(postFeeWalletBalance - preFeeWalletBalance) / 1e9} SOL)`);
+    if (winner) {
+      console.log('  Winner:', postWinnerBalance / 1e9, 'SOL', `(${postWinnerBalance > preWinnerBalance ? '↑' : '='} ${(postWinnerBalance - preWinnerBalance) / 1e9} SOL)`);
+    }
+    console.log('  Player A:', postPlayerABalance / 1e9, 'SOL', `(${postPlayerABalance > prePlayerABalance ? '↑' : '='} ${(postPlayerABalance - prePlayerABalance) / 1e9} SOL)`);
+    console.log('  Player B:', postPlayerBBalance / 1e9, 'SOL', `(${postPlayerBBalance > prePlayerBBalance ? '↑' : '='} ${(postPlayerBBalance - prePlayerBBalance) / 1e9} SOL)`);
+    
+    // Verify escrow balance dropped
+    if (postLamports >= preLamports) {
+      console.warn('⚠️ Escrow PDA balance did not decrease! Expected decrease but got:', {
+        pre: preLamports / 1e9,
+        post: postLamports / 1e9,
+        difference: (postLamports - preLamports) / 1e9,
+      });
+    } else {
+      console.log('✅ Escrow PDA balance decreased by:', (preLamports - postLamports) / 1e9, 'SOL');
+    }
 
     console.log('✅ Match settled:', {
       matchId,
       transaction: tx,
+      payoutTotalLamports: payoutTotalLamports / 1e9,
     });
 
     // Update match in database with on-chain trace info and attach signature to payoutResult.transactions
