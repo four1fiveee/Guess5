@@ -775,24 +775,131 @@ export async function settleMatch(
       };
     }
 
+    // PRE-SETTLEMENT VALIDATION
+    console.log('🔍 Pre-settlement validation:', {
+      matchId,
+      escrowPDA: escrowPDA.toString(),
+      gameStatus: escrowAccount.gameStatus,
+      resultType: escrowAccount.resultType,
+      winner: escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null',
+    });
+
+    // Validate escrow is in Active status
+    if (escrowAccount.gameStatus !== 'Active') {
+      return {
+        success: false,
+        error: `Escrow not in Active status. Current status: ${JSON.stringify(escrowAccount.gameStatus)}. Cannot settle.`,
+      };
+    }
+
+    // Validate result was submitted or timeout passed
+    const isUnresolved = escrowAccount.resultType === 'Unresolved' || escrowAccount.resultType?.unresolved !== undefined;
+    if (isUnresolved) {
+      // Check if timeout has passed (timeoutAt is i64 in Rust, stored as BN in Anchor)
+      const timeoutAt = escrowAccount.timeoutAt;
+      const timeoutTimestamp = timeoutAt?.toNumber ? timeoutAt.toNumber() : (typeof timeoutAt === 'number' ? timeoutAt : 0);
+      
+      if (timeoutTimestamp > 0) {
+        const currentSlot = await connection.getSlot();
+        const currentBlockTime = await connection.getBlockTime(currentSlot);
+        const currentTimestamp = currentBlockTime || Math.floor(Date.now() / 1000);
+        
+        if (currentTimestamp < timeoutTimestamp) {
+          return {
+            success: false,
+            error: `Cannot settle: result not submitted and timeout not passed. Timeout at: ${new Date(timeoutTimestamp * 1000).toISOString()}, Current: ${new Date(currentTimestamp * 1000).toISOString()}`,
+          };
+        }
+        console.log('⚠️ Settling with Unresolved result (timeout passed)');
+      } else {
+        console.warn('⚠️ Timeout timestamp not available, proceeding with settlement');
+      }
+    }
+
+    // Check fee wallet balance
+    const feeWallet = new PublicKey(config.solana.feeWalletAddress);
+    const feeWalletBalance = await connection.getBalance(feeWallet);
+    const minBalance = 0.1 * LAMPORTS_PER_SOL;
+    
+    if (feeWalletBalance < minBalance) {
+      console.warn('⚠️ Fee wallet low balance:', {
+        balance: feeWalletBalance / 1e9,
+        minRequired: minBalance / 1e9,
+        feeWallet: feeWallet.toString(),
+      });
+      // Continue anyway - might still work if balance is close
+    }
+
     const preAccountInfo = await connection.getAccountInfo(escrowPDA);
     const preLamports = preAccountInfo?.lamports ?? 0;
 
     const winner = escrowAccount.winner;
 
-    const feeWallet = new PublicKey(config.solana.feeWalletAddress);
-
-    const tx = await program.methods
+    // Build settle instruction
+    const settleIx = await program.methods
       .settle()
       .accounts({
         gameEscrow: escrowPDA,
-        winner: winner || SystemProgram.programId, // Fallback if no winner
+        winner: winner ? new PublicKey(winner) : SystemProgram.programId, // Fallback if no winner
         playerA: new PublicKey(match.player1),
         playerB: new PublicKey(match.player2!),
         feeWallet: feeWallet,
         systemProgram: SystemProgram.programId,
       })
-      .rpc();
+      .instruction();
+
+    // SIMULATE TRANSACTION BEFORE SENDING
+    console.log('🧪 Simulating settle transaction...', { matchId });
+    const transaction = new Transaction().add(settleIx);
+    const { blockhash } = await connection.getLatestBlockhash();
+    transaction.recentBlockhash = blockhash;
+    transaction.feePayer = feeWallet;
+
+    const simulation = await connection.simulateTransaction(transaction, {
+      replaceRecentBlockhash: true,
+      sigVerify: false,
+    });
+
+    if (simulation.value.err) {
+      const errorDetails = {
+        error: simulation.value.err,
+        logs: simulation.value.logs || [],
+        computeUnitsUsed: simulation.value.unitsConsumed,
+      };
+      console.error('❌ Settle simulation failed:', {
+        matchId,
+        escrowPDA: escrowPDA.toString(),
+        ...errorDetails,
+      });
+      return {
+        success: false,
+        error: `Settle simulation failed: ${JSON.stringify(simulation.value.err)}. Logs: ${simulation.value.logs?.join('; ') || 'none'}`,
+      };
+    }
+
+    console.log('✅ Settle simulation successful:', {
+      matchId,
+      computeUnitsUsed: simulation.value.unitsConsumed,
+      computeUnitsRequested: simulation.value.unitsRequested,
+    });
+
+    // SEND TRANSACTION
+    const wallet = getProviderWallet();
+    const keypair = (wallet as any).payer;
+    if (!keypair || typeof keypair.sign !== 'function') {
+      return {
+        success: false,
+        error: 'Failed to get fee wallet keypair for signing',
+      };
+    }
+
+    transaction.sign(keypair);
+    const tx = await connection.sendRawTransaction(
+      transaction.serialize(),
+      { skipPreflight: false, maxRetries: 3 }
+    );
+
+    console.log('📤 Settle transaction sent:', { matchId, signature: tx });
 
     // Confirm and compute exact lamports moved out of the escrow PDA
     await connection.confirmTransaction(tx, 'confirmed');
