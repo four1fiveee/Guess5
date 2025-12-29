@@ -838,6 +838,31 @@ export default function Lobby() {
                 </div>
               )}
 
+              {/* Practice Mode Section */}
+              <div className="bg-gradient-to-br from-blue-500/10 via-blue-600/10 to-blue-500/10 rounded-xl p-6 mb-6 border-2 border-blue-400/30 backdrop-blur-sm">
+                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+                  <div className="flex-1">
+                    <h3 className="text-xl font-bold text-blue-300 mb-2">New to Guess5? Try Practice Mode</h3>
+                    <p className="text-white/80 text-sm mb-3">
+                      Play a full game without any real money at stake. Learn the rules, get comfortable with the gameplay, and see how the results page works—all risk-free.
+                    </p>
+                    <div className="flex flex-wrap gap-2 text-xs text-white/70">
+                      <span className="bg-white/10 px-2 py-1 rounded">✓ No deposit required</span>
+                      <span className="bg-white/10 px-2 py-1 rounded">✓ No waiting for opponents</span>
+                      <span className="bg-white/10 px-2 py-1 rounded">✓ Full game experience</span>
+                    </div>
+                  </div>
+                  <Link href="/practice-intro">
+                    <button className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white font-bold px-6 py-3 rounded-lg transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg min-h-[48px] flex items-center justify-center gap-2">
+                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      <span>Start Practice Round</span>
+                    </button>
+                  </Link>
+                </div>
+              </div>
+
               {/* Pending Refunds That Need Signing */}
               {pendingClaims?.hasPendingRefunds && !pendingClaims.refundCanBeExecuted && pendingClaims.pendingRefunds.length > 0 && (
                 <div className="bg-orange-500/20 border-2 border-orange-500/50 rounded-xl p-5 mb-6 backdrop-blur-sm">
