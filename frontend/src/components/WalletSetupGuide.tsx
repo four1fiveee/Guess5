@@ -4,7 +4,8 @@ interface WalletInfo {
   name: string;
   downloadUrl: string;
   description: string;
-  mobile?: boolean;
+  desktop: boolean;
+  mobile: boolean;
 }
 
 const WALLETS: WalletInfo[] = [
@@ -12,30 +13,35 @@ const WALLETS: WalletInfo[] = [
     name: 'Phantom',
     downloadUrl: 'https://phantom.app/',
     description: 'Most popular Solana wallet with browser extension and mobile app',
+    desktop: true,
     mobile: true,
   },
   {
     name: 'Solflare',
     downloadUrl: 'https://solflare.com/',
     description: 'Secure multi-chain wallet with advanced features',
+    desktop: true,
     mobile: true,
   },
   {
     name: 'Coinbase Wallet',
     downloadUrl: 'https://www.coinbase.com/wallet',
     description: 'Connects to your Coinbase account for easy crypto management',
+    desktop: true,
     mobile: true,
   },
   {
     name: 'Ledger',
     downloadUrl: 'https://www.ledger.com/ledger-live/download',
-    description: 'Hardware wallet for enhanced security',
+    description: 'Hardware wallet for enhanced security (requires physical device)',
+    desktop: true,
     mobile: false,
   },
   {
     name: 'Trust Wallet',
     downloadUrl: 'https://trustwallet.com/download',
     description: 'Secure multi-chain crypto wallet',
+    desktop: true,
     mobile: true,
   },
 ];
@@ -47,9 +53,13 @@ export const WalletSetupGuide: React.FC = () => {
         <h2 className="text-2xl font-bold text-accent mb-3">
           Need a Solana Wallet?
         </h2>
-        <p className="text-white/70 text-sm">
+        <p className="text-white/70 text-sm mb-3">
           Choose from these popular wallet options to get started. Click any wallet to visit their official download page.
         </p>
+        <div className="bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/70">
+          <p className="mb-1"><strong className="text-white">Desktop Extension:</strong> Install in your browser (Chrome, Firefox, Edge, Brave) to use on your computer.</p>
+          <p><strong className="text-white">Mobile App:</strong> Download from App Store (iOS) or Google Play (Android) to use on your phone or tablet.</p>
+        </div>
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
@@ -62,15 +72,27 @@ export const WalletSetupGuide: React.FC = () => {
             className="group bg-white/5 hover:bg-white/10 border border-white/10 hover:border-accent/50 rounded-lg p-4 transition-all duration-200 hover:shadow-lg"
           >
             <div className="flex flex-col h-full">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-white font-bold text-base group-hover:text-accent transition-colors">
+              <div className="mb-2">
+                <h3 className="text-white font-bold text-base group-hover:text-accent transition-colors mb-2">
                   {wallet.name}
                 </h3>
-                {wallet.mobile && (
-                  <span className="text-[10px] bg-green-500/20 text-green-300 px-2 py-0.5 rounded border border-green-500/30">
-                    Mobile
-                  </span>
-                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {wallet.desktop && (
+                    <span className="text-[10px] bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded border border-blue-500/30">
+                      Desktop
+                    </span>
+                  )}
+                  {wallet.mobile && (
+                    <span className="text-[10px] bg-green-500/20 text-green-300 px-2 py-0.5 rounded border border-green-500/30">
+                      Mobile
+                    </span>
+                  )}
+                  {!wallet.desktop && !wallet.mobile && (
+                    <span className="text-[10px] bg-gray-500/20 text-gray-300 px-2 py-0.5 rounded border border-gray-500/30">
+                      Desktop Only
+                    </span>
+                  )}
+                </div>
               </div>
               <p className="text-white/60 text-xs leading-relaxed mb-3 flex-grow">
                 {wallet.description}
@@ -118,10 +140,10 @@ export const WalletSetupGuide: React.FC = () => {
               First time using a crypto wallet?
             </h4>
             <p className="text-white/70 text-xs leading-relaxed">
-              After installing a wallet extension, you'll need to create a new wallet or import an existing one. 
+              After installing a wallet (desktop extension or mobile app), you'll need to create a new wallet or import an existing one. 
               Make sure to{' '}
               <strong className="text-white">save your recovery phrase</strong> in a safe place - 
-              you'll need it to restore your wallet if you lose access.
+              you'll need it to restore your wallet if you lose access. You can use the same wallet on both desktop and mobile by importing your recovery phrase.
             </p>
           </div>
         </div>
