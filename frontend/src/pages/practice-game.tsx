@@ -114,49 +114,49 @@ export default function PracticeGame() {
   };
 
   return (
-    <div className="flex flex-col items-center min-h-screen bg-primary px-6 py-12 relative">
+    <div className="flex flex-col items-center min-h-screen bg-primary px-3 sm:px-6 py-2 sm:py-4 relative">
       <TopRightWallet />
-      <div className="flex flex-col items-center max-w-4xl w-full">
+      <div className="flex flex-col items-center max-w-4xl w-full h-screen sm:h-auto">
         
-        {/* Header */}
-        <div className="w-full mb-6">
-          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-3 mb-4">
-            <div className="flex items-center gap-2 text-blue-300 text-sm font-semibold">
-              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Practice Mode - No real money at stake
+        {/* Compact Header - Practice Mode Badge */}
+        <div className="w-full mb-2 sm:mb-3 flex items-center justify-between gap-2">
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 flex items-center gap-1.5">
+            <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-blue-300 text-xs sm:text-sm font-semibold">Practice Mode</span>
+          </div>
+          
+          {/* Compact Timer and Guesses */}
+          <div className="flex gap-2">
+            <div className="bg-white/10 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 border border-white/20">
+              <div className="text-white/70 text-[10px] sm:text-xs mb-0.5">Time</div>
+              <div className={`text-sm sm:text-lg font-bold ${timeRemaining <= 30 ? 'text-red-400' : 'text-white'}`}>
+                {formatTime(timeRemaining)}
+              </div>
+            </div>
+            <div className="bg-white/10 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 border border-white/20">
+              <div className="text-white/70 text-[10px] sm:text-xs mb-0.5">Guesses</div>
+              <div className="text-sm sm:text-lg font-bold text-white">
+                {remainingGuesses}/7
+              </div>
             </div>
           </div>
         </div>
 
-        {/* Timer and Guesses */}
-        <div className="flex gap-4 mb-6 flex-wrap justify-center">
-          <div className="bg-white/10 rounded-lg px-6 py-3 border border-white/20">
-            <div className="text-white/70 text-xs mb-1">Time Remaining</div>
-            <div className={`text-2xl font-bold ${timeRemaining <= 30 ? 'text-red-400' : 'text-white'}`}>
-              {formatTime(timeRemaining)}
-            </div>
-          </div>
-          <div className="bg-white/10 rounded-lg px-6 py-3 border border-white/20">
-            <div className="text-white/70 text-xs mb-1">Guesses Remaining</div>
-            <div className="text-2xl font-bold text-white">
-              {remainingGuesses}/7
-            </div>
-          </div>
-        </div>
-
-        {/* Game Grid */}
+        {/* Game Grid - Fixed height container on mobile to prevent scrolling */}
         {gameState === 'playing' && (
-          <div className="mb-6 w-full">
-            <GameGrid
-              guesses={guesses}
-              currentGuess={currentGuess}
-              setCurrentGuess={setCurrentGuess}
-              onGuess={handleGuess}
-              remainingGuesses={remainingGuesses}
-              targetWord={targetWord}
-            />
+          <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 pb-2 sm:pb-6">
+            <div className="w-full max-w-md h-full flex flex-col items-center justify-center">
+              <GameGrid
+                guesses={guesses}
+                currentGuess={currentGuess}
+                setCurrentGuess={setCurrentGuess}
+                onGuess={handleGuess}
+                remainingGuesses={remainingGuesses}
+                targetWord={targetWord}
+              />
+            </div>
           </div>
         )}
 

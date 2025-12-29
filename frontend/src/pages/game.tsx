@@ -1137,18 +1137,61 @@ const Game: React.FC = () => {
     );
   }
 
+  // Calculate entry fee tier
+  const getEntryFeeTier = (): string | null => {
+    if (!entryFee || !solPrice) return null;
+    const usdAmount = entryFee * solPrice;
+    const categories = [5, 20, 50, 100];
+    const tier = categories.reduce((prev, curr) => 
+      Math.abs(curr - usdAmount) < Math.abs(prev - usdAmount) ? curr : prev
+    );
+    return `$${tier}`;
+  };
+
+  const entryFeeTier = getEntryFeeTier();
+
   return (
-    <div className="flex flex-col items-center justify-center min-h-screen bg-primary px-2 relative">
+    <div className="flex flex-col items-center min-h-screen bg-primary px-3 sm:px-6 py-2 sm:py-4 relative">
       <TopRightWallet />
-      <div className="flex flex-col items-center">
-        {/* Logo prominently displayed at the top */}
-        <div className="logo-shell mb-4 sm:mb-6">
-          <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
-        </div>
+      <div className="flex flex-col items-center w-full max-w-4xl h-screen sm:h-auto">
+        {/* Compact Header - Entry Fee Tier Badge */}
+        {gameState === 'playing' && entryFeeTier && (
+          <div className="w-full mb-2 sm:mb-3 flex items-center justify-between gap-2">
+            <div className="bg-accent/10 border border-accent/30 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 flex items-center gap-1.5">
+              <svg className="w-3 h-3 sm:w-4 sm:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              <span className="text-accent text-xs sm:text-sm font-semibold">Competing in {entryFeeTier} Tier</span>
+            </div>
+            
+            {/* Compact Timer and Guesses */}
+            <div className="flex gap-2">
+              <div className="bg-white/10 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 border border-white/20">
+                <div className="text-white/70 text-[10px] sm:text-xs mb-0.5">Time</div>
+                <div className={`text-sm sm:text-lg font-bold ${timeRemaining <= 30 ? 'text-red-400' : 'text-white'}`}>
+                  {formatTime(timeRemaining)}
+                </div>
+              </div>
+              <div className="bg-white/10 rounded-lg px-2 py-1 sm:px-3 sm:py-1.5 border border-white/20">
+                <div className="text-white/70 text-[10px] sm:text-xs mb-0.5">Guesses</div>
+                <div className="text-sm sm:text-lg font-bold text-white">
+                  {remainingGuesses}/7
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
         
-        {/* Timer */}
+        {/* Logo - Hidden on mobile when playing, shown on larger screens */}
+        {gameState !== 'playing' && (
+          <div className="logo-shell mb-4 sm:mb-6">
+            <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />
+          </div>
+        )}
+        
+        {/* Timer - Desktop only (mobile uses compact header) */}
         {gameState === 'playing' && (
-          <div className="bg-gradient-to-br from-white/5 via-white/10 to-white/5 backdrop-blur-sm rounded-2xl p-4 sm:p-6 mb-6 border border-white/20 shadow-xl w-full max-w-md">
+          <div className="hidden sm:block bg-gradient-to-br from-white/5 via-white/10 to-white/5 backdrop-blur-sm rounded-2xl p-4 sm:p-6 mb-6 border border-white/20 shadow-xl w-full max-w-md">
             <div className="flex items-center justify-center gap-3 mb-3">
               <span className="text-2xl">⏰</span>
               <span className="text-accent text-xl sm:text-2xl font-bold">Time Remaining: {formatTime(timeRemaining)}</span>
@@ -1207,7 +1250,7 @@ const Game: React.FC = () => {
           </div>
         )}
 
-        {/* Entry Fee & Potential Winnings Display - Only show during active gameplay */}
+        {/* Entry Fee & Potential Winnings Display - Desktop only, hidden on mobile */}
         {gameState === 'playing' && entryFee > 0 && (() => {
           const calculateRoundedEntryFeeUSD = (solAmount: number, solPrice: number | null): number | null => {
             if (!solPrice) return null;
@@ -1222,7 +1265,7 @@ const Game: React.FC = () => {
           const potentialWinningsUSD = solPrice ? (potentialWinningsSOL * solPrice).toFixed(2) : null;
           
           return (
-            <div className="mb-4 flex justify-center gap-3 flex-wrap">
+            <div className="hidden sm:flex mb-4 justify-center gap-3 flex-wrap">
               <div className="bg-gradient-to-r from-white/10 via-white/5 to-white/10 backdrop-blur-sm rounded-xl px-5 py-3 border border-white/20 shadow-lg">
                 <div className="flex items-center gap-3">
                   <span className="text-white text-xl">💵</span>
@@ -1255,17 +1298,19 @@ const Game: React.FC = () => {
           );
         })()}
 
-        {/* Game Grid - No box wrapper */}
+        {/* Game Grid - Fixed height container on mobile to prevent scrolling */}
         {gameState === 'playing' && (
-          <div className="mb-6">
-            <GameGrid
-              guesses={guesses}
-              currentGuess={currentGuess}
-              setCurrentGuess={setCurrentGuess}
-              onGuess={handleGuess}
-              remainingGuesses={remainingGuesses}
-              targetWord={targetWord}
-            />
+          <div className="w-full flex-1 flex flex-col items-center justify-center min-h-0 pb-2 sm:pb-6">
+            <div className="w-full max-w-md h-full flex flex-col items-center justify-center">
+              <GameGrid
+                guesses={guesses}
+                currentGuess={currentGuess}
+                setCurrentGuess={setCurrentGuess}
+                onGuess={handleGuess}
+                remainingGuesses={remainingGuesses}
+                targetWord={targetWord}
+              />
+            </div>
           </div>
         )}
 

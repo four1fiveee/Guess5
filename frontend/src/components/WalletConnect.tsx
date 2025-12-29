@@ -230,7 +230,7 @@ export const TopRightWallet: React.FC = () => {
 
   return (
     <>
-      <div className="absolute top-3 right-3 sm:top-4 sm:right-4 z-50">
+      <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-50">
         <div className="bg-white/5 backdrop-blur-md rounded-lg border border-white/10 shadow-lg transition-all duration-200 hover:border-white/20 hover:bg-white/8">
           {editingUsername ? (
             <div className="p-3 space-y-2.5 min-w-[280px]">
@@ -276,9 +276,9 @@ export const TopRightWallet: React.FC = () => {
               </div>
             </div>
           ) : (
-            <div className="flex items-center gap-2.5 px-3 py-2.5">
-              {/* Username */}
-              <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5 sm:gap-2.5 px-2 sm:px-3 py-1.5 sm:py-2.5">
+              {/* Username - Hidden on mobile, shown on larger screens */}
+              <div className="hidden sm:flex items-center gap-2">
                 {username ? (
                   <>
                     <button
@@ -314,33 +314,33 @@ export const TopRightWallet: React.FC = () => {
                 )}
               </div>
 
-              {/* Divider */}
-              <div className="h-5 w-px bg-white/20"></div>
+              {/* Divider - Hidden on mobile */}
+              <div className="hidden sm:block h-5 w-px bg-white/20"></div>
 
-              {/* Balance */}
-              <div className="flex items-center gap-1.5 px-2 py-1 rounded-md bg-accent/10 border border-accent/20">
-                <div className="text-accent text-xs font-black tracking-tight">
+              {/* Balance - Compact on mobile */}
+              <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md bg-accent/10 border border-accent/20">
+                <div className="text-accent text-[10px] sm:text-xs font-black tracking-tight">
                   {walletBalance !== null ? (
                     <span className="flex items-baseline gap-0.5">
-                      <span>{walletBalance.toFixed(4)}</span>
-                      <span className="text-[10px] font-bold text-accent/70">SOL</span>
+                      <span>{walletBalance.toFixed(2)}</span>
+                      <span className="text-[8px] sm:text-[10px] font-bold text-accent/70">SOL</span>
                     </span>
                   ) : (
-                    <span className="text-white/40 text-[10px]">...</span>
+                    <span className="text-white/40 text-[8px] sm:text-[10px]">...</span>
                   )}
                 </div>
               </div>
 
-              {/* Divider */}
-              <div className="h-5 w-px bg-white/20"></div>
+              {/* Divider - Hidden on mobile */}
+              <div className="hidden sm:block h-5 w-px bg-white/20"></div>
 
-              {/* Disconnect Button */}
+              {/* Disconnect Button - Smaller on mobile */}
               <button
-                className="p-1.5 rounded-md bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all duration-200 group"
+                className="p-1 sm:p-1.5 rounded-md bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 hover:border-red-500/40 transition-all duration-200 group"
                 onClick={disconnect}
                 title="Disconnect wallet"
               >
-                <svg className="w-3.5 h-3.5 text-red-400 group-hover:text-red-300 group-hover:rotate-90 transition-all duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-red-400 group-hover:text-red-300 group-hover:rotate-90 transition-all duration-200" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
               </button>

@@ -65,18 +65,18 @@ const GameGrid: React.FC<{
   }
 
   return (
-    <div className="flex flex-col items-center justify-center w-full">
-      {/* Render 7 rows for guesses */}
-      <div className="flex flex-col gap-3 items-center mb-6">
+    <div className="flex flex-col items-center justify-center w-full h-full">
+      {/* Render 7 rows for guesses - Compact on mobile */}
+      <div className="flex flex-col gap-1.5 sm:gap-3 items-center mb-3 sm:mb-6 flex-1 justify-center overflow-y-auto max-h-full">
         {[...Array(7)].map((_, row) => {
           const guess = guesses[row] || ''
           const isCurrentRow = row === guesses.length
           const rowHintColors = hintColors[row] || []
           
           return (
-            <div key={row} className="flex gap-3 justify-center">
+            <div key={row} className="flex gap-1.5 sm:gap-3 justify-center">
               {[...Array(5)].map((_, col) => {
-                let cellClass = 'w-14 h-14 flex items-center justify-center border-2 rounded-full text-2xl font-bold transition-all duration-200'
+                let cellClass = 'w-10 h-10 sm:w-14 sm:h-14 flex items-center justify-center border-2 rounded-full text-lg sm:text-2xl font-bold transition-all duration-200'
                 let displayLetter = ''
                 
                 if (guess) {
@@ -104,11 +104,11 @@ const GameGrid: React.FC<{
         })}
       </div>
       
-      {/* Input for current guess */}
+      {/* Input for current guess - Compact on mobile */}
       {remainingGuesses > 0 && (
-        <div className="flex flex-col items-center gap-4 w-full max-w-md">
-          <div className="text-accent text-lg font-semibold">Guess {7 - remainingGuesses + 1} of 7</div>
-          <div className="flex gap-3 justify-center w-full">
+        <div className="flex flex-col items-center gap-2 sm:gap-4 w-full max-w-md">
+          <div className="text-accent text-sm sm:text-lg font-semibold">Guess {7 - remainingGuesses + 1} of 7</div>
+          <div className="flex gap-2 sm:gap-3 justify-center w-full px-2">
             <input
               type="text"
               maxLength={5}
@@ -118,10 +118,10 @@ const GameGrid: React.FC<{
                 const filteredValue = e.target.value.replace(/[^A-Za-z]/g, '').toUpperCase();
                 setCurrentGuess(filteredValue);
               }}
-              className="px-6 py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white text-center text-xl font-semibold placeholder-white/50 focus:outline-none focus:border-accent"
+              className="flex-1 px-3 sm:px-6 py-2 sm:py-3 rounded-lg border-2 border-white/30 bg-white/10 text-white text-center text-base sm:text-xl font-semibold placeholder-white/50 focus:outline-none focus:border-accent"
               disabled={remainingGuesses <= 0}
               onKeyDown={handleKeyDown}
-              placeholder="Enter 5-letter word"
+              placeholder="Enter word"
               autoFocus
               // Mobile optimizations
               autoComplete="off"
@@ -134,7 +134,7 @@ const GameGrid: React.FC<{
             />
             <button
               onClick={handleSubmit}
-              className="px-6 py-3 bg-accent text-primary rounded-lg font-bold text-lg hover:bg-yellow-400 hover:shadow-lg disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[48px] flex items-center justify-center"
+              className="px-4 sm:px-6 py-2 sm:py-3 bg-accent text-primary rounded-lg font-bold text-sm sm:text-lg hover:bg-yellow-400 hover:shadow-lg disabled:bg-gray-600 disabled:text-gray-400 disabled:cursor-not-allowed transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[44px] sm:min-h-[48px] flex items-center justify-center whitespace-nowrap"
               disabled={currentGuess.length !== 5 || remainingGuesses <= 0}
             >
               Guess
