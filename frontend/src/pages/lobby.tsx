@@ -838,26 +838,24 @@ export default function Lobby() {
                 </div>
               )}
 
-              {/* Practice Mode Section */}
-              <div className="bg-gradient-to-br from-blue-500/10 via-blue-600/10 to-blue-500/10 rounded-xl p-6 mb-6 border-2 border-blue-400/30 backdrop-blur-sm">
-                <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+              {/* Practice Mode Section - Subtle */}
+              <div className="bg-white/5 rounded-lg p-4 mb-6 border border-white/10 backdrop-blur-sm">
+                <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                   <div className="flex-1">
-                    <h3 className="text-xl font-bold text-blue-300 mb-2">New to Guess5? Try Practice Mode</h3>
-                    <p className="text-white/80 text-sm mb-3">
-                      Play a full game without any real money at stake. Learn the rules, get comfortable with the gameplay, and see how the results page works—all risk-free.
-                    </p>
-                    <div className="flex flex-wrap gap-2 text-xs text-white/70">
-                      <span className="bg-white/10 px-2 py-1 rounded">✓ No deposit required</span>
-                      <span className="bg-white/10 px-2 py-1 rounded">✓ No waiting for opponents</span>
-                      <span className="bg-white/10 px-2 py-1 rounded">✓ Full game experience</span>
+                    <div className="flex items-center gap-2 mb-1">
+                      <h3 className="text-base font-semibold text-white/90">New to Guess5?</h3>
+                      <span className="text-xs bg-blue-500/20 text-blue-300 px-2 py-0.5 rounded border border-blue-500/30">Practice Mode</span>
                     </div>
+                    <p className="text-white/60 text-xs leading-relaxed">
+                      Try a practice round—no payment required. Learn the rules and experience the full game flow risk-free.
+                    </p>
                   </div>
                   <Link href="/practice-intro">
-                    <button className="bg-gradient-to-r from-blue-500 to-blue-600 hover:from-blue-400 hover:to-blue-500 text-white font-bold px-6 py-3 rounded-lg transition-all duration-200 transform hover:scale-105 active:scale-95 shadow-lg min-h-[48px] flex items-center justify-center gap-2">
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <button className="bg-white/10 hover:bg-white/15 text-white text-sm font-medium px-4 py-2 rounded-lg transition-all duration-200 border border-white/20 hover:border-white/30 min-h-[36px] flex items-center justify-center gap-1.5 whitespace-nowrap">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
-                      <span>Start Practice Round</span>
+                      <span>Practice</span>
                     </button>
                   </Link>
                 </div>
