@@ -34,22 +34,6 @@ export default function PracticeIntro() {
               </p>
             </div>
 
-            <div className="bg-white/5 rounded-lg p-4 border border-white/10">
-              <h3 className="text-lg font-bold text-accent mb-2">Game Rules</h3>
-              <ol className="list-decimal list-inside space-y-2 text-white/80">
-                <li>You have <strong className="text-white">7 tries</strong> to guess a secret 5-letter word</li>
-                <li>After each guess, letters are color-coded:
-                  <ul className="list-disc list-inside ml-6 mt-1">
-                    <li><span className="text-green-400">Green</span> = Correct letter in correct position</li>
-                    <li><span className="text-yellow-400">Yellow</span> = Correct letter in wrong position</li>
-                    <li><span className="text-gray-400">Gray</span> = Letter not in the word</li>
-                  </ul>
-                </li>
-                <li>You have <strong className="text-white">2 minutes</strong> to complete the game</li>
-                <li>Try to solve the word in as few guesses as possible!</li>
-              </ol>
-            </div>
-
             <div className="bg-blue-500/10 border border-blue-500/30 rounded-lg p-4">
               <h3 className="text-lg font-bold text-blue-300 mb-2">Practice vs. Real Games</h3>
               <div className="space-y-2 text-white/80 text-sm">

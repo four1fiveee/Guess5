@@ -1513,7 +1513,7 @@ const Matchmaking: React.FC = () => {
 
   return (
     <div className="flex flex-col items-center justify-center min-h-screen bg-primary relative">
-      <TopRightWallet />
+      <TopRightWallet hideControls={status !== 'waiting' && status !== 'error' && status !== 'cancelled' && status !== 'queue_cancelled' && status !== 'opponent_left' && status !== 'abandoned'} />
       <div className="flex flex-col items-center w-full">
         <div className="logo-shell mb-6 sm:mb-8">
           <Image src={logo} alt="Guess5 Logo" width={200} height={200} priority />

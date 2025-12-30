@@ -85,7 +85,7 @@ export const WalletConnectButton: React.FC = () => {
 };
 
 // New component for top-right wallet display
-export const TopRightWallet: React.FC = () => {
+export const TopRightWallet: React.FC<{ hideControls?: boolean }> = ({ hideControls = false }) => {
   const { publicKey, disconnect, connected }: WalletContextState = useWallet();
   const { setVisible } = useWalletModal();
   const [isProcessing, setIsProcessing] = useState(false);
@@ -203,10 +203,36 @@ export const TopRightWallet: React.FC = () => {
     setShowLegalDisclaimer(false);
   };
 
+  // If hideControls is true, show minimal display (just balance) or nothing
+  if (hideControls) {
+    if (!connected) {
+      return null; // Don't show anything if not connected during gameplay
+    }
+    // Show only balance during gameplay, no editing/disconnect
+    return (
+      <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-50">
+        <div className="bg-white/5 backdrop-blur-md rounded-lg border border-white/10 shadow-lg px-2 sm:px-3 py-1.5 sm:py-2.5">
+          <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md bg-accent/10 border border-accent/20">
+            <div className="text-accent text-[10px] sm:text-xs font-black tracking-tight">
+              {walletBalance !== null ? (
+                <span className="flex items-baseline gap-0.5">
+                  <span>{walletBalance.toFixed(2)}</span>
+                  <span className="text-[8px] sm:text-[10px] font-bold text-accent/70">SOL</span>
+                </span>
+              ) : (
+                <span className="text-white/40 text-[8px] sm:text-[10px]">...</span>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!connected) {
     return (
       <>
-        <div className="absolute top-3 right-3 sm:top-4 sm:right-4">
+        <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-50">
           <button
             className={`px-4 py-2.5 sm:px-5 sm:py-3 rounded-lg font-bold transition-all duration-200 shadow bg-accent text-primary hover:bg-yellow-400 hover:shadow-lg transform hover:scale-105 active:scale-95 min-h-[44px] flex items-center justify-center text-sm sm:text-base ${
               isProcessing ? 'opacity-50 cursor-not-allowed' : ''

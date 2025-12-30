@@ -1150,9 +1150,12 @@ const Game: React.FC = () => {
 
   const entryFeeTier = getEntryFeeTier();
 
+  // Hide wallet controls during active gameplay states
+  const hideWalletControls = gameState === 'playing' || gameState === 'waiting' || gameState === 'completed' || loading;
+
   return (
     <div className="flex flex-col items-center min-h-screen bg-primary px-3 sm:px-6 py-2 sm:py-4 relative">
-      <TopRightWallet />
+      <TopRightWallet hideControls={hideWalletControls} />
       <div className="flex flex-col items-center w-full max-w-4xl h-screen sm:h-auto">
         {/* Compact Header - Entry Fee Tier Badge */}
         {gameState === 'playing' && entryFeeTier && (

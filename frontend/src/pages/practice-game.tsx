@@ -115,7 +115,7 @@ export default function PracticeGame() {
 
   return (
     <div className="flex flex-col items-center min-h-screen bg-primary px-3 sm:px-6 py-2 sm:py-4 relative">
-      <TopRightWallet />
+      <TopRightWallet hideControls={gameState === 'playing'} />
       <div className="flex flex-col items-center max-w-4xl w-full h-screen sm:h-auto">
         
         {/* Compact Header - Practice Mode Badge */}
