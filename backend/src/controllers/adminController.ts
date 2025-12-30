@@ -1208,6 +1208,7 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
     }
 
     // Get all matches with payments and financial data
+    // Exclude cancelled/refunded matches (status = 'cancelled' with refundTxHash or escrowStatus = 'REFUNDED')
     const allMatches = await matchRepository.query(`
       SELECT 
         "entryFee",
@@ -1225,10 +1226,14 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
         "isCompleted",
         status,
         winner,
-        "proposalExecutedAt"
+        "proposalExecutedAt",
+        "refundTxHash",
+        "escrowStatus"
       FROM "match"
       WHERE ("player1Paid" = true OR "player2Paid" = true)
         AND "createdAt" >= $1
+        AND NOT (status = 'cancelled' AND ("refundTxHash" IS NOT NULL OR "escrowStatus" = 'REFUNDED'))
+        AND "escrowStatus" != 'REFUNDED'
       ORDER BY "createdAt" DESC
     `, [startOfYear]);
 
@@ -1243,17 +1248,25 @@ export const adminGetFinancialMetrics = async (req: Request, res: Response) => {
       let totalPayouts = 0;
 
       for (const match of filtered) {
+        // Skip cancelled/refunded matches (additional check in case SQL filter missed any)
+        if (match.status === 'cancelled' && (match.refundTxHash || match.escrowStatus === 'REFUNDED')) {
+          continue;
+        }
+        if (match.escrowStatus === 'REFUNDED') {
+          continue;
+        }
+        
         const entryFee = parseFloat(match.entryFee) || 0;
         
-        // Count entry fees (both players pay)
-        if (match.player1Paid && match.player2Paid) {
-          totalEntryFees += entryFee * 2;
-        } else if (match.player1Paid || match.player2Paid) {
-          totalEntryFees += entryFee;
-        }
-
-        // Count completed matches
+        // Only count entry fees for completed matches (where game was actually played)
+        // Don't count entry fees for cancelled/refunded matches
         if (match.isCompleted || match.status === 'completed') {
+          // Count entry fees (both players pay)
+          if (match.player1Paid && match.player2Paid) {
+            totalEntryFees += entryFee * 2;
+          } else if (match.player1Paid || match.player2Paid) {
+            totalEntryFees += entryFee;
+          }
           matchesPlayed++;
           
           // Platform fee (5% of total pot = entryFee * 2 * 0.05)
