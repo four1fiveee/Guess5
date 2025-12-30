@@ -357,9 +357,25 @@ export class ReferralService {
     );
     const eligibleCount = eligibleReferred.filter(Boolean).length;
 
-    // Get all earnings
+    // Get all earnings, excluding those from cancelled/refunded matches
     const earnings = await earningRepository.find({
-      where: { uplineWallet: wallet }
+      where: { uplineWallet: wallet },
+      relations: ['match']
+    });
+    
+    // Filter out earnings from cancelled/refunded matches
+    const validEarnings = earnings.filter(e => {
+      if (!e.match) return true; // Keep if no match relation (shouldn't happen)
+      // Exclude if match was cancelled and refunded
+      if (e.match.status === 'cancelled' && (e.match.refundTxHash || e.match.escrowStatus === 'REFUNDED')) {
+        return false;
+      }
+      // Exclude if escrow status is REFUNDED
+      if (e.match.escrowStatus === 'REFUNDED') {
+        return false;
+      }
+      // Only include earnings from completed matches
+      return e.match.isCompleted || e.match.status === 'completed';
     });
 
     // Calculate time-based earnings
@@ -368,20 +384,20 @@ export class ReferralService {
     const startOfQuarter = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
     const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 
-    const earningsAllTime = earnings.reduce((sum, e) => sum + Number(e.amountUSD), 0);
-    const earningsYTD = earnings
+    const earningsAllTime = validEarnings.reduce((sum, e) => sum + Number(e.amountUSD), 0);
+    const earningsYTD = validEarnings
       .filter(e => new Date(e.createdAt) >= startOfYear)
       .reduce((sum, e) => sum + Number(e.amountUSD), 0);
-    const earningsQTD = earnings
+    const earningsQTD = validEarnings
       .filter(e => new Date(e.createdAt) >= startOfQuarter)
       .reduce((sum, e) => sum + Number(e.amountUSD), 0);
-    const earningsLast7Days = earnings
+    const earningsLast7Days = validEarnings
       .filter(e => new Date(e.createdAt) >= sevenDaysAgo)
       .reduce((sum, e) => sum + Number(e.amountUSD), 0);
 
     const totalEarnedUSD = earningsAllTime;
-    const totalEarnedSOL = earnings.reduce((sum, e) => sum + (Number(e.amountSOL) || 0), 0);
-    const paidUSD = earnings
+    const totalEarnedSOL = validEarnings.reduce((sum, e) => sum + (Number(e.amountSOL) || 0), 0);
+    const paidUSD = validEarnings
       .filter(e => e.paid)
       .reduce((sum, e) => sum + Number(e.amountUSD), 0);
     const pendingUSD = totalEarnedUSD - paidUSD;
@@ -418,6 +434,21 @@ export class ReferralService {
       relations: ['match'],
       order: { createdAt: 'DESC' }
     });
+    
+    // Filter out earnings from cancelled/refunded matches
+    const validEarnings = earnings.filter(e => {
+      if (!e.match) return true; // Keep if no match relation (shouldn't happen)
+      // Exclude if match was cancelled and refunded
+      if (e.match.status === 'cancelled' && (e.match.refundTxHash || e.match.escrowStatus === 'REFUNDED')) {
+        return false;
+      }
+      // Exclude if escrow status is REFUNDED
+      if (e.match.escrowStatus === 'REFUNDED') {
+        return false;
+      }
+      // Only include earnings from completed matches
+      return e.match.isCompleted || e.match.status === 'completed';
+    });
 
     // Get current tier
     const currentTier = await this.getReferrerTier(wallet);
@@ -443,7 +474,7 @@ export class ReferralService {
 
     // Group by referred wallet
     const byReferredMap = new Map<string, { totalUSD: number; count: number }>();
-    earnings.forEach(e => {
+    validEarnings.forEach(e => {
       // Handle multiple wallets in referredWallet field (comma-separated)
       const wallets = e.referredWallet.split(',').map(w => w.trim());
       wallets.forEach(wallet => {
@@ -461,7 +492,7 @@ export class ReferralService {
     }));
 
     // Recent earnings (last 20)
-    const recentEarnings = earnings.slice(0, 20);
+    const recentEarnings = validEarnings.slice(0, 20);
 
     return {
       byTier,
