@@ -203,30 +203,9 @@ export const TopRightWallet: React.FC<{ hideControls?: boolean }> = ({ hideContr
     setShowLegalDisclaimer(false);
   };
 
-  // If hideControls is true, show minimal display (just balance) or nothing
+  // If hideControls is true, show nothing during gameplay
   if (hideControls) {
-    if (!connected) {
-      return null; // Don't show anything if not connected during gameplay
-    }
-    // Show only balance during gameplay, no editing/disconnect
-    return (
-      <div className="absolute top-2 right-2 sm:top-4 sm:right-4 z-50">
-        <div className="bg-white/5 backdrop-blur-md rounded-lg border border-white/10 shadow-lg px-2 sm:px-3 py-1.5 sm:py-2.5">
-          <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md bg-accent/10 border border-accent/20">
-            <div className="text-accent text-[10px] sm:text-xs font-black tracking-tight">
-              {walletBalance !== null ? (
-                <span className="flex items-baseline gap-0.5">
-                  <span>{walletBalance.toFixed(2)}</span>
-                  <span className="text-[8px] sm:text-[10px] font-bold text-accent/70">SOL</span>
-                </span>
-              ) : (
-                <span className="text-white/40 text-[8px] sm:text-[10px]">...</span>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    );
+    return null; // Don't show anything during gameplay
   }
 
   if (!connected) {
@@ -338,23 +317,6 @@ export const TopRightWallet: React.FC<{ hideControls?: boolean }> = ({ hideContr
                     <span className="text-purple-200 text-xs font-medium">Set Username</span>
                   </button>
                 )}
-              </div>
-
-              {/* Divider - Hidden on mobile */}
-              <div className="hidden sm:block h-5 w-px bg-white/20"></div>
-
-              {/* Balance - Compact on mobile */}
-              <div className="flex items-center gap-1 px-1.5 sm:px-2 py-0.5 sm:py-1 rounded-md bg-accent/10 border border-accent/20">
-                <div className="text-accent text-[10px] sm:text-xs font-black tracking-tight">
-                  {walletBalance !== null ? (
-                    <span className="flex items-baseline gap-0.5">
-                      <span>{walletBalance.toFixed(2)}</span>
-                      <span className="text-[8px] sm:text-[10px] font-bold text-accent/70">SOL</span>
-                    </span>
-                  ) : (
-                    <span className="text-white/40 text-[8px] sm:text-[10px]">...</span>
-                  )}
-                </div>
               </div>
 
               {/* Divider - Hidden on mobile */}
