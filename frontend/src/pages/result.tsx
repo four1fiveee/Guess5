@@ -3897,26 +3897,52 @@ const Result: React.FC = () => {
                 <button
                   onClick={handlePlayAgain}
                   disabled={
-                    payoutData?.isSmartContractPayout
-                      ? false
-                      : (!payoutData?.proposalExecutedAt || 
-                         payoutData?.proposalStatus !== 'EXECUTED' ||
-                         onChainVerified !== true)
+                    (() => {
+                      // Smart contract refund - enable when verified or has refundTxHash
+                      if (payoutData?.isSmartContractPayout && payoutData?.escrowStatus === 'REFUNDED' && payoutData?.refundTxHash) {
+                        return onChainVerified === false; // Disable only if verification failed
+                      }
+                      // Smart contract payout - enable when settled
+                      if (payoutData?.isSmartContractPayout && (payoutData?.escrowStatus === 'SETTLED' || payoutData?.payoutTxSignature)) {
+                        return false;
+                      }
+                      // Legacy proposal system
+                      return !payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true;
+                    })()
                   }
                   className={`
-                    ${payoutData?.isSmartContractPayout
-                      ? 'bg-accent hover:bg-yellow-400 hover:shadow-lg'
-                      : (!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
-                          ? 'bg-gray-600 cursor-not-allowed opacity-50'
-                          : 'bg-accent hover:bg-yellow-400 hover:shadow-lg')
-                    } text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center
+                    ${(() => {
+                      // Smart contract refund
+                      if (payoutData?.isSmartContractPayout && payoutData?.escrowStatus === 'REFUNDED' && payoutData?.refundTxHash) {
+                        return onChainVerified === false ? 'bg-gray-600 cursor-not-allowed opacity-50' : 'bg-accent hover:bg-yellow-400 hover:shadow-lg';
+                      }
+                      // Smart contract payout
+                      if (payoutData?.isSmartContractPayout && (payoutData?.escrowStatus === 'SETTLED' || payoutData?.payoutTxSignature)) {
+                        return 'bg-accent hover:bg-yellow-400 hover:shadow-lg';
+                      }
+                      // Legacy proposal system
+                      return (!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
+                        ? 'bg-gray-600 cursor-not-allowed opacity-50'
+                        : 'bg-accent hover:bg-yellow-400 hover:shadow-lg');
+                    })()}
+                    text-primary px-8 py-3.5 rounded-lg font-bold transition-all duration-200 transform hover:scale-105 active:scale-95 min-h-[52px] flex items-center justify-center
                   `}
                 >
-                  {payoutData?.isSmartContractPayout
-                    ? 'Play Again'
-                    : (!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true
-                        ? (onChainVerified === null ? 'Verifying Transaction...' : 'Waiting for Execution...')
-                        : 'Play Again')}
+                  {(() => {
+                    // Smart contract refund
+                    if (payoutData?.isSmartContractPayout && payoutData?.escrowStatus === 'REFUNDED' && payoutData?.refundTxHash) {
+                      return onChainVerified === null ? 'Verifying Refund...' : 'Play Again';
+                    }
+                    // Smart contract payout
+                    if (payoutData?.isSmartContractPayout && (payoutData?.escrowStatus === 'SETTLED' || payoutData?.payoutTxSignature)) {
+                      return 'Play Again';
+                    }
+                    // Legacy proposal system
+                    if (!payoutData?.proposalExecutedAt || payoutData?.proposalStatus !== 'EXECUTED' || onChainVerified !== true) {
+                      return onChainVerified === null ? 'Verifying Transaction...' : 'Waiting for Execution...';
+                    }
+                    return 'Play Again';
+                  })()}
                 </button>
                 
                 {/* Social Links */}
