@@ -9006,6 +9006,34 @@ const processRefundsForFailedMatch = async (match: any) => {
   try {
     console.log(`💰 Processing refunds for failed match ${match.id}`);
     
+    // Check if this match uses smart contract escrow
+    const hasEscrow = !!(match as any).escrowAddress || !!(match as any).escrowPda;
+    
+    if (hasEscrow) {
+      // Use smart contract refund method
+      console.log(`💰 Match ${match.id} uses smart contract escrow, using refundIfOnlyOnePaid()`);
+      
+      const { refundSinglePlayer } = require('../services/escrowService');
+      const refundResult = await refundSinglePlayer(match.id);
+      
+      if (refundResult.success) {
+        console.log(`✅ Smart contract refund executed for match ${match.id}: ${refundResult.signature}`);
+        
+        // Update match status
+        const { AppDataSource } = require('../db/index');
+        const matchRepository = AppDataSource.getRepository(Match);
+        await matchRepository.update(match.id, {
+          escrowStatus: 'REFUNDED',
+          refundTxHash: refundResult.signature,
+        });
+      } else {
+        console.error(`❌ Smart contract refund failed for match ${match.id}: ${refundResult.error}`);
+      }
+      
+      return;
+    }
+    
+    // Legacy refund system for old Squads matches
     const { getFeeWalletKeypair } = require('../config/wallet');
     const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
     

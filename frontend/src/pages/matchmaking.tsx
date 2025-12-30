@@ -1877,7 +1877,7 @@ const Matchmaking: React.FC = () => {
                 return (
                   <>
                     <div className={`${styles.heading} text-4xl mb-4 text-center`}>{styles.icon}</div>
-                    <h2 className={`text-2xl font-bold mb-2 text-center ${styles.heading}`}>
+                    <h2 className={`text-2xl font-bold mb-4 text-center ${styles.heading}`}>
                       {cancellationContext?.heading ||
                         (status === 'abandoned'
                           ? 'Opponent Disconnected'
@@ -1887,14 +1887,12 @@ const Matchmaking: React.FC = () => {
                           ? 'Queue Cancelled'
                           : 'Match Cancelled')}
                     </h2>
-                    <div className={`${styles.background} border ${styles.border} rounded-lg p-4 mb-6`}>
-                      <p className="text-white/80 text-sm text-center">
-                        {cancellationContext?.detail ||
-                          (status === 'abandoned'
-                            ? 'The other player\'s browser crashed or they disconnected after you paid. Your funds are safe and a refund proposal is being prepared. You\'ll receive your full refund once the proposal is created (usually within 2-3 minutes).'
-                            : 'Match cancelled. Queue up again whenever you are ready.')}
-                </p>
-              </div>
+                    <p className="text-white/80 text-sm text-center mb-6">
+                      {cancellationContext?.detail ||
+                        (status === 'abandoned'
+                          ? 'The other player disconnected after you paid. Your refund is being processed automatically.'
+                          : 'Match cancelled. Queue up again whenever you are ready.')}
+                    </p>
                   </>
                 );
               })()}

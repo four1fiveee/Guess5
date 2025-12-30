@@ -234,20 +234,23 @@ const Result: React.FC = () => {
 
   const shouldContinuePolling = (info: any) => {
     // CRITICAL: Stop polling if smart contract payout is completed (escrow settlement)
-    // Check for escrowStatus SETTLED or payoutTxSignature (smart contract payout signature)
+    // Check for escrowStatus SETTLED or REFUNDED, or payoutTxSignature/refundTxHash (smart contract payout/refund signature)
     if (info?.isSmartContractPayout) {
-      const isSettled = info?.escrowStatus === 'SETTLED' || !!info?.payoutTxSignature;
-      if (isSettled) {
-        console.log('🛑 Stopping polling: Smart contract payout completed', {
+      const isSettled = info?.escrowStatus === 'SETTLED' || info?.escrowStatus === 'REFUNDED';
+      const hasTransaction = !!info?.payoutTxSignature || !!info?.refundTxHash;
+      if (isSettled || hasTransaction) {
+        console.log('🛑 Stopping polling: Smart contract payout/refund completed', {
           escrowStatus: info?.escrowStatus,
           payoutTxSignature: info?.payoutTxSignature,
+          refundTxHash: info?.refundTxHash,
         });
         return false;
       }
-      // Continue polling if smart contract payout is pending
-      console.log('🔄 Continue polling: Smart contract payout pending', {
+      // Continue polling if smart contract payout/refund is pending
+      console.log('🔄 Continue polling: Smart contract payout/refund pending', {
         escrowStatus: info?.escrowStatus,
         payoutTxSignature: info?.payoutTxSignature,
+        refundTxHash: info?.refundTxHash,
       });
       return true;
     }
@@ -609,7 +612,8 @@ const Result: React.FC = () => {
               payoutSignature: matchData.payout?.transactions?.[0]?.signature || matchData.proposalTransactionId || currentPayoutData.payoutSignature || null,
               // Smart contract payout fields
               escrowStatus: matchData.escrowStatus || currentPayoutData.escrowStatus || null,
-              payoutTxSignature: matchData.payoutTxSignature || currentPayoutData.payoutTxSignature || null,
+              payoutTxSignature: matchData.payoutTxSignature || matchData.refundTxHash || currentPayoutData.payoutTxSignature || currentPayoutData.refundTxHash || null,
+              refundTxHash: matchData.refundTxHash || currentPayoutData.refundTxHash || null,
               bonus: {
                 eligible: expectedBonusUsd > 0 || currentPayoutData.bonus?.eligible || false,
                 paid: !!bonusInfo.paid || currentPayoutData.bonus?.paid || false,
@@ -1193,7 +1197,7 @@ const Result: React.FC = () => {
     };
     
     verifyOnChain();
-  }, [payoutData?.proposalStatus, payoutData?.proposalTransactionId, payoutData?.payoutSignature, onChainVerified, router.query.matchId]);
+  }, [payoutData?.proposalStatus, payoutData?.proposalTransactionId, payoutData?.payoutSignature, payoutData?.isSmartContractPayout, payoutData?.escrowStatus, payoutData?.refundTxHash, onChainVerified, router.query.matchId]);
 
   // Fetch actual bonus amount from blockchain when proposal is executed
   useEffect(() => {
