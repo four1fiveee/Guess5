@@ -6928,6 +6928,33 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     })();
   }
   
+  // Squads system removed - escrow matches don't use proposals
+  // All execution is handled via escrow settlement
+  if ((isReadyToExecute || (isStuckExecuting && isStuck) || hasStateMismatch) && 
+      (match as any).escrowAddress) {
+    // Escrow matches use settleMatch, not proposal execution
+    console.log(`⚠️ Escrow match detected - proposals not used`, {
+      matchId: match.id,
+      escrowAddress: (match as any).escrowAddress,
+      note: 'Escrow matches use settleMatch instruction, not proposal execution',
+    });
+    return; // Escrow matches don't use proposals
+  }
+  
+  // Squads system removed - all matches now use escrow
+  if ((match as any).payoutProposalId || (match as any).tieRefundProposalId) {
+    console.error(`❌ CRITICAL: Match has proposal IDs but Squads system is removed`, {
+      matchId: match.id,
+      payoutProposalId: (match as any).payoutProposalId,
+      tieRefundProposalId: (match as any).tieRefundProposalId,
+      escrowAddress: (match as any).escrowAddress,
+      error: 'SQUADS_SYSTEM_REMOVED',
+    });
+    return; // Squads system no longer supported
+  }
+  
+  // REMOVED: All Squads proposal execution code below
+  /*
   if ((isReadyToExecute || (isStuckExecuting && isStuck) || hasStateMismatch) && 
       ((match as any).payoutProposalId || (match as any).tieRefundProposalId) &&
       (match as any).squadsVaultAddress &&
@@ -6949,323 +6976,12 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         return; // Escrow matches don't use proposals
       }
       
-      const { getSquadsVaultService } = require('../services/squadsVaultService');
-      const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS } = require('../config/wallet');
-      const squadsVaultService = getSquadsVaultService();
-      const matchRepository = AppDataSource.getRepository(Match);
-      
-      let feeWalletKeypair: any = null;
-      try {
-        feeWalletKeypair = getFeeWalletKeypair();
-      } catch (keypairError: any) {
-        console.warn('⚠️ Fee wallet keypair unavailable, skipping automatic proposal execution (fallback)', {
-          matchId: match.id,
-          error: keypairError?.message || String(keypairError),
-        });
-      }
-
-      const proposalId = (match as any).payoutProposalId || (match as any).tieRefundProposalId;
-      const proposalIdString = String(proposalId).trim();
-      
-      const feeWalletAddress =
-        typeof getFeeWalletAddress === 'function' ? getFeeWalletAddress() : FEE_WALLET_ADDRESS;
-      const proposalSigners = normalizeProposalSigners((match as any).proposalSigners);
-      let autoApproved = false;
-      let feeWalletApprovalError: string | null = null;
-
-      if (!proposalSigners.includes(feeWalletAddress) && feeWalletKeypair) {
-        try {
-          const approveResult = await squadsVaultService.approveProposal(
-            (match as any).squadsVaultAddress,
-            proposalIdString,
-            feeWalletKeypair
-          );
-
-          if (approveResult.success) {
-            autoApproved = true;
-            proposalSigners.push(feeWalletAddress);
-            const updatedSignersJson = JSON.stringify(Array.from(new Set(proposalSigners)));
-            await matchRepository.query(`
-              UPDATE "match"
-              SET "proposalSigners" = $1,
-                  "needsSignatures" = 0
-              WHERE id = $2
-            `, [updatedSignersJson, match.id]);
-            (match as any).proposalSigners = updatedSignersJson;
-            (match as any).needsSignatures = 0;
-            console.log('✅ Fallback auto-approval from fee wallet recorded', {
-              matchId: match.id,
-              proposalId: proposalIdString,
-              signature: approveResult.signature,
-            });
-          } else {
-            feeWalletApprovalError = approveResult.error || 'Unknown error';
-            console.error('❌ Fallback fee wallet auto-approval failed', {
-              matchId: match.id,
-              proposalId: proposalIdString,
-              error: approveResult.error,
-            });
-          }
-        } catch (autoApproveError: any) {
-          feeWalletApprovalError = autoApproveError?.message || String(autoApproveError);
-          console.warn('⚠️ Fallback fee wallet auto-approval unavailable', {
-            matchId: match.id,
-            proposalId: proposalIdString,
-            error: feeWalletApprovalError,
-          });
-        }
-      }
-
-      const finalProposalSigners = Array.from(new Set(proposalSigners));
-      const hasFeeWalletSignature = finalProposalSigners.includes(feeWalletAddress);
-      const entryFeeSolFallback = (match as any).entryFee ? Number((match as any).entryFee) : 0;
-      const entryFeeUsdFallback = (match as any).entryFeeUSD ? Number((match as any).entryFeeUSD) : undefined;
-      const solPriceAtTransactionFallback = (match as any).solPriceAtTransaction ? Number((match as any).solPriceAtTransaction) : undefined;
-      const bonusAlreadyPaidFallback = (match as any).bonusPaid === true;
-      const bonusSignatureExistingFallback = (match as any).bonusSignature || null;
-      
-      // Check on-chain proposal status to verify it's actually ready
-      // But trust database state if on-chain check fails or shows mismatch
-      // CRITICAL: Use timeout to prevent blocking the status response
-      let onChainReady = false;
-      let onChainCheckFailed = false;
-      try {
-        // Use Promise.race with timeout to prevent blocking
-        const timeoutMs = 3000; // 3 seconds max for on-chain check
-        const statusCheckPromise = squadsVaultService.checkProposalStatus(
-          (match as any).squadsVaultAddress,
-          proposalIdString
-        );
-          const timeoutPromise = new Promise((_, reject) => {
-            setTimeout(() => reject(new Error('On-chain check timeout')), timeoutMs);
-          });
-        
-        const proposalStatus = await Promise.race([statusCheckPromise, timeoutPromise]) as any;
-        onChainReady = proposalStatus.needsSignatures === 0 && !proposalStatus.executed;
-        console.log('🔍 On-chain proposal status check (fallback)', {
-          matchId: match.id,
-          proposalId: proposalIdString,
-          onChainReady,
-          needsSignatures: proposalStatus.needsSignatures,
-          executed: proposalStatus.executed,
-          signers: proposalStatus.signers.map((s: any) => s.toString()),
-          databaseNeedsSignatures: normalizeRequiredSignatures((match as any).needsSignatures),
-          databaseSigners: finalProposalSigners,
-        });
-        
-        // If database says ready but on-chain says not ready, trust database
-        // (on-chain check might be failing to read signers correctly)
-        const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
-        if (dbNeedsSignatures === 0 && proposalStatus.needsSignatures > 0) {
-          console.warn('⚠️ Database shows ready but on-chain shows not ready - trusting database state', {
-            matchId: match.id,
-            proposalId: proposalIdString,
-            databaseNeedsSignatures: dbNeedsSignatures,
-            onChainNeedsSignatures: proposalStatus.needsSignatures,
-            databaseSigners: finalProposalSigners.length,
-            onChainSigners: proposalStatus.signers.length,
-          });
-          onChainReady = true; // Trust database
-        }
-      } catch (statusCheckError: any) {
-        onChainCheckFailed = true;
-        const isTimeout = statusCheckError?.message?.includes('timeout');
-        console.warn(`⚠️ ${isTimeout ? 'Timeout' : 'Failed'} checking on-chain proposal status (fallback) - trusting database state`, {
-          matchId: match.id,
-          proposalId: proposalIdString,
-          error: statusCheckError?.message || String(statusCheckError),
-          databaseNeedsSignatures: normalizeRequiredSignatures((match as any).needsSignatures),
-          databaseSigners: finalProposalSigners,
-        });
-        // Trust database state if on-chain check fails or times out
-        const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
-        onChainReady = dbNeedsSignatures === 0;
-      }
-
-      // Trust database state: if database says needsSignatures === 0, proceed with execution
-      const dbNeedsSignatures = normalizeRequiredSignatures((match as any).needsSignatures);
-      const dbSaysReady = dbNeedsSignatures === 0 && (match as any).proposalStatus === 'READY_TO_EXECUTE';
-      
-      // CRITICAL: Also check if proposal status is ACTIVE with 0 signatures needed (some proposals might be ACTIVE instead of READY_TO_EXECUTE)
-      const isActiveWithZeroSignatures = (match as any).proposalStatus === 'ACTIVE' && dbNeedsSignatures === 0;
-      const shouldExecute = dbSaysReady || isActiveWithZeroSignatures || (onChainReady && dbNeedsSignatures === 0);
-      
-      if (!shouldExecute && !hasFeeWalletSignature) {
-        console.warn('⚠️ Skipping fallback execution - not ready in database or on-chain', {
-          matchId: match.id,
-          proposalId: proposalIdString,
-          proposalSigners: finalProposalSigners,
-          feeWalletApprovalError,
-          dbNeedsSignatures,
-          dbSaysReady,
-          isActiveWithZeroSignatures,
-          onChainReady,
-          proposalStatus: (match as any).proposalStatus,
-        });
-      } else if (feeWalletKeypair && (hasFeeWalletSignature || shouldExecute)) {
-        console.log('🔁 Auto-execute (fallback) using vault PDA - executing NOW (not background)', {
-          matchId: match.id,
-          proposalId: proposalIdString,
-          vaultAddress: (match as any).squadsVaultAddress,
-          vaultPda: (match as any).squadsVaultPda ?? null,
-          hasFeeWalletSignature,
-          onChainReady,
-          dbSaysReady,
-          note: 'Executing synchronously to ensure completion',
-        });
-        // CRITICAL FIX: Execute synchronously (await) instead of background
-        // Background execution was causing transactions to not complete
-        // We'll use a timeout wrapper to prevent blocking the status request too long
-        // REDUCED TIMEOUT: 20 seconds to prevent Render 30s timeout
-        try {
-          const executePromise = squadsVaultService.executeProposal(
-            (match as any).squadsVaultAddress,
-            proposalIdString,
-            feeWalletKeypair,
-            (match as any).squadsVaultPda ?? undefined
-          );
-          
-          // Execute in background - don't await, return response immediately
-          // This prevents 502 Bad Gateway errors from Render's timeout
-          (async () => {
-            try {
-              const executeResult = await executePromise;
-              
-              if (executeResult.success) {
-            const executedAt = executeResult.executedAt ? new Date(executeResult.executedAt) : new Date();
-            const isTieRefund =
-              !!(match as any).tieRefundProposalId &&
-              String((match as any).tieRefundProposalId).trim() === proposalIdString;
-            const isWinnerPayout =
-              !!(match as any).payoutProposalId &&
-              String((match as any).payoutProposalId).trim() === proposalIdString &&
-              (match as any).winner &&
-              (match as any).winner !== 'tie';
-
-            const executionUpdates = buildProposalExecutionUpdates({
-              executedAt,
-              signature: executeResult.signature ?? null,
-              isTieRefund,
-              isWinnerPayout,
-            });
-
-            // CRITICAL FIX: Await database update to ensure it completes
-            await persistExecutionUpdates(matchRepository, match.id, executionUpdates);
-            console.log('✅ Proposal executed successfully (fallback)', {
-              matchId: match.id,
-              proposalId: proposalIdString,
-              executionSignature: executeResult.signature,
-              slot: executeResult.slot,
-              signers: finalProposalSigners,
-              autoApproved,
-            });
-
-            if (isWinnerPayout) {
-              // Execute bonus payout in background (non-blocking)
-              disburseBonusIfEligible({
-                  matchId: match.id,
-                  winner: (match as any).winner,
-                  entryFeeSol: entryFeeSolFallback,
-                  entryFeeUsd: entryFeeUsdFallback,
-                  solPriceAtTransaction: solPriceAtTransactionFallback,
-                  alreadyPaid: bonusAlreadyPaidFallback,
-                  existingSignature: bonusSignatureExistingFallback,
-                executionSignature: executeResult.signature,
-                executionTimestamp: executedAt,
-                executionSlot: executeResult.slot
-              }).then((bonusResult) => {
-                if (bonusResult.triggered && bonusResult.success && bonusResult.signature) {
-                  return matchRepository.query(`
-                  UPDATE "match"
-                  SET "bonusPaid" = true,
-                      "bonusSignature" = $1,
-                      "bonusAmount" = $2,
-                      "bonusAmountUSD" = $3,
-                      "bonusPercent" = $4,
-                      "bonusTier" = $5,
-                      "bonusPaidAt" = NOW(),
-                      "solPriceAtTransaction" = COALESCE("solPriceAtTransaction", $6)
-                  WHERE id = $7
-                `, [
-                    bonusResult.signature,
-                    bonusResult.bonusSol ?? null,
-                    bonusResult.bonusUsd ?? null,
-                    bonusResult.bonusPercent ?? null,
-                    bonusResult.tierId ?? null,
-                    bonusResult.solPriceUsed ?? null,
-                    match.id,
-                  ]).then(() => {
-                    console.log('✅ Bonus payout persisted (fallback)', {
-                      matchId: match.id,
-                      signature: bonusResult.signature,
-                    });
-                  }).catch((bonusDbError: any) => {
-                    console.error('❌ Failed to persist bonus payout (fallback)', {
-                      matchId: match.id,
-                      error: bonusDbError?.message || String(bonusDbError),
-                    });
-                  });
-                } else if (bonusResult.triggered && !bonusResult.success) {
-                  console.warn('⚠️ Bonus payout attempted in fallback but not successful', {
-                    matchId: match.id,
-                    reason: bonusResult.reason,
-                  });
-                }
-              }).catch((bonusError: any) => {
-                console.error('❌ Error processing bonus payout (fallback)', {
-                  matchId: match.id,
-                  error: bonusError?.message || String(bonusError),
-                });
-              });
-            }
-              } else {
-                console.error('❌ Failed to execute proposal (fallback)', {
-                  matchId: match.id,
-                  proposalId: proposalIdString,
-                  error: executeResult.error,
-                  proposalSigners: finalProposalSigners,
-                  feeWalletAutoApproved: autoApproved,
-                  logs: executeResult.logs?.slice(-5),
-                });
-              }
-            } catch (executeError: any) {
-              console.error('❌ Error executing proposal in background', {
-                matchId: match.id,
-                proposalId: proposalIdString,
-                error: executeError?.message || String(executeError),
-              });
-            }
-          })();
-        } catch (executeError: any) {
-          // If there's an error starting the background execution, log it but don't block
-          console.error('❌ Error starting background execution', {
-            matchId: match.id,
-            proposalId: proposalIdString,
-            error: executeError?.message || String(executeError),
-          });
-          // Continue execution in background as fallback
-          squadsVaultService.executeProposal(
-            (match as any).squadsVaultAddress,
-            proposalIdString,
-            feeWalletKeypair,
-            (match as any).squadsVaultPda ?? undefined
-          ).then((bgResult) => {
-            if (bgResult.success) {
-              const executedAt = bgResult.executedAt ? new Date(bgResult.executedAt) : new Date();
-              const isTieRefund = !!(match as any).tieRefundProposalId && String((match as any).tieRefundProposalId).trim() === proposalIdString;
-              const isWinnerPayout = !!(match as any).payoutProposalId && String((match as any).payoutProposalId).trim() === proposalIdString && (match as any).winner && (match as any).winner !== 'tie';
-              const executionUpdates = buildProposalExecutionUpdates({
-                executedAt,
-                signature: bgResult.signature ?? null,
-                isTieRefund,
-                isWinnerPayout,
-              });
-              persistExecutionUpdates(matchRepository, match.id, executionUpdates).catch(console.error);
-            }
-          }).catch(console.error);
-        }
-      } else {
-        console.warn('⚠️ Skipping automatic proposal execution (fallback) because fee wallet keypair is not configured', {
+      // REMOVED: All Squads execution code - escrow system only
+      console.error('❌ CRITICAL: Squads execution code detected but system is removed', {
+        matchId: match.id,
+        error: 'SQUADS_SYSTEM_REMOVED',
+        note: 'All matches must use escrow settlement',
+      });
           matchId: match.id,
           proposalId: proposalIdString,
           proposalSigners: finalProposalSigners,
