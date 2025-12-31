@@ -9778,7 +9778,7 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
     } finally {
       await releaseProposalLock(matchId);
     }
-    
+    */
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Error forcing proposal creation:', errorMessage);
