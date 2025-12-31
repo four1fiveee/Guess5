@@ -2107,7 +2107,7 @@ export const adminInvestigateMatch = async (req: Request, res: Response) => {
       });
       
       if (tx && tx.meta && !tx.meta.err) {
-        const accountKeys = tx.transaction.message.accountKeys.map((k: any) => 
+        const accountKeys = tx.transaction.message.getAccountKeys().staticAccountKeys.map((k: any) => 
           typeof k === 'string' ? k : k.toString()
         );
         const preBalances = tx.meta.preBalances || [];
@@ -2239,7 +2239,7 @@ export const adminInvestigateRefund = async (req: Request, res: Response) => {
     }
 
     // Analyze account balance changes
-    const accountKeys = transaction.transaction.message.accountKeys.map((key: any) => 
+    const accountKeys = transaction.transaction.message.getAccountKeys().staticAccountKeys.map((key: any) => 
       typeof key === 'string' ? key : key.toString()
     );
     const preBalances = transaction.meta?.preBalances || [];
