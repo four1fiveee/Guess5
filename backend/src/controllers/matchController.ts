@@ -9011,6 +9011,14 @@ const processRefundsForFailedMatch = async (match: any) => {
     const matchRepository = AppDataSource.getRepository(Match);
     const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
     
+    // CRITICAL: Never refund completed matches with winners
+    if (freshMatch?.isCompleted && freshMatch?.winner && freshMatch.winner !== 'tie') {
+      console.error(`❌ CRITICAL ERROR: Attempted to refund a completed match with winner! Match ${match.id}`);
+      console.error(`❌ Match has winner: ${freshMatch.winner}, status: ${freshMatch.status}, isCompleted: ${freshMatch.isCompleted}`);
+      console.error(`❌ This match should be settled via escrow, not refunded!`);
+      return; // DO NOT refund completed matches with winners
+    }
+    
     if (freshMatch?.escrowStatus === 'REFUNDED' || freshMatch?.refundTxHash) {
       console.log(`⚠️ Match ${match.id} already refunded. Skipping duplicate refund.`, {
         escrowStatus: freshMatch.escrowStatus,
