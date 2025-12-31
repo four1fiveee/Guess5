@@ -5117,35 +5117,15 @@ const getMatchStatusHandler = async (req: any, res: any) => {
     if (match && (match as any).squadsVaultAddress && !(match as any).squadsVaultPda) {
       // Fire and forget - don't await, don't block the response
       (async () => {
+      // Squads system removed - escrow system only
+      // Escrow PDA is the same as escrowAddress
       try {
-        const { getSquadsVaultService } = require('../services/squadsVaultService');
-        const squadsVaultService = getSquadsVaultService();
-        const derivedVaultPda = squadsVaultService?.deriveVaultPda?.((match as any).squadsVaultAddress);
-
-        if (derivedVaultPda) {
-          (match as any).squadsVaultPda = derivedVaultPda;
-          if (matchRepository) {
-            try {
-              await matchRepository.update(
-                { id: match.id },
-                { squadsVaultPda: derivedVaultPda }
-              );
-            } catch (updateError: unknown) {
-              enhancedLogger.warn('⚠️ Failed to persist derived vault PDA (non-blocking)', {
-                matchId: match.id,
-                vaultAddress: (match as any).squadsVaultAddress,
-                error: updateError instanceof Error ? updateError.message : String(updateError),
-              });
-            }
-          }
-        } else {
-          enhancedLogger.warn('⚠️ Unable to derive vault PDA', {
-            matchId: match.id,
-            vaultAddress: (match as any).squadsVaultAddress,
-          });
+        if ((match as any).escrowAddress) {
+          (match as any).escrowPda = (match as any).escrowAddress;
+          // escrowPda is the same as escrowAddress for our system
         }
       } catch (deriveErr: unknown) {
-        enhancedLogger.warn('⚠️ Vault PDA derivation failed (non-blocking)', {
+        enhancedLogger.warn('⚠️ Escrow PDA derivation failed (non-blocking)', {
           matchId: match?.id,
           vaultAddress: (match as any)?.squadsVaultAddress,
           error: deriveErr instanceof Error ? deriveErr.message : String(deriveErr),
@@ -5397,70 +5377,22 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           const proposalIdString = String((match as any).payoutProposalId || (match as any).tieRefundProposalId).trim();
           const vaultAddress = (match as any).squadsVaultAddress;
           
-          if (vaultAddress && proposalIdString) {
-            const { getSquadsVaultService } = require('../services/squadsVaultService');
-            const squadsService = getSquadsVaultService();
-            const feeWalletAddress = squadsService.getSystemPublicKey?.()?.toString();
-            
-            // Check on-chain proposal status (with timeout to prevent hanging)
-            const onChainStatus = await Promise.race([
-              squadsService.checkProposalStatus(vaultAddress, proposalIdString),
-              new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Catch-up check timeout')), 5000))
-            ]).catch(() => null);
-            
-            if (onChainStatus && onChainStatus.signers && feeWalletAddress) {
-              const onChainSigners = onChainStatus.signers.map((s: any) => s.toString().toLowerCase());
-              const feeWalletInSigners = onChainSigners.includes(feeWalletAddress.toLowerCase());
-              const dbSigners = normalizeProposalSigners((match as any).proposalSigners);
-              const feeWalletInDb = dbSigners.some((s: string) => s && s.toLowerCase() === feeWalletAddress.toLowerCase());
-              
-              // If fee wallet hasn't signed on-chain but a player has, trigger auto-approval
-              if (!feeWalletInSigners && onChainSigners.length > 0 && onChainStatus.needsSignatures > 0) {
-                console.log('🔧 CATCH-UP: Player signed on-chain but fee wallet hasn\'t - triggering auto-approval', {
-                  matchId: match.id,
-                  proposalId: proposalIdString,
-                  onChainSigners,
-                  feeWalletAddress,
-                  needsSignatures: onChainStatus.needsSignatures,
-                });
-                
-                try {
-                  const { getFeeWalletKeypair } = require('../config/wallet');
-                  const feeWalletKeypair = getFeeWalletKeypair();
-                  
-                  // Only approve if it's a Squads match (escrow doesn't need proposals)
-                  if ((match as any).squadsVaultAddress) {
-                    const { getSquadsVaultService } = require('../services/squadsVaultService');
-                    const squadsService = getSquadsVaultService();
-                    const approveResult = await squadsService.approveProposal(
-                      vaultAddress,
-                      proposalIdString,
-                      feeWalletKeypair
-                    );
-                  
-                    if (approveResult.success) {
-                      console.log('✅ CATCH-UP: Fee wallet auto-approval successful', {
-                        matchId: match.id,
-                        proposalId: proposalIdString,
-                        signature: approveResult.signature,
-                      });
-                    } else {
-                      console.warn('⚠️ CATCH-UP: Fee wallet auto-approval failed', {
-                        matchId: match.id,
-                        proposalId: proposalIdString,
-                        error: approveResult.error,
-                      });
-                    }
-                  }
-                } catch (catchUpError: any) {
-                  console.warn('⚠️ CATCH-UP: Fee wallet auto-approval exception', {
-                    matchId: match.id,
-                    proposalId: proposalIdString,
-                    error: catchUpError?.message || String(catchUpError),
-                  });
-                }
-              }
-            }
+          // Squads system removed - escrow matches don't use proposals
+          // Escrow matches use submitResultAndSettle, not proposal approval
+          if ((match as any).escrowAddress) {
+            console.log('✅ Escrow match - no proposal approval needed', {
+              matchId: match.id,
+              escrowAddress: (match as any).escrowAddress,
+              note: 'Escrow matches use submitResultAndSettle, not proposal approval',
+            });
+            return; // Escrow matches don't need proposal approval
+          } else {
+            console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed', {
+              matchId: match.id,
+              hasEscrow: !!(match as any).escrowAddress,
+              error: 'SQUADS_SYSTEM_REMOVED',
+            });
+            return; // Squads system no longer supported
           }
         } catch (catchUpCheckError: unknown) {
           enhancedLogger.warn('⚠️ Fee wallet catch-up check failed (non-blocking)', {
@@ -6072,61 +6004,22 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   const winnerAmount = totalPot * 0.95;
                   const feeAmount = totalPot * 0.05;
                   
-                  console.log('🚀 FINAL FALLBACK (after stale lock cleanup): Creating proposal synchronously...', {
-                    matchId: freshMatch.id,
-                    vaultAddress: (freshMatch as any).squadsVaultAddress,
-                    winner,
-                    winnerAmount,
-                    feeAmount
-                  });
-                  
-                  const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                    (freshMatch as any).squadsVaultAddress,
-                    new PublicKey(winner),
-                    winnerAmount,
-                    new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                    feeAmount,
-                    (freshMatch as any).squadsVaultPda ?? undefined
-                  );
-                
-                  console.log('📋 FINAL FALLBACK (after stale lock cleanup): proposeWinnerPayout result:', {
-                  matchId: freshMatch.id,
-                  success: proposalResult.success,
-                  proposalId: proposalResult.proposalId,
-                  error: proposalResult.error,
-                  needsSignatures: proposalResult.needsSignatures
-                });
-                
-                if (proposalResult.success && proposalResult.proposalId) {
-                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                  applyProposalStateToMatch(match, proposalState);
-
-                  // Update match with proposal data using raw SQL
-                  await matchRepository.query(`
-                    UPDATE "match"
-                    SET "payoutProposalId" = $1,
-                        "proposalStatus" = $2,
-                        "proposalCreatedAt" = NOW(),
-                        "needsSignatures" = $3,
-                        "updatedAt" = NOW()
-                    WHERE id = $4
-                  `, [
-                    proposalResult.proposalId,
-                    proposalState.status,
-                    proposalState.needsSignatures,
-                    freshMatch.id
-                  ]);
-                  
-                  console.log('✅ FINAL FALLBACK: Proposal created successfully after stale lock cleanup', {
-                    matchId: freshMatch.id,
-                    proposalId: proposalResult.proposalId,
-                    status: proposalState.status,
-                    needsSignatures: proposalState.needsSignatures
-                  });
-                  
-                  (match as any).payoutProposalId = proposalResult.proposalId;
-                  (match as any).proposalStatus = proposalState.status;
-                  (match as any).needsSignatures = proposalState.needsSignatures;
+                  // Squads system removed - all matches now use escrow
+                  if ((freshMatch as any).escrowAddress) {
+                    console.log('✅ Escrow match - settlement handled via escrow system (FINAL FALLBACK after lock cleanup)', {
+                      matchId: freshMatch.id,
+                      escrowAddress: (freshMatch as any).escrowAddress,
+                      note: 'Escrow matches use submitResultAndSettle, not proposal creation',
+                    });
+                    return; // Escrow settlement is handled separately
+                  } else {
+                    console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK after lock cleanup)', {
+                      matchId: freshMatch.id,
+                      hasEscrow: !!(freshMatch as any).escrowAddress,
+                      error: 'SQUADS_SYSTEM_REMOVED',
+                    });
+                    return; // Squads system no longer supported
+                  }
                 } else {
                   console.error('❌ FINAL FALLBACK: Failed to create proposal after stale lock cleanup', {
                     matchId: freshMatch.id,
