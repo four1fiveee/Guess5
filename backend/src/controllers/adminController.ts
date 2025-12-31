@@ -2022,16 +2022,14 @@ export const adminInvestigateRefund = async (req: Request, res: Response) => {
     }
 
     const matchRepository = AppDataSource.getRepository(Match);
-    const { Not, IsNull } = require('typeorm');
 
-    // Find the most recent match that was refunded
-    const refundedMatch = await matchRepository.findOne({
-      where: [
-        { escrowStatus: 'REFUNDED' },
-        { refundTxHash: Not(IsNull()) }
-      ],
-      order: { updatedAt: 'DESC' },
-    });
+    // Find the most recent match that was refunded using query builder
+    const refundedMatch = await matchRepository
+      .createQueryBuilder('match')
+      .where('match.escrowStatus = :status', { status: 'REFUNDED' })
+      .orWhere('match.refundTxHash IS NOT NULL')
+      .orderBy('match.updatedAt', 'DESC')
+      .getOne();
 
     if (!refundedMatch) {
       return res.json({
