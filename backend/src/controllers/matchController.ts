@@ -9006,10 +9006,23 @@ const processRefundsForFailedMatch = async (match: any) => {
   try {
     console.log(`💰 Processing refunds for failed match ${match.id}`);
     
+    // CRITICAL: Prevent duplicate refunds - check if already refunded
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
+    
+    if (freshMatch?.escrowStatus === 'REFUNDED' || freshMatch?.refundTxHash) {
+      console.log(`⚠️ Match ${match.id} already refunded. Skipping duplicate refund.`, {
+        escrowStatus: freshMatch.escrowStatus,
+        refundTxHash: freshMatch.refundTxHash,
+      });
+      return; // Already refunded, don't process again
+    }
+    
     // CRITICAL: Check if this match uses smart contract escrow
     // New matches ALWAYS use escrow - check by match creation date or escrow fields
-    const hasEscrow = !!(match as any).escrowAddress || !!(match as any).escrowPda;
-    const isNewMatch = match.createdAt && new Date(match.createdAt) > new Date('2024-12-01'); // Matches after escrow system launch
+    const hasEscrow = !!(freshMatch as any)?.escrowAddress || !!(freshMatch as any)?.escrowPda;
+    const isNewMatch = freshMatch?.createdAt && new Date(freshMatch.createdAt) > new Date('2024-12-01'); // Matches after escrow system launch
     
     // ALWAYS use smart contract refund for new matches (escrow system)
     // Only use legacy fee wallet refund for very old Squads matches
@@ -9018,9 +9031,9 @@ const processRefundsForFailedMatch = async (match: any) => {
       console.log(`💰 Match ${match.id} uses smart contract escrow, using refundIfOnlyOnePaid()`, {
         hasEscrow,
         isNewMatch,
-        escrowAddress: (match as any).escrowAddress,
-        escrowPda: (match as any).escrowPda,
-        createdAt: match.createdAt
+        escrowAddress: (freshMatch as any)?.escrowAddress,
+        escrowPda: (freshMatch as any)?.escrowPda,
+        createdAt: freshMatch?.createdAt
       });
       
       const { refundSinglePlayer } = require('../services/escrowService');
@@ -9030,8 +9043,6 @@ const processRefundsForFailedMatch = async (match: any) => {
         console.log(`✅ Smart contract refund executed for match ${match.id}: ${refundResult.signature}`);
         
         // Update match status
-        const { AppDataSource } = require('../db/index');
-        const matchRepository = AppDataSource.getRepository(Match);
         await matchRepository.update(match.id, {
           escrowStatus: 'REFUNDED',
           refundTxHash: refundResult.signature,
