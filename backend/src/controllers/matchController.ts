@@ -8526,47 +8526,17 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       });
     }
     
-    // OLD SQUADS SYSTEM: Validate vault address exists and matches match record
-    if (!match.squadsVaultAddress) {
-      console.error(`❌ Missing vault address for match ${matchId}`);
-      return res.status(400).json({ error: 'Match vault address not found. Please contact support.' });
-    }
-
-    const { getSquadsVaultService } = require('../services/squadsVaultService');
-    const squadsVaultService = getSquadsVaultService();
-    const vaultDepositAddress =
-      (match as any).squadsVaultPda ||
-      squadsVaultService.deriveVaultPda(match.squadsVaultAddress);
-
-    if (!vaultDepositAddress) {
-      console.error(`❌ Unable to derive vault deposit address for match ${matchId}`, {
-        multisig: match.squadsVaultAddress,
-      });
-      return res.status(400).json({ error: 'Unable to determine vault deposit address. Please contact support.' });
-    }
-
-    // Verify vault address exists on-chain
-    try {
-      const { Connection, PublicKey } = require('@solana/web3.js');
-      const connection = new Connection(process.env.SOLANA_NETWORK || 'https://api.devnet.solana.com', 'confirmed');
-      const vaultPublicKey = new PublicKey(match.squadsVaultAddress);
-      const vaultAccount = await connection.getAccountInfo(vaultPublicKey);
-      
-      if (!vaultAccount) {
-        console.error(`❌ Vault address does not exist on-chain: ${match.squadsVaultAddress}`);
-        return res.status(400).json({ error: 'Invalid vault address - vault does not exist on-chain' });
-      }
-      
-      console.log(`✅ Vault address verified on-chain: ${match.squadsVaultAddress}`);
-
-      // Also ensure deposit vault PDA exists
-      try {
-        const depositPublicKey = new PublicKey(vaultDepositAddress);
-        const depositAccount = await connection.getAccountInfo(depositPublicKey);
-        if (!depositAccount) {
-          console.warn(`⚠️ Vault deposit PDA does not exist yet, it will be created on first transaction: ${vaultDepositAddress}`);
-        } else {
-          console.log(`✅ Vault deposit PDA verified on-chain: ${vaultDepositAddress}`, {
+    // Squads system removed - all matches now use escrow
+    console.error(`❌ CRITICAL: Match has no escrow address - Squads system is removed`, {
+      matchId,
+      hasEscrow: !!(match as any).escrowAddress,
+      error: 'SQUADS_SYSTEM_REMOVED',
+    });
+    return res.status(400).json({ 
+      error: 'Squads system is no longer supported. All matches must use the escrow system.',
+      matchId,
+      note: 'If this match has an escrowAddress, use the escrow deposit endpoint instead.'
+    });
             lamports: depositAccount.lamports / LAMPORTS_PER_SOL,
           });
         }
@@ -9404,9 +9374,16 @@ const manualExecuteProposalHandler = async (req: any, res: any) => {
       });
     }
     
-    // OLD SQUADS SYSTEM: Only process if this is a Squads match
+    // Squads system removed - all matches now use escrow
+    return res.status(400).json({
+      error: 'Squads system is no longer supported',
+      matchId,
+      note: 'All matches now use the escrow system. If this match has an escrowAddress, use escrow settlement instead.'
+    });
+
+    // REMOVED: All Squads execution code
+    /*
     if ((match as any).squadsVaultAddress) {
-      // OLD SQUADS SYSTEM: Use Squads executeProposal
       if (!(match as any).squadsVaultAddress) {
         return res.status(400).json({ error: 'No vault address found for this match' });
       }
@@ -9605,6 +9582,25 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
       matchRow.needsSignatures = normalizedNeedsSignatures;
     }
 
+    // Squads system removed - all matches now use escrow
+    if (!(matchRow as any).escrowAddress) {
+      return res.status(400).json({ 
+        error: 'Squads system is no longer supported',
+        matchId,
+        note: 'All matches must use the escrow system. If this match has an escrowAddress, use escrow settlement instead.'
+      });
+    }
+    
+    // ESCROW SYSTEM: Use submitResultAndSettle instead of proposal creation
+    return res.status(400).json({
+      error: 'Escrow matches use submitResultAndSettle, not proposal creation',
+      matchId,
+      escrowAddress: (matchRow as any).escrowAddress,
+      note: 'Use the escrow settlement endpoint to settle matches'
+    });
+
+    // REMOVED: All Squads proposal creation code
+    /*
     const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS } = require('../config/wallet');
     const squadsVaultService = getSquadsVaultService();
     const feeWalletAddress =
