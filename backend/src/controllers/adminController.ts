@@ -2022,13 +2022,13 @@ export const adminInvestigateRefund = async (req: Request, res: Response) => {
     }
 
     const matchRepository = AppDataSource.getRepository(Match);
-    const { Not } = require('typeorm');
+    const { Not, IsNull } = require('typeorm');
 
     // Find the most recent match that was refunded
     const refundedMatch = await matchRepository.findOne({
       where: [
         { escrowStatus: 'REFUNDED' },
-        { refundTxHash: Not(null) }
+        { refundTxHash: Not(IsNull()) }
       ],
       order: { updatedAt: 'DESC' },
     });
