@@ -226,7 +226,7 @@ class PaymentVerificationService {
 
       const preBalances = transaction.meta?.preBalances || [];
       const postBalances = transaction.meta?.postBalances || [];
-      const accountKeys = transaction.transaction.message.accountKeys;
+      const accountKeys = transaction.transaction.message.getAccountKeys().staticAccountKeys;
 
       // Find account indices (use appropriate method for comparison)
       const feeWalletIndex = accountKeys.findIndex(key => {
