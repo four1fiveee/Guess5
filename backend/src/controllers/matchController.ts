@@ -3321,95 +3321,13 @@ const submitResultHandler = async (req: any, res: any) => {
                   // The PENDING status check will prevent duplicates
                 }
                 
-                // Log immediately when IIFE starts - this confirms the task was scheduled
-                console.log('⏳ Calling proposeWinnerPayout service...', {
+                // ESCROW SYSTEM: All matches now use escrow settlement
+                console.log('✅ Escrow match - settlement handled via escrow system', {
                   matchId: updatedMatch.id,
-                  timestamp: new Date().toISOString(),
-                  winner,
-                  winnerAmount,
-                  feeAmount,
-                  vaultAddress: updatedMatch.squadsVaultAddress,
-                  vaultPda: updatedMatch.squadsVaultPda,
-                  lockAcquired
+                  escrowAddress: updatedMatch.escrowAddress || (updatedMatch as any).escrowAddress,
+                  note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                 });
-                
-                // Inner try block for proposal creation
-                try {
-                  // CRITICAL: Get fresh repository instance inside background task to avoid stale connections
-                  const { AppDataSource } = require('../db/index');
-                  const backgroundMatchRepository = AppDataSource.getRepository(Match);
-                  
-                  const backgroundTaskStartTime = Date.now();
-                  console.log('🚀 BACKGROUND TASK STARTED: Winner payout proposal creation', {
-                    matchId: updatedMatch.id,
-                    timestamp: new Date().toISOString(),
-                    winner,
-                    winnerAmount,
-                    feeAmount,
-                    vaultAddress: updatedMatch.squadsVaultAddress,
-                    vaultPda: updatedMatch.squadsVaultPda
-                  });
-                
-                  try {
-                    // CRITICAL: Check if proposal already exists using SELECT FOR UPDATE to prevent duplicates
-                    const proposalCheckRows = await backgroundMatchRepository.query(`
-                      SELECT "payoutProposalId", "tieRefundProposalId"
-                      FROM "match"
-                      WHERE id = $1
-                      FOR UPDATE
-                      LIMIT 1
-                    `, [updatedMatch.id]);
-                    
-                    const hasExistingProposal = proposalCheckRows && proposalCheckRows.length > 0 && 
-                                                (proposalCheckRows[0].payoutProposalId || proposalCheckRows[0].tieRefundProposalId);
-                    
-                    if (hasExistingProposal) {
-                      console.log('✅ Proposal already exists (submitResultHandler background), skipping creation', {
-                        matchId: updatedMatch.id,
-                        payoutProposalId: proposalCheckRows[0].payoutProposalId,
-                        tieRefundProposalId: proposalCheckRows[0].tieRefundProposalId,
-                      });
-                      return; // Proposal already exists, don't create another one
-                    }
-                    
-                    // Check if match uses escrow (new system) or Squads (old system)
-                    const escrowAddress = updatedMatch.escrowAddress || (updatedMatch as any).escrowAddress;
-                    const squadsVaultAddress = updatedMatch.squadsVaultAddress || (updatedMatch as any).squadsVaultAddress;
-                    
-                    if (escrowAddress) {
-                      // NEW ESCROW SYSTEM: Use escrow settlement
-                      console.log('💰 Using escrow system for winner payout', {
-                        matchId: updatedMatch.id,
-                        escrowAddress,
-                        winner,
-                        winnerAmount,
-                        feeAmount
-                      });
-                      
-                      const escrowService = require('../services/escrowService');
-                      // For escrow, settlement is done via settleMatch() instruction
-                      // The result should already be submitted, so we just need to call settle
-                      // But this is a background task, so we'll let the frontend/player trigger settle
-                      // For now, just log that escrow settlement is needed
-                      console.log('✅ Escrow match - settlement will be triggered by player or frontend');
-                      return; // Escrow settlement is handled separately
-                    } else {
-                      // Squads system removed - all matches now use escrow
-                      console.error('❌ Match does not have escrow address - Squads system is no longer supported', {
-                        matchId: updatedMatch.id,
-                        hasEscrow: !!(updatedMatch as any).escrowAddress,
-                      });
-                      return;
-                    }
-
-                      // Update match with proposal information using raw SQL
-                      try {
-                        console.log('💾 Executing UPDATE query to set proposalStatus to ACTIVE', {
-                          matchId: updatedMatch.id,
-                          proposalId: proposalResult.proposalId,
-                          proposalStatus: 'ACTIVE',
-                          needsSignatures: proposalState.normalizedNeeds
-                        });
+                return; // Escrow settlement is handled separately
                         
                         const updateResult = await backgroundMatchRepository.query(`
                           UPDATE "match"
@@ -5782,132 +5700,22 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 return; // Escrow settlement is handled separately
               }
               
-              // OLD SQUADS SYSTEM: Only process if this is a Squads match
-              if ((match as any).squadsVaultAddress && match.winner !== 'tie') {
-                // OLD SQUADS SYSTEM: Use Squads proposal
-                const { getSquadsVaultService } = require('../services/squadsVaultService');
-                const squadsVaultService = getSquadsVaultService();
-                const { PublicKey } = require('@solana/web3.js');
-                
-                // Winner payout proposal
-                const winner = match.winner;
-                const entryFee = match.entryFee;
-                const totalPot = entryFee * 2;
-                const winnerAmount = totalPot * 0.95;
-                const feeAmount = totalPot * 0.05;
-
-                const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                  (match as any).squadsVaultAddress,
-                  new PublicKey(winner),
-                  winnerAmount,
-                  new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                  feeAmount,
-                  (match as any).squadsVaultPda ?? undefined
-                );
-
-                if (proposalResult.success) {
-                  const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                  (match as any).payoutProposalId = proposalResult.proposalId;
-                  (match as any).proposalCreatedAt = new Date();
-                  (match as any).proposalStatus = 'ACTIVE';
-                  applyProposalStateToMatch(match, proposalState);
-                  await matchRepository.save(match);
-                  console.log('✅ Payout proposal created for missing winner:', { matchId: match.id, proposalId: proposalResult.proposalId, signers: proposalState.signers, needsSignatures: proposalState.normalizedNeeds });
-                }
+              // Squads system removed - all matches now use escrow
+              // Escrow matches use submitResultAndSettle, not proposal creation
+              if ((match as any).escrowAddress) {
+                console.log('✅ Escrow match - settlement handled via escrow system', {
+                  matchId: match.id,
+                  escrowAddress: (match as any).escrowAddress,
+                  note: 'Escrow matches use submitResultAndSettle, not proposal creation',
+                });
+                return; // Escrow settlement is handled separately
               } else {
-                // Tie refund proposal
-                const player1Result = match.getPlayer1Result();
-                const player2Result = match.getPlayer2Result();
-                const isLosingTie = player1Result && player2Result && !player1Result.won && !player2Result.won;
-                
-                if (isLosingTie) {
-                  // ESCROW SYSTEM: Settlement is handled by frontend/player calling settleMatch
-                  if ((match as any).escrowAddress) {
-                    console.log('✅ Escrow match - tie refund settlement will be triggered by player or frontend', {
-                      matchId: match.id,
-                      escrowAddress: (match as any).escrowAddress
-                    });
-                    return; // Escrow settlement is handled separately
-                  }
-                  
-                  // OLD SQUADS SYSTEM: Only process if this is a Squads match
-                  if ((match as any).squadsVaultAddress) {
-                    // OLD SQUADS SYSTEM: Use Squads proposal
-                    const entryFee = match.entryFee;
-                    const refundAmount = entryFee * 0.95; // 95% refund
-                    
-                    console.log('🔄 Attempting to create tie refund proposal', {
-                      matchId: match.id,
-                      vaultAddress: (match as any).squadsVaultAddress,
-                      player1: match.player1,
-                      player2: match.player2,
-                      refundAmount,
-                    });
-                    const tiePaymentStatus = {
-                      ...(match.player1Paid !== undefined && { player1Paid: !!match.player1Paid }),
-                      ...(match.player2Paid !== undefined && { player2Paid: !!match.player2Paid }),
-                    };
-                    
-                    const proposalResult = await squadsVaultService.proposeTieRefund(
-                      (match as any).squadsVaultAddress,
-                      new PublicKey(match.player1),
-                      new PublicKey(match.player2),
-                      refundAmount,
-                      (match as any).squadsVaultPda ?? undefined,
-                      tiePaymentStatus
-                    );
-
-                  if (proposalResult.success && proposalResult.proposalId) {
-                    const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                    // CRITICAL FIX: For tie refunds, only set tieRefundProposalId, NOT payoutProposalId
-                    (match as any).tieRefundProposalId = proposalResult.proposalId;
-                    (match as any).proposalCreatedAt = new Date();
-                    (match as any).proposalStatus = 'ACTIVE';
-                    applyProposalStateToMatch(match, proposalState);
-                    
-                    // CRITICAL: Set proposal expiration (30 minutes after creation)
-                    const { proposalExpirationService } = require('../services/proposalExpirationService');
-                    proposalExpirationService.setProposalExpiration(match);
-                    
-                    await matchRepository.save(match);
-                    console.log('✅ Tie refund proposal created:', { matchId: match.id, proposalId: proposalResult.proposalId, signers: proposalState.signers, needsSignatures: proposalState.normalizedNeeds });
-                    
-                    // Reload match to ensure we have the latest proposal data
-                    // Use raw SQL to avoid proposalExpiresAt column errors
-                    const reloadedRows = await matchRepository.query(`
-                      SELECT 
-                        "payoutProposalId", "tieRefundProposalId", 
-                        "proposalStatus", "proposalCreatedAt", "needsSignatures"
-                      FROM "match"
-                      WHERE id = $1
-                      LIMIT 1
-                    `, [match.id]);
-                    if (reloadedRows && reloadedRows.length > 0) {
-                      const reloadedRow = reloadedRows[0];
-                      (match as any).payoutProposalId = reloadedRow.payoutProposalId;
-                      (match as any).tieRefundProposalId = reloadedRow.tieRefundProposalId;
-                      (match as any).proposalStatus = reloadedRow.proposalStatus;
-                      (match as any).proposalCreatedAt = reloadedRow.proposalCreatedAt;
-                      (match as any).needsSignatures = reloadedRow.needsSignatures;
-                    }
-                  } else {
-                    console.error('❌ Failed to create tie refund proposal:', {
-                      matchId: match.id,
-                      success: proposalResult.success,
-                      proposalId: proposalResult.proposalId,
-                      error: proposalResult.error,
-                      needsSignatures: proposalResult.needsSignatures,
-                    });
-                  }
-                } else {
-                  console.warn('⚠️ Tie detected but isLosingTie check failed:', {
-                    matchId: match.id,
-                    player1Result: player1Result ? { won: player1Result.won, numGuesses: player1Result.numGuesses } : null,
-                    player2Result: player2Result ? { won: player2Result.won, numGuesses: player2Result.numGuesses } : null,
-                  });
-                  }
-                }
-                }
+                console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed', {
+                  matchId: match.id,
+                  hasEscrow: !!(match as any).escrowAddress,
+                  error: 'SQUADS_SYSTEM_REMOVED',
+                });
+                return; // Squads system no longer supported
               }
             } catch (proposalError: unknown) {
               const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
@@ -6362,79 +6170,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               (match as any).payoutProposalId = checkRows[0].payoutProposalId || (match as any).payoutProposalId;
               (match as any).tieRefundProposalId = checkRows[0].tieRefundProposalId || (match as any).tieRefundProposalId;
             } else {
-              const { PublicKey } = require('@solana/web3.js');
-              
-              const winner = freshMatch.winner;
-              const entryFee = freshMatch.entryFee;
-              const totalPot = entryFee * 2;
-              const winnerAmount = totalPot * 0.95;
-              const feeAmount = totalPot * 0.05;
-              
-              console.log('🚀 FINAL FALLBACK: Calling proposeWinnerPayout synchronously...', {
-                matchId: freshMatch.id,
-                vaultAddress: (freshMatch as any).squadsVaultAddress,
-                winner,
-                winnerAmount,
-                feeAmount
-              });
-              
-              const proposalResult = await squadsVaultService.proposeWinnerPayout(
-                (freshMatch as any).squadsVaultAddress,
-                new PublicKey(winner),
-                winnerAmount,
-                new PublicKey(process.env.FEE_WALLET_ADDRESS || '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt'),
-                feeAmount,
-                (freshMatch as any).squadsVaultPda ?? undefined
-              );
-              
-                    console.log('📋 FINAL FALLBACK: proposeWinnerPayout result:', {
-                matchId: freshMatch.id,
-                success: proposalResult.success,
-                proposalId: proposalResult.proposalId,
-                error: proposalResult.error,
-                needsSignatures: proposalResult.needsSignatures
-              });
-              
-              if (proposalResult.success && proposalResult.proposalId) {
-                const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                applyProposalStateToMatch(match, proposalState);
-
-                // Update match with proposal data using raw SQL
-                await matchRepository.query(`
-                  UPDATE "match"
-                  SET "payoutProposalId" = $1,
-                      "proposalStatus" = $2,
-                      "proposalCreatedAt" = NOW(),
-                      "needsSignatures" = $3,
-                      "proposalSigners" = $4
-                  WHERE id = $5
-                `, [proposalResult.proposalId, 'ACTIVE', proposalState.normalizedNeeds, proposalState.signersJson, freshMatch.id]);
-                
-                // Update match object
-                (match as any).payoutProposalId = proposalResult.proposalId;
-                (match as any).proposalStatus = 'ACTIVE';
-                (match as any).proposalCreatedAt = new Date();
-                (match as any).needsSignatures = proposalState.normalizedNeeds;
-                
-                console.log('✅ FINAL FALLBACK: Winner payout proposal created and saved successfully', {
+              // Squads system removed - all matches now use escrow
+              if ((freshMatch as any).escrowAddress) {
+                console.log('✅ Escrow match - settlement handled via escrow system (FINAL FALLBACK)', {
                   matchId: freshMatch.id,
-                  proposalId: proposalResult.proposalId,
-                  proposalStatus: (match as any).proposalStatus,
-                  needsSignatures: (match as any).needsSignatures,
-                  signers: proposalState.signers
+                  escrowAddress: (freshMatch as any).escrowAddress,
+                  note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                 });
+                return; // Escrow settlement is handled separately
               } else {
-                console.error('❌ FINAL FALLBACK: Failed to create winner payout proposal', {
-                  matchId: match.id,
-                  success: proposalResult.success,
-                  proposalId: proposalResult.proposalId,
-                  error: proposalResult.error,
-                  needsSignatures: proposalResult.needsSignatures,
-                  vaultAddress: (freshMatch as any).squadsVaultAddress,
-                  vaultPda: (freshMatch as any).squadsVaultPda,
-                  winner: freshMatch.winner,
-                  entryFee: freshMatch.entryFee
+                console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK)', {
+                  matchId: freshMatch.id,
+                  hasEscrow: !!(freshMatch as any).escrowAddress,
+                  error: 'SQUADS_SYSTEM_REMOVED',
                 });
+                return; // Squads system no longer supported
               }
             }
           } catch (fallbackError: unknown) {
