@@ -9458,6 +9458,7 @@ const manualExecuteProposalHandler = async (req: any, res: any) => {
       matchId,
     });
     }
+    */
   } catch (error: unknown) {
     console.error('❌ Error in manual execution:', error);
     res.status(500).json({ 
