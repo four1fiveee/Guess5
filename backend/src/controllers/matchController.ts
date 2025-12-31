@@ -6263,92 +6263,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                 ...(freshMatch.player2Paid !== undefined && { player2Paid: !!freshMatch.player2Paid }),
               };
               
-              console.log('🚀 FINAL FALLBACK: Calling proposeTieRefund synchronously...', {
-                matchId: freshMatch.id,
-                vaultAddress: (freshMatch as any).squadsVaultAddress,
-                player1: freshMatch.player1,
-                player2: freshMatch.player2,
-                refundAmount,
-                vaultPda: (freshMatch as any).squadsVaultPda,
-                tiePaymentStatus
-              });
-              
-              const proposalResult = await squadsVaultService.proposeTieRefund(
-                (freshMatch as any).squadsVaultAddress,
-                new PublicKey(freshMatch.player1),
-                new PublicKey(freshMatch.player2),
-                refundAmount,
-                (freshMatch as any).squadsVaultPda ?? undefined,
-                tiePaymentStatus
-              );
-              
-                console.log('📋 FINAL FALLBACK: proposeTieRefund result:', {
-                matchId: freshMatch.id,
-                success: proposalResult.success,
-                proposalId: proposalResult.proposalId,
-                error: proposalResult.error,
-                needsSignatures: proposalResult.needsSignatures,
-                fullResult: JSON.stringify(proposalResult)
-              });
-              
-              if (proposalResult.success && proposalResult.proposalId) {
-                const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                applyProposalStateToMatch(freshMatch, proposalState);
-                // Update match with proposal data - CRITICAL FIX: For tie refunds, only set tieRefundProposalId
-                (freshMatch as any).tieRefundProposalId = proposalResult.proposalId;
-                (freshMatch as any).proposalCreatedAt = new Date();
-                (freshMatch as any).proposalStatus = 'ACTIVE';
-                
-                // Ensure match is marked as completed
-                if (!freshMatch.isCompleted) {
-                  freshMatch.isCompleted = true;
-                }
-                
-                // Save match
-                await matchRepository.save(freshMatch);
-                
-                // Reload to ensure we have the latest data and update the match reference
-                // Use raw SQL to avoid proposalExpiresAt column errors
-                const reloadedRows = await matchRepository.query(`
-                  SELECT 
-                    "payoutProposalId", "tieRefundProposalId", "proposalStatus",
-                    "proposalCreatedAt", "needsSignatures", winner, "isCompleted"
-                  FROM "match"
-                  WHERE id = $1
-                  LIMIT 1
-                `, [freshMatch.id]);
-                if (reloadedRows && reloadedRows.length > 0) {
-                  const reloadedRow = reloadedRows[0];
-                  (match as any).payoutProposalId = reloadedRow.payoutProposalId;
-                  (match as any).tieRefundProposalId = reloadedRow.tieRefundProposalId;
-                  (match as any).proposalStatus = reloadedRow.proposalStatus;
-                  (match as any).proposalCreatedAt = reloadedRow.proposalCreatedAt;
-                  (match as any).needsSignatures = reloadedRow.needsSignatures;
-                  match.winner = reloadedRow.winner || match.winner;
-                  match.isCompleted = reloadedRow.isCompleted || match.isCompleted;
-                }
-                
-                console.log('✅ FINAL FALLBACK: Tie refund proposal created and saved successfully', {
+              // Squads system removed - all matches now use escrow
+              if ((freshMatch as any).escrowAddress) {
+                console.log('✅ Escrow match - tie refund settlement handled via escrow system (FINAL FALLBACK)', {
                   matchId: freshMatch.id,
-                  proposalId: proposalResult.proposalId,
-                  proposalStatus: (match as any).proposalStatus,
-                  needsSignatures: (match as any).needsSignatures,
-                  signers: proposalState.signers
+                  escrowAddress: (freshMatch as any).escrowAddress,
+                  note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                 });
+                return; // Escrow settlement is handled separately
               } else {
-                console.error('❌ FINAL FALLBACK: Failed to create tie refund proposal', {
-                  matchId: match.id,
-                  success: proposalResult.success,
-                  proposalId: proposalResult.proposalId,
-                  error: proposalResult.error,
-                  needsSignatures: proposalResult.needsSignatures,
-                  vaultAddress: (freshMatch as any).squadsVaultAddress,
-                  vaultPda: (freshMatch as any).squadsVaultPda,
-                  player1: freshMatch.player1,
-                  player2: freshMatch.player2,
-                  refundAmount,
-                  fullResult: JSON.stringify(proposalResult)
+                console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK tie)', {
+                  matchId: freshMatch.id,
+                  hasEscrow: !!(freshMatch as any).escrowAddress,
+                  error: 'SQUADS_SYSTEM_REMOVED',
                 });
+                return; // Squads system no longer supported
               }
             }
           }
