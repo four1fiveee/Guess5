@@ -4929,6 +4929,8 @@ const submitResultHandler = async (req: any, res: any) => {
                     
                     // REMOVED: Squads tie refund proposal code
                     /*
+                    // REMOVED: Squads tie refund proposal - escrow system only
+                    /*
                     const proposalResult = await squadsService.proposeTieRefund(
                       (updatedMatch as any).squadsVaultAddress,
                       new PublicKey(updatedMatch.player1),
