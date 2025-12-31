@@ -9587,7 +9587,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       }
 
       // Extract all account keys from transaction
-      const accountKeys = transaction.transaction.message.accountKeys.map((key: any) => 
+      const accountKeys = transaction.transaction.message.getAccountKeys().staticAccountKeys.map((key: any) => 
         typeof key === 'string' ? key : (key.pubkey ? key.pubkey.toString() : key.toString())
       );
 
@@ -9951,7 +9951,7 @@ const verifyPaymentTransaction = async (signature: string, fromWallet: string, e
     
     const preBalances = transaction.meta?.preBalances || [];
     const postBalances = transaction.meta?.postBalances || [];
-    const accountKeys = transaction.transaction.message.accountKeys;
+    const accountKeys = transaction.transaction.message.getAccountKeys().staticAccountKeys;
     
     // Find the fee wallet account index
     const feeWalletIndex = accountKeys.findIndex((key: any) => key.equals(feeWalletPublicKey));
@@ -11757,7 +11757,7 @@ const generateReportHandler = async (req: any, res: any) => {
                   const txTime = tx.blockTime ? tx.blockTime * 1000 : 0;
                   
                   // Check if transaction involves winner, players (for tie refunds), or fee wallet
-                  const accountKeys = tx.transaction.message.accountKeys.map((key: any) => 
+                  const accountKeys = tx.transaction.message.getAccountKeys().staticAccountKeys.map((key: any) => 
                     typeof key === 'string' ? key : key.pubkey.toString()
                   );
                   
