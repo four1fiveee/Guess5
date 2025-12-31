@@ -30,7 +30,9 @@ const {
   adminExecutePayout,
   adminGetPayoutLockStatus,
   adminGetReferralPayoutHistoryCSV,
-  adminInvestigateRefund
+  adminInvestigateRefund,
+  adminInvestigateMatch,
+  adminSettleMatch
 } = require('../controllers/adminController');
 const { requireAdminAuth } = require('../middleware/adminAuth');
 
@@ -42,6 +44,7 @@ router.use(requireAdminAuth);
 // Match management
 router.post('/delete-match/:matchId', adminDeleteMatch);
 router.post('/settle-escrow-match/:matchId', adminSettleEscrowMatch);
+router.post('/settle-match/:matchId', adminSettleMatch);
 router.post('/delete-all-matches', adminDeleteAllMatches);
 router.post('/clear-proposal-lock/:matchId', adminClearProposalLock);
 router.post('/clear-lock-and-delete/:matchId', adminClearLockAndDeleteMatch);
@@ -86,5 +89,6 @@ router.post('/referrals/execute-payout', adminExecutePayout);
 
 // Refund investigation
 router.get('/investigate-refund', adminInvestigateRefund);
+router.get('/investigate-match/:matchId', adminInvestigateMatch);
 
 module.exports = router;

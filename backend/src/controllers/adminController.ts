@@ -90,6 +90,63 @@ export const adminDeleteMatch = async (req: Request, res: Response) => {
  * POST /api/admin/settle-escrow-match/:matchId
  * This triggers submit_result and settle for escrow matches that failed to settle automatically
  */
+/**
+ * Manually trigger settlement for a specific match
+ * POST /api/admin/settle-match/:matchId
+ */
+export const adminSettleMatch = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    if (!matchId) {
+      return res.status(400).json({ success: false, error: 'Match ID required' });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const { submitResultAndSettle } = require('../services/escrowService');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+
+    if (!match) {
+      return res.json({ success: false, error: 'Match not found' });
+    }
+
+    if (!match.winner) {
+      return res.json({ success: false, error: 'Match has no winner yet' });
+    }
+
+    const resultType = match.winner === 'tie' ? 'DrawFullRefund' : 'Win';
+    const winner = match.winner === 'tie' ? null : match.winner;
+
+    console.log('🔧 Admin manually triggering settlement for match:', matchId, {
+      winner,
+      resultType,
+    });
+
+    const settleResult = await submitResultAndSettle(matchId, winner, resultType);
+
+    if (settleResult.success) {
+      return res.json({
+        success: true,
+        submitResultSignature: settleResult.submitResultSignature,
+        settleSignature: settleResult.settleSignature || settleResult.signature,
+        message: 'Settlement executed successfully',
+      });
+    } else {
+      return res.status(500).json({
+        success: false,
+        error: settleResult.error,
+        submitResultSignature: settleResult.submitResultSignature || null,
+      });
+    }
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ success: false, error: errorMessage });
+  }
+};
+
 export const adminSettleEscrowMatch = async (req: Request, res: Response) => {
   let matchId: string | undefined;
   
@@ -2008,6 +2065,103 @@ export const adminGetReferralPayoutHistoryCSV = async (req: Request, res: Respon
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Error generating referral payout history CSV:', errorMessage);
     return res.status(500).json({ error: 'Failed to generate CSV', details: errorMessage });
+  }
+};
+
+/**
+ * Investigate a specific match
+ * GET /api/admin/investigate-match/:matchId
+ */
+export const adminInvestigateMatch = async (req: Request, res: Response) => {
+  try {
+    const { matchId } = req.params;
+    if (!matchId) {
+      return res.status(400).json({ success: false, error: 'Match ID required' });
+    }
+
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const matchRepository = AppDataSource.getRepository(Match);
+    const match = await matchRepository.findOne({ where: { id: matchId } });
+
+    if (!match) {
+      return res.json({ success: false, error: 'Match not found' });
+    }
+
+    const connection = createPremiumSolanaConnection();
+    const walletToCheck = '4FwkzLV9ayU3B7ZWXR7fo6TtC6ievfYEgobscwrcc5Rs';
+    const feeWallet = '2Q9WZbjgssyuNA1t5WLHL4SWdCiNAQCTM5FbWtGQtvjt';
+
+    // Get wallet transactions
+    const walletPubkey = new PublicKey(walletToCheck);
+    const feeWalletPubkey = new PublicKey(feeWallet);
+    const walletSigs = await connection.getSignaturesForAddress(walletPubkey, { limit: 20 });
+    
+    const transactions: any[] = [];
+    for (const sig of walletSigs) {
+      const tx = await connection.getTransaction(sig.signature, {
+        commitment: 'confirmed',
+        maxSupportedTransactionVersion: 0,
+      });
+      
+      if (tx && tx.meta && !tx.meta.err) {
+        const accountKeys = tx.transaction.message.accountKeys.map((k: any) => 
+          typeof k === 'string' ? k : k.toString()
+        );
+        const preBalances = tx.meta.preBalances || [];
+        const postBalances = tx.meta.postBalances || [];
+        
+        const walletIndex = accountKeys.findIndex((k: string) => k === walletToCheck);
+        const feeWalletIndex = accountKeys.findIndex((k: string) => k === feeWallet);
+        
+        if (walletIndex >= 0) {
+          const balanceChange = (postBalances[walletIndex] - preBalances[walletIndex]) / LAMPORTS_PER_SOL;
+          const isFromFeeWallet = feeWalletIndex >= 0 && 
+            preBalances[feeWalletIndex] > postBalances[feeWalletIndex];
+          
+          if (Math.abs(balanceChange) > 0.0001) {
+            transactions.push({
+              signature: sig.signature,
+              blockTime: sig.blockTime ? new Date(sig.blockTime * 1000).toISOString() : null,
+              balanceChange,
+              isFromFeeWallet,
+              explorerLink: `https://explorer.solana.com/tx/${sig.signature}?cluster=devnet`,
+            });
+          }
+        }
+      }
+    }
+
+    return res.json({
+      success: true,
+      match: {
+        id: match.id,
+        status: match.status,
+        escrowStatus: match.escrowStatus,
+        player1: match.player1,
+        player2: match.player2,
+        player1Paid: match.player1Paid,
+        player2Paid: match.player2Paid,
+        entryFee: match.entryFee,
+        escrowAddress: (match as any).escrowAddress,
+        escrowPda: (match as any).escrowPda,
+        winner: match.winner,
+        isCompleted: match.isCompleted,
+        proposalStatus: (match as any).proposalStatus,
+        proposalExecutedAt: (match as any).proposalExecutedAt,
+        payoutTxSignature: (match as any).payoutTxSignature,
+        refundTxHash: match.refundTxHash,
+        createdAt: match.createdAt,
+        updatedAt: match.updatedAt,
+      },
+      walletTransactions: transactions,
+      feeWalletTransfers: transactions.filter(t => t.isFromFeeWallet),
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    return res.status(500).json({ success: false, error: errorMessage });
   }
 };
 

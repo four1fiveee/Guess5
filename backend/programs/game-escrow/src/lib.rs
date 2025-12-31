@@ -652,8 +652,8 @@ pub mod game_escrow {
         let escrow_account_info = ctx.accounts.game_escrow.to_account_info();
         let initializer_account_info = ctx.accounts.player_a.to_account_info();
         
-        // Transfer remaining rent (rent_exempt_minimum) to initializer
-        // This is the rent that was paid when the account was created
+        // Transfer remaining rent (rent_exempt_minimum) to initializer before closing
+        // This is the rent that was paid when the account was created by Player A
         let remaining_lamports = escrow_account_info.lamports();
         if remaining_lamports > 0 {
             **escrow_account_info.try_borrow_mut_lamports()? -= remaining_lamports;
@@ -661,7 +661,8 @@ pub mod game_escrow {
             msg!("Returned {} lamports rent to initializer (Player A)", remaining_lamports);
         }
         
-        // Mark account as closed by setting owner to system program and zeroing data
+        // Close the account - Anchor pattern: assign to system program and realloc to 0
+        // This marks the account as closed and returns remaining rent to the rent payer (Player A)
         escrow_account_info.assign(&system_program::ID);
         escrow_account_info.realloc(0, false)?;
         
