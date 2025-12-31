@@ -647,15 +647,13 @@ pub mod game_escrow {
 
         // CRITICAL: Close escrow account to return rent to initializer (Player A)
         // This maximizes platform profitability by recovering rent
-        // After refunding available_balance, close the account to return rent
-        let initializer = escrow.player_a; // Player A is always the initializer
-        
-        // Close the account - Anchor will automatically return rent to the initializer (Player A)
-        // The rent goes back to whoever paid for account creation (Player A)
+        // After refunding available_balance, the account still has rent_exempt_minimum
+        // Close the account to return that rent to the initializer (Player A)
         let escrow_account_info = ctx.accounts.game_escrow.to_account_info();
         let initializer_account_info = ctx.accounts.player_a.to_account_info();
         
-        // Transfer remaining rent to initializer before closing
+        // Transfer remaining rent (rent_exempt_minimum) to initializer
+        // This is the rent that was paid when the account was created
         let remaining_lamports = escrow_account_info.lamports();
         if remaining_lamports > 0 {
             **escrow_account_info.try_borrow_mut_lamports()? -= remaining_lamports;
@@ -663,7 +661,7 @@ pub mod game_escrow {
             msg!("Returned {} lamports rent to initializer (Player A)", remaining_lamports);
         }
         
-        // Close the account (set discriminator to closed state)
+        // Mark account as closed by setting owner to system program and zeroing data
         escrow_account_info.assign(&system_program::ID);
         escrow_account_info.realloc(0, false)?;
         
