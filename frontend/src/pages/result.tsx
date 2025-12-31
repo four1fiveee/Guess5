@@ -2345,7 +2345,7 @@ const Result: React.FC = () => {
           {/* Game Results */}
           <div className="bg-white/10 backdrop-blur-lg rounded-2xl p-8 shadow-2xl border border-white/20">
             <div className="text-center">
-              <h1 className="text-3xl font-bold text-white mb-6">Match Recap</h1>
+              <h1 className="text-4xl font-bold text-accent mb-8">Game Results</h1>
               
               {/* Result Hero Banner */}
               <div
@@ -2362,129 +2362,157 @@ const Result: React.FC = () => {
                 </div>
               </div>
               
-              {/* Game Details */}
-              {matchWasCancelled ? (
-                <div className="space-y-4 mb-6">
-                  <div className="rounded-2xl border border-yellow-500/40 bg-yellow-500/10 p-5 text-left">
-                    <div className="text-white/60 text-xs uppercase tracking-[0.3em] mb-2">Status</div>
-                    <div className="text-white font-semibold text-base">
-                      {cancellationSubtitle}
+              {/* Results Card - Clean Design Matching Practice Mode */}
+              <div className="bg-secondary bg-opacity-10 rounded-lg p-6 mb-6 text-accent shadow">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                  {/* Your Results */}
+                  <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                    <h3 className="text-lg font-bold text-accent mb-3">Your Results</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Status:</span>
+                        <span className={`font-bold ${
+                          matchWasCancelled 
+                            ? 'text-yellow-400' 
+                            : payoutData.won 
+                            ? 'text-green-400' 
+                            : payoutData.isTie 
+                            ? 'text-blue-400' 
+                            : 'text-red-400'
+                        }`}>
+                          {matchWasCancelled 
+                            ? 'Cancelled' 
+                            : payoutData.won 
+                            ? 'Won' 
+                            : payoutData.isTie 
+                            ? 'Tie' 
+                            : 'Lost'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Guesses:</span>
+                        <span className="text-white font-bold">{payoutData.numGuesses || 0}/7</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Time:</span>
+                        <span className="text-white font-bold">{payoutData.timeElapsed || 'N/A'}</span>
+                      </div>
                     </div>
-                    {payoutData.refundAmount ? (
-                      <div className="text-yellow-200 text-sm font-semibold mt-3">
-                        Refund amount: {payoutData.refundAmount.toFixed(4)} SOL
-                      </div>
-                    ) : (
-                      <div className="text-white/60 text-xs mt-3">
-                        No funds left escrow, so no refund is required.
-                      </div>
-                    )}
                   </div>
-                  <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
-                      <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
-                        Next Steps
-                      </span>
-                      <span className={`text-sm font-semibold ${resultTheme.accentText}`}>
-                        {tempoCopy || 'Monitor the proposal below to reclaim your SOL.'}
-                      </span>
+
+                  {/* Opponent Results */}
+                  <div className="bg-white/5 rounded-lg p-4 border border-white/10">
+                    <h3 className="text-lg font-bold text-accent mb-3">Opponent Results</h3>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Status:</span>
+                        <span className={`font-bold ${
+                          matchWasCancelled 
+                            ? 'text-white/50' 
+                            : payoutData.winner === 'tie' 
+                            ? 'text-blue-400' 
+                            : payoutData.winner && payoutData.winner !== publicKey?.toString() 
+                            ? 'text-green-400' 
+                            : 'text-red-400'
+                        }`}>
+                          {matchWasCancelled 
+                            ? 'N/A' 
+                            : payoutData.winner === 'tie' 
+                            ? 'Tie' 
+                            : payoutData.winner && payoutData.winner !== publicKey?.toString() 
+                            ? 'Won' 
+                            : 'Lost'}
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Guesses:</span>
+                        <span className="text-white font-bold">{payoutData.opponentGuesses || 0}/7</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Time:</span>
+                        <span className="text-white font-bold">{payoutData.opponentTimeElapsed || 'N/A'}</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              ) : (
-                <div className="space-y-4 mb-6">
-                  <div className="grid gap-4 sm:grid-cols-2">
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
-                      <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Your Run</div>
-                      <div className="flex flex-col gap-3">
-                        <div>
-                          <div className="text-white/60 text-xs">Guesses Used</div>
-                          <div className="text-white text-2xl font-semibold">
-                            {payoutData.numGuesses || 0}/7
-                          </div>
-                          {payoutData.numGuesses === 7 && (
-                            <span className="flex items-center gap-1 text-sm ml-1 mt-1">
-                              {payoutData.won ? (
-                                <>
-                                  <span className="text-green-400">✅</span>
-                                  <span className="text-green-300">Solved on last guess</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="text-red-400">❌</span>
-                                  <span className="text-red-300">Used all guesses</span>
-                                </>
-                              )}
-                            </span>
-                          )}
-                          {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
-                            <span className="flex items-center gap-1 text-sm ml-1 mt-1 text-orange-300">
-                              <span>⏱️</span>
-                              <span>Timed out – puzzle not solved</span>
-                            </span>
-                          )}
-                        </div>
-                  <div>
-                          <div className="text-white/60 text-xs">Time to Solve</div>
-                          <div className="text-white text-lg font-medium">
-                            {payoutData.timeElapsed || '—'}
-                  </div>
-                        </div>
-                      </div>
+
+                {/* Entry Fee Tier Display */}
+                {payoutData.entryFee && solPrice && (
+                  <div className="bg-white/5 rounded-lg p-4 border border-white/10 mb-4">
+                    <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Entry Fee Tier</div>
+                    <div className="text-white text-xl font-bold">
+                      ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
+                      <span className="text-white/60 text-base ml-2">
+                        ({payoutData.entryFee.toFixed(4)} SOL)
+                      </span>
                     </div>
-                    <div className="rounded-2xl border border-white/10 bg-white/5 p-5 text-left">
-                      <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Opponent</div>
-                      <div className="flex flex-col gap-3">
-                        <div>
-                          <div className="text-white/60 text-xs">Guesses Used</div>
-                          <div className="text-white text-2xl font-semibold">
-                            {payoutData.opponentGuesses || 0}/7
-                          </div>
-                          {payoutData.opponentGuesses === 7 && (
-                            <span className="flex items-center gap-1 text-sm ml-1 mt-1">
-                              {payoutData.winner !== 'tie' && payoutData.winner !== publicKey?.toString() ? (
-                                <>
-                                  <span className="text-green-400">✅</span>
-                                  <span className="text-green-300">Solved on last guess</span>
-                                </>
-                              ) : (
-                                <>
-                                  <span className="text-red-400">❌</span>
-                                  <span className="text-red-300">Used all guesses</span>
-                                </>
-                              )}
-                            </span>
-                          )}
-                          {payoutData.isTie && (payoutData as any).tieReason === 'both_timeout' && (
-                            <span className="flex items-center gap-1 text-sm ml-1 mt-1 text-orange-300">
-                              <span>⏱️</span>
-                              <span>Timed out – puzzle not solved</span>
-                            </span>
-                          )}
-                        </div>
-                  <div>
-                          <div className="text-white/60 text-xs">Time to Solve</div>
-                          <div className="text-white text-lg font-medium">
-                            {payoutData.opponentTimeElapsed || '—'}
                   </div>
-                </div>
+                )}
+
+                {/* Winnings Calculation - Only show for winners */}
+                {payoutData.won && payoutData.entryFee && solPrice && (
+                  <div className="bg-green-500/10 border border-green-500/30 rounded-lg p-4 mb-4">
+                    <div className="text-white/50 text-xs uppercase tracking-[0.3em] mb-2">Winnings Breakdown</div>
+                    <div className="space-y-2 text-sm">
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Entry Fee (per player):</span>
+                        <span className="text-white font-semibold">
+                          ${getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || '—'} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Total Pot (2x entry fee):</span>
+                        <span className="text-white font-semibold">
+                          ${((getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || 0) * 2).toFixed(2)} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-white/70">Platform Fee (5%):</span>
+                        <span className="text-white font-semibold">
+                          -${(((getExpectedEntryFeeUSD(payoutData.entryFee, solPrice) || 0) * 2) * 0.05).toFixed(2)} USD
+                        </span>
+                      </div>
+                      <div className="flex justify-between border-t border-white/10 pt-2 mt-2">
+                        <span className="text-green-300 font-bold">Your Winnings (95%):</span>
+                        <span className="text-green-300 font-bold text-lg">
+                          ${getExpectedWinningsUSD(
+                            getExpectedEntryFeeUSD(payoutData.entryFee, solPrice),
+                            payoutData.entryFee,
+                            solPrice
+                          )?.toFixed(2) || '—'} USD
+                        </span>
+                      </div>
+                      {payoutData.bonus?.eligible && (
+                        <div className="flex justify-between border-t border-white/10 pt-2 mt-2">
+                          <span className="text-yellow-300 font-bold">Platform Bonus:</span>
+                          <span className="text-yellow-300 font-bold text-lg">
+                            +${payoutData.bonus.tier && BONUS_USD_BY_TIER[payoutData.bonus.tier] 
+                              ? BONUS_USD_BY_TIER[payoutData.bonus.tier].toFixed(2) 
+                              : (payoutData.bonus.expectedUSD || payoutData.bonus.amountUSD || 0).toFixed(2)} USD
+                          </span>
+                        </div>
+                      )}
+                      {payoutData.bonus?.eligible && (
+                        <div className="flex justify-between border-t border-green-500/30 pt-2 mt-2">
+                          <span className="text-green-300 font-bold text-base">Total Received:</span>
+                          <span className="text-green-300 font-bold text-xl">
+                            ${(
+                              (getExpectedWinningsUSD(
+                                getExpectedEntryFeeUSD(payoutData.entryFee, solPrice),
+                                payoutData.entryFee,
+                                solPrice
+                              ) || 0) +
+                              (payoutData.bonus.tier && BONUS_USD_BY_TIER[payoutData.bonus.tier]
+                                ? BONUS_USD_BY_TIER[payoutData.bonus.tier]
+                                : (payoutData.bonus.expectedUSD || payoutData.bonus.amountUSD || 0))
+                            ).toFixed(2)} USD
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
-                    </div>
-                  </div>
-                  {payoutData.isTie && payoutData.isWinningTie && (
-                    <div className="rounded-2xl border border-white/10 bg-white/[0.04] px-5 py-4">
-                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 text-sm">
-                        <span className="text-white/60 uppercase tracking-[0.25em] text-xs">
-                          Tie Breaker
-                        </span>
-                        <span className={`text-sm font-semibold ${resultTheme.accentText}`}>
-                          {tempoCopy || 'Timing data will appear once both players finish.'}
-                        </span>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
               
               {/* Notification Banner */}
               {notification && (
