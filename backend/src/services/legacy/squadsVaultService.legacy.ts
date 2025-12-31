@@ -1435,14 +1435,14 @@ export class SquadsVaultService {
         });
         
         // RUNTIME ASSERTION #3: Ensure remainingAccounts can be extracted properly
-        const accountKeys = (vaultTxAccount.message as any).accountKeys;
+        const accountKeys = vaultTxAccount.message ? vaultTxAccount.message.getAccountKeys().staticAccountKeys : [];
         if (!accountKeys || !Array.isArray(accountKeys) || accountKeys.length === 0) {
           enhancedLogger.error('❌ RUNTIME ASSERTION #3 FAILED: VaultTransaction has zero accountKeys', {
             vaultAddress,
             transactionPda: transactionPda.toString(),
             transactionIndex: transactionIndex.toString(),
             hasMessage: !!vaultTxAccount.message,
-            hasAccountKeys: !!(vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys),
+            hasAccountKeys: !!vaultTxAccount.message,
             accountKeysCount: accountKeys ? accountKeys.length : 0,
             note: 'ABORTING MATCH CREATION - VaultTransaction must have accountKeys for approval instructions',
           });
