@@ -9006,12 +9006,22 @@ const processRefundsForFailedMatch = async (match: any) => {
   try {
     console.log(`💰 Processing refunds for failed match ${match.id}`);
     
-    // Check if this match uses smart contract escrow
+    // CRITICAL: Check if this match uses smart contract escrow
+    // New matches ALWAYS use escrow - check by match creation date or escrow fields
     const hasEscrow = !!(match as any).escrowAddress || !!(match as any).escrowPda;
+    const isNewMatch = match.createdAt && new Date(match.createdAt) > new Date('2024-12-01'); // Matches after escrow system launch
     
-    if (hasEscrow) {
+    // ALWAYS use smart contract refund for new matches (escrow system)
+    // Only use legacy fee wallet refund for very old Squads matches
+    if (hasEscrow || isNewMatch) {
       // Use smart contract refund method
-      console.log(`💰 Match ${match.id} uses smart contract escrow, using refundIfOnlyOnePaid()`);
+      console.log(`💰 Match ${match.id} uses smart contract escrow, using refundIfOnlyOnePaid()`, {
+        hasEscrow,
+        isNewMatch,
+        escrowAddress: (match as any).escrowAddress,
+        escrowPda: (match as any).escrowPda,
+        createdAt: match.createdAt
+      });
       
       const { refundSinglePlayer } = require('../services/escrowService');
       const refundResult = await refundSinglePlayer(match.id);
@@ -9028,6 +9038,9 @@ const processRefundsForFailedMatch = async (match: any) => {
         });
       } else {
         console.error(`❌ Smart contract refund failed for match ${match.id}: ${refundResult.error}`);
+        console.error(`❌ DO NOT fall back to fee wallet - this is an escrow match!`);
+        // DO NOT fall back to fee wallet - this would be incorrect
+        throw new Error(`Smart contract refund failed: ${refundResult.error}`);
       }
       
       return;
