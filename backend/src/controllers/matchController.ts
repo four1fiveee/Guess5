@@ -13778,8 +13778,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
       );
 
       // Extract remaining accounts from the message
-      if (vaultTxAccount.message && (vaultTxAccount.message as any).accountKeys) {
-        const accountKeys = (vaultTxAccount.message as any).accountKeys;
+      if (vaultTxAccount.message) {
+        const accountKeys = vaultTxAccount.message.getAccountKeys().staticAccountKeys;
         
         // CRITICAL: Ordering matters - must match message.accountKeys[] order exactly
         remainingAccounts = accountKeys.map((key: any, index: number) => {
@@ -13935,8 +13935,8 @@ const getProposalApprovalTransactionHandler = async (req: any, res: any) => {
               );
               
               // Extract remaining accounts with corrected VaultTransaction
-              if (correctedVaultTxAccount.message && (correctedVaultTxAccount.message as any).accountKeys) {
-                const accountKeys = (correctedVaultTxAccount.message as any).accountKeys;
+              if (correctedVaultTxAccount.message) {
+                const accountKeys = correctedVaultTxAccount.message.getAccountKeys().staticAccountKeys;
                 remainingAccounts = accountKeys.map((key: any) => {
                   let pubkey: PublicKey | null = null;
                   if (key instanceof PublicKey) {
