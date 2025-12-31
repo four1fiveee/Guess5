@@ -15,6 +15,8 @@ import { getNextSunday1300EST, isWithinLockWindow, isWithinExecuteWindow, getCur
 import { PayoutLock } from '../models/PayoutLock';
 import { notifyAdmin } from '../services/notificationService';
 import { submitResultAndSettle } from '../services/escrowService';
+import { createPremiumSolanaConnection } from '../config/solanaConnection';
+import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import * as fs from 'fs';
 // csv-parse will be installed as dependency
 let csv: any;
@@ -2006,6 +2008,216 @@ export const adminGetReferralPayoutHistoryCSV = async (req: Request, res: Respon
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Error generating referral payout history CSV:', errorMessage);
     return res.status(500).json({ error: 'Failed to generate CSV', details: errorMessage });
+  }
+};
+
+/**
+ * Investigate the most recent refund transaction
+ * GET /api/admin/investigate-refund
+ */
+export const adminInvestigateRefund = async (req: Request, res: Response) => {
+  try {
+    if (!AppDataSource.isInitialized) {
+      await AppDataSource.initialize();
+    }
+
+    const matchRepository = AppDataSource.getRepository(Match);
+    const { Not } = require('typeorm');
+
+    // Find the most recent match that was refunded
+    const refundedMatch = await matchRepository.findOne({
+      where: [
+        { escrowStatus: 'REFUNDED' },
+        { refundTxHash: Not(null) }
+      ],
+      order: { updatedAt: 'DESC' },
+    });
+
+    if (!refundedMatch) {
+      return res.json({
+        success: false,
+        error: 'No refunded matches found in database',
+      });
+    }
+
+    if (!refundedMatch.refundTxHash) {
+      return res.json({
+        success: false,
+        error: 'No refund transaction hash found in database',
+        match: {
+          id: refundedMatch.id,
+          status: refundedMatch.status,
+          escrowStatus: refundedMatch.escrowStatus,
+        },
+      });
+    }
+
+    // Connect to Solana
+    const connection = createPremiumSolanaConnection();
+    const transactionSignature = refundedMatch.refundTxHash;
+
+    // Fetch transaction details
+    const transaction = await connection.getTransaction(transactionSignature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0,
+    });
+
+    if (!transaction) {
+      return res.json({
+        success: false,
+        error: 'Transaction not found on-chain',
+        match: {
+          id: refundedMatch.id,
+          refundTxHash: transactionSignature,
+        },
+        explorerLink: `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`,
+      });
+    }
+
+    if (transaction.meta?.err) {
+      return res.json({
+        success: false,
+        error: `Transaction failed: ${JSON.stringify(transaction.meta.err)}`,
+        match: {
+          id: refundedMatch.id,
+          refundTxHash: transactionSignature,
+        },
+        explorerLink: `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`,
+      });
+    }
+
+    // Analyze account balance changes
+    const accountKeys = transaction.transaction.message.accountKeys.map((key: any) => 
+      typeof key === 'string' ? key : key.toString()
+    );
+    const preBalances = transaction.meta?.preBalances || [];
+    const postBalances = transaction.meta?.postBalances || [];
+
+    // Find which player was refunded
+    const player1Pubkey = refundedMatch.player1;
+    const player2Pubkey = refundedMatch.player2;
+    const payerPubkey = refundedMatch.player1Paid ? player1Pubkey : player2Pubkey;
+
+    let payerBalanceChange = 0;
+    let payerPreBalance = 0;
+    let payerPostBalance = 0;
+    let escrowBalanceChange = 0;
+    let escrowPreBalance = 0;
+    let escrowPostBalance = 0;
+    let escrowAccount = '';
+
+    for (let i = 0; i < accountKeys.length; i++) {
+      const account = accountKeys[i];
+      const preBalance = preBalances[i] || 0;
+      const postBalance = postBalances[i] || 0;
+      const balanceChange = postBalance - preBalance;
+
+      if (account === payerPubkey) {
+        payerBalanceChange = balanceChange;
+        payerPreBalance = preBalance;
+        payerPostBalance = postBalance;
+      }
+
+      // Find escrow account (balance decreased significantly)
+      if (balanceChange < 0 && Math.abs(balanceChange) > 1000000) {
+        escrowBalanceChange = balanceChange;
+        escrowPreBalance = preBalance;
+        escrowPostBalance = postBalance;
+        escrowAccount = account;
+      }
+    }
+
+    // Calculate expected refund
+    const entryFeeLamports = Math.floor((refundedMatch.entryFee || 0) * LAMPORTS_PER_SOL);
+    const expectedRefundSOL = refundedMatch.entryFee || 0;
+    const actualRefundSOL = payerBalanceChange / LAMPORTS_PER_SOL;
+    const difference = payerBalanceChange - entryFeeLamports;
+
+    // Check for other transactions around the same time
+    const payerAccount = new PublicKey(payerPubkey);
+    const signatures = await connection.getSignaturesForAddress(payerAccount, {
+      limit: 10,
+    });
+
+    const refundTime = transaction.blockTime ? new Date(transaction.blockTime * 1000) : null;
+    const nearbyTransactions = signatures
+      .filter(sig => {
+        if (sig.signature === transactionSignature) return false;
+        const sigTime = sig.blockTime ? new Date(sig.blockTime * 1000) : null;
+        if (!refundTime || !sigTime) return false;
+        const timeDiff = Math.abs(sigTime.getTime() - refundTime.getTime()) / 1000;
+        return timeDiff < 60; // Within 60 seconds
+      })
+      .map(sig => ({
+        signature: sig.signature,
+        blockTime: sig.blockTime ? new Date(sig.blockTime * 1000).toISOString() : null,
+        explorerLink: `https://explorer.solana.com/tx/${sig.signature}?cluster=devnet`,
+      }));
+
+    return res.json({
+      success: true,
+      match: {
+        id: refundedMatch.id,
+        status: refundedMatch.status,
+        escrowStatus: refundedMatch.escrowStatus,
+        player1: refundedMatch.player1,
+        player2: refundedMatch.player2,
+        player1Paid: refundedMatch.player1Paid,
+        player2Paid: refundedMatch.player2Paid,
+        entryFee: refundedMatch.entryFee,
+        createdAt: refundedMatch.createdAt,
+        updatedAt: refundedMatch.updatedAt,
+      },
+      transaction: {
+        signature: transactionSignature,
+        explorerLink: `https://explorer.solana.com/tx/${transactionSignature}?cluster=devnet`,
+        blockTime: transaction.blockTime ? new Date(transaction.blockTime * 1000).toISOString() : null,
+        slot: transaction.slot,
+      },
+      refund: {
+        payer: payerPubkey,
+        expectedRefundSOL,
+        expectedRefundLamports: entryFeeLamports,
+        actualRefundSOL,
+        actualRefundLamports: payerBalanceChange,
+        differenceSOL: difference / LAMPORTS_PER_SOL,
+        differenceLamports: difference,
+        isCorrect: Math.abs(difference) < 1000, // Within 1000 lamports is considered correct
+      },
+      balances: {
+        payer: {
+          preBalanceSOL: payerPreBalance / LAMPORTS_PER_SOL,
+          postBalanceSOL: payerPostBalance / LAMPORTS_PER_SOL,
+          changeSOL: actualRefundSOL,
+        },
+        escrow: {
+          account: escrowAccount,
+          preBalanceSOL: escrowPreBalance / LAMPORTS_PER_SOL,
+          postBalanceSOL: escrowPostBalance / LAMPORTS_PER_SOL,
+          changeSOL: escrowBalanceChange / LAMPORTS_PER_SOL,
+        },
+      },
+      nearbyTransactions,
+      analysis: {
+        conclusion: Math.abs(difference) < 1000
+          ? 'Refund amount is correct'
+          : 'Refund amount differs from expected',
+        possibleCauses: Math.abs(difference) > 1000 ? [
+          'Rent was refunded (escrow account closed)',
+          'Multiple transactions occurred simultaneously',
+          'Transaction fee was refunded (unlikely)',
+          'Bonus payment was made (check other transactions)',
+        ] : [],
+      },
+    });
+  } catch (error: unknown) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    console.error('❌ Error investigating refund:', errorMessage);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to investigate refund',
+      details: errorMessage,
+    });
   }
 };
 
