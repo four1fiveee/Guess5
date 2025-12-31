@@ -18,10 +18,11 @@ async function investigateRefund() {
     const matchRepository = AppDataSource.getRepository(Match);
 
     // Find the most recent match that was refunded
+    const { Not, IsNull } = require('typeorm');
     const refundedMatch = await matchRepository.findOne({
       where: [
         { escrowStatus: 'REFUNDED' },
-        { refundTxHash: Not(null) }
+        { refundTxHash: Not(IsNull()) }
       ],
       order: { updatedAt: 'DESC' },
     });

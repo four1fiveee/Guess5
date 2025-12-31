@@ -7,7 +7,15 @@ import { Connection, PublicKey, LAMPORTS_PER_SOL } from '@solana/web3.js';
 import { createPremiumSolanaConnection } from '../config/solanaConnection';
 import * as dotenv from 'dotenv';
 
+// Load environment variables from multiple possible locations
 dotenv.config({ path: '.env' });
+dotenv.config({ path: '../.env' });
+dotenv.config({ path: '../../.env' });
+
+// Also load from process.env if available (for Render deployment)
+if (process.env.DATABASE_URL) {
+  console.log('✅ DATABASE_URL found in environment');
+}
 
 const MATCH_ID = 'b7100f9b-5722-46dd-97ff-fec04b01904f';
 const WALLET_TO_CHECK = '4FwkzLV9ayU3B7ZWXR7fo6TtC6ievfYEgobscwrcc5Rs';
@@ -17,18 +25,27 @@ async function investigateMatch() {
   try {
     console.log('🔍 Investigating match:', MATCH_ID);
     console.log('='.repeat(60));
+    console.log('📡 Connecting to database...');
     
     if (!AppDataSource.isInitialized) {
+      console.log('   Initializing database connection...');
       await AppDataSource.initialize();
+      console.log('   ✅ Database connected');
+    } else {
+      console.log('   ✅ Database already initialized');
     }
 
+    console.log('   Querying database for match...');
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: MATCH_ID } });
 
     if (!match) {
       console.log('❌ Match not found in database');
+      console.log('   Searched for match ID:', MATCH_ID);
       return;
     }
+    
+    console.log('   ✅ Match found in database');
 
     console.log('\n📊 MATCH DATA:');
     console.log('='.repeat(60));
@@ -69,7 +86,7 @@ async function investigateMatch() {
       });
       
       if (tx && tx.meta && !tx.meta.err) {
-        const accountKeys = tx.transaction.message.accountKeys.map((k: any) => 
+        const accountKeys = tx.transaction.message.getAccountKeys().staticAccountKeys.map((k: any) => 
           typeof k === 'string' ? k : k.toString()
         );
         const preBalances = tx.meta.preBalances || [];
@@ -108,7 +125,7 @@ async function investigateMatch() {
       });
       
       if (tx && tx.meta && !tx.meta.err) {
-        const accountKeys = tx.transaction.message.accountKeys.map((k: any) => 
+        const accountKeys = tx.transaction.message.getAccountKeys().staticAccountKeys.map((k: any) => 
           typeof k === 'string' ? k : k.toString()
         );
         const preBalances = tx.meta.preBalances || [];
@@ -150,10 +167,18 @@ async function investigateMatch() {
   }
 }
 
+console.log('🚀 Starting investigation...');
 investigateMatch()
-  .then(() => process.exit(0))
+  .then(() => {
+    console.log('✅ Investigation completed');
+    process.exit(0);
+  })
   .catch((error) => {
     console.error('❌ Investigation failed:', error);
+    if (error instanceof Error) {
+      console.error('   Message:', error.message);
+      console.error('   Stack:', error.stack);
+    }
     process.exit(1);
   });
 
