@@ -9156,6 +9156,23 @@ const processAutomatedRefunds = async (match: any, reason: any = 'unknown') => {
   try {
     console.log(`💰 Processing automated refunds for match ${match.id} - Reason: ${reason}`);
     
+    // CRITICAL: Never refund completed matches with winners - they should be settled, not refunded
+    const { AppDataSource } = require('../db/index');
+    const matchRepository = AppDataSource.getRepository(Match);
+    const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
+    
+    if (freshMatch?.isCompleted && freshMatch?.winner && freshMatch.winner !== 'tie') {
+      console.error(`❌ CRITICAL ERROR: Attempted to refund a completed match with winner! Match ${match.id} has winner: ${freshMatch.winner}`);
+      console.error(`❌ This match should be settled, not refunded. Reason: ${reason}`);
+      console.error(`❌ Match status: ${freshMatch.status}, isCompleted: ${freshMatch.isCompleted}, winner: ${freshMatch.winner}`);
+      return; // DO NOT refund completed matches with winners
+    }
+    
+    if (freshMatch?.isCompleted && freshMatch?.status === 'completed') {
+      console.log(`⚠️ Match ${match.id} is already completed. Skipping refund. Status: ${freshMatch.status}, Winner: ${freshMatch.winner || 'N/A'}`);
+      return; // Match is completed, should not be refunded
+    }
+    
     // Only process refunds if players actually paid
     if (!match.player1Paid && !match.player2Paid) {
       console.log(`💰 No refunds needed - no players paid for match ${match.id}`);
