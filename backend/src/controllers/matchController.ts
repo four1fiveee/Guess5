@@ -6159,71 +6159,21 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   const entryFee = freshMatch.entryFee;
                   const refundAmount = entryFee * 0.95;
                   
-                  console.log('🚀 FINAL FALLBACK (after stale lock cleanup): Creating tie refund proposal...', {
-                    matchId: freshMatch.id,
-                    refundAmount,
-                    player1: freshMatch.player1,
-                    player2: freshMatch.player2,
-                    vaultAddress: (freshMatch as any).squadsVaultAddress
-                  });
-                  
-                  const tiePaymentStatus = {
-                    ...(freshMatch.player1Paid !== undefined && { player1Paid: !!freshMatch.player1Paid }),
-                    ...(freshMatch.player2Paid !== undefined && { player2Paid: !!freshMatch.player2Paid }),
-                  };
-                  
-                  const proposalResult = await squadsVaultService.proposeTieRefund(
-                    (freshMatch as any).squadsVaultAddress,
-                    new PublicKey(freshMatch.player1),
-                    new PublicKey(freshMatch.player2),
-                    refundAmount,
-                    (freshMatch as any).squadsVaultPda ?? undefined,
-                    tiePaymentStatus
-                  );
-                  
-                      console.log('📋 FINAL FALLBACK (after stale lock cleanup): proposeTieRefund result:', {
-                    matchId: freshMatch.id,
-                    success: proposalResult.success,
-                    proposalId: proposalResult.proposalId,
-                    error: proposalResult.error,
-                    needsSignatures: proposalResult.needsSignatures
-                  });
-                  
-                  if (proposalResult.success && proposalResult.proposalId) {
-                    const proposalState = buildInitialProposalState(proposalResult.needsSignatures);
-                    applyProposalStateToMatch(match, proposalState);
-
-                    // Update match with proposal data using raw SQL
-                    await matchRepository.query(`
-                      UPDATE "match"
-                      SET "tieRefundProposalId" = $1,
-                          "proposalStatus" = $2,
-                          "proposalCreatedAt" = NOW(),
-                          "needsSignatures" = $3,
-                          "updatedAt" = NOW()
-                      WHERE id = $4
-                    `, [
-                      proposalResult.proposalId,
-                      proposalState.status,
-                      proposalState.needsSignatures,
-                      freshMatch.id
-                    ]);
-                    
-                    console.log('✅ FINAL FALLBACK: Tie refund proposal created successfully after stale lock cleanup', {
+                  // Squads system removed - all matches now use escrow
+                  if ((freshMatch as any).escrowAddress) {
+                    console.log('✅ Escrow match - tie refund settlement handled via escrow system (FINAL FALLBACK after lock cleanup)', {
                       matchId: freshMatch.id,
-                      proposalId: proposalResult.proposalId,
-                      status: proposalState.status,
-                      needsSignatures: proposalState.needsSignatures
+                      escrowAddress: (freshMatch as any).escrowAddress,
+                      note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                     });
-                    
-                    (match as any).tieRefundProposalId = proposalResult.proposalId;
-                    (match as any).proposalStatus = proposalState.status;
-                    (match as any).needsSignatures = proposalState.needsSignatures;
+                    return; // Escrow settlement is handled separately
                   } else {
-                    console.error('❌ FINAL FALLBACK: Failed to create tie refund proposal after stale lock cleanup', {
+                    console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK tie after lock cleanup)', {
                       matchId: freshMatch.id,
-                      error: proposalResult.error
+                      hasEscrow: !!(freshMatch as any).escrowAddress,
+                      error: 'SQUADS_SYSTEM_REMOVED',
                     });
+                    return; // Squads system no longer supported
                   }
                 }
               }
@@ -6273,16 +6223,24 @@ const getMatchStatusHandler = async (req: any, res: any) => {
         } else {
           // ESCROW SYSTEM: Settlement is handled by frontend/player calling settleMatch
           if ((freshMatch as any).escrowAddress) {
-            console.log('✅ Escrow match - settlement will be triggered by player or frontend', {
+            console.log('✅ Escrow match - tie refund settlement handled via escrow system (FINAL FALLBACK)', {
               matchId: freshMatch.id,
-              escrowAddress: (freshMatch as any).escrowAddress
+              escrowAddress: (freshMatch as any).escrowAddress,
+              note: 'Escrow matches use submitResultAndSettle, not proposal creation',
             });
             return; // Escrow settlement is handled separately
+          } else {
+            console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK tie)', {
+              matchId: freshMatch.id,
+              hasEscrow: !!(freshMatch as any).escrowAddress,
+              error: 'SQUADS_SYSTEM_REMOVED',
+            });
+            return; // Squads system no longer supported
           }
           
-          // OLD SQUADS SYSTEM: Only process if this is a Squads match
+          // REMOVED: All Squads proposal creation code
+          /*
           if ((freshMatch as any).squadsVaultAddress && freshMatch.winner === 'tie') {
-            // OLD SQUADS SYSTEM: Use Squads proposal
             const { PublicKey } = require('@solana/web3.js');
             
             const player1Result = freshMatch.getPlayer1Result();
