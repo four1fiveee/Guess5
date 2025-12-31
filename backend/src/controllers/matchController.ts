@@ -9003,27 +9003,63 @@ const forceCleanupForWallet = async (req: any, res: any) => {
 
 // Process refunds for failed matches
 const processRefundsForFailedMatch = async (match: any) => {
+  const startTime = Date.now();
+  const logContext = {
+    matchId: match.id,
+    player1: match.player1,
+    player2: match.player2,
+    player1Paid: match.player1Paid,
+    player2Paid: match.player2Paid,
+    entryFee: match.entryFee,
+    timestamp: new Date().toISOString(),
+  };
+  
   try {
-    console.log(`💰 Processing refunds for failed match ${match.id}`);
+    console.log(`[REFUND] Starting refund processing for match ${match.id}`, JSON.stringify(logContext));
     
     // CRITICAL: Prevent duplicate refunds - check if already refunded
     const { AppDataSource } = require('../db/index');
     const matchRepository = AppDataSource.getRepository(Match);
     const freshMatch = await matchRepository.findOne({ where: { id: match.id } });
     
+    if (!freshMatch) {
+      console.error(`[REFUND] Match ${match.id} not found in database`, logContext);
+      return;
+    }
+    
+    const matchState = {
+      status: freshMatch.status,
+      isCompleted: freshMatch.isCompleted,
+      winner: freshMatch.winner,
+      escrowStatus: freshMatch.escrowStatus,
+      escrowAddress: (freshMatch as any)?.escrowAddress,
+      escrowPda: (freshMatch as any)?.escrowPda,
+      refundTxHash: freshMatch.refundTxHash,
+      payoutTxSignature: (freshMatch as any)?.payoutTxSignature,
+      createdAt: freshMatch.createdAt,
+      updatedAt: freshMatch.updatedAt,
+    };
+    
+    console.log(`[REFUND] Match state retrieved`, JSON.stringify({ matchId: match.id, ...matchState }));
+    
     // CRITICAL: Never refund completed matches with winners
     if (freshMatch?.isCompleted && freshMatch?.winner && freshMatch.winner !== 'tie') {
-      console.error(`❌ CRITICAL ERROR: Attempted to refund a completed match with winner! Match ${match.id}`);
-      console.error(`❌ Match has winner: ${freshMatch.winner}, status: ${freshMatch.status}, isCompleted: ${freshMatch.isCompleted}`);
-      console.error(`❌ This match should be settled via escrow, not refunded!`);
+      console.error(`[REFUND] CRITICAL: Attempted to refund completed match with winner!`, JSON.stringify({
+        matchId: match.id,
+        ...matchState,
+        error: 'COMPLETED_MATCH_REFUND_ATTEMPT',
+        action: 'BLOCKED',
+      }));
       return; // DO NOT refund completed matches with winners
     }
     
     if (freshMatch?.escrowStatus === 'REFUNDED' || freshMatch?.refundTxHash) {
-      console.log(`⚠️ Match ${match.id} already refunded. Skipping duplicate refund.`, {
+      console.log(`[REFUND] Match already refunded, skipping duplicate`, JSON.stringify({
+        matchId: match.id,
         escrowStatus: freshMatch.escrowStatus,
         refundTxHash: freshMatch.refundTxHash,
-      });
+        action: 'SKIPPED_DUPLICATE',
+      }));
       return; // Already refunded, don't process again
     }
     
@@ -9036,42 +9072,80 @@ const processRefundsForFailedMatch = async (match: any) => {
     // Only use legacy fee wallet refund for very old Squads matches
     if (hasEscrow || isNewMatch) {
       // Use smart contract refund method
-      console.log(`💰 Match ${match.id} uses smart contract escrow, using refundIfOnlyOnePaid()`, {
+      console.log(`[REFUND] Using smart contract escrow refund`, JSON.stringify({
+        matchId: match.id,
         hasEscrow,
         isNewMatch,
         escrowAddress: (freshMatch as any)?.escrowAddress,
         escrowPda: (freshMatch as any)?.escrowPda,
-        createdAt: freshMatch?.createdAt
-      });
+        createdAt: freshMatch?.createdAt,
+        refundMethod: 'SMART_CONTRACT',
+      }));
       
       const { refundSinglePlayer } = require('../services/escrowService');
+      const refundStartTime = Date.now();
       const refundResult = await refundSinglePlayer(match.id);
+      const refundDuration = Date.now() - refundStartTime;
       
       if (refundResult.success) {
-        console.log(`✅ Smart contract refund executed for match ${match.id}: ${refundResult.signature}`);
+        console.log(`[REFUND] Smart contract refund SUCCESS`, JSON.stringify({
+          matchId: match.id,
+          signature: refundResult.signature,
+          durationMs: refundDuration,
+          refundMethod: 'SMART_CONTRACT',
+          explorerUrl: `https://explorer.solana.com/tx/${refundResult.signature}?cluster=devnet`,
+        }));
         
         // Update match status
         await matchRepository.update(match.id, {
           escrowStatus: 'REFUNDED',
           refundTxHash: refundResult.signature,
         });
+        
+        console.log(`[REFUND] Match status updated to REFUNDED`, JSON.stringify({
+          matchId: match.id,
+          refundTxHash: refundResult.signature,
+        }));
       } else {
-        console.error(`❌ Smart contract refund failed for match ${match.id}: ${refundResult.error}`);
-        console.error(`❌ DO NOT fall back to fee wallet - this is an escrow match!`);
+        console.error(`[REFUND] Smart contract refund FAILED`, JSON.stringify({
+          matchId: match.id,
+          error: refundResult.error,
+          durationMs: refundDuration,
+          refundMethod: 'SMART_CONTRACT',
+          action: 'BLOCKED_FEE_WALLET_FALLBACK',
+        }));
         // DO NOT fall back to fee wallet - this would be incorrect
         throw new Error(`Smart contract refund failed: ${refundResult.error}`);
       }
+      
+      const totalDuration = Date.now() - startTime;
+      console.log(`[REFUND] Refund processing completed`, JSON.stringify({
+        matchId: match.id,
+        totalDurationMs: totalDuration,
+        refundMethod: 'SMART_CONTRACT',
+        success: true,
+      }));
       
       return;
     }
     
     // Legacy refund system for old Squads matches
+    console.log(`[REFUND] Using LEGACY fee wallet refund (old Squads system)`, JSON.stringify({
+      matchId: match.id,
+      refundMethod: 'LEGACY_FEE_WALLET',
+      reason: 'OLD_SQUADS_MATCH',
+    }));
+    
     const { getFeeWalletKeypair } = require('../config/wallet');
     const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
     
     const feeWalletKeypair = getFeeWalletKeypair();
     if (!feeWalletKeypair) {
-      console.error('❌ Fee wallet private key not available for refunds');
+      console.error(`[REFUND] Fee wallet private key not available`, JSON.stringify({
+        matchId: match.id,
+        error: 'FEE_WALLET_KEYPAIR_MISSING',
+        refundMethod: 'LEGACY_FEE_WALLET',
+      }));
       return;
     }
     
@@ -9085,21 +9159,49 @@ const processRefundsForFailedMatch = async (match: any) => {
     const networkFeeLamports = Math.floor(0.0001 * LAMPORTS_PER_SOL); // 0.0001 SOL network fee
     const refundLamports = entryFeeLamports - networkFeeLamports;
     
-    console.log(`💰 Refund calculation: ${entryFee} SOL - 0.0001 SOL = ${refundLamports / LAMPORTS_PER_SOL} SOL`);
+    console.log(`[REFUND] Refund calculation`, JSON.stringify({
+      matchId: match.id,
+      entryFeeSOL: entryFee,
+      entryFeeLamports,
+      networkFeeLamports,
+      refundLamports,
+      refundSOL: refundLamports / LAMPORTS_PER_SOL,
+      refundMethod: 'LEGACY_FEE_WALLET',
+    }));
     
     // CRITICAL: Check if already refunded before processing legacy refunds
     if (freshMatch?.refundTxHash) {
-      console.log(`⚠️ Match ${match.id} already has refundTxHash. Skipping duplicate legacy refund.`);
+      console.log(`[REFUND] Match already has refundTxHash, skipping duplicate`, JSON.stringify({
+        matchId: match.id,
+        existingRefundTxHash: freshMatch.refundTxHash,
+        action: 'SKIPPED_DUPLICATE',
+      }));
       return;
     }
     
     // Check fee wallet balance
     const feeWalletBalance = await connection.getBalance(feeWalletKeypair.publicKey);
-    console.log(`💰 Fee wallet balance: ${feeWalletBalance / LAMPORTS_PER_SOL} SOL`);
+    console.log(`[REFUND] Fee wallet balance check`, JSON.stringify({
+      matchId: match.id,
+      feeWalletAddress: feeWalletKeypair.publicKey.toString(),
+      balanceSOL: feeWalletBalance / LAMPORTS_PER_SOL,
+      balanceLamports: feeWalletBalance,
+      refundMethod: 'LEGACY_FEE_WALLET',
+    }));
     
     // Process refunds for players who paid (LEGACY SQUADS SYSTEM ONLY)
+    const refundResults: any[] = [];
+    
     if (match.player1Paid) {
-      console.log(`💰 Processing refund for Player 1: ${match.player1} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+      const player1RefundStart = Date.now();
+      console.log(`[REFUND] Processing LEGACY refund for Player 1`, JSON.stringify({
+        matchId: match.id,
+        player: match.player1,
+        amountSOL: refundLamports / LAMPORTS_PER_SOL,
+        amountLamports: refundLamports,
+        refundMethod: 'LEGACY_FEE_WALLET',
+      }));
+      
       try {
         const refundTx = new Transaction().add(
           SystemProgram.transfer({
@@ -9111,22 +9213,48 @@ const processRefundsForFailedMatch = async (match: any) => {
         
         const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
         await connection.confirmTransaction(signature);
-        console.log(`✅ LEGACY refund sent to Player 1: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+        
+        const player1RefundDuration = Date.now() - player1RefundStart;
+        console.log(`[REFUND] LEGACY refund SUCCESS for Player 1`, JSON.stringify({
+          matchId: match.id,
+          player: match.player1,
+          signature,
+          amountSOL: refundLamports / LAMPORTS_PER_SOL,
+          durationMs: player1RefundDuration,
+          refundMethod: 'LEGACY_FEE_WALLET',
+          explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+        }));
+        
+        refundResults.push({ player: 'player1', signature, success: true });
         
         // Mark as refunded to prevent duplicates
         await matchRepository.update(match.id, {
           refundTxHash: signature,
         });
       } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      const errorName = error instanceof Error ? error.name : undefined;
-        console.error(`❌ Failed to refund Player 1: ${errorMessage}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const player1RefundDuration = Date.now() - player1RefundStart;
+        console.error(`[REFUND] LEGACY refund FAILED for Player 1`, JSON.stringify({
+          matchId: match.id,
+          player: match.player1,
+          error: errorMessage,
+          durationMs: player1RefundDuration,
+          refundMethod: 'LEGACY_FEE_WALLET',
+        }));
+        refundResults.push({ player: 'player1', success: false, error: errorMessage });
       }
     }
     
     if (match.player2Paid) {
-      console.log(`💰 Processing refund for Player 2: ${match.player2} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+      const player2RefundStart = Date.now();
+      console.log(`[REFUND] Processing LEGACY refund for Player 2`, JSON.stringify({
+        matchId: match.id,
+        player: match.player2,
+        amountSOL: refundLamports / LAMPORTS_PER_SOL,
+        amountLamports: refundLamports,
+        refundMethod: 'LEGACY_FEE_WALLET',
+      }));
+      
       try {
         const refundTx = new Transaction().add(
           SystemProgram.transfer({
@@ -9138,24 +9266,58 @@ const processRefundsForFailedMatch = async (match: any) => {
         
         const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
         await connection.confirmTransaction(signature);
-        console.log(`✅ LEGACY refund sent to Player 2: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+        
+        const player2RefundDuration = Date.now() - player2RefundStart;
+        console.log(`[REFUND] LEGACY refund SUCCESS for Player 2`, JSON.stringify({
+          matchId: match.id,
+          player: match.player2,
+          signature,
+          amountSOL: refundLamports / LAMPORTS_PER_SOL,
+          durationMs: player2RefundDuration,
+          refundMethod: 'LEGACY_FEE_WALLET',
+          explorerUrl: `https://explorer.solana.com/tx/${signature}?cluster=devnet`,
+        }));
+        
+        refundResults.push({ player: 'player2', signature, success: true });
         
         // Mark as refunded to prevent duplicates
         await matchRepository.update(match.id, {
           refundTxHash: signature,
         });
       } catch (error: unknown) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      const errorStack = error instanceof Error ? error.stack : undefined;
-      const errorName = error instanceof Error ? error.name : undefined;
-        console.error(`❌ Failed to refund Player 2: ${errorMessage}`);
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const player2RefundDuration = Date.now() - player2RefundStart;
+        console.error(`[REFUND] LEGACY refund FAILED for Player 2`, JSON.stringify({
+          matchId: match.id,
+          player: match.player2,
+          error: errorMessage,
+          durationMs: player2RefundDuration,
+          refundMethod: 'LEGACY_FEE_WALLET',
+        }));
+        refundResults.push({ player: 'player2', success: false, error: errorMessage });
       }
     }
     
-    console.log(`✅ All refunds processed for match ${match.id} (0.0001 SOL fee deducted per refund)`);
+    const totalDuration = Date.now() - startTime;
+    console.log(`[REFUND] Refund processing completed`, JSON.stringify({
+      matchId: match.id,
+      totalDurationMs: totalDuration,
+      refundMethod: 'LEGACY_FEE_WALLET',
+      results: refundResults,
+      success: refundResults.every(r => r.success),
+    }));
     
   } catch (error: unknown) {
-    console.error('❌ Error processing refunds:', error);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const totalDuration = Date.now() - startTime;
+    console.error(`[REFUND] Refund processing ERROR`, JSON.stringify({
+      matchId: match.id,
+      error: errorMessage,
+      stack: errorStack,
+      totalDurationMs: totalDuration,
+      ...logContext,
+    }));
   }
 };
 

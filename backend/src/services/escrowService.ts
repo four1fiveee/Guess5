@@ -624,16 +624,42 @@ export async function submitResultAndSettle(
     }
 
     // STEP 4: Now settle (winner is now in escrow account)
-    console.log('💰 Step 4: Settling match...', { matchId });
+    console.log(`[SETTLEMENT] Step 4: Starting settlement after submit_result`, JSON.stringify({
+      matchId,
+      submitResultSignature: submitSignature,
+      winner,
+      resultType,
+    }));
+    
+    const settleStartTime = Date.now();
     const settleResult = await settleMatch(matchId);
+    const settleDuration = Date.now() - settleStartTime;
     
     if (!settleResult.success) {
+      console.error(`[SETTLEMENT] Settlement FAILED after successful submit_result`, JSON.stringify({
+        matchId,
+        submitResultSignature: submitSignature,
+        settleError: settleResult.error,
+        settleDurationMs: settleDuration,
+        winner,
+        resultType,
+      }));
       return {
         success: false,
         submitResultSignature: submitSignature,
         error: `Submit succeeded but settle failed: ${settleResult.error}. Submit signature: ${submitSignature}`,
       };
     }
+    
+    console.log(`[SETTLEMENT] Settlement SUCCESS`, JSON.stringify({
+      matchId,
+      submitResultSignature: submitSignature,
+      settleSignature: settleResult.signature,
+      settleDurationMs: settleDuration,
+      winner,
+      resultType,
+      explorerUrl: `https://explorer.solana.com/tx/${settleResult.signature}?cluster=devnet`,
+    }));
 
     // STEP 5: Store both transaction signatures in database
     console.log('💾 Step 5: Storing transaction signatures...', { 
@@ -748,20 +774,40 @@ function arraysEqual(a: number[], b: number[] | Uint8Array): boolean {
 export async function settleMatch(
   matchId: string
 ): Promise<{ success: boolean; transaction?: Transaction; signature?: string; error?: string }> {
+  const startTime = Date.now();
+  const logContext = { matchId, timestamp: new Date().toISOString() };
+  
   try {
+    console.log(`[SETTLEMENT] Starting settlement process`, JSON.stringify(logContext));
+    
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
 
     if (!match) {
+      console.error(`[SETTLEMENT] Match not found`, JSON.stringify({ ...logContext, error: 'MATCH_NOT_FOUND' }));
       return {
         success: false,
         error: 'Match not found',
       };
     }
 
+    const matchInfo = {
+      player1: match.player1,
+      player2: match.player2,
+      entryFee: match.entryFee,
+      escrowAddress: (match as any)?.escrowAddress,
+    };
+    
+    console.log(`[SETTLEMENT] Match info retrieved`, JSON.stringify({ ...logContext, ...matchInfo }));
+
     const program = getProgram();
     const connection = program.provider.connection;
     const [escrowPDA] = deriveEscrowPDA(matchId);
+    
+    console.log(`[SETTLEMENT] Escrow PDA derived`, JSON.stringify({
+      ...logContext,
+      escrowPDA: escrowPDA.toString(),
+    }));
 
     // Fetch escrow account to get winner and pre-settle lamports for accounting
     // CRITICAL: This assumes submit_result was already called to set winner in escrow account
@@ -776,23 +822,40 @@ export async function settleMatch(
     }
 
     // ✅ STEP 1 — Confirm Escrow Account State Is Valid
-    console.log('🏁 About to settle match:', matchId);
-    console.log('🔢 Escrow PDA:', escrowPDA.toString());
-    console.log('⛳ Escrow Status:', escrowAccount.gameStatus);
-    console.log('⛳ Result Type:', escrowAccount.resultType);
-    console.log('⛳ Winner Pubkey:', escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null');
-    console.log('🧾 Players:', match.player1, match.player2);
+    const escrowState = {
+      gameStatus: escrowAccount.gameStatus,
+      resultType: escrowAccount.resultType,
+      winner: escrowAccount.winner ? new PublicKey(escrowAccount.winner).toString() : 'null',
+      timeoutAt: escrowAccount.timeoutAt?.toNumber ? escrowAccount.timeoutAt.toNumber() : null,
+    };
+    
+    console.log(`[SETTLEMENT] Escrow account state retrieved`, JSON.stringify({
+      ...logContext,
+      escrowPDA: escrowPDA.toString(),
+      ...escrowState,
+      player1: match.player1,
+      player2: match.player2,
+    }));
     
     const feeWallet = new PublicKey(config.solana.feeWalletAddress);
-    console.log('💰 Fee Wallet:', feeWallet.toString());
-    
     const winner = escrowAccount.winner;
     const winnerPubkey = winner ? new PublicKey(winner).toString() : 'SystemProgram';
-    console.log('🏆 Winner Pubkey:', winnerPubkey);
+    
+    console.log(`[SETTLEMENT] Settlement parameters`, JSON.stringify({
+      ...logContext,
+      feeWallet: feeWallet.toString(),
+      winnerPubkey,
+    }));
 
     // Validate escrow is in Active status
     if (escrowAccount.gameStatus !== 'Active') {
-      console.error('❌ Escrow not in Active status. Current status:', JSON.stringify(escrowAccount.gameStatus));
+      console.error(`[SETTLEMENT] Escrow not in Active status`, JSON.stringify({
+        ...logContext,
+        currentStatus: escrowAccount.gameStatus,
+        expectedStatus: 'Active',
+        error: 'INVALID_ESCROW_STATUS',
+        action: 'BLOCKED',
+      }));
       return {
         success: false,
         error: `Escrow not in Active status. Current status: ${JSON.stringify(escrowAccount.gameStatus)}. Cannot settle.`,
@@ -893,10 +956,14 @@ export async function settleMatch(
     });
 
     if (simulation.value.err) {
-      console.error('❌ settle() simulation failed:', simulation.value.err);
-      console.error('🪵 Logs:', simulation.value.logs);
-      console.error('📊 Compute Units Used:', simulation.value.unitsConsumed);
-      console.error('📊 Compute Units Requested:', simulation.value.unitsRequested);
+      console.error(`[SETTLEMENT] Transaction simulation FAILED`, JSON.stringify({
+        ...logContext,
+        simulationError: simulation.value.err,
+        logs: simulation.value.logs?.slice(0, 20) || [],
+        computeUnitsUsed: simulation.value.unitsConsumed,
+        computeUnitsRequested: simulation.value.unitsRequested,
+        error: 'SIMULATION_FAILED',
+      }));
       
       return {
         success: false,
@@ -904,13 +971,12 @@ export async function settleMatch(
       };
     }
 
-    console.log('✅ Simulation passed.');
-    console.log('📊 Simulation Results:');
-    console.log('  Compute Units Used:', simulation.value.unitsConsumed);
-    console.log('  Compute Units Requested:', simulation.value.unitsRequested);
-    if (simulation.value.logs) {
-      console.log('  Logs:', simulation.value.logs.slice(0, 10)); // First 10 logs
-    }
+    console.log(`[SETTLEMENT] Transaction simulation PASSED`, JSON.stringify({
+      ...logContext,
+      computeUnitsUsed: simulation.value.unitsConsumed,
+      computeUnitsRequested: simulation.value.unitsRequested,
+      logsCount: simulation.value.logs?.length || 0,
+    }));
 
     // ✅ STEP 3 — Send the Transaction If Simulation Passes
     console.log('✅ STEP 3: Sending settle() transaction...');
@@ -931,19 +997,42 @@ export async function settleMatch(
       { skipPreflight: false, maxRetries: 3 }
     );
 
-    console.log('✅ Settle transaction sent:', tx);
+    console.log(`[SETTLEMENT] Transaction sent`, JSON.stringify({
+      ...logContext,
+      signature: tx,
+      explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=devnet`,
+    }));
     
     // Wait for confirmation
-    console.log('⏳ Waiting for confirmation...');
+    const confirmStartTime = Date.now();
     await connection.confirmTransaction(tx, 'confirmed');
-    console.log('✅ Transaction confirmed:', tx);
+    const confirmDuration = Date.now() - confirmStartTime;
+    
+    console.log(`[SETTLEMENT] Transaction confirmed`, JSON.stringify({
+      ...logContext,
+      signature: tx,
+      confirmDurationMs: confirmDuration,
+    }));
 
     // ✅ STEP 4 — Verify Transfers (From PDA)
-    console.log('✅ STEP 4: Verifying transfers...');
-    
     const postAccountInfo = await connection.getAccountInfo(escrowPDA);
     const postLamports = postAccountInfo?.lamports ?? 0;
     const payoutTotalLamports = preLamports > postLamports ? preLamports - postLamports : 0;
+    
+    const balanceChanges = {
+      escrowPDA: {
+        preBalanceSOL: preLamports / LAMPORTS_PER_SOL,
+        postBalanceSOL: postLamports / LAMPORTS_PER_SOL,
+        changeSOL: (postLamports - preLamports) / LAMPORTS_PER_SOL,
+      },
+      payoutTotalSOL: payoutTotalLamports / LAMPORTS_PER_SOL,
+    };
+    
+    console.log(`[SETTLEMENT] Balance changes verified`, JSON.stringify({
+      ...logContext,
+      signature: tx,
+      ...balanceChanges,
+    }));
     
     const postFeeWalletBalance = await connection.getBalance(feeWallet);
     const postWinnerBalance = winner ? await connection.getBalance(new PublicKey(winner)) : 0;
@@ -1047,20 +1136,43 @@ export async function settleMatch(
 export async function refundSinglePlayer(
   matchId: string
 ): Promise<{ success: boolean; signature?: string; error?: string }> {
+  const startTime = Date.now();
+  const logContext = { matchId, timestamp: new Date().toISOString() };
+  
   try {
+    console.log(`[ESCROW_REFUND] Starting single player refund`, JSON.stringify(logContext));
+    
     const matchRepository = AppDataSource.getRepository(Match);
     const match = await matchRepository.findOne({ where: { id: matchId } });
 
     if (!match) {
+      console.error(`[ESCROW_REFUND] Match not found`, JSON.stringify({ ...logContext, error: 'MATCH_NOT_FOUND' }));
       return {
         success: false,
         error: 'Match not found',
       };
     }
 
+    const matchInfo = {
+      player1: match.player1,
+      player2: match.player2,
+      player1Paid: match.player1Paid,
+      player2Paid: match.player2Paid,
+      entryFee: match.entryFee,
+      escrowAddress: (match as any)?.escrowAddress,
+    };
+    
+    console.log(`[ESCROW_REFUND] Match info retrieved`, JSON.stringify({ ...logContext, ...matchInfo }));
+
     const program = getProgram();
     const [escrowPDA] = deriveEscrowPDA(matchId);
+    
+    console.log(`[ESCROW_REFUND] Escrow PDA derived`, JSON.stringify({
+      ...logContext,
+      escrowPDA: escrowPDA.toString(),
+    }));
 
+    const txStartTime = Date.now();
     const tx = await program.methods
       .refundIfOnlyOnePaid()
       .accounts({
@@ -1070,11 +1182,15 @@ export async function refundSinglePlayer(
         systemProgram: SystemProgram.programId,
       })
       .rpc();
+    
+    const txDuration = Date.now() - txStartTime;
 
-    console.log('✅ Single player refunded:', {
-      matchId,
-      transaction: tx,
-    });
+    console.log(`[ESCROW_REFUND] Refund transaction SUCCESS`, JSON.stringify({
+      ...logContext,
+      signature: tx,
+      txDurationMs: txDuration,
+      explorerUrl: `https://explorer.solana.com/tx/${tx}?cluster=devnet`,
+    }));
 
     // Update match in database
     await matchRepository.update(
@@ -1084,15 +1200,38 @@ export async function refundSinglePlayer(
         refundTxHash: tx,
       }
     );
+    
+    console.log(`[ESCROW_REFUND] Database updated`, JSON.stringify({
+      ...logContext,
+      refundTxHash: tx,
+      escrowStatus: 'REFUNDED',
+    }));
+
+    const totalDuration = Date.now() - startTime;
+    console.log(`[ESCROW_REFUND] Refund completed successfully`, JSON.stringify({
+      ...logContext,
+      signature: tx,
+      totalDurationMs: totalDuration,
+      success: true,
+    }));
 
     return {
       success: true,
       signature: tx,
     };
   } catch (error: unknown) {
-    const errorMessage =
-      error instanceof Error ? error.message : String(error);
-    console.error('❌ Error refunding single player:', errorMessage);
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    const errorStack = error instanceof Error ? error.stack : undefined;
+    const totalDuration = Date.now() - startTime;
+    
+    console.error(`[ESCROW_REFUND] Refund FAILED`, JSON.stringify({
+      ...logContext,
+      error: errorMessage,
+      stack: errorStack,
+      totalDurationMs: totalDuration,
+      success: false,
+    }));
+    
     return {
       success: false,
       error: errorMessage,
