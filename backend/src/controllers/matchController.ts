@@ -9079,11 +9079,17 @@ const processRefundsForFailedMatch = async (match: any) => {
     
     console.log(`💰 Refund calculation: ${entryFee} SOL - 0.0001 SOL = ${refundLamports / LAMPORTS_PER_SOL} SOL`);
     
+    // CRITICAL: Check if already refunded before processing legacy refunds
+    if (freshMatch?.refundTxHash) {
+      console.log(`⚠️ Match ${match.id} already has refundTxHash. Skipping duplicate legacy refund.`);
+      return;
+    }
+    
     // Check fee wallet balance
     const feeWalletBalance = await connection.getBalance(feeWalletKeypair.publicKey);
     console.log(`💰 Fee wallet balance: ${feeWalletBalance / LAMPORTS_PER_SOL} SOL`);
     
-    // Process refunds for players who paid
+    // Process refunds for players who paid (LEGACY SQUADS SYSTEM ONLY)
     if (match.player1Paid) {
       console.log(`💰 Processing refund for Player 1: ${match.player1} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
       try {
@@ -9097,7 +9103,12 @@ const processRefundsForFailedMatch = async (match: any) => {
         
         const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
         await connection.confirmTransaction(signature);
-        console.log(`✅ Refund sent to Player 1: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+        console.log(`✅ LEGACY refund sent to Player 1: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+        
+        // Mark as refunded to prevent duplicates
+        await matchRepository.update(match.id, {
+          refundTxHash: signature,
+        });
       } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
@@ -9119,7 +9130,12 @@ const processRefundsForFailedMatch = async (match: any) => {
         
         const signature = await connection.sendTransaction(refundTx, [feeWalletKeypair]);
         await connection.confirmTransaction(signature);
-        console.log(`✅ Refund sent to Player 2: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+        console.log(`✅ LEGACY refund sent to Player 2: ${signature} (${refundLamports / LAMPORTS_PER_SOL} SOL)`);
+        
+        // Mark as refunded to prevent duplicates
+        await matchRepository.update(match.id, {
+          refundTxHash: signature,
+        });
       } catch (error: unknown) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       const errorStack = error instanceof Error ? error.stack : undefined;
