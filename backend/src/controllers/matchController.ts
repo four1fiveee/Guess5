@@ -296,6 +296,8 @@ const attemptAutoExecuteIfReady = async (
     // Squads system removed - all matches now use escrow
     return false;
 
+    // REMOVED: All Squads execution code below
+    /*
         const logPayload = {
           matchId: match.id,
           proposalId: proposalIdString,
@@ -428,9 +430,9 @@ const attemptAutoExecuteIfReady = async (
         });
       }
     }
-
-      return true;
-    }
+    */
+    
+    return true;
   } catch (error: unknown) {
     enhancedLogger.error('❌ Auto-execute readiness check failed', {
       matchId: match?.id,
@@ -3540,7 +3542,6 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                     }
-                    }
                   } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
                     const errorMessage = error instanceof Error ? error.message : String(error);
@@ -3636,10 +3637,6 @@ const submitResultHandler = async (req: any, res: any) => {
                       }
                     }
                   }
-                } catch (innerProposalError: any) {
-                  // Re-throw to outer catch - this catch exists only for syntax requirements
-                  throw innerProposalError;
-                }
                 } catch (outerError: any) {
                 // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
                 console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
@@ -4399,6 +4396,9 @@ const submitResultHandler = async (req: any, res: any) => {
               });
               return;
             }
+            
+            // REMOVED: All Squads proposal creation code
+            /*
                     needsSignatures: refundResult.needsSignatures,
                     timestamp: new Date().toISOString(),
                     action: 'tie_refund_proposal_created'
@@ -4456,6 +4456,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 // Continue with fallback payment instructions
               }
             }
+            */
             
             // Set fallback payment instructions (proposal will be created in background)
             const paymentInstructions = {
@@ -4695,7 +4696,6 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                     }
                   }
-                }
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                   console.error('❌ Failed to create proposals after match completion:', errorMessage);
