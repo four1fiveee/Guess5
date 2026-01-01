@@ -3209,14 +3209,34 @@ const submitResultHandler = async (req: any, res: any) => {
             vaultAddress: updatedMatch.squadsVaultAddress,
           });
           
-          // Create Squads proposal for winner payout
-          if (!updatedMatch.squadsVaultAddress) {
-            console.error('❌ Cannot create payout proposal (solved case): missing squadsVaultAddress', {
+          // ESCROW SYSTEM: Check for escrow matches FIRST - they don't need proposals
+          if ((updatedMatch as any).escrowAddress) {
+            console.log('✅ Escrow match - settlement handled via escrow system', {
+              matchId: updatedMatch.id,
+              escrowAddress: (updatedMatch as any).escrowAddress,
+              note: 'Escrow matches use submitResultAndSettle, not proposal creation',
+            });
+            // Escrow matches don't need proposal creation - settlement is handled separately
+            // Don't set proposalStatus - escrow matches don't use proposals
+          } else if (!updatedMatch.squadsVaultAddress) {
+            // Squads system removed - all matches now use escrow
+            console.error('❌ Cannot create payout proposal: missing escrowAddress and squadsVaultAddress', {
               matchId: updatedMatch.id,
               player1: updatedMatch.player1,
               player2: updatedMatch.player2,
+              hasEscrow: !!(updatedMatch as any).escrowAddress,
+              hasSquadsVault: !!updatedMatch.squadsVaultAddress,
+              note: 'Squads system is removed - all matches must use escrow',
             });
           } else {
+            // REMOVED: All Squads proposal creation code - escrow system only
+            // This entire block is unreachable for new matches since all matches use escrow
+            console.error('❌ CRITICAL: Match has squadsVaultAddress but Squads system is removed', {
+              matchId: updatedMatch.id,
+              squadsVaultAddress: updatedMatch.squadsVaultAddress,
+              note: 'This is a legacy match - Squads system is no longer supported',
+            });
+            /*
             // CRITICAL FIX: Make proposal creation NON-BLOCKING to prevent HTTP timeout
             // Start proposal creation in background and return response immediately
             // Frontend will poll for proposalId - it will appear in database when ready
@@ -3322,14 +3342,6 @@ const submitResultHandler = async (req: any, res: any) => {
                   // Continue anyway - lock acquisition failure shouldn't block proposal creation
                   // The PENDING status check will prevent duplicates
                 }
-                
-                // ESCROW SYSTEM: All matches now use escrow settlement
-                console.log('✅ Escrow match - settlement handled via escrow system', {
-                  matchId: updatedMatch.id,
-                  escrowAddress: updatedMatch.escrowAddress || (updatedMatch as any).escrowAddress,
-                  note: 'Escrow matches use submitResultAndSettle, not proposal creation',
-                });
-                return; // Escrow settlement is handled separately
                 
                 // REMOVED: All Squads proposal creation code below
                 /*
@@ -3687,7 +3699,10 @@ const submitResultHandler = async (req: any, res: any) => {
                 }
               }
             })();
+            */
             
+            // REMOVED: All Squads proposal status setting - escrow matches don't use proposals
+            /*
             // Set proposalStatus to PENDING in response so frontend knows to poll
             (payoutResult as any).proposalStatus = 'PENDING';
             (payoutResult as any).proposalId = null; // Will be populated when background process completes
@@ -3712,6 +3727,7 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).paymentInstructions = paymentInstructions;
             (payoutResult as any).paymentSuccess = true;
             (payoutResult as any).squadsProposal = true;
+            */
           }
         } else if (payoutResult && payoutResult.winner === 'tie') {
           // Handle tie scenarios
