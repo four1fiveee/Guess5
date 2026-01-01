@@ -3330,7 +3330,9 @@ const submitResultHandler = async (req: any, res: any) => {
                   note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                 });
                 return; // Escrow settlement is handled separately
-                        
+                
+                // REMOVED: All Squads proposal creation code below
+                /*
                         const updateResult = await backgroundMatchRepository.query(`
                           UPDATE "match"
                           SET "payoutProposalId" = $1,
@@ -3482,7 +3484,10 @@ const submitResultHandler = async (req: any, res: any) => {
                           });
                         }
                       }
+                    */
                     } else {
+                      // REMOVED: All Squads error handling code
+                      /*
                       // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
                       const isVaultTxCreationFailed = proposalResult?.errorCode === 'VAULT_TX_CREATION_FAILED' ||
                                                        proposalResult?.fatal === true ||
@@ -3541,6 +3546,7 @@ const submitResultHandler = async (req: any, res: any) => {
                           });
                         }
                       }
+                      */
                     }
                   } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
@@ -4002,7 +4008,6 @@ const submitResultHandler = async (req: any, res: any) => {
                       WHERE id = $3
                     `, ['FAILED', new Date(), updatedMatch.id]);
                   }
-                  }
                 } catch (error: unknown) {
                   const elapsedTime = Date.now() - backgroundTaskStartTime;
                   const errorMessage = error instanceof Error ? error.message : String(error);
@@ -4044,7 +4049,6 @@ const submitResultHandler = async (req: any, res: any) => {
             (payoutResult as any).proposalStatus = 'PENDING';
             (payoutResult as any).tieRefundProposalId = null; // Will be populated when background process completes
             (payoutResult as any).proposalId = null; // Will be populated when background process completes
-          }
           }
         }
         // Use raw SQL to update match completion status and payout result
@@ -4703,7 +4707,8 @@ const submitResultHandler = async (req: any, res: any) => {
                   if (lockAcquired) {
                     await releaseProposalLock(finalMatch.id);
                   }
-                } catch (outerError: unknown) {
+                }
+              } catch (outerError: unknown) {
                 const errorMessage = outerError instanceof Error ? outerError.message : String(outerError);
                 console.error('❌ Error in proposal creation IIFE:', errorMessage);
               }
