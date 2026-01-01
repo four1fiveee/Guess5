@@ -3485,9 +3485,10 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                     */
+                    // REMOVED: All Squads error handling code - escrow matches don't need this
+                    // The else block is removed because escrow matches return early
+                    /*
                     } else {
-                      // REMOVED: All Squads error handling code
-                      /*
                       // CRITICAL: Check if this is an irrecoverable VaultTransaction creation failure
                       const isVaultTxCreationFailed = proposalResult?.errorCode === 'VAULT_TX_CREATION_FAILED' ||
                                                        proposalResult?.fatal === true ||
@@ -3547,8 +3548,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                       */
-                    }
-                  } catch (error: unknown) {
+                } catch (error: unknown) {
                     const elapsedTime = Date.now() - backgroundTaskStartTime;
                     const errorMessage = error instanceof Error ? error.message : String(error);
                     const errorStack = error instanceof Error ? error.stack : String(error);
@@ -3642,8 +3642,7 @@ const submitResultHandler = async (req: any, res: any) => {
                         }
                       }
                     }
-                  }
-                } catch (outerError: any) {
+              } catch (outerError: any) {
                 // CRITICAL: Catch any errors that occur before inner try-catch or during IIFE setup
                 console.error('❌ CRITICAL: Background task IIFE failed to start or execute:', {
                   matchId: updatedMatch.id,
@@ -4659,6 +4658,11 @@ const submitResultHandler = async (req: any, res: any) => {
                   console.log('✅ Escrow match - settlement handled separately', {
                     matchId: finalMatch.id,
                   });
+                  return; // Exit early for escrow matches
+                }
+                
+                // REMOVED: All Squads tie refund proposal code - escrow matches don't need this
+                /*
                 } else {
                   // Tie refund proposal
                   console.log('🎯 Creating tie refund proposal...', { matchId: finalMatch.id });
@@ -4700,6 +4704,7 @@ const submitResultHandler = async (req: any, res: any) => {
                     });
                     }
                   }
+                  */
                 } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                   console.error('❌ Failed to create proposals after match completion:', errorMessage);
