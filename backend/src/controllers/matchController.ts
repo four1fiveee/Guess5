@@ -5574,7 +5574,6 @@ const getMatchStatusHandler = async (req: any, res: any) => {
             await releaseProposalLock(freshMatch.id);
           }
         }
-        }
       })(); // End async IIFE for winner payout proposal creation
   }
   // Create proposal for tie refund (tie matches)
