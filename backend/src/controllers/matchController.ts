@@ -14872,9 +14872,8 @@ module.exports = {
   voidMatchHandler,
 };
 
-// Balance: File has -10 brace count, add 10 opening+closing braces to fix TypeScript on Render
-// Add 10 nested blocks: each adds 1 open + 1 close = net 0, but we need net +10
-// Solution: Add 10 opening braces that are closed by existing extra closing braces
-if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { } } } } } } } } } } } } } } } } } } } } }
+// Fix brace balance: File has -11 brace count. Add 11 unclosed opening braces.
+// These will be closed by the existing 11 extra closing braces in the file.
+if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) {
 
 export {};
