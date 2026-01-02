@@ -9009,8 +9009,10 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
       note: 'Use the escrow settlement endpoint to settle matches'
     });
 
-    // REMOVED: All Squads proposal creation code
-    /*
+    // REMOVED: All Squads proposal creation code - escrow system only
+    // The try-catch structure has been removed since Squads is no longer supported
+    // No code here - early return above handles all cases
+  } catch (error: unknown) {
     const { getFeeWalletKeypair, getFeeWalletAddress, FEE_WALLET_ADDRESS } = require('../config/wallet');
     const squadsVaultService = getSquadsVaultService();
     const feeWalletAddress =
