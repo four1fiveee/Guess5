@@ -431,8 +431,8 @@ const attemptAutoExecuteIfReady = async (
       }
     }
     */
-    
-    return true;
+
+      return true;
   } catch (error: unknown) {
     enhancedLogger.error('❌ Auto-execute readiness check failed', {
       matchId: match?.id,
@@ -3235,7 +3235,7 @@ const submitResultHandler = async (req: any, res: any) => {
               matchId: updatedMatch.id,
               squadsVaultAddress: updatedMatch.squadsVaultAddress,
               note: 'This is a legacy match - Squads system is no longer supported',
-            });
+                  });
             // REMOVED: All Squads proposal creation code - escrow system only
             // This entire block is unreachable for new matches since all matches use escrow
             // The IIFE, try-catch blocks, and all proposal creation logic have been removed
@@ -4180,17 +4180,18 @@ const submitResultHandler = async (req: any, res: any) => {
                 
                 // Squads system removed - all matches now use escrow
                 console.error('❌ Match does not have escrow address - Squads system is no longer supported', {
-                  matchId: finalMatch.id,
+                    matchId: finalMatch.id,
                   hasEscrow: !!(reloadedMatch as any).escrowAddress,
                 });
                 return;
-              } catch (proposalError: unknown) {
-                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-                console.error('❌ Failed to create proposals after match completion:', errorMessage);
-              } finally {
-                if (lockAcquired) {
-                  await releaseProposalLock(finalMatch.id);
                 }
+                } catch (proposalError: unknown) {
+                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                  console.error('❌ Failed to create proposals after match completion:', errorMessage);
+                } finally {
+                  if (lockAcquired) {
+                    await releaseProposalLock(finalMatch.id);
+                  }
               }
             })(); // Close async IIFE - execute in background without blocking
         } else {
@@ -4332,9 +4333,9 @@ const submitResultHandler = async (req: any, res: any) => {
                     /*
                     // REMOVED: Squads tie refund proposal - escrow system only
                     /*
-                    const proposalResult = await squadsService.proposeTieRefund(
-                      (updatedMatch as any).squadsVaultAddress,
-                      new PublicKey(updatedMatch.player1),
+                      const proposalResult = await squadsService.proposeTieRefund(
+                        (updatedMatch as any).squadsVaultAddress,
+                        new PublicKey(updatedMatch.player1),
                         new PublicKey(updatedMatch.player2),
                         refundAmount,
                         (updatedMatch as any).squadsVaultPda ?? undefined,
@@ -4864,17 +4865,17 @@ const getMatchStatusHandler = async (req: any, res: any) => {
           // Escrow matches use submitResultAndSettle, not proposal approval
           if ((match as any).escrowAddress) {
             console.log('✅ Escrow match - no proposal approval needed', {
-              matchId: match.id,
+                  matchId: match.id,
               escrowAddress: (match as any).escrowAddress,
               note: 'Escrow matches use submitResultAndSettle, not proposal approval',
             });
             return; // Escrow matches don't need proposal approval
-          } else {
+                    } else {
             console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed', {
-              matchId: match.id,
+                        matchId: match.id,
               hasEscrow: !!(match as any).escrowAddress,
               error: 'SQUADS_SYSTEM_REMOVED',
-            });
+                  });
             return; // Squads system no longer supported
           }
         } catch (catchUpCheckError: unknown) {
@@ -5117,19 +5118,19 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               
               // Squads system removed - all matches now use escrow
               // Escrow matches use submitResultAndSettle, not proposal creation
-              if ((match as any).escrowAddress) {
+                  if ((match as any).escrowAddress) {
                 console.log('✅ Escrow match - settlement handled via escrow system', {
-                  matchId: match.id,
+                      matchId: match.id,
                   escrowAddress: (match as any).escrowAddress,
                   note: 'Escrow matches use submitResultAndSettle, not proposal creation',
-                });
-                return; // Escrow settlement is handled separately
-              } else {
+                    });
+                    return; // Escrow settlement is handled separately
+                  } else {
                 console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed', {
-                  matchId: match.id,
+                      matchId: match.id,
                   hasEscrow: !!(match as any).escrowAddress,
                   error: 'SQUADS_SYSTEM_REMOVED',
-                });
+                    });
                 return; // Squads system no longer supported
               }
             } catch (proposalError: unknown) {
@@ -5490,14 +5491,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   // Squads system removed - all matches now use escrow
                   if ((freshMatch as any).escrowAddress) {
                     console.log('✅ Escrow match - settlement handled via escrow system (FINAL FALLBACK after lock cleanup)', {
-                      matchId: freshMatch.id,
+                    matchId: freshMatch.id,
                       escrowAddress: (freshMatch as any).escrowAddress,
                       note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                     });
                     return; // Escrow settlement is handled separately
                   } else {
                     console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK after lock cleanup)', {
-                      matchId: freshMatch.id,
+                  matchId: freshMatch.id,
                       hasEscrow: !!(freshMatch as any).escrowAddress,
                       error: 'SQUADS_SYSTEM_REMOVED',
                     });
@@ -5549,14 +5550,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               // Squads system removed - all matches now use escrow
               if ((freshMatch as any).escrowAddress) {
                 console.log('✅ Escrow match - settlement handled via escrow system (FINAL FALLBACK)', {
-                  matchId: freshMatch.id,
+                matchId: freshMatch.id,
                   escrowAddress: (freshMatch as any).escrowAddress,
                   note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                 });
                 return; // Escrow settlement is handled separately
               } else {
                 console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK)', {
-                  matchId: freshMatch.id,
+                matchId: freshMatch.id,
                   hasEscrow: !!(freshMatch as any).escrowAddress,
                   error: 'SQUADS_SYSTEM_REMOVED',
                 });
@@ -5645,7 +5646,7 @@ const getMatchStatusHandler = async (req: any, res: any) => {
                   // Squads system removed - all matches now use escrow
                   if ((freshMatch as any).escrowAddress) {
                     console.log('✅ Escrow match - tie refund settlement handled via escrow system (FINAL FALLBACK after lock cleanup)', {
-                      matchId: freshMatch.id,
+                    matchId: freshMatch.id,
                       escrowAddress: (freshMatch as any).escrowAddress,
                       note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                     });
@@ -5749,14 +5750,14 @@ const getMatchStatusHandler = async (req: any, res: any) => {
               // Squads system removed - all matches now use escrow
               if ((freshMatch as any).escrowAddress) {
                 console.log('✅ Escrow match - tie refund settlement handled via escrow system (FINAL FALLBACK)', {
-                  matchId: freshMatch.id,
+                matchId: freshMatch.id,
                   escrowAddress: (freshMatch as any).escrowAddress,
                   note: 'Escrow matches use submitResultAndSettle, not proposal creation',
                 });
                 return; // Escrow settlement is handled separately
               } else {
                 console.error('❌ CRITICAL: Match has no escrow address - Squads system is removed (FINAL FALLBACK tie)', {
-                  matchId: freshMatch.id,
+                matchId: freshMatch.id,
                   hasEscrow: !!(freshMatch as any).escrowAddress,
                   error: 'SQUADS_SYSTEM_REMOVED',
                 });
@@ -5991,10 +5992,10 @@ const getMatchStatusHandler = async (req: any, res: any) => {
       
       // REMOVED: All Squads execution code - escrow system only
       console.error('❌ CRITICAL: Squads execution code detected but system is removed', {
-        matchId: match.id,
+          matchId: match.id,
         error: 'SQUADS_SYSTEM_REMOVED',
         note: 'All matches must use escrow settlement',
-      });
+            });
           matchId: match.id,
           proposalId: proposalIdString,
           proposalSigners: finalProposalSigners,
@@ -7811,7 +7812,7 @@ const processRefundsForFailedMatch = async (match: any) => {
           refundTxHash: signature,
         });
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
         const player1RefundDuration = Date.now() - player1RefundStart;
         console.error(`[REFUND] LEGACY refund FAILED for Player 1`, JSON.stringify({
           matchId: match.id,
@@ -7864,7 +7865,7 @@ const processRefundsForFailedMatch = async (match: any) => {
           refundTxHash: signature,
         });
       } catch (error: unknown) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
         const player2RefundDuration = Date.now() - player2RefundStart;
         console.error(`[REFUND] LEGACY refund FAILED for Player 2`, JSON.stringify({
           matchId: match.id,
@@ -8014,7 +8015,7 @@ const confirmPaymentHandler = async (req: any, res: any) => {
       matchId,
       hasEscrow: !!(match as any).escrowAddress,
       error: 'SQUADS_SYSTEM_REMOVED',
-    });
+      });
     return res.status(400).json({ 
       error: 'Squads system is no longer supported. All matches must use the escrow system.',
       matchId,
@@ -8860,7 +8861,7 @@ const manualExecuteProposalHandler = async (req: any, res: any) => {
     // Squads system removed - all matches now use escrow
     return res.status(400).json({
       error: 'Squads system is no longer supported',
-      matchId,
+        matchId,
       note: 'All matches now use the escrow system. If this match has an escrowAddress, use escrow settlement instead.'
     });
 
@@ -8997,8 +8998,8 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
         error: 'Squads system is no longer supported',
         matchId,
         note: 'All matches must use the escrow system. If this match has an escrowAddress, use escrow settlement instead.'
-      });
-    }
+        });
+      }
     
     // ESCROW SYSTEM: Use submitResultAndSettle instead of proposal creation
     return res.status(400).json({
