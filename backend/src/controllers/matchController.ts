@@ -9008,10 +9008,6 @@ const forceProposalCreationHandler = async (req: any, res: any) => {
       escrowAddress: (matchRow as any).escrowAddress,
       note: 'Use the escrow settlement endpoint to settle matches'
     });
-
-    // REMOVED: All Squads proposal creation code - escrow system only
-    // The try-catch structure has been removed since Squads is no longer supported
-    // No code here - early return above handles all cases
   } catch (error: unknown) {
     const errorMessage = error instanceof Error ? error.message : String(error);
     console.error('❌ Error forcing proposal creation:', errorMessage);
