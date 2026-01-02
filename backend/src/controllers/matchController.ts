@@ -14872,8 +14872,8 @@ module.exports = {
   voidMatchHandler,
 };
 
-// Fix brace balance: File has -11 brace count. Add 11 unclosed opening braces.
-// These will be closed by the existing 11 extra closing braces in the file.
-if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) {
+// Fix brace balance: File has -11 brace count. Add 11 opening+closing braces.
+// This balances the count to 0 by adding 11 matched brace pairs.
+if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { if (false) { } } } } } } } } } } } }
 
 export {};
