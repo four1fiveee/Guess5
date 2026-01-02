@@ -4180,12 +4180,12 @@ const submitResultHandler = async (req: any, res: any) => {
                 
                 // Squads system removed - all matches now use escrow
                 console.error('❌ Match does not have escrow address - Squads system is no longer supported', {
-                    matchId: finalMatch.id,
+                  matchId: finalMatch.id,
                   hasEscrow: !!(reloadedMatch as any).escrowAddress,
                 });
                 return;
                 }
-                } catch (proposalError: unknown) {
+              } catch (proposalError: unknown) {
                   const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                   console.error('❌ Failed to create proposals after match completion:', errorMessage);
                 } finally {
