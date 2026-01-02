@@ -4107,7 +4107,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 if (needsProposal) {
                   // Acquire distributed lock to prevent race conditions
                   const { getProposalLock, releaseProposalLock } = require('../utils/proposalLocks');
-                  const lockAcquired = await getProposalLock(finalMatch.id);
+                  let lockAcquired = await getProposalLock(finalMatch.id);
                 
                 if (!lockAcquired) {
                   console.log('⚠️ Proposal lock not acquired, checking for stale locks and existing proposals...');
@@ -4184,6 +4184,7 @@ const submitResultHandler = async (req: any, res: any) => {
                   hasEscrow: !!(reloadedMatch as any).escrowAddress,
                 });
                 return;
+                }
               } catch (proposalError: unknown) {
                 const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                 console.error('❌ Failed to create proposals after match completion:', errorMessage);
