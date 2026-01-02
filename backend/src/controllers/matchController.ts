@@ -4185,6 +4185,7 @@ const submitResultHandler = async (req: any, res: any) => {
                 });
                 return;
                 }
+              }
               } catch (proposalError: unknown) {
                 const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
                 console.error('❌ Failed to create proposals after match completion:', errorMessage);
@@ -8865,8 +8866,10 @@ const manualExecuteProposalHandler = async (req: any, res: any) => {
       note: 'All matches now use the escrow system. If this match has an escrowAddress, use escrow settlement instead.'
     });
 
-    // REMOVED: All Squads execution code
-    /*
+    // REMOVED: All Squads execution code - escrow system only
+    // The try-catch structure has been removed since Squads is no longer supported
+    // No code here - early returns above handle all cases
+  } catch (error: unknown) {
     if ((match as any).squadsVaultAddress) {
       if (!(match as any).squadsVaultAddress) {
         return res.status(400).json({ error: 'No vault address found for this match' });
