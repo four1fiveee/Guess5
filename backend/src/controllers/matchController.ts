@@ -4186,12 +4186,12 @@ const submitResultHandler = async (req: any, res: any) => {
                 return;
                 }
               } catch (proposalError: unknown) {
-                  const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
-                  console.error('❌ Failed to create proposals after match completion:', errorMessage);
-                } finally {
-                  if (lockAcquired) {
-                    await releaseProposalLock(finalMatch.id);
-                  }
+                const errorMessage = proposalError instanceof Error ? proposalError.message : String(proposalError);
+                console.error('❌ Failed to create proposals after match completion:', errorMessage);
+              } finally {
+                if (lockAcquired) {
+                  await releaseProposalLock(finalMatch.id);
+                }
               }
             })(); // Close async IIFE - execute in background without blocking
         } else {
